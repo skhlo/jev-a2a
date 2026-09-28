@@ -1,0 +1,1573 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Jev router - interactive architecture prototype</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f5f1;
+        --panel: #fff;
+        --ink: #202a32;
+        --muted: #596773;
+        --line: #d9dfe3;
+        --accent: #2457b7;
+        --soft: #edf3ff;
+        --code: #f1f3f5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          16px/1.55 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1160px;
+        margin: auto;
+        padding: 48px 24px 64px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+      h1 {
+        font-size: clamp(2rem, 5vw, 3.35rem);
+        line-height: 1.1;
+        letter-spacing: -0.045em;
+        margin-bottom: 18px;
+      }
+      h2 {
+        font-size: 1.3rem;
+        margin-bottom: 14px;
+      }
+      h3 {
+        font-size: 1rem;
+        margin-bottom: 10px;
+      }
+      p {
+        margin-bottom: 14px;
+      }
+      a {
+        color: var(--accent);
+        text-underline-offset: 3px;
+      }
+      button,
+      select {
+        font: inherit;
+      }
+      button {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 9px 13px;
+        background: var(--panel);
+        color: var(--ink);
+        cursor: pointer;
+        text-align: left;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      button:focus-visible,
+      select:focus-visible,
+      summary:focus-visible,
+      a:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button.primary,
+      button[aria-selected="true"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      select {
+        max-width: 100%;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+        color: var(--ink);
+      }
+      section {
+        margin-top: 28px;
+      }
+      .eyebrow {
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 750;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin-bottom: 13px;
+      }
+      .intro {
+        max-width: 800px;
+        font-size: 1.08rem;
+      }
+      .muted,
+      .hint {
+        color: var(--muted);
+      }
+      .hint {
+        font-size: 0.87rem;
+      }
+      .note {
+        border-left: 3px solid var(--accent);
+        padding: 12px 17px;
+        background: var(--soft);
+        border-radius: 0 7px 7px 0;
+      }
+      .note p:last-child,
+      .panel p:last-child {
+        margin-bottom: 0;
+      }
+      .panel {
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        background: var(--panel);
+        min-width: 0;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .architecture {
+        display: grid;
+        grid-template-columns: 1fr 30px 2fr 30px 1.2fr;
+        align-items: center;
+        gap: 8px;
+        margin: 24px 0 10px;
+      }
+      .architecture .node {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 17px;
+        background: var(--panel);
+      }
+      .architecture .router {
+        border: 2px solid var(--accent);
+        background: var(--soft);
+      }
+      .architecture strong {
+        display: block;
+      }
+      .arrow {
+        text-align: center;
+        font-size: 1.4rem;
+        color: var(--accent);
+      }
+      .return {
+        font-size: 0.87rem;
+        color: var(--muted);
+        text-align: center;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr 1fr 1fr;
+        gap: 15px;
+      }
+      .label {
+        display: block;
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin-bottom: 5px;
+      }
+      .value {
+        font-size: 1.15rem;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+      }
+      .message {
+        margin: 18px 0 0;
+        padding-top: 15px;
+        border-top: 1px solid var(--line);
+      }
+      .message p {
+        margin-bottom: 6px;
+        overflow-wrap: anywhere;
+      }
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 0;
+        list-style: none;
+        margin: 16px 0 0;
+      }
+      .flow li {
+        font-size: 0.8rem;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 4px 8px;
+        color: var(--muted);
+      }
+      .flow li.done {
+        color: var(--ink);
+        background: var(--code);
+      }
+      .flow li.current {
+        border-color: var(--accent);
+        background: var(--soft);
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 9px;
+      }
+      .toolbar label {
+        font-size: 0.9rem;
+        font-weight: 650;
+      }
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-top: 16px;
+      }
+      #notice {
+        margin-top: 14px;
+        min-height: 3em;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-bottom: 16px;
+      }
+      .tabs button {
+        font-size: 0.87rem;
+      }
+      .walk-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: 12px;
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 0;
+        list-style: none;
+        margin: 18px 0 0;
+        counter-reset: steps;
+      }
+      .steps li {
+        min-width: 0;
+      }
+      .steps button {
+        width: 100%;
+        height: 100%;
+      }
+      .step-number {
+        display: inline-block;
+        min-width: 1.8em;
+        font-weight: 700;
+      }
+      .tag {
+        display: inline-block;
+        padding: 2px 7px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        font-size: 0.76rem;
+        color: var(--muted);
+      }
+      .peer {
+        border-top: 1px solid var(--line);
+        padding: 13px 0;
+      }
+      .peer:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .peer:last-of-type {
+        padding-bottom: 0;
+      }
+      .peer p {
+        margin: 5px 0;
+        font-size: 0.88rem;
+      }
+      .peer-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      dl {
+        margin: 0;
+      }
+      .facts > div {
+        display: grid;
+        grid-template-columns: minmax(115px, 0.7fr) 1.4fr;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .facts > div:last-child {
+        border: 0;
+      }
+      dt {
+        color: var(--muted);
+      }
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .judgment {
+        padding-top: 14px;
+        margin-top: 14px;
+        border-top: 1px solid var(--line);
+      }
+      .judgment:first-of-type {
+        padding-top: 0;
+        margin-top: 0;
+        border-top: 0;
+      }
+      .bar-row {
+        display: grid;
+        grid-template-columns: 95px 1fr 45px;
+        gap: 10px;
+        align-items: center;
+        font-size: 0.85rem;
+        margin: 6px 0;
+      }
+      .track {
+        height: 7px;
+        background: var(--code);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .bar {
+        height: 100%;
+        background: var(--accent);
+      }
+      .log {
+        max-height: 350px;
+        overflow: auto;
+        padding: 0;
+        list-style: none;
+        margin: 0;
+      }
+      .log li {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.9rem;
+      }
+      .log small {
+        color: var(--accent);
+        font-weight: 700;
+        margin-right: 8px;
+      }
+      .scroll {
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+        text-align: left;
+      }
+      th,
+      td {
+        padding: 9px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+      }
+      code,
+      pre {
+        font-family: ui-monospace, monospace;
+        font-size: 0.86em;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      pre {
+        padding: 16px;
+        background: var(--code);
+        border-radius: 7px;
+        overflow: auto;
+        max-height: 450px;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 650;
+      }
+      details {
+        margin-top: 15px;
+      }
+      details > :not(summary) {
+        margin-top: 14px;
+      }
+      footer {
+        margin-top: 28px;
+        border-top: 1px solid var(--line);
+        padding-top: 20px;
+        font-size: 0.87rem;
+        color: var(--muted);
+      }
+      @media (max-width: 760px) {
+        main {
+          padding: 28px 16px 40px;
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .summary {
+          grid-template-columns: 1fr 1fr;
+        }
+        .actions,
+        .steps {
+          grid-template-columns: 1fr 1fr;
+        }
+        .architecture {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+        .architecture .node {
+          padding: 12px 15px;
+        }
+        .arrow {
+          transform: rotate(90deg);
+          line-height: 1;
+        }
+        .panel {
+          padding: 17px;
+        }
+        .walk-header {
+          display: block;
+        }
+        .walk-header button {
+          margin-bottom: 8px;
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #151a20;
+          --panel: #1c242d;
+          --ink: #e5ebf0;
+          --muted: #aab7c4;
+          --line: #394550;
+          --accent: #8fb3ff;
+          --soft: #202f48;
+          --code: #27333f;
+        }
+        button.primary,
+        button[aria-selected="true"] {
+          color: #13233c;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">
+          Architecture prototype / single user / self hosted
+        </p>
+        <h1>One router.<br />A lifecycle it owns.</h1>
+        <p class="intro">
+          Can an independent router carry a request through decisions, delivery,
+          and reply, while its adapters stay replaceable? Use the walkthroughs
+          or change the state yourself.
+        </p>
+        <div class="note">
+          <strong>This is an interactive model.</strong> Jev answers, agent
+          replies, and transport outcomes are scripted. The journal models
+          durable storage but lives only in this page's memory. Refreshing the
+          page clears everything; “Restart router” simulates a process restart.
+        </div>
+      </header>
+
+      <div
+        class="architecture"
+        aria-label="A caller sends a request to one personal router. The router owns the directory, decisions and journal, then delivers through an adapter to an endpoint."
+      >
+        <div class="node">
+          <strong>Any caller</strong
+          ><span class="hint">You, an agent, or an event</span>
+        </div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="node router">
+          <strong>Personal router</strong
+          ><span class="hint">Directory · code + Jev · task journal</span>
+        </div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="node">
+          <strong>Adapter → endpoint</strong
+          ><span class="hint" id="adapter-caption">Claude first</span>
+        </div>
+      </div>
+      <p class="return">
+        The reply returns through the router. The caller can disconnect and read
+        it later.
+      </p>
+
+      <section class="panel" aria-labelledby="current-title">
+        <h2 id="current-title">Current request</h2>
+        <div class="toolbar" style="margin-bottom: 16px">
+          <label for="task-picker">Inspect request</label
+          ><select id="task-picker" aria-label="Inspect an accepted request">
+            <option>No requests yet</option>
+          </select>
+        </div>
+        <div id="current-state"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="play-title">
+        <h2 id="play-title">Free play</h2>
+        <div class="toolbar">
+          <label for="request-preset">Example request</label>
+          <select id="request-preset"></select>
+          <button type="button" class="primary" data-action="submit">
+            Accept request
+          </button>
+          <button type="button" class="primary" data-action="advance">
+            Next router step
+          </button>
+        </div>
+        <div class="actions">
+          <button type="button" data-action="reply">
+            Return matching reply
+          </button>
+          <button type="button" data-action="wrongReply">
+            Return mismatched reply
+          </button>
+          <button type="button" data-action="disconnect">
+            Disconnect caller
+          </button>
+          <button type="button" data-action="reconnect">
+            Reconnect caller
+          </button>
+          <button type="button" data-action="restart">Restart router</button>
+          <button type="button" data-action="loseReceipt">
+            Lose delivery response
+          </button>
+          <button type="button" data-action="duplicate">
+            Repeat same request
+          </button>
+          <button type="button" data-action="conflict">
+            Reuse ID with changed text
+          </button>
+          <button type="button" data-action="toggleBusy">
+            Toggle payments busy
+          </button>
+          <button type="button" data-action="addAdapter">
+            Add script adapter
+          </button>
+          <button type="button" data-action="notSent">
+            Report definitely not sent
+          </button>
+          <button type="button" id="reset-all">Reset model</button>
+        </div>
+        <p class="hint" style="margin-top: 12px">
+          Buttons remain available. An invalid action explains why it cannot
+          change the request.
+        </p>
+        <div id="notice" class="note" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="walk-title">
+        <h2 id="walk-title">Guided walkthroughs</h2>
+        <div
+          id="scenario-tabs"
+          class="tabs"
+          role="tablist"
+          aria-label="Architecture scenarios"
+        ></div>
+        <div id="walkthrough" role="tabpanel"></div>
+      </section>
+
+      <section class="grid" aria-label="Directory and task journal">
+        <div class="panel">
+          <h2>Directory</h2>
+          <p class="hint">
+            The router owns these descriptions. Adapter observations tell code
+            whether the chosen owner can receive work.
+          </p>
+          <div id="directory"></div>
+        </div>
+        <div class="panel">
+          <h2>Task journal</h2>
+          <p class="hint">
+            A modeled durable record. A process restart keeps it; a page refresh
+            does not.
+          </p>
+          <div id="journal"></div>
+        </div>
+      </section>
+
+      <section class="grid" aria-label="Decision evidence and trace">
+        <div class="panel">
+          <h2>Decision evidence</h2>
+          <p class="hint">
+            Scripted distributions illustrate the chain. They do not measure Jev
+            quality, calibration, latency, or cost.
+          </p>
+          <div id="decisions"></div>
+        </div>
+        <div class="panel">
+          <h2>What happened</h2>
+          <ol id="trace" class="log" aria-label="Router event log"></ol>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="seam-title">
+        <h2 id="seam-title">What this architecture keeps small</h2>
+        <div class="grid">
+          <div>
+            <h3>One local process</h3>
+            <p>
+              The intended service owns the directory, decisions, delivery
+              records, and replies. Its first implementation can use one SQLite
+              file and plain functions.
+            </p>
+            <p>
+              In this model, a request takes at most two Jev judgments. Code
+              loads fuller descriptions between them. Explicit targets and
+              replies use zero judgments.
+            </p>
+          </div>
+          <div>
+            <h3>One delivery contract</h3>
+            <p>
+              An adapter receives an endpoint and a correlated envelope. It
+              reports delivery evidence and replies with the same identifiers.
+              The router owns task state and decides what those reports mean.
+            </p>
+            <p>
+              The script walkthrough adds a second adapter to the same
+              lifecycle. It tests the proposed interface; it does not implement
+              a second runtime.
+            </p>
+          </div>
+        </div>
+        <details>
+          <summary>Inspect the proposed interface and current state</summary>
+          <pre>
+submit({ source, messageId, text, target? }) → taskId
+read(taskId) → task + delivery + reply
+
+adapter.deliver(endpoint, { taskId, messageId, sessionId, text })
+  → accepted | not_sent | unknown
+adapter.reply({ taskId, inReplyTo, sessionId, text })
+
+Rule: accepted delivery is not completed work.
+Rule: repeated identity + same content returns the existing task.
+Rule: an uncertain delivery is never automatically sent again.</pre>
+          <pre id="raw-state"></pre>
+        </details>
+        <details>
+          <summary>What the Claude probe established</summary>
+          <p>
+            On this host, the installed Claude Code 2.1.283 binary supports
+            programmatic print mode, structured results, and a caller-selected
+            session ID. A router-owned turn is a concrete first transport to
+            test. The normal launcher currently tries to install a version; the
+            probe used the installed binary directly.
+          </p>
+          <p>
+            Existing sessions can be listed externally, but their supported
+            listing does not expose inbox sockets. Adopting an already-open
+            terminal needs an opt-in registration mechanism and a verified reply
+            path. This prototype does not claim those integrations work.
+          </p>
+          <p>
+            <strong
+              >No live Claude message or Jev inference was needed for this
+              model.</strong
+            >
+            A process launch alone would not prove message acceptance. A Claude
+            adapter may go straight from an attempted delivery to a correlated
+            final result, without a separate acceptance receipt.
+          </p>
+        </details>
+        <details>
+          <summary>Questions the real transport still has to answer</summary>
+          <p>
+            Does an actual send produce a trustworthy receipt? Can a reply be
+            correlated without trusting generated text? What survives a process
+            or disk failure? What should the user do when delivery stays
+            unknown?
+          </p>
+          <p>
+            The model parks uncertain delivery until a matching result arrives.
+            It has no automatic retries, task cancellation, remote enrollment,
+            or general workflow editor. Multi-host transport and measured Jev
+            accuracy remain separate experiments.
+          </p>
+        </details>
+      </section>
+
+      <footer>
+        <p>
+          Throwaway prototype, 2026-09-29. The two-stage decision example
+          follows the progressive-context pattern in the
+          <a href="https://docs.typesafe.ai/cookbooks/skill_suggestion"
+            >TypeSafe skill-selection cookbook</a
+          >. Integration references:
+          <a href="https://code.claude.com/docs/en/cross-session-messaging"
+            >Claude messaging</a
+          >,
+          <a href="https://code.claude.com/docs/en/agent-view"
+            >session discovery</a
+          >, and
+          <a href="https://code.claude.com/docs/en/headless"
+            >programmatic Claude</a
+          >.
+        </p>
+        <p>
+          The earlier <a href="jev-router-design.html">design review</a> records
+          the larger Paseo/herdr proposal. This model explores the subsequent
+          independent service with Claude as its first endpoint.
+        </p>
+      </footer>
+    </main>
+
+    <script>
+      // Portable model: no DOM, timers, network, storage, or browser dependencies.
+      const RouterModel = (() => {
+        const presets = {
+          payments: {
+            label: "Clear owner: duplicate payments",
+            text: "Investigate duplicate payments.",
+            source: "you",
+            target: null,
+          },
+          context: {
+            label: "More context: billing-reference build",
+            text: "Investigate the billing-reference build failure.",
+            source: "you",
+            target: null,
+          },
+          vague: {
+            label: "No clear owner: handle this",
+            text: "Handle this.",
+            source: "you",
+            target: null,
+          },
+          directed: {
+            label: "Known target: documentation status",
+            text: "Report the documentation build status.",
+            source: "scheduled event",
+            target: "docs",
+          },
+          script: {
+            label: "Another adapter: local check",
+            text: "Run the registered local check.",
+            source: "scheduled event",
+            target: "local-check",
+          },
+        };
+        const initialPeers = [
+          {
+            id: "payments",
+            adapter: "claude",
+            summary: "Payment processing and billing errors.",
+            details:
+              "Owns duplicate charges and payment processing. Documentation build tooling belongs to docs.",
+            busy: false,
+          },
+          {
+            id: "docs",
+            adapter: "claude",
+            summary: "Documentation and publishing.",
+            details:
+              "Owns documentation AND its build pipeline, including billing-reference generation. A billing-reference build failure belongs here.",
+            busy: false,
+          },
+        ];
+        function initial(preset = "payments") {
+          return {
+            preset,
+            callerConnected: true,
+            callerSaw: "No request",
+            boot: 1,
+            adapters: ["claude"],
+            peers: structuredClone(initialPeers),
+            tasks: [],
+            currentId: null,
+            nextId: 1,
+            trace: [],
+            notice: "Start a walkthrough below, or accept an example request.",
+          };
+        }
+        const current = (state) =>
+          state.tasks.find((task) => task.id === state.currentId);
+        const log = (state, owner, text) =>
+          state.trace.push({ number: state.trace.length + 1, owner, text });
+        function reduce(previous, action) {
+          const state = structuredClone(previous);
+          const task = current(state);
+          const say = (text) => {
+            state.notice = text;
+          };
+          const reject = (text) => {
+            say(text);
+            log(state, "Code", text);
+          };
+          const observeCaller = () => {
+            if (state.callerConnected) {
+              const latest = current(state);
+              state.callerSaw = latest
+                ? `${latest.id}: ${latest.status}`
+                : "No request";
+            }
+          };
+          if (action.type === "preset") {
+            if (!presets[action.value]) return state;
+            state.preset = action.value;
+            say(
+              "Example changed. Accept it to create a new request; an existing message is never rewritten.",
+            );
+          } else if (action.type === "selectTask") {
+            if (!state.tasks.some((record) => record.id === action.value))
+              return state;
+            state.currentId = action.value;
+            say(
+              `Inspecting ${action.value}. Other accepted requests keep their recorded state.`,
+            );
+          } else if (action.type === "submit") {
+            if (!state.callerConnected) {
+              reject(
+                "Reconnect the caller before submitting a new request. Existing work can continue while disconnected.",
+              );
+              return state;
+            }
+            const preset = presets[state.preset];
+            if (
+              preset.target &&
+              !state.peers.some((peer) => peer.id === preset.target)
+            ) {
+              reject(
+                "That target is not registered. Add the script adapter before sending to local-check.",
+              );
+              return state;
+            }
+            const number = state.nextId++;
+            const added = {
+              id: `T${number}`,
+              messageId: `M${number}`,
+              source: preset.source,
+              text: preset.text,
+              preset: state.preset,
+              explicitTarget: preset.target,
+              status: "accepted",
+              phase: "route",
+              peerId: null,
+              candidates: [],
+              loadedDetails: [],
+              judgments: [],
+              delivery: {
+                outcome: "not_attempted",
+                attempts: 0,
+                sessionId: null,
+              },
+              reply: null,
+              reason: null,
+            };
+            state.tasks.push(added);
+            state.currentId = added.id;
+            log(
+              state,
+              "Code",
+              `Recorded ${added.messageId} as ${added.id} before routing. The caller now has a receipt.`,
+            );
+            say("The router owns the request now. The caller may disconnect.");
+          } else if (action.type === "advance") {
+            if (!task) {
+              reject("Accept a request before advancing the router.");
+              return state;
+            }
+            if (task.status === "accepted") {
+              if (task.explicitTarget) {
+                task.peerId = task.explicitTarget;
+                task.status = "ready";
+                task.phase = "delivery";
+                log(
+                  state,
+                  "Code",
+                  `Exact target ${task.peerId}; no Jev judgment is needed.`,
+                );
+                say(
+                  "Code resolved the known target. Next, check availability and attempt delivery.",
+                );
+              } else {
+                const probabilities =
+                  task.preset === "vague"
+                    ? { payments: 0.05, docs: 0.05, no_match: 0.9 }
+                    : task.preset === "context"
+                      ? { payments: 0.55, docs: 0.4, no_match: 0.05 }
+                      : { payments: 0.92, docs: 0.06, no_match: 0.02 };
+                const choice =
+                  task.preset === "vague" ? "no_match" : "payments";
+                task.judgments.push({
+                  stage: "1. Shortlist",
+                  evidence: "Request + brief endpoint responsibilities",
+                  choice,
+                  probabilities,
+                });
+                if (choice === "no_match") {
+                  task.status = "deferred";
+                  task.phase = "stopped";
+                  task.reason = "The request needs clarification.";
+                  log(
+                    state,
+                    "Jev",
+                    "Scripted judgment: no clear owner. No message was sent.",
+                  );
+                  say(
+                    "Abstention is a useful outcome. Clarify the request before trying again.",
+                  );
+                } else {
+                  task.candidates = ["payments", "docs"];
+                  task.status = "routing";
+                  task.phase = "context";
+                  log(
+                    state,
+                    "Jev",
+                    "Scripted judgment 1 shortlisted payments and docs from their brief descriptions.",
+                  );
+                  say(
+                    "The first judgment chose which evidence to fetch. Next, code loads those endpoint details.",
+                  );
+                }
+              }
+            } else if (task.status === "routing" && task.phase === "context") {
+              task.loadedDetails = state.peers
+                .filter((peer) => task.candidates.includes(peer.id))
+                .map(({ id, details }) => ({ id, details }));
+              task.phase = "select";
+              log(
+                state,
+                "Code",
+                "Loaded full responsibility notes for the shortlist. This adds evidence for the next judgment.",
+              );
+              say(
+                "New evidence is now available. A second judgment can distinguish ownership more precisely.",
+              );
+            } else if (task.status === "routing" && task.phase === "select") {
+              const choice = task.preset === "context" ? "docs" : "payments";
+              const probabilities =
+                choice === "docs"
+                  ? { payments: 0.05, docs: 0.92, no_match: 0.03 }
+                  : { payments: 0.95, docs: 0.03, no_match: 0.02 };
+              task.judgments.push({
+                stage: "2. Select with details",
+                evidence: "Request + newly loaded full responsibility notes",
+                choice,
+                probabilities,
+              });
+              task.peerId = choice;
+              task.status = "ready";
+              task.phase = "delivery";
+              log(
+                state,
+                "Jev",
+                `Scripted judgment 2 chose ${choice} using the fuller notes. The two-judgment budget is used.`,
+              );
+              say(
+                `Owner selected: ${choice}. Code will check availability before sending.`,
+              );
+            } else if (task.status === "ready") {
+              const peer = state.peers.find(
+                (entry) => entry.id === task.peerId,
+              );
+              const reserved = state.tasks.some(
+                (other) =>
+                  other.id !== task.id &&
+                  other.peerId === task.peerId &&
+                  ["attempting", "accepted", "unknown"].includes(
+                    other.delivery.outcome,
+                  ) &&
+                  other.status !== "completed" &&
+                  other.status !== "failed",
+              );
+              if (peer.busy || reserved) {
+                task.status = "deferred";
+                task.phase = "stopped";
+                task.reason =
+                  "The selected owner is busy or has an unresolved delivery.";
+                log(
+                  state,
+                  "Code",
+                  `${peer.id} is unavailable. Ownership was preserved; no substitute and no delivery.`,
+                );
+                say(
+                  "A free endpoint is not automatically the right owner. This request is deferred.",
+                );
+              } else {
+                task.delivery = {
+                  outcome: "attempting",
+                  attempts: 1,
+                  sessionId: `${peer.adapter}-${task.id}`,
+                };
+                task.status = "delivering";
+                task.phase = "receipt";
+                log(
+                  state,
+                  "Code",
+                  `Recorded an attempt for ${task.id}/${task.messageId}/${task.delivery.sessionId} before the adapter call.`,
+                );
+                log(
+                  state,
+                  "Adapter",
+                  `${peer.adapter} adapter invoked once for ${peer.id}. Native acceptance is not yet known.`,
+                );
+                say(
+                  "Delivery was attempted. Next can simulate an acceptance receipt, or return a matching result directly.",
+                );
+              }
+            } else if (task.status === "delivering") {
+              task.delivery.outcome = "accepted";
+              task.status = "waiting for reply";
+              task.phase = "reply";
+              log(
+                state,
+                "Adapter",
+                "Simulated transport receipt: accepted. The task still has no result.",
+              );
+              say(
+                "Accepted delivery is not completed work. Return a matching reply when the endpoint finishes.",
+              );
+            } else if (task.status === "unknown")
+              reject(
+                "The delivery is uncertain. Advancing cannot resend it; a matching reply may still resolve it.",
+              );
+            else if (task.status === "waiting for reply")
+              reject(
+                "The router is waiting for a correlated reply. Global agent activity does not complete this request.",
+              );
+            else
+              reject(
+                "There is no automatic next step for this request. Its recorded outcome stays visible.",
+              );
+          } else if (action.type === "reply" || action.type === "wrongReply") {
+            if (
+              !task ||
+              !["delivering", "waiting for reply", "unknown"].includes(
+                task.status,
+              )
+            ) {
+              reject("There is no outstanding delivery to reply to.");
+              return state;
+            }
+            const reply = {
+              taskId: task.id,
+              inReplyTo:
+                action.type === "wrongReply" ? "M-OLD" : task.messageId,
+              sessionId: task.delivery.sessionId,
+              text: `Simulated result from ${task.peerId}: ${task.text}`,
+            };
+            if (
+              reply.taskId !== task.id ||
+              reply.inReplyTo !== task.messageId ||
+              reply.sessionId !== task.delivery.sessionId
+            ) {
+              log(
+                state,
+                "Code",
+                `Rejected reply for ${reply.inReplyTo}; the outstanding message is ${task.messageId}.`,
+              );
+              say("The mismatched reply changed no task or delivery state.");
+            } else {
+              task.reply = reply;
+              task.delivery.outcome = "accepted";
+              task.status = "completed";
+              task.phase = "done";
+              log(
+                state,
+                "Code",
+                `Matched task, message, and endpoint session. Stored ${task.id}'s result in the journal.`,
+              );
+              say(
+                state.callerConnected
+                  ? "The caller can read the completed result."
+                  : "The result is stored even though the caller is disconnected. Reconnect to read it.",
+              );
+            }
+          } else if (
+            action.type === "disconnect" ||
+            action.type === "reconnect"
+          ) {
+            state.callerConnected = action.type === "reconnect";
+            log(
+              state,
+              "Caller",
+              state.callerConnected
+                ? "Reconnected and read the current task record."
+                : "Disconnected. The router retains the task and continues independently.",
+            );
+            say(
+              state.callerConnected
+                ? "The caller sees the latest recorded state."
+                : "Only the caller connection changed. Keep advancing the router.",
+            );
+          } else if (action.type === "restart") {
+            state.boot++;
+            for (const record of state.tasks) {
+              if (record.delivery.outcome === "attempting") {
+                record.delivery.outcome = "unknown";
+                record.status = "unknown";
+                record.phase = "parked";
+                record.reason =
+                  "Restart found an attempt without a conclusive outcome.";
+              }
+            }
+            log(
+              state,
+              "Code",
+              `Router process ${state.boot} reconstructed state from the modeled journal. No delivery was replayed.`,
+            );
+            say(
+              "Recorded attempts survive this simulated restart. An unfinished send becomes unknown, never an automatic retry.",
+            );
+          } else if (action.type === "loseReceipt") {
+            if (!task || task.delivery.outcome !== "attempting") {
+              reject(
+                "Lose a delivery response after an attempt and before a conclusive receipt or reply.",
+              );
+              return state;
+            }
+            task.delivery.outcome = "unknown";
+            task.status = "unknown";
+            task.phase = "parked";
+            task.reason =
+              "The adapter cannot establish whether the endpoint accepted the message.";
+            log(
+              state,
+              "Adapter",
+              "Delivery response lost. The request may already be executing.",
+            );
+            say(
+              "The router parks this delivery. A timeout does not grant permission to send it again.",
+            );
+          } else if (
+            action.type === "duplicate" ||
+            action.type === "conflict"
+          ) {
+            if (!task) {
+              reject("Accept a request before repeating its identity.");
+              return state;
+            }
+            if (action.type === "conflict") {
+              log(
+                state,
+                "Code",
+                `Rejected reused identity ${task.source}/${task.messageId} with changed text.`,
+              );
+              say(
+                "The same message identity cannot mean different work. Existing state is unchanged.",
+              );
+            } else {
+              log(
+                state,
+                "Code",
+                `Returned existing receipt ${task.id} for ${task.source}/${task.messageId}. No judgment or delivery repeated.`,
+              );
+              say(
+                `Same identity and content: same ${task.id}. Delivery attempts remain ${task.delivery.attempts}.`,
+              );
+            }
+          } else if (action.type === "toggleBusy") {
+            const peer = state.peers.find((entry) => entry.id === "payments");
+            peer.busy = !peer.busy;
+            log(
+              state,
+              "Adapter",
+              `Observed payments as ${peer.busy ? "busy" : "available"}. This does not change who owns a request.`,
+            );
+            say(
+              `Payments is now ${peer.busy ? "busy" : "available"}. Jev still judges responsibility; code handles availability.`,
+            );
+          } else if (action.type === "addAdapter") {
+            if (state.adapters.includes("script")) {
+              reject("The script adapter is already registered.");
+              return state;
+            }
+            state.adapters.push("script");
+            state.peers.push({
+              id: "local-check",
+              adapter: "script",
+              summary: "Runs one configured local check.",
+              details:
+                "A second adapter accepts the same envelope and returns a correlated result. No Claude session orchestrates this endpoint.",
+              busy: false,
+            });
+            log(
+              state,
+              "Code",
+              "Registered the script adapter and local-check endpoint. The task lifecycle and caller contract did not change.",
+            );
+            say(
+              "Select the local-check example and accept it. Its exact target needs no Jev judgment.",
+            );
+          } else if (action.type === "notSent") {
+            if (!task || task.delivery.outcome !== "attempting") {
+              reject(
+                "A definite not-sent report applies to an outstanding delivery attempt.",
+              );
+              return state;
+            }
+            task.delivery.outcome = "not_sent";
+            task.status = "failed";
+            task.phase = "done";
+            task.reason =
+              "The adapter established that delivery did not occur.";
+            log(
+              state,
+              "Adapter",
+              "Definite not-sent evidence recorded. No automatic resend was scheduled.",
+            );
+            say(
+              "This is different from unknown. A deliberate new request can be made after fixing the transport.",
+            );
+          }
+          observeCaller();
+          return state;
+        }
+        return { initial, reduce, current, presets };
+      })();
+    </script>
+    <script>
+      // Throwaway view: all state changes go through the portable model above.
+      const scenarios = [
+        {
+          id: "independent",
+          label: "Caller leaves",
+          preset: "payments",
+          title: "The caller can leave after acceptance",
+          description:
+            "The service owns the work. Disconnect the caller, finish the exchange, then reconnect to read the result.",
+          steps: [
+            ["Accept the request", "submit"],
+            ["Disconnect the caller", "disconnect"],
+            ["Shortlist owners", "advance"],
+            ["Load their full notes", "advance"],
+            ["Choose the owner", "advance"],
+            ["Attempt delivery", "advance"],
+            ["Record acceptance", "advance"],
+            ["Return the result", "reply"],
+            ["Reconnect and read", "reconnect"],
+          ],
+        },
+        {
+          id: "context",
+          label: "New evidence",
+          preset: "context",
+          title: "The second judgment sees something new",
+          description:
+            "“Billing” initially points toward payments. The fuller ownership notes reveal that docs owns this build pipeline. Watch the selected owner change.",
+          steps: [
+            ["Accept the build failure", "submit"],
+            ["Shortlist from brief notes", "advance"],
+            ["Load full responsibility notes", "advance"],
+            ["Select using the new evidence", "advance"],
+            ["Deliver to docs", "advance"],
+            ["Return a result directly", "reply"],
+          ],
+        },
+        {
+          id: "abstain",
+          label: "No clear owner",
+          preset: "vague",
+          title: "A useful decision can be to stop",
+          description:
+            "This request gives too little information. The model records an abstention and attempts no delivery.",
+          steps: [
+            ["Accept the vague request", "submit"],
+            ["Judge ownership", "advance"],
+            ["Try to advance anyway", "advance"],
+          ],
+        },
+        {
+          id: "adapter",
+          label: "Another adapter",
+          preset: "script",
+          title: "A second endpoint uses the same lifecycle",
+          description:
+            "Register a local script adapter, then submit a scheduled event to its known target. The router owns delivery and the reply without a sending Claude session.",
+          steps: [
+            ["Register the script adapter", "addAdapter"],
+            ["Accept the scheduled event", "submit"],
+            ["Resolve its explicit target", "advance"],
+            ["Attempt script delivery", "advance"],
+            ["Return its result", "reply"],
+          ],
+        },
+        {
+          id: "restart",
+          label: "Uncertain delivery",
+          preset: "directed",
+          title: "A crash is not permission to resend",
+          description:
+            "Restart after an attempted send. The router keeps the uncertainty and deduplicates a repeated request. A late matching reply can still resolve it.",
+          steps: [
+            ["Accept a directed request", "submit"],
+            ["Resolve the target", "advance"],
+            ["Attempt delivery", "advance"],
+            ["Restart before a receipt", "restart"],
+            ["Repeat the original request", "duplicate"],
+            ["Try to advance", "advance"],
+            ["Receive the late result", "reply"],
+          ],
+        },
+        {
+          id: "reply",
+          label: "Wrong reply",
+          preset: "directed",
+          title: "Activity alone cannot complete a task",
+          description:
+            "A reply to another message is not evidence about this request. Compare a rejected mismatched reply with the correctly correlated result.",
+          steps: [
+            ["Accept the request", "submit"],
+            ["Resolve the target", "advance"],
+            ["Attempt delivery", "advance"],
+            ["Record acceptance", "advance"],
+            ["Receive a mismatched reply", "wrongReply"],
+            ["Receive the matching result", "reply"],
+          ],
+        },
+        {
+          id: "busy",
+          label: "Busy owner",
+          preset: "payments",
+          title: "Availability does not redefine ownership",
+          description:
+            "Make payments busy. Jev still selects the responsible endpoint, and code defers delivery instead of handing payment work to docs.",
+          steps: [
+            ["Mark payments busy", "toggleBusy"],
+            ["Accept the payment request", "submit"],
+            ["Shortlist owners", "advance"],
+            ["Load full notes", "advance"],
+            ["Select payments", "advance"],
+            ["Check availability", "advance"],
+          ],
+        },
+      ];
+      let state = RouterModel.initial();
+      let scenarioIndex = 0;
+      let stepIndex = 0;
+      let guided = true;
+      const $ = (id) => document.getElementById(id);
+      const escape = (value) =>
+        String(value ?? "").replace(
+          /[&<>"']/g,
+          (character) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[character],
+        );
+      const facts = (entries) =>
+        `<dl class="facts">${entries.map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}</dl>`;
+
+      function startScenario(index) {
+        scenarioIndex = index;
+        stepIndex = 0;
+        guided = true;
+        state = RouterModel.initial(scenarios[index].preset);
+        state.notice =
+          "Walkthrough ready. Press its first numbered step below.";
+        render();
+      }
+      function dispatch(type, value, fromWalkthrough = false) {
+        if (!fromWalkthrough) guided = false;
+        state = RouterModel.reduce(state, { type, value });
+        if (fromWalkthrough) stepIndex++;
+        render();
+      }
+      function render() {
+        const task = RouterModel.current(state);
+        $("task-picker").innerHTML = state.tasks.length
+          ? state.tasks
+              .map(
+                (record) =>
+                  `<option value="${record.id}" ${record.id === state.currentId ? "selected" : ""}>${escape(`${record.id}: ${record.text} (${record.status})`)}</option>`,
+              )
+              .join("")
+          : '<option value="">No requests yet</option>';
+        $("task-picker").disabled = state.tasks.length === 0;
+        $("request-preset").innerHTML = Object.entries(RouterModel.presets)
+          .map(
+            ([key, preset]) =>
+              `<option value="${key}" ${key === state.preset ? "selected" : ""}>${escape(preset.label)}</option>`,
+          )
+          .join("");
+        $("adapter-caption").textContent =
+          state.adapters.length === 1
+            ? "Claude first"
+            : "Claude + local script";
+        const stageIndex = !task
+          ? -1
+          : ({
+              accepted: 0,
+              routing: 1,
+              ready: 2,
+              delivering: 3,
+              "waiting for reply": 4,
+              completed: 5,
+            }[task.status] ?? -1);
+        $("current-state").innerHTML = `<div class="summary">
+          <div><span class="label">Request state</span><span class="value">${escape(task?.status || "Not started")}</span></div>
+          <div><span class="label">Owner</span><span class="value">${escape(task?.peerId || "Undecided")}</span></div>
+          <div><span class="label">Jev judgments</span><span class="value">${task?.judgments.length || 0} / 2</span></div>
+          <div><span class="label">Delivery attempts</span><span class="value">${task?.delivery.attempts || 0}</span></div>
+          </div><div class="message"><p>${task ? escape(task.text) : "No request has been accepted yet."}</p>
+          <span class="hint">Caller ${state.callerConnected ? "connected" : "disconnected"} · Last seen: ${escape(state.callerSaw)} · Router process ${state.boot}</span></div>
+          ${task?.reason ? `<p class="note" style="margin-top: 12px">${escape(task.reason)}</p>` : ""}
+          ${task?.reply ? `<p class="note" style="margin-top: 12px"><strong>Stored result:</strong> ${escape(task.reply.text)}</p>` : ""}
+          <ol class="flow" aria-label="Lifecycle stages">${["Accepted", "Routing", "Ready", "Attempted", "Waiting for reply", "Completed"].map((label, index) => `<li class="${index === stageIndex ? "current" : index < stageIndex ? "done" : ""}">${label}</li>`).join("")}</ol>`;
+        $("notice").textContent = state.notice;
+        $("directory").innerHTML = state.peers
+          .map((peer) => {
+            const reserved = state.tasks.find(
+              (record) =>
+                record.peerId === peer.id &&
+                ["attempting", "accepted", "unknown"].includes(
+                  record.delivery.outcome,
+                ) &&
+                !["completed", "failed"].includes(record.status),
+            );
+            const availability = peer.busy
+              ? "Busy"
+              : reserved
+                ? `Reserved by ${reserved.id}`
+                : "Available";
+            return `<div class="peer"><div class="peer-head"><strong>${escape(peer.id)}</strong><span class="tag">${escape(peer.adapter)} adapter</span><span class="tag">${escape(availability)}</span></div><p>${escape(peer.summary)}</p><p class="hint">${escape(peer.details)}</p></div>`;
+          })
+          .join("");
+        $("journal").innerHTML = task
+          ? facts([
+              ["Task / message", `${task.id} / ${task.messageId}`],
+              ["Source", task.source],
+              ["Delivery evidence", task.delivery.outcome],
+              ["Endpoint session", task.delivery.sessionId || "Not assigned"],
+              ["Return address", `Router task ${task.id}`],
+              [
+                "Stored reply",
+                task.reply ? `Matched ${task.reply.inReplyTo}` : "None",
+              ],
+              ["Recorded tasks", state.tasks.length],
+              ["Automatic resend", "Never"],
+            ])
+          : `<p class="muted">Acceptance will create a task record before the first decision.</p>`;
+        $("decisions").innerHTML = task?.judgments.length
+          ? task.judgments
+              .map(
+                (judgment) =>
+                  `<div class="judgment"><h3>${escape(judgment.stage)}</h3><p class="hint">${escape(judgment.evidence)}</p>${Object.entries(
+                    judgment.probabilities,
+                  )
+                    .map(
+                      ([id, probability]) =>
+                        `<div class="bar-row"><span>${escape(id)}</span><div class="track"><div class="bar" style="width:${probability * 100}%"></div></div><span>${Math.round(probability * 100)}%</span></div>`,
+                    )
+                    .join(
+                      "",
+                    )}<p class="hint">Illustrative selection: <strong>${escape(judgment.choice)}</strong></p></div>`,
+              )
+              .join("") +
+            (task.loadedDetails.length
+              ? `<details open><summary>Evidence code loaded between judgments</summary>${task.loadedDetails.map((peer) => `<p class="hint"><strong>${escape(peer.id)}:</strong> ${escape(peer.details)}</p>`).join("")}</details>`
+              : "")
+          : `<p class="muted">${task?.explicitTarget ? "The target is explicit. Code resolves it with zero model judgments." : "Accept a request and advance to the first judgment."}</p>`;
+        $("trace").innerHTML = state.trace.length
+          ? [...state.trace]
+              .reverse()
+              .map(
+                (event) =>
+                  `<li><small>${event.number} · ${escape(event.owner)}</small>${escape(event.text)}</li>`,
+              )
+              .join("")
+          : `<li class="muted">Actions will appear here, newest first.</li>`;
+        $("raw-state").textContent = JSON.stringify(state, null, 2);
+        $("scenario-tabs").innerHTML = scenarios
+          .map(
+            (scenario, index) =>
+              `<button type="button" role="tab" id="tab-${scenario.id}" aria-controls="walkthrough" aria-selected="${index === scenarioIndex}" tabindex="${index === scenarioIndex ? 0 : -1}" data-scenario="${index}">${escape(scenario.label)}</button>`,
+          )
+          .join("");
+        const scenario = scenarios[scenarioIndex];
+        $("walkthrough").setAttribute("aria-labelledby", `tab-${scenario.id}`);
+        $("walkthrough").innerHTML =
+          `<div class="walk-header"><div><h3>${escape(scenario.title)}</h3><p>${escape(scenario.description)}</p></div><button type="button" id="restart-walkthrough">Restart walkthrough</button></div>
+          <p class="hint">${!guided ? "Free play changed the setup. Restart this walkthrough to follow its steps." : stepIndex === scenario.steps.length ? "Walkthrough complete. Inspect the journal and trace, or try another scenario." : `Step ${stepIndex + 1} of ${scenario.steps.length}. Each button changes the actual model state.`}</p>
+          <div class="note"><p><strong>${escape(task?.status || "Not started")}</strong> · Owner: ${escape(task?.peerId || "undecided")} · Judgments: ${task?.judgments.length || 0} · Attempts: ${task?.delivery.attempts || 0}</p><p class="hint">${escape(state.notice)}</p></div>
+          <ol class="steps">${scenario.steps.map(([label], index) => `<li><button type="button" data-step="${index}" ${!guided || index !== stepIndex ? "disabled" : 'class="primary"'}><span class="step-number">${index < stepIndex && guided ? "✓" : `${index + 1}.`}</span>${escape(label)}</button></li>`).join("")}</ol>`;
+      }
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button || button.disabled) return;
+        if (button.dataset.action) dispatch(button.dataset.action);
+        else if (button.dataset.scenario !== undefined) {
+          startScenario(Number(button.dataset.scenario));
+          $(`tab-${scenarios[scenarioIndex].id}`).focus();
+        } else if (
+          button.dataset.step !== undefined &&
+          guided &&
+          Number(button.dataset.step) === stepIndex
+        ) {
+          dispatch(
+            scenarios[scenarioIndex].steps[stepIndex][1],
+            undefined,
+            true,
+          );
+          const next = document.querySelector(`[data-step="${stepIndex}"]`);
+          (next || $("restart-walkthrough")).focus({ preventScroll: true });
+        } else if (button.id === "restart-walkthrough")
+          startScenario(scenarioIndex);
+        else if (button.id === "reset-all") startScenario(0);
+      });
+      $("request-preset").addEventListener("change", (event) =>
+        dispatch("preset", event.target.value),
+      );
+      $("task-picker").addEventListener("change", (event) =>
+        dispatch("selectTask", event.target.value),
+      );
+      $("scenario-tabs").addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+          return;
+        event.preventDefault();
+        const index =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? scenarios.length - 1
+              : (scenarioIndex +
+                  (event.key === "ArrowRight" ? 1 : -1) +
+                  scenarios.length) %
+                scenarios.length;
+        startScenario(index);
+        $(`tab-${scenarios[index].id}`).focus();
+      });
+      // Read-only snapshot for inspecting the same state that the page renders.
+      window.routerPrototype = { snapshot: () => structuredClone(state) };
+      render();
+    </script>
+  </body>
+</html>
