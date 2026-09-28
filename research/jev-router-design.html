@@ -614,13 +614,13 @@ route send --scope jev-a2a --file request.txt
 route status TASK_ID --wait
 
 # Receiver explicitly returns the result.
-route reply TASK_ID --state completed --file result.txt
+route reply TASK_ID --in-reply-to MESSAGE_ID --state completed --file result.txt
 
 # Sender answers a peer's question on the same task.
-route send --task TASK_ID --file answer.txt
+route send --task TASK_ID --in-reply-to QUESTION_ID --file answer.txt
 
 # Sender resolves an ambiguous recipient; original text is reused.
-route send --task TASK_ID --to PEER_KEY</code></pre>
+route send --task TASK_ID --in-reply-to QUESTION_ID --to PEER_KEY</code></pre>
         <ul>
           <li>
             <strong>Message identity:</strong> the CLI allocates and prints a
@@ -638,14 +638,19 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
           <li>
             <strong>Receiver participation:</strong> enrollment proves that the
             peer can invoke <code>route reply</code>. The delivered envelope
-            contains the task ID, original request, and reply instructions. This
-            small receiver integration is part of the first implementation.
+            contains the task ID, delivered message ID, original text, and reply
+            instructions. Each reply's <code>inReplyTo</code> identifies that
+            delivered message. This receiver integration is part of the first
+            implementation.
           </li>
           <li>
             <strong>Reply meaning:</strong> <code>started</code>,
             <code>input_required</code>, <code>completed</code>, and
             <code>failed</code> are explicit updates. A question leaves the task
-            open. A final result ends it. Task IDs alone never imply completion.
+            open; its update message ID is the question ID. Router-generated
+            routing prompts use the same convention. A final result for the
+            current exchange ends the task. Task IDs alone never imply
+            completion.
           </li>
           <li>
             <strong>Result retrieval:</strong> the result stays in the journal
@@ -660,9 +665,9 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
             Use one router Agent Card and one HTTP binding. The SDK owns wire
             validation. Text, message IDs, task IDs, and polling use standard
             A2A fields. A versioned <code>metadata.jevRouter</code> object
-            carries scope, optional recipient, operation, and reply state; these
-            are proposed router-specific fields, not built-in A2A routing
-            features.
+            carries scope, optional recipient, operation, reply state, and
+            <code>inReplyTo</code>. These are proposed router-specific fields,
+            not built-in A2A routing features.
           </p>
           <p>
             Document that metadata contract in the Agent Card's extension
@@ -672,6 +677,17 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
             authenticates the caller before interpreting an update.
           </p>
           <p>
+            Sender continuations use <code>message.taskId</code>. Receiver
+            callbacks and operator resolutions instead omit that field, identify
+            exactly one task in <code>referenceTaskIds</code>, and receive a
+            direct Message receipt. Their explicit operation bypasses routing
+            and task creation. This lets the router record late evidence while
+            respecting A2A's rejection of new messages addressed to terminal
+            tasks. Current final results are exposed as task artifacts;
+            authorized task reads also include recorded late evidence.
+          </p>
+          <p>
+            Serve required core read/list operations from the same journal.
             Disable streaming and push capabilities initially. Return
             <code>TaskNotCancelableError</code> unless the adapter can stop that
             specific work; never cancel a peer's whole active turn by inference.
@@ -692,9 +708,12 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
           </li>
           <li>
             <strong>Use known destinations.</strong> Explicit <code>to</code>,
-            replies, and existing-task continuations skip Jev. They still pass
-            authorization and freshness checks. An invalid explicit target never
-            falls back to semantic routing.
+            replies, and existing-task continuations skip Jev. Outbound delivery
+            requires authorization and fresh presence. Inbound replies require
+            current authentication/authorization and the task's persisted
+            assigned-session identity; stale discovery cannot invalidate a
+            legitimate reply. An invalid explicit target never falls back to
+            semantic routing.
           </li>
           <li>
             <strong>Construct the choices.</strong> Include registered peers in
@@ -873,9 +892,13 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
               produces <code>unknown</code>.
             </p>
             <p>
-              An authenticated task reply can resolve an uncertain attempt. A
-              later adapter acknowledgment must never overwrite a newer reply or
-              move a finished task backward.
+              A valid reply resolves only the attempt identified by
+              <code>inReplyTo</code>. A delayed update for an earlier message is
+              retained as history and cannot advance the current exchange or
+              release its reservation. Adapter acknowledgments follow the same
+              rule and cannot overwrite newer replies or finished task states.
+              Within one delivery, <code>started</code> cannot overwrite an
+              outstanding question or a final result.
             </p>
           </article>
         </div>
@@ -965,11 +988,14 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
           <li>
             <strong>Resume only the expected action.</strong> A recipient choice
             reuses the stored request; a peer question forwards the sender's
-            answer to the existing recipient. No continuation changes a
-            delivered task's recipient. Recheck current authorization for both.
-            If a continuation is definitely <code>not_sent</code>, leave the
-            question open; the sender may explicitly retry with a new message
-            ID.
+            answer to the existing recipient. Both quote the outstanding
+            question ID from task status. Atomically consume that question when
+            accepting a continuation; concurrent or stale answers with different
+            message IDs fail instead of sending twice. Serialize updates per
+            task and allow only one outstanding question. No continuation
+            changes a delivered task's recipient. Recheck current authorization.
+            If an answer is definitely <code>not_sent</code>, reopen the
+            question so the sender can explicitly retry with a new message ID.
           </li>
           <li>
             <strong>Recover conservatively.</strong> Reload the journal on
@@ -988,8 +1014,8 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
           <li>
             <strong>Preserve final states.</strong> Deduplicate replies too.
             Store late results for the requester to inspect, but do not reopen
-            terminal tasks. A late valid final reply may resolve the reservation
-            without rewriting task history.
+            terminal tasks. A late valid final reply to the latest outstanding
+            delivery may resolve its reservation without rewriting task history.
           </li>
           <li>
             <strong>Make fallback deliberate.</strong> Direct sending is safe
@@ -1010,8 +1036,8 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
           <p>
             A separate operator-only command,
             <code
-              >route resolve TASK_ID --outcome finished --file
-              evidence.txt</code
+              >route resolve TASK_ID --in-reply-to MESSAGE_ID --outcome finished
+              --file evidence.txt</code
             >, records a manual reconciliation after checking the native peer.
             The allowed outcomes are <code>not_sent</code> and
             <code>finished</code>. It never sends the request again. It clears
@@ -1020,11 +1046,11 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
           </p>
           <p>
             The endpoint requires an operator identity and an idempotent message
-            ID, using a documented resolution operation in the same metadata
-            contract. Ordinary peers cannot use it. If work may still be
-            running, leave the task unresolved. This recovery command is
-            required in the first usable version so uncertainty does not create
-            a permanent lock.
+            ID. Its message reference must match the currently unresolved
+            delivery. It uses the callback metadata contract above. Ordinary
+            peers cannot use it. If work may still be running, leave the task
+            unresolved. This recovery command is required in the first usable
+            version so uncertainty does not create a permanent lock.
           </p>
         </details>
       </section>
@@ -1150,13 +1176,24 @@ route send --task TASK_ID --to PEER_KEY</code></pre>
             </li>
             <li>
               Unrelated idle/running/blocked events cannot complete a task or
-              impersonate a task question. A forged or wrong-session reply
-              cannot update it.
+              impersonate a task question. Valid replies still work when
+              discovery is stale; forged, revoked, or wrong-session replies
+              cannot update the task.
             </li>
             <li>
               Question → sender answer → final reply works on one task, with one
               pinned recipient. A reply arriving before the send acknowledgment
               remains authoritative.
+            </li>
+            <li>
+              Two answers to one question cannot both be delivered. A delayed
+              reply to an earlier message cannot acknowledge a newer answer,
+              complete its exchange, or release its reservation.
+            </li>
+            <li>
+              A late callback can add evidence through its control-message
+              receipt; an ordinary A2A continuation addressed to a terminal task
+              is rejected. Final results remain readable as artifacts.
             </li>
             <li>
               Jev outage, router restart, sender disconnect, disk failure, and a
