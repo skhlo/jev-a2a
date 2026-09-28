@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Router Design</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/daisyui.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
+<script>
+  document.documentElement.dataset.theme =
+    window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+</script>
+<style>
+  body { background: var(--color-base-100); }
+  .jr-prose p, .jr-prose li { line-height: 1.65; }
+  .jr-prose code { font-size: 0.875em; overflow-wrap: anywhere; }
+  .jr-grid > * { min-width: 0; }
+  .jr-scroll { overflow-x: auto; max-width: 100%; }
+  pre.jr-code { overflow-x: auto; max-width: 100%; font-size: 0.8rem; line-height: 1.5; }
+  .jr-diagram { overflow-x: auto; max-width: 100%; }
+  .jr-diagram svg { max-width: 100%; height: auto; }
+  table.jr-table td, table.jr-table th { vertical-align: top; }
+  table.jr-table { min-width: 44rem; }
+  table.jr-table.table-sm { min-width: 36rem; }
+</style>
+</head>
+<body class="text-base-content">
+<main class="mx-auto max-w-5xl px-4 py-10 jr-prose">
+
+<!-- Header -->
+<header class="mb-10">
+  <p class="text-sm opacity-70">research · 2026-09-28 · design, not implemented</p>
+  <h1 class="text-3xl md:text-4xl font-bold mt-2">An always-on Jev router for Paseo and herdr agents</h1>
+  <p class="mt-4 text-lg opacity-90">
+    A background process listens on one A2A endpoint. It keeps a live list of the Paseo and herdr agents and
+    asks Jev which one each message is for. Then it delivers the message through that system's own interface.
+    The only model in the loop is Jev, and code decides what happens with Jev's answer.
+  </p>
+  <div class="flex flex-wrap gap-2 mt-4 text-sm">
+    <span class="badge badge-success">Verified</span><span class="opacity-70">checked against docs, installed CLI or schema this session</span>
+    <span class="badge badge-warning ml-2">Inferred</span><span class="opacity-70">engineering reasoning from verified facts</span>
+    <span class="badge badge-error ml-2">Unverified</span><span class="opacity-70">still open</span>
+  </div>
+</header>
+
+<!-- Recommendation -->
+<section class="alert alert-info mb-10 items-start">
+  <div>
+    <h2 class="font-bold text-lg">Recommendation</h2>
+    <ol class="list-decimal ml-5 mt-2 space-y-1">
+      <li>Build the router as a <strong>long-running service, not an LLM agent</strong>. Its only model call is one Jev request per unaddressed message.</li>
+      <li>Use <strong>A2A only at the router's front door</strong>, as the one contract that spans Paseo and herdr. Don't wrap each agent as its own A2A server.</li>
+      <li>Behind the front door, <strong>one adapter per system</strong>. Paseo uses its SDK; herdr uses its socket API.</li>
+      <li><strong>Measure before building everything.</strong> Phase 0 timestamps one real exchange. Phase 1 ships the router with only the Paseo adapter and a command-line entry point.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- 1. Goal -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">1. Goal, current state, desired behavior</h2>
+  <div class="grid md:grid-cols-3 gap-4 jr-grid">
+    <div class="card bg-base-200"><div class="card-body">
+      <h3 class="card-title text-base">Goal</h3>
+      <p>Speed up agent-to-agent messaging when agents run under Paseo or herdr. Senders shouldn't have to know which agent should receive a message.</p>
+    </div></div>
+    <div class="card bg-base-200"><div class="card-body">
+      <h3 class="card-title text-base">Today</h3>
+      <p>Every sender follows the <code>paseo-a2a</code> skill. It keeps its own list of peers, runs discovery commands, writes an envelope and delivers it. For terminal peers it also checks the terminal is idle, sends the text, and reads back output between start/end markers.</p>
+    </div></div>
+    <div class="card bg-base-200"><div class="card-body">
+      <h3 class="card-title text-base">Desired</h3>
+      <p>A sender makes one call: <code>route "&lt;message&gt;"</code>, or an A2A <code>SendMessage</code>. The router picks the recipient, delivers, tracks the task, and sends the reply back to whoever asked.</p>
+    </div></div>
+  </div>
+</section>
+
+<!-- 2. Where the time goes -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">2. The logic: where the time goes</h2>
+  <p class="mb-3">
+    This is the core argument, so here is the chain of reasoning. Sending a message has four stages. Only some of them
+    can be made faster by routing, and delivery is not the slow one.
+  </p>
+  <div class="jr-scroll">
+  <table class="table jr-table">
+    <thead><tr><th>Stage</th><th>Today</th><th>Can we speed it up?</th><th>Who fixes it</th><th>Basis</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Decide recipient</strong></td>
+        <td>Sender LLM runs <code>paseo ls</code> / <code>inspect</code> / <code>terminal ls</code> and reads the JSON. Each step is a full LLM turn.</td>
+        <td>Yes, and it's the biggest cost</td>
+        <td>Router directory + Jev</td>
+        <td><span class="badge badge-warning">Inferred</span> from the discovery steps the skill requires</td>
+      </tr>
+      <tr>
+        <td><strong>Deliver</strong></td>
+        <td><code>paseo send</code> returns once the daemon accepts the message.</td>
+        <td>Barely; it's already fast</td>
+        <td>—</td>
+        <td><span class="badge badge-success">Verified</span> SDK <code>send()</code> resolves when the daemon accepts it (earlier research)</td>
+      </tr>
+      <tr>
+        <td><strong>Terminal handshake</strong></td>
+        <td>Check the terminal is idle and nobody else is typing, send the text and Enter separately, then read output between <code>PASEO_A2A_START/END</code> markers.</td>
+        <td>Yes</td>
+        <td>herdr adapter</td>
+        <td><span class="badge badge-success">Verified</span> herdr's <code>agent.prompt</code> refuses to send if the agent is blocked, reports a stall after 5 s, and <code>--wait</code> waits for the agent to settle</td>
+      </tr>
+      <tr>
+        <td><strong>Receiver works</strong></td>
+        <td>The recipient's own LLM turn.</td>
+        <td>No</td>
+        <td>—</td>
+        <td><span class="badge badge-warning">Inferred</span> this is the work we actually want done</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="mt-3">
+    <strong>What follows:</strong> the time we can save is in <em>deciding</em> and in the <em>terminal handshake</em>, not in the
+    transport. That's why the design pairs a classifier (Jev) with an adapter that knows the agent's state (herdr),
+    rather than a faster wire protocol. <span class="badge badge-error">Unverified</span> None of this is measured yet, which is
+    why Phase 0 exists.
+  </p>
+</section>
+
+<!-- 3. Options -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">3. Decision: which kind of communication layer?</h2>
+  <p class="mb-3">
+    Starting point, from your conclusion: a layer that spans both Paseo and herdr is a stretch without a shared contract,
+    and A2A is that contract. What's left to decide is <em>where</em> A2A sits and <em>what</em> does the routing.
+  </p>
+  <div class="jr-scroll">
+  <table class="table jr-table">
+    <thead><tr><th>Option</th><th>What happens to a message</th><th>Speed</th><th>Cost</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>A. Status quo</strong></td>
+        <td>Each sender's LLM finds the recipient and delivers through the Paseo CLI.</td>
+        <td>Several LLM turns per message</td>
+        <td>None</td>
+        <td>This is the baseline to measure against.</td>
+      </tr>
+      <tr>
+        <td><strong>B. A2A everywhere</strong></td>
+        <td>Every agent gets its own A2A server; senders call peers directly.</td>
+        <td>Adds a translation hop per agent, and still doesn't say <em>who</em> to call</td>
+        <td>One server per agent, each translating to a Paseo or herdr call anyway</td>
+        <td>Reject. A2A is point-to-point and doesn't route. <span class="badge badge-success">Verified</span></td>
+      </tr>
+      <tr>
+        <td><strong>C. LLM router agent</strong></td>
+        <td>An always-running LLM reads each message and delegates.</td>
+        <td>One or more multi-second LLM turns per message</td>
+        <td>Tokens, plus possible prompt injection from message content</td>
+        <td>Reject. Putting an LLM here throws away Jev's speed. <span class="badge badge-warning">Inferred</span></td>
+      </tr>
+      <tr class="bg-base-200">
+        <td><strong>D. Router service + A2A front door</strong> ✅</td>
+        <td>A single A2A endpoint makes one Jev call, then an adapter delivers through Paseo or herdr.</td>
+        <td>One Jev call, or none when the sender names the recipient</td>
+        <td>One process, two adapters, a Jev API key</td>
+        <td><strong>Recommended.</strong> Shared contract, a single extra hop, and Jev in the only spot that needs judgment.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 4. Architecture -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">4. Architecture</h2>
+  <p class="mb-3">What the router owns and where each piece of data comes from.</p>
+  <div class="card bg-base-200"><div class="card-body jr-diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph Senders
+    S1[Paseo agent]
+    S2[herdr pane agent]
+    S3[You / external A2A client]
+  end
+  S1 -- "route CLI or A2A SendMessage" --> FD
+  S2 -- "route CLI or A2A SendMessage" --> FD
+  S3 -- "A2A SendMessage" --> FD
+  subgraph Router["Router service (always on)"]
+    FD[A2A front door<br/>one Agent Card]
+    DIR[(Peer directory<br/>in memory)]
+    TT[(Task table<br/>correlation → sender, state)]
+    POL{Policy in code}
+    FD --> POL
+    DIR --> POL
+    POL -- "unaddressed only" --> JEV
+    JEV -- "recipient, intent, escalate" --> POL
+    POL --> TT
+  end
+  JEV[[Jev · api.typesafe.ai]]
+  POL --> PA[Paseo adapter<br/>SDK agents.send]
+  POL --> HA[herdr adapter<br/>socket agent.prompt]
+  POL -- "low confidence / none" --> HUMAN[Escalate to you]
+  PD[(Paseo daemons)] -. "directory updates" .-> DIR
+  HS[(herdr socket)] -. "events.subscribe" .-> DIR
+  PA --> PD
+  HA --> HS
+</pre>
+  </div></div>
+</section>
+
+<!-- 5. Decisions -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-4">5. Decisions and the evidence behind them</h2>
+
+  <div class="space-y-6">
+  <article class="card bg-base-200"><div class="card-body">
+    <h3 class="card-title">D1 · The router is a service, not an LLM agent</h3>
+    <p><strong>Reasoning.</strong> Keeping it always on is right: the directory stays warm, and the Paseo and herdr connections are already
+      open when a message arrives. But the thing that stays running should be a normal process. Stage 1 in §2 is slow
+      <em>because</em> an LLM is deciding; an LLM router would just move that delay rather than remove it.</p>
+    <p><strong>Evidence.</strong> <span class="badge badge-success">Verified</span> Jev returns an answer plus probabilities, not text.
+      The API is <code>POST https://api.typesafe.ai/v1/systemone</code> with model <code>jev-latest</code>, and Choice answers contain
+      <code>choice</code>, <code>probabilities</code> and <code>confidence</code>.
+      <span class="badge badge-error">Unverified</span> The docs give no latency figure, and I haven't measured one. Like the earlier research, this relies on your own testing.</p>
+  </div></article>
+
+  <article class="card bg-base-200"><div class="card-body">
+    <h3 class="card-title">D2 · Jev picks, code decides</h3>
+    <p><strong>Reasoning.</strong> Jev chooses from options the router gives it and returns a probability for each. Everything with
+      consequences stays in code: whether to send, whether to escalate, who's allowed to receive. So a message can't instruct
+      the router to do anything; the worst it can do is make Jev pick a different peer from the approved list.</p>
+    <p><strong>Evidence.</strong> <span class="badge badge-success">Verified</span> A Choice question can have up to 255 options, which covers
+      any realistic set of peers. Several questions in one request "barely" change response time. The confidence docs suggest acting
+      automatically above ~0.9, confirming between 0.5 and 0.9, and escalating below 0.5, and say to start conservative and tune on your own data.</p>
+  </div></article>
+
+  <article class="card bg-base-200"><div class="card-body">
+    <h3 class="card-title">D3 · A2A only at the front door</h3>
+    <p><strong>Reasoning.</strong> A2A gives both systems one shared set of terms: an Agent Card describing an agent, task IDs, task states,
+      and a way to stream updates. If the router is the only A2A server, that costs one hop in total rather than one per agent, and outside
+      agents can connect later without changes. Behind the front door, the adapters speak Paseo and herdr directly.</p>
+    <p><strong>Evidence.</strong> <span class="badge badge-success">Verified</span> A2A spec v1.0 runs over JSON-RPC 2.0, gRPC or HTTP+JSON. Task states are
+      <code>SUBMITTED → WORKING → COMPLETED | FAILED | CANCELED | REJECTED</code>, plus <code>INPUT_REQUIRED</code> and <code>AUTH_REQUIRED</code>.
+      It describes point-to-point transport with no routing and no local/IPC binding. The official <code>@a2a-js/sdk</code> v1.0 has both
+      server and client for all three transports.
+      <span class="badge badge-warning">Inferred</span> Because there's no IPC binding, local agents will reach the front door either over HTTP on localhost
+      or through a small <code>route</code> command that speaks A2A.</p>
+  </div></article>
+
+  <article class="card bg-base-200"><div class="card-body">
+    <h3 class="card-title">D4 · One adapter per system, using its own interface</h3>
+    <div class="grid md:grid-cols-2 gap-4 jr-grid mt-2">
+      <div>
+        <h4 class="font-semibold">Paseo adapter</h4>
+        <ul class="list-disc ml-5 space-y-1">
+          <li>Uses one <code>@getpaseo/client</code> connection per configured host. The directory design from <code>paseo-directory-design.md</code> carries over unchanged. <span class="badge badge-success">Verified</span></li>
+          <li>Keeps its view current via <code>list({subscribe:{}})</code> for agents and workspaces; terminals have to be re-listed periodically. <span class="badge badge-success">Verified</span> (earlier research)</li>
+          <li>Reaches other hosts. <span class="badge badge-error">Unverified</span> the MBA endpoint and live SDK responses.</li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-semibold">herdr adapter</h4>
+        <ul class="list-disc ml-5 space-y-1">
+          <li>Connects to the local socket at <code>~/.config/herdr/herdr.sock</code> (protocol 20, herdr 0.8.2). <span class="badge badge-success">Verified</span></li>
+          <li>Keeps the directory current by subscribing to <code>events.subscribe</code> for <code>pane_agent_detected</code> and <code>pane_agent_status_changed</code>, so no polling. <span class="badge badge-success">Verified</span> in the schema</li>
+          <li>Each agent record includes <code>name</code>, <code>agent</code>, <code>agent_status</code>, <code>cwd</code>, <code>pane_id</code> and <code>interactive_ready</code>. <span class="badge badge-success">Verified</span> in the schema</li>
+          <li>Delivers with <code>agent.prompt</code>, which refuses to send to a blocked agent. That replaces the start/end marker protocol. <span class="badge badge-success">Verified</span></li>
+          <li>Only works on the machine running herdr; <code>--remote</code> is an SSH attach. <span class="badge badge-warning">Inferred</span> The router should therefore run on the same machine as herdr.</li>
+        </ul>
+      </div>
+    </div>
+  </div></article>
+
+  <article class="card bg-base-200"><div class="card-body">
+    <h3 class="card-title">D5 · Senders call the router explicitly, and addressed messages skip Jev</h3>
+    <p><strong>Reasoning.</strong> Having the router watch terminal output and guess which messages are meant for another agent would be slow and fragile. Instead, a sender
+      makes one deliberate tool call. If it already names a recipient (a reply, or a message from a parent to its child), the router
+      goes straight to the adapter with no Jev call. Jev only runs when the recipient is unknown, which is where it saves LLM turns.</p>
+    <p><strong>Evidence.</strong> <span class="badge badge-warning">Inferred</span> from §2: nothing needs deciding for addressed messages.</p>
+  </div></article>
+  </div>
+</section>
+
+<!-- 6. Message flow -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">6. How one message flows</h2>
+  <div class="card bg-base-200"><div class="card-body jr-diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant A as Sender agent
+  participant R as Router
+  participant J as Jev
+  participant X as Adapter (Paseo / herdr)
+  participant B as Recipient agent
+  A->>R: SendMessage(text, to?)
+  alt recipient named
+    R->>X: deliver(to, envelope)
+  else unaddressed
+    R->>J: state = message + sender + peer cards<br/>questions = recipient, intent, escalate
+    J-->>R: choice + probabilities + confidence
+    R->>R: policy: threshold, allow-list, hop limit
+    R->>X: deliver(picked peer, envelope with task id)
+  end
+  X->>B: paseo send / herdr agent.prompt
+  R-->>A: Task{id, state: SUBMITTED}
+  B->>R: SendMessage(reply, taskId)
+  R-->>A: task update COMPLETED + reply
+</pre>
+  </div></div>
+</section>
+
+<!-- 7. Jev request -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">7. Jev request sketch</h2>
+  <p class="mb-3">
+    A single request with three questions. Each peer's description (its "card") becomes that Choice option's criteria text, so the
+    quality of those descriptions directly limits routing accuracy. Written to the
+    <span class="badge badge-success">Verified</span> API shape. The peer names and the question wording are illustrative.
+  </p>
+<pre class="jr-code bg-base-300 rounded-box p-4"><code>POST https://api.typesafe.ai/v1/systemone
+Authorization: Bearer $TYPESAFE_API_KEY
+
+{
+  "model": "jev-latest",
+  "state": {
+    "message": { "from": "paseo:mba/agent:3f2c…", "text": "…" },
+    "peers_note": "Options are the live, eligible peers only."
+  },
+  "questions": {
+    "recipient": {
+      "type": "choice",
+      "instructions": "Which peer should handle `message.text`?",
+      "criteria": {
+        "reviewer": "herdr:reviewer — Codex; reviews diffs in jev-a2a, reports findings only",
+        "builder":  "paseo:mba/agent:9a1e… — Claude; implements features in paseo-plugin",
+        "none":     "No listed peer owns this; a human should decide"
+      }
+    },
+    "intent": {
+      "type": "choice",
+      "instructions": "What kind of message is `message.text`?",
+      "criteria": {
+        "request": "asks someone to do work",
+        "result":  "reports finished work",
+        "question":"asks for information or a decision",
+        "blocked": "the sender cannot continue without help"
+      }
+    },
+    "escalate": {
+      "type": "noul",
+      "instructions": "Does `message.text` need a human decision (permissions, destructive action, credentials, scope change)?"
+    }
+  }
+}</code></pre>
+  <p class="mt-3 text-sm opacity-80">
+    Keys such as <code>reviewer</code> are stand-ins for the directory keys (host, channel, id). Code maps the answer back to a
+    live directory entry <em>just before sending</em>, so a choice made against an old snapshot can't deliver to a peer that has since disappeared.
+  </p>
+</section>
+
+<!-- 8. Policy -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">8. Routing policy (code)</h2>
+  <p class="mb-3">Starting thresholds come from TypeSafe's confidence guidance and are meant to be tuned on logged traffic. <span class="badge badge-warning">Inferred</span></p>
+  <div class="jr-scroll">
+  <table class="table jr-table">
+    <thead><tr><th>Condition</th><th>Action</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><code>escalate</code> ≥ 0.5 or <code>intent = blocked</code></td><td>Escalate to you. Don't auto-deliver.</td><td>Permissions and destructive actions are never the router's call (the <code>paseo-a2a</code> ground rules).</td></tr>
+      <tr><td><code>recipient = none</code></td><td>Escalate</td><td>Saying "I don't know" is a useful answer, and the router never broadcasts.</td></tr>
+      <tr><td>confidence ≥ 0.9</td><td>Deliver</td><td>High confidence (TypeSafe guidance).</td></tr>
+      <tr><td>0.5 ≤ confidence &lt; 0.9</td><td>Ask the sender or you to confirm the top one or two picks</td><td>Medium band. Only send to two peers at once if both agree to it.</td></tr>
+      <tr><td>confidence &lt; 0.5</td><td>Escalate</td><td>Low confidence.</td></tr>
+      <tr><td>Picked peer is stale, gone or blocked</td><td>Don't send. Refresh the directory and retry once, then escalate.</td><td>Carried over from the earlier directory design's rules on stale snapshots.</td></tr>
+      <tr><td>Hop count &gt; N, or a message with the same ID has already been routed</td><td>Drop it and report</td><td>Stops agents bouncing messages back and forth forever.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 9. Task state mapping -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">9. Task states</h2>
+  <p class="mb-3">
+    The router keeps a table of tasks keyed by task ID. A2A task states are what senders see. The mapping below is
+    <span class="badge badge-warning">Inferred</span>. Note that an agent going idle is <em>not</em> the same as the task being done: a task
+    completes only when the recipient sends its reply back through the router.
+  </p>
+  <div class="jr-scroll">
+  <table class="table jr-table">
+    <thead><tr><th>A2A state</th><th>Paseo signal</th><th>herdr signal</th></tr></thead>
+    <tbody>
+      <tr><td><code>SUBMITTED</code></td><td><code>send()</code> accepted by the daemon</td><td><code>agent.prompt</code> returned without error</td></tr>
+      <tr><td><code>WORKING</code></td><td>agent status is running</td><td><code>pane_agent_status_changed → working</code></td></tr>
+      <tr><td><code>INPUT_REQUIRED</code></td><td>a pending permission request</td><td><code>blocked</code> (an approval or question dialog)</td></tr>
+      <tr><td><code>COMPLETED</code></td><td colspan="2">a reply arrives at the router carrying this task ID</td></tr>
+      <tr><td><code>FAILED</code></td><td>send error, or no reply before the timeout</td><td><code>agent_prompt_stalled</code>, <code>agent_blocked</code>, or a timeout</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 10. Risks -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">10. Risks and failure modes</h2>
+  <ul class="list-disc ml-5 space-y-2">
+    <li><strong>Message text leaves the machine.</strong> Every unaddressed message is sent to <code>api.typesafe.ai</code>. Decide whether that's acceptable for your repos, and remove secrets before the Jev call. The <code>paseo-a2a</code> skill already bans credentials in messages.</li>
+    <li><strong>Router is down.</strong> Senders fall back to the existing <code>paseo-a2a</code> direct routes, so messaging gets slower but keeps working. The skill needs a line saying so.</li>
+    <li><strong>Routing is only as good as the peer descriptions.</strong> Agent titles alone may not tell peers apart. Add explicit one-line role descriptions per peer; the router must never guess a role from what's on a terminal screen.</li>
+    <li><strong>Prompt injection.</strong> Message text is untrusted data. Jev can only choose from the approved list, and the router never acts on what a message says.</li>
+    <li><strong>herdr access from a service.</strong> The herdr skill's <code>HERDR_ENV</code> check is meant for agents running inside panes. A service connecting to the socket directly is a separate choice, and it's your call to allow it.</li>
+    <li><strong>Jev rate limits and outages</strong> (<code>429</code>/<code>529</code>). Retry with exponential backoff, as the API docs advise, and escalate if it keeps failing; never guess a recipient.</li>
+    <li><strong>Directory lists aren't taken at one instant.</strong> Separate list calls can disagree, so leave unresolved placements unresolved. This carries over from the earlier research.</li>
+  </ul>
+</section>
+
+<!-- 11. Rollout -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">11. Rollout</h2>
+  <ul class="steps steps-vertical">
+    <li class="step step-primary"><div class="text-left"><strong>Phase 0 · Measure.</strong> Timestamp one real exchange: decide recipient, discover, send, recipient starts, reply. This confirms or refutes §2.</div></li>
+    <li class="step"><div class="text-left"><strong>Phase 1 · Router, Paseo adapter, <code>route</code> CLI.</strong> In-memory directory, one Jev request per message, the policy table, the task table. Log every Jev answer to tune thresholds later.</div></li>
+    <li class="step"><div class="text-left"><strong>Phase 2 · herdr adapter.</strong> Socket subscription feeds the directory; delivery via <code>agent.prompt</code>; <code>blocked</code> → <code>INPUT_REQUIRED</code>.</div></li>
+    <li class="step"><div class="text-left"><strong>Phase 3 · A2A front door.</strong> Serve the Agent Card with <code>@a2a-js/sdk</code>, and rewrite <code>route</code> as a thin A2A client.</div></li>
+    <li class="step"><div class="text-left"><strong>Phase 4 · Tuning.</strong> Adjust thresholds from the logs; add Paseo live subscriptions where polling is too slow.</div></li>
+  </ul>
+</section>
+
+<!-- 12. Evidence ledger -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">12. Evidence ledger</h2>
+  <div class="jr-scroll">
+  <table class="table jr-table table-sm">
+    <thead><tr><th>Claim</th><th>Status</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>A2A v1.0: JSON-RPC, gRPC and HTTP+JSON; Agent Card; task states; point-to-point; no IPC binding</td><td><span class="badge badge-success">Verified</span></td><td><a class="link" href="https://a2a-protocol.org/latest/specification/">A2A specification</a></td></tr>
+      <tr><td>Official JS SDK v1.0 includes server and client for all three transports</td><td><span class="badge badge-success">Verified</span></td><td><a class="link" href="https://github.com/a2aproject/a2a-js">a2aproject/a2a-js</a></td></tr>
+      <tr><td>Jev API endpoint, <code>jev-latest</code>, Choice/Noul/Score, error codes</td><td><span class="badge badge-success">Verified</span></td><td><a class="link" href="https://docs.typesafe.ai/api.md">TypeSafe API</a></td></tr>
+      <tr><td>Choice allows up to 255 options; extra questions in a request barely add time</td><td><span class="badge badge-success">Verified</span></td><td><a class="link" href="https://docs.typesafe.ai/primitives/choice.md">Choice</a></td></tr>
+      <tr><td>Suggested confidence bands: 0.9 and 0.5</td><td><span class="badge badge-success">Verified</span></td><td><a class="link" href="https://docs.typesafe.ai/confidence.md">Confidence</a></td></tr>
+      <tr><td>herdr socket has <code>events.subscribe</code>, <code>agent.prompt</code>, the <code>AgentInfo</code> fields, and five agent states</td><td><span class="badge badge-success">Verified</span></td><td><code>herdr api schema --json</code> (0.8.2, protocol 20); socket at <code>~/.config/herdr/herdr.sock</code></td></tr>
+      <tr><td><code>agent prompt</code> refuses when blocked, reports a stall after 5 s, and waits for the agent to settle</td><td><span class="badge badge-success">Verified</span></td><td><code>herdr agent prompt --help</code></td></tr>
+      <tr><td>Paseo SDK directory, send semantics, per-host clients</td><td><span class="badge badge-success">Verified</span></td><td><a class="link" href="paseo-directory-design.md">paseo-directory-design.md</a>, <a class="link" href="paseo-live-directory.md">paseo-live-directory.md</a></td></tr>
+      <tr><td>Deciding the recipient is the main cost; transport isn't</td><td><span class="badge badge-warning">Inferred</span></td><td>§2; Phase 0 measures it</td></tr>
+      <tr><td>Jev's latency is low enough for routing on every message</td><td><span class="badge badge-error">Unverified</span></td><td>Your own testing; the docs publish no numbers</td></tr>
+      <tr><td>Live herdr snapshot contents</td><td><span class="badge badge-error">Unverified</span></td><td>Not read: this session wasn't inside herdr, and the herdr skill forbids inspecting it from outside</td></tr>
+      <tr><td>MBA Paseo endpoint and live SDK responses</td><td><span class="badge badge-error">Unverified</span></td><td>Carried over from the earlier research</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 13. Open questions -->
+<section class="mb-12">
+  <h2 class="text-2xl font-bold mb-3">13. Open questions</h2>
+  <ol class="list-decimal ml-5 space-y-2">
+    <li>Which machine runs the router? It must be the one with the herdr session, and it must be able to reach every Paseo host.</li>
+    <li>Is sending message text to TypeSafe acceptable for all repos, or only for some?</li>
+    <li>Should the front door be HTTP bound to localhost only, or also reachable from your other machines? That decides whether A2A authentication is needed from day one.</li>
+    <li>Who writes the peer role descriptions: the agent itself at startup, you, or a registration step?</li>
+    <li>Should the router service be allowed to talk to the herdr socket from outside a herdr pane?</li>
+  </ol>
+</section>
+
+<footer class="text-sm opacity-70 border-t border-base-300 pt-4">
+  Design only. No dependencies were installed, no connections opened, no services started and no messages sent.
+  Builds on <a class="link" href="paseo-live-directory.md">paseo-live-directory.md</a> and
+  <a class="link" href="paseo-directory-design.md">paseo-directory-design.md</a>.
+</footer>
+</main>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const dark = document.documentElement.dataset.theme === "dark";
+  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "default", securityLevel: "strict" });
+</script>
+</body>
+</html>
