@@ -18,17 +18,20 @@ endpoint; the sender must not have to be a Claude session.
 The model exposes state after every action, seven guided walkthroughs, and free
 play. Its reducer is independent of the view. Scripted judgments use short
 descriptions first, then full responsibility notes; known targets skip judgments.
+Code derives the top-two shortlist from the first Choice's option probabilities.
 Each request has at most two judgments in this experiment. That is a prototype
 budget, not a permanent restriction on the service.
 
 ## What the model demonstrates
 
 - A caller can disconnect after acceptance and read the stored result later.
+- Other callers and scheduled events can still submit while that observer is disconnected.
 - Added evidence can change the selected owner between two judgments.
 - Abstention and a busy owner can stop delivery without selecting a substitute.
 - A second adapter uses the same request, delivery, and reply lifecycle.
 - A modeled restart preserves delivery uncertainty and never automatically resends.
 - Duplicate identity and content return the same receipt; changed content conflicts.
+  The editable caller-supplied message ID and repeat controls use the same submit transition.
 - Replies match task, message, and endpoint session before completing work.
 - Another endpoint can continue while an earlier delivery remains uncertain.
 
@@ -59,7 +62,7 @@ and [TypeSafe's progressive-context example](https://docs.typesafe.ai/cookbooks/
 
 ## Verification
 
-Browser verification passed all seven walkthroughs and nine additional free-play
+Browser verification passed all seven walkthroughs and fourteen additional free-play
 checks through the visible controls. Desktop (1440 px) and mobile (390 px) layouts
 passed in light and dark themes, without page overflow, browser errors, or
 external asset requests. A scratch copy with reply correlation intentionally

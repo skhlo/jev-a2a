@@ -61,7 +61,8 @@
         text-underline-offset: 3px;
       }
       button,
-      select {
+      select,
+      input {
         font: inherit;
       }
       button {
@@ -100,6 +101,19 @@
         border-radius: 7px;
         background: var(--panel);
         color: var(--ink);
+      }
+      input {
+        width: 110px;
+        max-width: 100%;
+        padding: 9px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+        color: var(--ink);
+      }
+      input:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
       }
       section {
         margin-top: 28px;
@@ -540,6 +554,9 @@
         <div class="toolbar">
           <label for="request-preset">Example request</label>
           <select id="request-preset"></select>
+          <label for="message-id">Message ID</label>
+          <input id="message-id" value="M1" maxlength="64" autocomplete="off" />
+          <button type="button" id="new-message-id">New request ID</button>
           <button type="button" class="primary" data-action="submit">
             Accept request
           </button>
@@ -583,7 +600,8 @@
         </div>
         <p class="hint" style="margin-top: 12px">
           Buttons remain available. An invalid action explains why it cannot
-          change the request.
+          change the request. The same source and message ID repeat a
+          submission; use a new ID for new work.
         </p>
         <div id="notice" class="note" role="status" aria-live="polite"></div>
       </section>
@@ -835,6 +853,25 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
                 : "No request";
             }
           };
+          // Repeat/conflict controls construct inputs for the same acceptance path.
+          if (action.type === "duplicate" || action.type === "conflict") {
+            if (!task) {
+              reject("Accept a request before repeating its identity.");
+              return state;
+            }
+            action = {
+              type: "submit",
+              message: {
+                messageId: task.messageId,
+                source: task.source,
+                text:
+                  action.type === "conflict"
+                    ? `${task.text} [changed content]`
+                    : task.text,
+                target: task.explicitTarget,
+              },
+            };
+          }
           if (action.type === "preset") {
             if (!presets[action.value]) return state;
             state.preset = action.value;
@@ -849,17 +886,47 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
               `Inspecting ${action.value}. Other accepted requests keep their recorded state.`,
             );
           } else if (action.type === "submit") {
-            if (!state.callerConnected) {
-              reject(
-                "Reconnect the caller before submitting a new request. Existing work can continue while disconnected.",
-              );
+            // callerConnected describes the watching connection, not admission.
+            const message = action.message;
+            if (
+              !message ||
+              ["messageId", "source", "text"].some(
+                (key) =>
+                  typeof message[key] !== "string" || !message[key].trim(),
+              )
+            ) {
+              reject("A submission needs a source, message ID, and text.");
               return state;
             }
-            const preset = presets[state.preset];
-            if (
-              preset.target &&
-              !state.peers.some((peer) => peer.id === preset.target)
-            ) {
+            const target = message.target ?? null;
+            const existing = state.tasks.find(
+              (record) =>
+                record.source === message.source &&
+                record.messageId === message.messageId,
+            );
+            if (existing) {
+              if (
+                existing.text !== message.text ||
+                existing.explicitTarget !== target
+              ) {
+                reject(
+                  `Rejected ${message.source}/${message.messageId}: that identity already has different content.`,
+                );
+                return state;
+              }
+              state.currentId = existing.id;
+              log(
+                state,
+                "Code",
+                `Returned existing receipt ${existing.id} for ${message.source}/${message.messageId}. No judgment or delivery repeated.`,
+              );
+              say(
+                `Same identity and content: same ${existing.id}. Delivery attempts remain ${existing.delivery.attempts}.`,
+              );
+              observeCaller();
+              return state;
+            }
+            if (target && !state.peers.some((peer) => peer.id === target)) {
               reject(
                 "That target is not registered. Add the script adapter before sending to local-check.",
               );
@@ -868,11 +935,14 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
             const number = state.nextId++;
             const added = {
               id: `T${number}`,
-              messageId: `M${number}`,
-              source: preset.source,
-              text: preset.text,
-              preset: state.preset,
-              explicitTarget: preset.target,
+              messageId: message.messageId,
+              source: message.source,
+              text: message.text,
+              preset:
+                Object.keys(presets).find(
+                  (key) => presets[key].text === message.text,
+                ) || "vague",
+              explicitTarget: target,
               status: "accepted",
               phase: "route",
               peerId: null,
@@ -914,20 +984,33 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
                   "Code resolved the known target. Next, check availability and attempt delivery.",
                 );
               } else {
-                const probabilities =
+                const fixture =
                   task.preset === "vague"
                     ? { payments: 0.05, docs: 0.05, no_match: 0.9 }
                     : task.preset === "context"
                       ? { payments: 0.55, docs: 0.4, no_match: 0.05 }
                       : { payments: 0.92, docs: 0.06, no_match: 0.02 };
-                const choice =
-                  task.preset === "vague" ? "no_match" : "payments";
+                const probabilities = {
+                  no_match: fixture.no_match,
+                  ...Object.fromEntries(
+                    state.peers.map((peer) => [peer.id, fixture[peer.id] || 0]),
+                  ),
+                };
+                const ranked = Object.entries(probabilities).sort(
+                  (a, b) => b[1] - a[1],
+                );
+                const choice = ranked[0][0];
                 task.judgments.push({
-                  stage: "1. Shortlist",
+                  stage: "1. Rank owners",
                   evidence: "Request + brief endpoint responsibilities",
                   choice,
                   probabilities,
                 });
+                log(
+                  state,
+                  "Jev",
+                  `Scripted Choice selected ${choice} and returned probabilities for the listed options.`,
+                );
                 if (choice === "no_match") {
                   task.status = "deferred";
                   task.phase = "stopped";
@@ -941,16 +1024,23 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
                     "Abstention is a useful outcome. Clarify the request before trying again.",
                   );
                 } else {
-                  task.candidates = ["payments", "docs"];
+                  task.candidates = ranked
+                    .filter(
+                      ([id]) =>
+                        id !== "no_match" &&
+                        state.peers.some((peer) => peer.id === id),
+                    )
+                    .slice(0, 2)
+                    .map(([id]) => id);
                   task.status = "routing";
                   task.phase = "context";
                   log(
                     state,
-                    "Jev",
-                    "Scripted judgment 1 shortlisted payments and docs from their brief descriptions.",
+                    "Code",
+                    `Kept the top two endpoint options by probability: ${task.candidates.join(", ")}. No-match is excluded from the shortlist.`,
                   );
                   say(
-                    "The first judgment chose which evidence to fetch. Next, code loads those endpoint details.",
+                    "Code derived a shortlist from the first judgment's probabilities. Next, load those endpoint details.",
                   );
                 }
               }
@@ -1163,33 +1253,6 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
             say(
               "The router parks this delivery. A timeout does not grant permission to send it again.",
             );
-          } else if (
-            action.type === "duplicate" ||
-            action.type === "conflict"
-          ) {
-            if (!task) {
-              reject("Accept a request before repeating its identity.");
-              return state;
-            }
-            if (action.type === "conflict") {
-              log(
-                state,
-                "Code",
-                `Rejected reused identity ${task.source}/${task.messageId} with changed text.`,
-              );
-              say(
-                "The same message identity cannot mean different work. Existing state is unchanged.",
-              );
-            } else {
-              log(
-                state,
-                "Code",
-                `Returned existing receipt ${task.id} for ${task.source}/${task.messageId}. No judgment or delivery repeated.`,
-              );
-              say(
-                `Same identity and content: same ${task.id}. Delivery attempts remain ${task.delivery.attempts}.`,
-              );
-            }
           } else if (action.type === "toggleBusy") {
             const peer = state.peers.find((entry) => entry.id === "payments");
             peer.busy = !peer.busy;
@@ -1370,6 +1433,8 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
       let scenarioIndex = 0;
       let stepIndex = 0;
       let guided = true;
+      let nextMessageId = 1;
+      let draftMessageId = "M1";
       const $ = (id) => document.getElementById(id);
       const escape = (value) =>
         String(value ?? "").replace(
@@ -1386,10 +1451,20 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
       const facts = (entries) =>
         `<dl class="facts">${entries.map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}</dl>`;
 
+      function freshMessageId() {
+        let id;
+        do {
+          id = `M${++nextMessageId}`;
+        } while (state.tasks.some((task) => task.messageId === id));
+        return id;
+      }
+
       function startScenario(index) {
         scenarioIndex = index;
         stepIndex = 0;
         guided = true;
+        nextMessageId = 1;
+        draftMessageId = "M1";
         state = RouterModel.initial(scenarios[index].preset);
         state.notice =
           "Walkthrough ready. Press its first numbered step below.";
@@ -1397,12 +1472,27 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
       }
       function dispatch(type, value, fromWalkthrough = false) {
         if (!fromWalkthrough) guided = false;
-        state = RouterModel.reduce(state, { type, value });
+        if (type === "preset") draftMessageId = freshMessageId();
+        const preset = RouterModel.presets[state.preset];
+        const action =
+          type === "submit"
+            ? {
+                type,
+                message: {
+                  messageId: draftMessageId,
+                  source: preset.source,
+                  text: preset.text,
+                  target: preset.target,
+                },
+              }
+            : { type, value };
+        state = RouterModel.reduce(state, action);
         if (fromWalkthrough) stepIndex++;
         render();
       }
       function render() {
         const task = RouterModel.current(state);
+        $("message-id").value = draftMessageId;
         $("task-picker").innerHTML = state.tasks.length
           ? state.tasks
               .map(
@@ -1438,7 +1528,7 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
           <div><span class="label">Jev judgments</span><span class="value">${task?.judgments.length || 0} / 2</span></div>
           <div><span class="label">Delivery attempts</span><span class="value">${task?.delivery.attempts || 0}</span></div>
           </div><div class="message"><p>${task ? escape(task.text) : "No request has been accepted yet."}</p>
-          <span class="hint">Caller ${state.callerConnected ? "connected" : "disconnected"} · Last seen: ${escape(state.callerSaw)} · Router process ${state.boot}</span></div>
+          <span class="hint">Watching caller ${state.callerConnected ? "connected" : "disconnected"} · Last seen: ${escape(state.callerSaw)} · Router process ${state.boot}</span></div>
           ${task?.reason ? `<p class="note" style="margin-top: 12px">${escape(task.reason)}</p>` : ""}
           ${task?.reply ? `<p class="note" style="margin-top: 12px"><strong>Stored result:</strong> ${escape(task.reply.text)}</p>` : ""}
           <ol class="flow" aria-label="Lifecycle stages">${["Accepted", "Routing", "Ready", "Attempted", "Waiting for reply", "Completed"].map((label, index) => `<li class="${index === stageIndex ? "current" : index < stageIndex ? "done" : ""}">${label}</li>`).join("")}</ol>`;
@@ -1465,6 +1555,7 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
           ? facts([
               ["Task / message", `${task.id} / ${task.messageId}`],
               ["Source", task.source],
+              ["Code shortlist", task.candidates.join(", ") || "None"],
               ["Delivery evidence", task.delivery.outcome],
               ["Endpoint session", task.delivery.sessionId || "Not assigned"],
               ["Return address", `Router task ${task.id}`],
@@ -1542,6 +1633,16 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
         } else if (button.id === "restart-walkthrough")
           startScenario(scenarioIndex);
         else if (button.id === "reset-all") startScenario(0);
+        else if (button.id === "new-message-id") {
+          draftMessageId = freshMessageId();
+          guided = false;
+          render();
+        }
+      });
+      $("message-id").addEventListener("input", (event) => {
+        draftMessageId = event.target.value;
+        guided = false;
+        render();
       });
       $("request-preset").addEventListener("change", (event) =>
         dispatch("preset", event.target.value),
