@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Jev router - interactive architecture prototype</title>
+    <title>Jev router - devices, dotfiles and one orchestrator</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -358,7 +358,7 @@
       }
       .bar-row {
         display: grid;
-        grid-template-columns: 95px 1fr 45px;
+        grid-template-columns: minmax(90px, 1fr) 1fr 40px;
         gap: 10px;
         align-items: center;
         font-size: 0.85rem;
@@ -492,59 +492,120 @@
           color: #13233c;
         }
       }
+      .request-controls {
+        margin-top: 16px;
+      }
+      .fleet {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .fleet .facts > div {
+        display: block;
+      }
+      .fleet dd {
+        margin-top: 3px;
+      }
+      .fleet h3 {
+        margin: 0;
+        font-size: 1.25rem;
+      }
+      .fleet .peer-head {
+        margin-bottom: 12px;
+      }
+      .result-text {
+        white-space: pre-line;
+        margin-top: 8px;
+      }
+      caption {
+        text-align: left;
+        font-weight: 650;
+        padding-bottom: 8px;
+      }
+      .summary {
+        margin-top: 20px;
+      }
+      @media (max-width: 1000px) {
+        .fleet {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      @media (max-width: 520px) {
+        .fleet {
+          grid-template-columns: 1fr;
+        }
+        .actions,
+        .steps {
+          grid-template-columns: 1fr;
+        }
+        .toolbar select {
+          width: 100%;
+        }
+        .facts > div {
+          grid-template-columns: 100px minmax(0, 1fr);
+        }
+      }
     </style>
   </head>
   <body>
     <main>
       <header>
         <p class="eyebrow">
-          Architecture prototype / single user / self hosted
+          Personal control plane / interactive architecture prototype
         </p>
-        <h1>One router.<br />A lifecycle it owns.</h1>
+        <h1>Four devices.<br />One place to coordinate.</h1>
         <p class="intro">
-          Can an independent router carry a request through decisions, delivery,
-          and reply, while its adapters stay replaceable? Use the walkthroughs
-          or change the state yourself.
+          Can a small router connect your coding orchestrator, knowledge
+          assistant and device services, while dotfiles define the harness and
+          environment on each working machine?
         </p>
         <div class="note">
-          <strong>This is an interactive model.</strong> Jev answers, agent
-          replies, and transport outcomes are scripted. The journal models
-          durable storage but lives only in this page's memory. Refreshing the
-          page clears everything; “Restart router” simulates a process restart.
+          <strong>Explore the design.</strong> Every Jev decision, workflow,
+          connection and reply here is simulated. State lives in this page's
+          memory. Refresh resets it; “Restart router” models recovery only.
+          Speed and real delivery are still unmeasured.
         </div>
       </header>
 
       <div
         class="architecture"
-        aria-label="A caller sends a request to one personal router. The router owns the directory, decisions and journal, then delivers through an adapter to an endpoint."
+        aria-label="Paseo or herdr on any device connects to the control plane on mbp, which routes messages to agents and services."
       >
         <div class="node">
-          <strong>Any caller</strong
-          ><span class="hint">You, an agent, or an event</span>
+          <strong>Paseo / herdr</strong
+          ><span class="hint">View your agents from any device</span>
         </div>
         <div class="arrow" aria-hidden="true">→</div>
         <div class="node router">
-          <strong>Personal router</strong
-          ><span class="hint">Directory · code + Jev · task journal</span>
+          <strong>Control plane · mbp</strong
+          ><span class="hint">Jev + code · directory · messages · results</span>
         </div>
         <div class="arrow" aria-hidden="true">→</div>
         <div class="node">
-          <strong>Adapter → endpoint</strong
-          ><span class="hint" id="adapter-caption">Claude first</span>
+          <strong>Agents + services</strong
+          ><span class="hint"
+            >One coding orchestrator · knowledge on mini · host operations</span
+          >
         </div>
       </div>
       <p class="return">
-        The reply returns through the router. The caller can disconnect and read
-        it later.
+        The router carries requests and replies. The orchestrator owns the
+        coding workflow.
       </p>
 
       <section class="panel" aria-labelledby="current-title">
-        <h2 id="current-title">Current request</h2>
-        <div class="toolbar" style="margin-bottom: 16px">
+        <div class="walk-header">
+          <div>
+            <h2 id="current-title">Current request</h2>
+            <p class="hint">
+              One identity follows the request across devices and views.
+            </p>
+          </div>
+          <span class="tag">Proposed: 2 persistent agents</span>
+        </div>
+        <div class="toolbar">
           <label for="task-picker">Inspect request</label
-          ><select id="task-picker" aria-label="Inspect an accepted request">
-            <option>No requests yet</option>
-          </select>
+          ><select id="task-picker"></select>
         </div>
         <div id="current-state"></div>
       </section>
@@ -552,30 +613,58 @@
       <section class="panel" aria-labelledby="play-title">
         <h2 id="play-title">Free play</h2>
         <div class="toolbar">
-          <label for="request-preset">Example request</label>
-          <select id="request-preset"></select>
-          <label for="message-id">Message ID</label>
-          <input id="message-id" value="M1" maxlength="64" autocomplete="off" />
-          <button type="button" id="new-message-id">New request ID</button>
+          <label for="view-device">Viewing from</label
+          ><select id="view-device"></select
+          ><label for="view-surface">Through</label
+          ><select id="view-surface">
+            <option>Paseo</option>
+            <option>herdr</option></select
+          ><span id="viewer-state" class="hint"></span>
+        </div>
+        <div class="toolbar request-controls">
+          <label for="request-preset">Request</label
+          ><select id="request-preset"></select
+          ><label for="message-id">Message ID</label
+          ><input
+            id="message-id"
+            value="M1"
+            maxlength="64"
+            autocomplete="off"
+          /><button type="button" id="new-message-id">New request ID</button>
+        </div>
+        <div class="actions">
           <button type="button" class="primary" data-action="submit">
             Accept request
           </button>
           <button type="button" class="primary" data-action="advance">
             Next router step
           </button>
-        </div>
-        <div class="actions">
+          <button type="button" data-action="work">
+            Next orchestrator step
+          </button>
           <button type="button" data-action="reply">
-            Return matching reply
+            Return next matching reply
           </button>
           <button type="button" data-action="wrongReply">
-            Return mismatched reply
+            Return wrong message reply
+          </button>
+          <button type="button" data-action="wrongHost">
+            Return wrong device reply
           </button>
           <button type="button" data-action="disconnect">
-            Disconnect caller
+            Close the current view
           </button>
           <button type="button" data-action="reconnect">
-            Reconnect caller
+            Reconnect the view
+          </button>
+          <button type="button" data-action="toggleLab">
+            Toggle lab01 reachability
+          </button>
+          <button type="button" data-action="toggleBusy">
+            Toggle orchestrator busy
+          </button>
+          <button type="button" data-action="toggleDrift">
+            Toggle mini config drift
           </button>
           <button type="button" data-action="restart">Restart router</button>
           <button type="button" data-action="loseReceipt">
@@ -587,22 +676,17 @@
           <button type="button" data-action="conflict">
             Reuse ID with changed text
           </button>
-          <button type="button" data-action="toggleBusy">
-            Toggle payments busy
-          </button>
-          <button type="button" data-action="addAdapter">
-            Add script adapter
-          </button>
           <button type="button" data-action="notSent">
             Report definitely not sent
           </button>
-          <button type="button" id="reset-all">Reset model</button>
         </div>
-        <p class="hint" style="margin-top: 12px">
-          Buttons remain available. An invalid action explains why it cannot
-          change the request. The same source and message ID repeat a
-          submission; use a new ID for new work.
+        <p class="hint request-controls">
+          Changing your view keeps the same agents and tasks. A repeated source
+          + message ID returns the existing request. Use a new ID for new work.
+          Reply controls act on the first outstanding device, shown in the
+          request.
         </p>
+        <button type="button" id="reset-all">Reset model</button>
         <div id="notice" class="note" role="status" aria-live="polite"></div>
       </section>
 
@@ -617,244 +701,546 @@
         <div id="walkthrough" role="tabpanel"></div>
       </section>
 
-      <section class="grid" aria-label="Directory and task journal">
+      <section aria-labelledby="fleet-title">
+        <h2 id="fleet-title">Your devices</h2>
+        <p class="hint">
+          Proposed placement: control plane and orchestrator on mbp; knowledge
+          assistant on mini. Dotfiles supplies the harness and environment
+          profiles on mba, mbp and mini. These are model entries, not discovered
+          connections.
+        </p>
+        <div id="fleet" class="fleet"></div>
+      </section>
+
+      <section class="grid" aria-label="Responsibilities and repositories">
         <div class="panel">
-          <h2>Directory</h2>
+          <h2>A small participant directory</h2>
           <p class="hint">
-            The router owns these descriptions. Adapter observations tell code
-            whether the chosen owner can receive work.
+            An agent or a service has a stable address and a responsibility. A
+            device is where it runs; a view is where you see it.
           </p>
           <div id="directory"></div>
         </div>
         <div class="panel">
-          <h2>Task journal</h2>
+          <h2>One GitHub identity</h2>
+          <p>
+            <strong>skhlo</strong> owns the remote repositories in this model.
+            One orchestrator handles their coding work.
+          </p>
+          <div id="repositories"></div>
+          <div class="note">
+            <strong>Dotfiles owns configuration.</strong> Host profiles supply
+            harness settings and environment configuration. The router reads
+            those facts when deciding where to send work.
+          </div>
+          <p class="hint request-controls">
+            Repository entries, workflow names and config revisions are
+            illustrative. Config changes are prepared and reviewed here;
+            applying them is a separate workflow.
+          </p>
+        </div>
+      </section>
+
+      <section class="grid" aria-label="Message journal and routing decisions">
+        <div class="panel">
+          <h2>Message journal</h2>
           <p class="hint">
-            A modeled durable record. A process restart keeps it; a page refresh
-            does not.
+            Tracks delivery per device and collects replies under one request.
           </p>
           <div id="journal"></div>
         </div>
-      </section>
-
-      <section class="grid" aria-label="Decision evidence and trace">
         <div class="panel">
-          <h2>Decision evidence</h2>
+          <h2>Jev decisions + code</h2>
           <p class="hint">
-            Scripted distributions illustrate the chain. They do not measure Jev
-            quality, calibration, latency, or cost.
+            Scripted Choice distributions. Code keeps a shortlist and loads new
+            responsibility notes before the second judgment. Known destinations
+            use zero judgments.
           </p>
           <div id="decisions"></div>
         </div>
-        <div class="panel">
-          <h2>What happened</h2>
-          <ol id="trace" class="log" aria-label="Router event log"></ol>
-        </div>
       </section>
 
-      <section class="panel" aria-labelledby="seam-title">
-        <h2 id="seam-title">What this architecture keeps small</h2>
+      <section class="panel">
+        <h2>What happened</h2>
+        <ol id="trace" class="log" aria-label="Router event log"></ol>
+      </section>
+
+      <section class="panel" aria-labelledby="contract-title">
+        <h2 id="contract-title">The communication contract</h2>
         <div class="grid">
           <div>
-            <h3>One local process</h3>
+            <h3>Router: carry the conversation</h3>
             <p>
-              The intended service owns the directory, decisions, delivery
-              records, and replies. Its first implementation can use one SQLite
-              file and plain functions.
-            </p>
-            <p>
-              In this model, a request takes at most two Jev judgments. Code
-              loads fuller descriptions between them. Explicit targets and
-              replies use zero judgments.
+              Accept a request, resolve its recipient, record delivery, match
+              replies and make the result available from any view. Small Jev
+              judgments help interpret ambiguous requests. Code handles
+              identities, known targets, device availability and duplicates.
             </p>
           </div>
           <div>
-            <h3>One delivery contract</h3>
+            <h3>Orchestrator: run the workflow</h3>
             <p>
-              An adapter receives an endpoint and a correlated envelope. It
-              reports delivery evidence and replies with the same identifiers.
-              The router owns task state and decides what those reports mean.
-            </p>
-            <p>
-              The script walkthrough adds a second adapter to the same
-              lifecycle. It tests the proposed interface; it does not implement
-              a second runtime.
+              The one coding orchestrator owns the configured sequence for every
+              repository. It can ask a service for a VM or a host observation
+              through the same router. Workflow steps belong to that agent;
+              dotfiles supplies its harness configuration.
             </p>
           </div>
         </div>
         <details>
-          <summary>Inspect the proposed interface and current state</summary>
+          <summary>Inspect the envelope and current model</summary>
           <pre>
-submit({ source, messageId, text, target? }) → taskId
-read(taskId) → task + delivery + reply
+submit({ source, messageId, text, repo, scope, target? }) → taskId
+read(taskId) → task + per-device deliveries + replies
 
-adapter.deliver(endpoint, { taskId, messageId, sessionId, text })
+deliver({ taskId, messageId, participantId, host, sessionId, text })
   → accepted | not_sent | unknown
-adapter.reply({ taskId, inReplyTo, sessionId, text })
+reply({ taskId, inReplyTo, participantId, host, sessionId, text })
 
-Rule: accepted delivery is not completed work.
-Rule: repeated identity + same content returns the existing task.
-Rule: an uncertain delivery is never automatically sent again.</pre>
+One source + message ID identifies one request across all views.
+Each device delivery has its own session identity.
+Acceptance means received; a matching result completes work.</pre>
           <pre id="raw-state"></pre>
         </details>
         <details>
-          <summary>What the Claude probe established</summary>
+          <summary>Placement, assumptions and limits</summary>
           <p>
-            On this host, the installed Claude Code 2.1.283 binary supports
-            programmatic print mode, structured results, and a caller-selected
-            session ID. A router-owned turn is a concrete first transport to
-            test. The normal launcher currently tries to install a version; the
-            probe used the installed binary directly.
+            This proposal uses one control-plane process and a SQLite journal on
+            always-on mbp. The demo models one orchestrator across all
+            repositories, plus one knowledge assistant on mini. Device
+            operations use services; adding a repository or viewing device adds
+            no persistent agent.
           </p>
           <p>
-            Existing sessions can be listed externally, but their supported
-            listing does not expose inbox sockets. Adopting an already-open
-            terminal needs an opt-in registration mechanism and a verified reply
-            path. This prototype does not claim those integrations work.
+            Paseo and herdr are modeled access surfaces. Agent, host and Incus
+            adapters are proposed interfaces with scripted outcomes. This page
+            does not connect to them, GitHub or your dotfiles. Protocol
+            authentication, transport, real persistence, throughput and latency
+            still need an implementation experiment. The central service depends
+            on mbp being reachable.
           </p>
           <p>
-            <strong
-              >No live Claude message or Jev inference was needed for this
-              model.</strong
-            >
-            A process launch alone would not prove message acceptance. A Claude
-            adapter may go straight from an attempted delivery to a correlated
-            final result, without a separate acceptance receipt.
-          </p>
-        </details>
-        <details>
-          <summary>Questions the real transport still has to answer</summary>
-          <p>
-            Does an actual send produce a trustworthy receipt? Can a reply be
-            correlated without trusting generated text? What survives a process
-            or disk failure? What should the user do when delivery stays
-            unknown?
-          </p>
-          <p>
-            The model parks uncertain delivery until a matching result arrives.
-            It has no automatic retries, task cancellation, remote enrollment,
-            or general workflow editor. Multi-host transport and measured Jev
-            accuracy remain separate experiments.
+            The earlier Claude probe established a possible router-owned turn to
+            test. Existing-session registration and verified reply correlation
+            remain separate work. A restart here only changes browser state;
+            refreshing the page clears the journal.
           </p>
         </details>
       </section>
-
       <footer>
         <p>
-          Throwaway prototype, 2026-09-29. The two-stage decision example
-          follows the progressive-context pattern in the
-          <a href="https://docs.typesafe.ai/cookbooks/skill_suggestion"
-            >TypeSafe skill-selection cookbook</a
-          >. Integration references:
-          <a href="https://code.claude.com/docs/en/cross-session-messaging"
-            >Claude messaging</a
-          >,
-          <a href="https://code.claude.com/docs/en/agent-view"
-            >session discovery</a
-          >, and
-          <a href="https://code.claude.com/docs/en/headless"
-            >programmatic Claude</a
-          >.
+          Throwaway architecture model. Start with “Code from mba”, then “Change
+          dotfiles” and “Check environments”.
         </p>
         <p>
-          The earlier <a href="jev-router-design.html">design review</a> records
-          the larger Paseo/herdr proposal. This model explores the subsequent
-          independent service with Claude as its first endpoint.
+          Design references:
+          <a href="https://docs.typesafe.ai/primitives/choice"
+            >TypeSafe Choice</a
+          >
+          and
+          <a href="https://docs.typesafe.ai/cookbooks/skill_suggestion"
+            >progressive context</a
+          >. The
+          <a href="jev-router-prototype-notes.md">architecture notes</a> record
+          assumptions and verification; the
+          <a href="jev-router-design.html">original design</a> is historical.
         </p>
       </footer>
     </main>
 
     <script>
-      // Portable model: no DOM, timers, network, storage, or browser dependencies.
+      // Portable model: all decisions and transitions are pure and in memory.
       const RouterModel = (() => {
-        const presets = {
-          payments: {
-            label: "Clear owner: duplicate payments",
-            text: "Investigate duplicate payments.",
-            source: "you",
-            target: null,
-          },
-          context: {
-            label: "More context: billing-reference build",
-            text: "Investigate the billing-reference build failure.",
-            source: "you",
-            target: null,
-          },
-          vague: {
-            label: "No clear owner: handle this",
-            text: "Handle this.",
-            source: "you",
-            target: null,
-          },
-          directed: {
-            label: "Known target: documentation status",
-            text: "Report the documentation build status.",
-            source: "scheduled event",
-            target: "docs",
-          },
-          script: {
-            label: "Another adapter: local check",
-            text: "Run the registered local check.",
-            source: "scheduled event",
-            target: "local-check",
-          },
-        };
-        const initialPeers = [
+        const devices = [
           {
-            id: "payments",
-            adapter: "claude",
-            summary: "Payment processing and billing errors.",
-            details:
-              "Owns duplicate charges and payment processing. Documentation build tooling belongs to docs.",
-            busy: false,
+            id: "mba",
+            role: "Main daily driver",
+            profile: "Daily driver environment",
+            dotfiles: true,
+            hosts: "Views and host services",
           },
           {
-            id: "docs",
-            adapter: "claude",
-            summary: "Documentation and publishing.",
-            details:
-              "Owns documentation AND its build pipeline, including billing-reference generation. A billing-reference build failure belongs here.",
-            busy: false,
+            id: "mbp",
+            role: "Always-on Linux box",
+            profile: "Linux coding environment",
+            dotfiles: true,
+            hosts: "Control plane + Orchestrator",
+          },
+          {
+            id: "mini",
+            role: "Knowledge work assistant box",
+            profile: "Knowledge work environment",
+            dotfiles: true,
+            hosts: "Knowledge assistant",
+          },
+          {
+            id: "lab01",
+            role: "Incus micro VM host",
+            profile: "Incus compute",
+            dotfiles: false,
+            hosts: "Incus service + micro VMs",
           },
         ];
-        function initial(preset = "payments") {
+        const participants = [
+          {
+            id: "orchestrator",
+            name: "Orchestrator",
+            kind: "agent",
+            host: "mbp",
+            adapter: "agent",
+            summary: "Coding across all repositories.",
+            details:
+              "Owns the configured coding workflows for every repo under skhlo. Changing dotfiles source, including harness settings, belongs here. Device services only inspect applied configuration.",
+          },
+          {
+            id: "knowledge",
+            name: "Knowledge assistant",
+            kind: "agent",
+            host: "mini",
+            adapter: "agent",
+            summary: "Notes, research and synthesis.",
+            details:
+              "Owns knowledge work, including summaries of notes about Incus. A mention of a technology does not request a live machine operation.",
+          },
+          {
+            id: "environment",
+            name: "Dotfiles services",
+            kind: "service",
+            host: null,
+            adapter: "host",
+            summary: "Harness and environment configuration.",
+            details:
+              "Inspect applied harness and environment configuration on mba, mbp and mini. Changes to dotfiles source go to the Orchestrator and its configured workflow.",
+          },
+          {
+            id: "incus",
+            name: "Incus service",
+            kind: "service",
+            host: "lab01",
+            adapter: "incus",
+            summary: "Incus micro VMs on lab01.",
+            details:
+              "Performs configured live VM operations on lab01. A request to summarize notes about Incus belongs to the knowledge assistant. Uses a service adapter with no persistent reasoning agent.",
+          },
+        ];
+        const repositories = [
+          {
+            id: "jev-a2a",
+            owner: "skhlo",
+            workflow: "coding",
+            label: "Coding workflow",
+            stages: ["Implement", "Verify", "Review"],
+          },
+          {
+            id: "dotfiles",
+            owner: "skhlo",
+            workflow: "dotfiles-change",
+            label: "Dotfiles change workflow",
+            stages: [
+              "Edit config source",
+              "Validate mba / mbp / mini",
+              "Review",
+            ],
+          },
+        ];
+        const presets = {
+          coding: {
+            label: "Coding: prepare a router fix",
+            text: "Prepare a fix for reply handling in jev-a2a using the coding workflow.",
+            source: "you",
+            repo: "jev-a2a",
+            scope: ["mbp"],
+            target: null,
+          },
+          dotfiles: {
+            label: "Dotfiles: change harness settings",
+            text: "Prepare a shared harness settings change in dotfiles for mba, mbp and mini.",
+            source: "you",
+            repo: "dotfiles",
+            scope: ["mba", "mbp", "mini"],
+            target: null,
+          },
+          environment: {
+            label: "Dotfiles: inspect all three environments",
+            text: "Inspect applied harness and environment configs on mba, mbp and mini.",
+            source: "you",
+            repo: "dotfiles",
+            scope: ["mba", "mbp", "mini"],
+            target: "environment",
+          },
+          knowledge: {
+            label: "Knowledge: summarize Incus notes",
+            text: "Summarize my notes on Incus micro VM tradeoffs.",
+            source: "you",
+            repo: null,
+            scope: ["mini"],
+            target: null,
+          },
+          vm: {
+            label: "Orchestrator: request a VM on lab01",
+            text: "Prepare a scratch micro VM on lab01 for a coding run.",
+            source: "orchestrator",
+            repo: "jev-a2a",
+            scope: ["lab01"],
+            target: "incus",
+          },
+          directed: {
+            label: "Known target: orchestrator status",
+            text: "Report the status of the jev-a2a coding workflow.",
+            source: "you",
+            repo: "jev-a2a",
+            scope: ["mbp"],
+            target: "orchestrator",
+          },
+          vague: {
+            label: "Unclear: handle this",
+            text: "Handle this.",
+            source: "you",
+            repo: null,
+            scope: [],
+            target: null,
+          },
+        };
+        const firstJudgments = {
+          coding: {
+            orchestrator: 0.92,
+            knowledge: 0.03,
+            environment: 0.02,
+            incus: 0.01,
+            no_match: 0.02,
+          },
+          dotfiles: {
+            orchestrator: 0.42,
+            knowledge: 0.01,
+            environment: 0.54,
+            incus: 0.01,
+            no_match: 0.02,
+          },
+          knowledge: {
+            orchestrator: 0.01,
+            knowledge: 0.42,
+            environment: 0.01,
+            incus: 0.54,
+            no_match: 0.02,
+          },
+          vague: {
+            orchestrator: 0.025,
+            knowledge: 0.025,
+            environment: 0.025,
+            incus: 0.025,
+            no_match: 0.9,
+          },
+        };
+        function initial(preset = "coding") {
           return {
             preset,
-            callerConnected: true,
-            callerSaw: "No request",
+            viewer: {
+              device: "mba",
+              surface: "Paseo",
+              connected: true,
+              saw: "No request",
+            },
             boot: 1,
-            adapters: ["claude"],
-            peers: structuredClone(initialPeers),
+            githubIdentity: "skhlo",
+            devices: devices.map((device) => ({
+              ...device,
+              reachable: true,
+              configuredRevision: device.dotfiles ? "cfg-12" : null,
+              actualRevision: device.dotfiles ? "cfg-12" : null,
+              observedRevision: null,
+            })),
+            participants: participants.map((peer) => ({
+              ...peer,
+              busy: false,
+            })),
+            repositories: structuredClone(repositories),
             tasks: [],
             currentId: null,
             nextId: 1,
             trace: [],
-            notice: "Start a walkthrough below, or accept an example request.",
+            notice: "Start with Code from mba, or accept an example request.",
           };
         }
         const current = (state) =>
           state.tasks.find((task) => task.id === state.currentId);
+        const outstanding = (task) =>
+          task?.deliveries.find(
+            (delivery) =>
+              ["attempting", "accepted", "unknown"].includes(
+                delivery.outcome,
+              ) && !delivery.reply,
+          );
         const log = (state, owner, text) =>
           state.trace.push({ number: state.trace.length + 1, owner, text });
-        function reduce(previous, action) {
+        const observe = (state) => {
+          if (state.viewer.connected)
+            state.viewer.saw = current(state)
+              ? `${current(state).id}: ${current(state).status}`
+              : "No request";
+        };
+        function updateDeliveryState(task) {
+          if (task.deliveries.every((delivery) => delivery.reply)) {
+            task.status = "completed";
+            task.result = task.deliveries
+              .map((delivery) => delivery.reply.text)
+              .join("\n");
+            task.reason = null;
+          } else if (
+            task.deliveries.some(
+              (delivery) => delivery.outcome === "attempting",
+            )
+          )
+            task.status = "delivering";
+          else if (
+            task.deliveries.some((delivery) => delivery.outcome === "unknown")
+          )
+            task.status = "unknown";
+          else if (
+            task.deliveries.some(
+              (delivery) => delivery.outcome === "accepted" && !delivery.reply,
+            )
+          )
+            task.status = "waiting for reply";
+          else if (
+            task.deliveries.some(
+              (delivery) => delivery.outcome === "not_attempted",
+            )
+          )
+            task.status = "queued";
+          else task.status = "failed";
+        }
+        function resolve(state, task, participantId) {
+          const peer = state.participants.find(
+            (entry) => entry.id === participantId,
+          );
+          const hosts = peer.id === "environment" ? task.scope : [peer.host];
+          if (
+            !hosts.length ||
+            hosts.some(
+              (host) =>
+                !state.devices.some(
+                  (device) =>
+                    device.id === host &&
+                    (peer.id !== "environment" || device.dotfiles),
+                ),
+            )
+          ) {
+            task.status = "needs clarification";
+            task.reason = "No configured device matches this request.";
+            return;
+          }
+          task.participantId = peer.id;
+          task.deliveries = hosts.map((host) => ({
+            host,
+            participantId: peer.id,
+            sessionId: `${peer.id}@${host}/${task.id}`,
+            outcome: "not_attempted",
+            attempts: 0,
+            reply: null,
+          }));
+          const repository = state.repositories.find(
+            (repo) => repo.id === task.repo,
+          );
+          if (
+            peer.id === "orchestrator" &&
+            ["coding", "dotfiles"].includes(task.preset)
+          ) {
+            task.workflow = {
+              id: repository.workflow,
+              name: repository.label,
+              owner: peer.id,
+              stages: [...repository.stages],
+              completed: 0,
+            };
+          }
+          task.status = "ready";
+          task.phase = "delivery";
+          log(
+            state,
+            "Code",
+            `Resolved ${peer.name} through the ${peer.adapter} adapter on ${hosts.join(", ")}.${task.workflow ? ` ${task.workflow.name} is configured in the repository entry.` : ""}`,
+          );
+        }
+        function deliver(state, task) {
+          const peer = state.participants.find(
+            (entry) => entry.id === task.participantId,
+          );
+          const waiting = [];
+          for (const delivery of task.deliveries.filter(
+            (entry) => entry.outcome === "not_attempted",
+          )) {
+            const device = state.devices.find(
+              (entry) => entry.id === delivery.host,
+            );
+            const reserved = state.tasks.some(
+              (other) =>
+                other.id !== task.id &&
+                other.deliveries.some(
+                  (entry) =>
+                    entry.participantId === delivery.participantId &&
+                    entry.host === delivery.host &&
+                    ["attempting", "accepted", "unknown"].includes(
+                      entry.outcome,
+                    ) &&
+                    !entry.reply,
+                ),
+            );
+            if (!device.reachable || peer.busy || reserved) {
+              waiting.push(delivery.host);
+              continue;
+            }
+            delivery.outcome = "attempting";
+            delivery.attempts++;
+            log(
+              state,
+              "Code",
+              `Recorded ${task.id}/${task.messageId}/${delivery.sessionId} before delivery to ${delivery.host}.`,
+            );
+            log(
+              state,
+              "Adapter",
+              `${peer.adapter} invoked once for ${peer.name} on ${delivery.host}.`,
+            );
+          }
+          task.reason = waiting.length
+            ? `Waiting for ${waiting.join(", ")}: unreachable, busy or an earlier delivery is unresolved.`
+            : null;
+          updateDeliveryState(task);
+          state.notice =
+            task.reason ||
+            "Delivery attempted. Record acceptance with the next router step, or return the result when work is done.";
+          if (waiting.length)
+            log(
+              state,
+              "Code",
+              `${task.reason} The selected participant is preserved.`,
+            );
+        }
+        function resultText(state, task, delivery) {
+          if (task.participantId === "environment") {
+            const device = state.devices.find(
+              (entry) => entry.id === delivery.host,
+            );
+            device.observedRevision = device.actualRevision;
+            return `${device.id}: harness + environment at ${device.actualRevision}; ${device.actualRevision === device.configuredRevision ? "matches dotfiles" : `drift from dotfiles ${device.configuredRevision}`}.`;
+          }
+          if (task.workflow)
+            return `Orchestrator prepared and reviewed the ${task.repo} change using ${task.workflow.name} on mbp. Scope: ${task.scope.join(", ")}. No config rollout is modeled.`;
+          if (task.participantId === "incus")
+            return "Incus service: scratch-vm is ready on lab01. Result addressed to the orchestrator.";
+          if (task.participantId === "knowledge")
+            return "Knowledge assistant on mini: your Incus notes summary is ready.";
+          return "Orchestrator: the configured coding workflow status is available.";
+        }
+        function reduce(previous, originalAction) {
           const state = structuredClone(previous);
+          let action = originalAction;
           const task = current(state);
-          const say = (text) => {
-            state.notice = text;
-          };
           const reject = (text) => {
-            say(text);
+            state.notice = text;
             log(state, "Code", text);
           };
-          const observeCaller = () => {
-            if (state.callerConnected) {
-              const latest = current(state);
-              state.callerSaw = latest
-                ? `${latest.id}: ${latest.status}`
-                : "No request";
-            }
-          };
-          // Repeat/conflict controls construct inputs for the same acceptance path.
-          if (action.type === "duplicate" || action.type === "conflict") {
+          if (["duplicate", "conflict"].includes(action.type)) {
             if (!task) {
               reject("Accept a request before repeating its identity.");
               return state;
@@ -862,12 +1248,14 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
             action = {
               type: "submit",
               message: {
-                messageId: task.messageId,
                 source: task.source,
+                messageId: task.messageId,
                 text:
                   action.type === "conflict"
-                    ? `${task.text} [changed content]`
+                    ? `${task.text} [changed]`
                     : task.text,
+                repo: task.repo,
+                scope: [...task.scope],
                 target: task.explicitTarget,
               },
             };
@@ -875,557 +1263,507 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
           if (action.type === "preset") {
             if (!presets[action.value]) return state;
             state.preset = action.value;
-            say(
-              "Example changed. Accept it to create a new request; an existing message is never rewritten.",
-            );
+            state.notice =
+              "Example selected. Use a new message ID when submitting new work.";
           } else if (action.type === "selectTask") {
-            if (!state.tasks.some((record) => record.id === action.value))
+            if (!state.tasks.some((entry) => entry.id === action.value))
               return state;
             state.currentId = action.value;
-            say(
-              `Inspecting ${action.value}. Other accepted requests keep their recorded state.`,
-            );
+            state.notice = `Inspecting ${action.value}; all other requests retain their state.`;
+          } else if (action.type === "view") {
+            if (
+              !state.devices.some((device) => device.id === action.device) ||
+              !["Paseo", "herdr"].includes(action.surface)
+            )
+              return state;
+            state.viewer = {
+              ...state.viewer,
+              device: action.device,
+              surface: action.surface,
+              connected: true,
+            };
+            state.notice = `Viewing the same agents and requests through ${action.surface} on ${action.device}. No agent or work moved.`;
+            log(state, "View", state.notice);
+          } else if (
+            action.type === "disconnect" ||
+            action.type === "reconnect"
+          ) {
+            state.viewer.connected = action.type === "reconnect";
+            state.notice = state.viewer.connected
+              ? "View reconnected to the central journal."
+              : "View closed. The control plane and participants continue independently.";
+            log(state, "View", state.notice);
           } else if (action.type === "submit") {
-            // callerConnected describes the watching connection, not admission.
             const message = action.message;
             if (
               !message ||
-              ["messageId", "source", "text"].some(
+              ["source", "messageId", "text"].some(
                 (key) =>
                   typeof message[key] !== "string" || !message[key].trim(),
-              )
+              ) ||
+              !Array.isArray(message.scope)
             ) {
-              reject("A submission needs a source, message ID, and text.");
+              reject(
+                "A request needs its source, message ID, text and device scope.",
+              );
               return state;
             }
             const target = message.target ?? null;
+            const repo = message.repo ?? null;
+            const scope = [...new Set(message.scope)].sort();
             const existing = state.tasks.find(
-              (record) =>
-                record.source === message.source &&
-                record.messageId === message.messageId,
+              (entry) =>
+                entry.source === message.source &&
+                entry.messageId === message.messageId,
             );
             if (existing) {
               if (
                 existing.text !== message.text ||
-                existing.explicitTarget !== target
+                existing.repo !== repo ||
+                existing.explicitTarget !== target ||
+                JSON.stringify(existing.scope) !== JSON.stringify(scope)
               ) {
                 reject(
-                  `Rejected ${message.source}/${message.messageId}: that identity already has different content.`,
+                  `Rejected ${message.source}/${message.messageId}: this identity already has different content.`,
                 );
                 return state;
               }
               state.currentId = existing.id;
-              log(
-                state,
-                "Code",
-                `Returned existing receipt ${existing.id} for ${message.source}/${message.messageId}. No judgment or delivery repeated.`,
-              );
-              say(
-                `Same identity and content: same ${existing.id}. Delivery attempts remain ${existing.delivery.attempts}.`,
-              );
-              observeCaller();
+              state.notice = `Existing receipt ${existing.id}. No decision or delivery repeated.`;
+              log(state, "Code", state.notice);
+              observe(state);
               return state;
             }
-            if (target && !state.peers.some((peer) => peer.id === target)) {
+            if (
+              (target &&
+                !state.participants.some((peer) => peer.id === target)) ||
+              (repo &&
+                !state.repositories.some(
+                  (entry) =>
+                    entry.id === repo && entry.owner === state.githubIdentity,
+                )) ||
+              scope.some(
+                (host) => !state.devices.some((device) => device.id === host),
+              )
+            ) {
               reject(
-                "That target is not registered. Add the script adapter before sending to local-check.",
+                "Use a registered participant, repository and device scope.",
               );
               return state;
             }
-            const number = state.nextId++;
+            const preset =
+              Object.keys(presets).find(
+                (key) => presets[key].text === message.text,
+              ) || "vague";
             const added = {
-              id: `T${number}`,
+              id: `T${state.nextId++}`,
               messageId: message.messageId,
               source: message.source,
+              origin:
+                message.source === "you"
+                  ? `${state.viewer.surface} on ${state.viewer.device}`
+                  : "Orchestrator on mbp",
               text: message.text,
-              preset:
-                Object.keys(presets).find(
-                  (key) => presets[key].text === message.text,
-                ) || "vague",
+              repo,
+              scope,
               explicitTarget: target,
+              preset,
               status: "accepted",
               phase: "route",
-              peerId: null,
+              participantId: null,
               candidates: [],
               loadedDetails: [],
               judgments: [],
-              delivery: {
-                outcome: "not_attempted",
-                attempts: 0,
-                sessionId: null,
-              },
-              reply: null,
+              deliveries: [],
+              workflow: null,
+              result: null,
               reason: null,
             };
             state.tasks.push(added);
             state.currentId = added.id;
-            log(
-              state,
-              "Code",
-              `Recorded ${added.messageId} as ${added.id} before routing. The caller now has a receipt.`,
-            );
-            say("The router owns the request now. The caller may disconnect.");
+            state.notice = `${added.id} recorded. The control plane owns communication; the caller can leave.`;
+            log(state, "Code", state.notice);
           } else if (action.type === "advance") {
             if (!task) {
-              reject("Accept a request before advancing the router.");
+              reject("Accept a request first.");
               return state;
             }
             if (task.status === "accepted") {
               if (task.explicitTarget) {
-                task.peerId = task.explicitTarget;
-                task.status = "ready";
-                task.phase = "delivery";
-                log(
-                  state,
-                  "Code",
-                  `Exact target ${task.peerId}; no Jev judgment is needed.`,
-                );
-                say(
-                  "Code resolved the known target. Next, check availability and attempt delivery.",
-                );
+                resolve(state, task, task.explicitTarget);
+                state.notice =
+                  "Known address resolved by code. No Jev judgment needed.";
               } else {
-                const fixture =
-                  task.preset === "vague"
-                    ? { payments: 0.05, docs: 0.05, no_match: 0.9 }
-                    : task.preset === "context"
-                      ? { payments: 0.55, docs: 0.4, no_match: 0.05 }
-                      : { payments: 0.92, docs: 0.06, no_match: 0.02 };
                 const probabilities = {
-                  no_match: fixture.no_match,
-                  ...Object.fromEntries(
-                    state.peers.map((peer) => [peer.id, fixture[peer.id] || 0]),
-                  ),
+                  ...(firstJudgments[task.preset] || firstJudgments.vague),
                 };
                 const ranked = Object.entries(probabilities).sort(
                   (a, b) => b[1] - a[1],
                 );
                 const choice = ranked[0][0];
                 task.judgments.push({
-                  stage: "1. Rank owners",
-                  evidence: "Request + brief endpoint responsibilities",
+                  stage: "1. Interpret responsibility",
+                  evidence: "Request + brief participant descriptions",
                   choice,
                   probabilities,
                 });
                 log(
                   state,
                   "Jev",
-                  `Scripted Choice selected ${choice} and returned probabilities for the listed options.`,
+                  `Scripted Choice selected ${choice} and returned probabilities.`,
                 );
                 if (choice === "no_match") {
-                  task.status = "deferred";
-                  task.phase = "stopped";
-                  task.reason = "The request needs clarification.";
-                  log(
-                    state,
-                    "Jev",
-                    "Scripted judgment: no clear owner. No message was sent.",
-                  );
-                  say(
-                    "Abstention is a useful outcome. Clarify the request before trying again.",
-                  );
+                  task.status = "needs clarification";
+                  task.reason =
+                    "The request gives too little context to choose a participant.";
+                  state.notice =
+                    "Clarification needed. No workflow or delivery started.";
                 } else {
                   task.candidates = ranked
                     .filter(
                       ([id]) =>
                         id !== "no_match" &&
-                        state.peers.some((peer) => peer.id === id),
+                        state.participants.some((peer) => peer.id === id),
                     )
                     .slice(0, 2)
                     .map(([id]) => id);
                   task.status = "routing";
                   task.phase = "context";
-                  log(
-                    state,
-                    "Code",
-                    `Kept the top two endpoint options by probability: ${task.candidates.join(", ")}. No-match is excluded from the shortlist.`,
-                  );
-                  say(
-                    "Code derived a shortlist from the first judgment's probabilities. Next, load those endpoint details.",
-                  );
+                  state.notice = `Code kept ${task.candidates.join(" + ")}. Next, load their full responsibilities.`;
+                  log(state, "Code", state.notice);
                 }
               }
             } else if (task.status === "routing" && task.phase === "context") {
-              task.loadedDetails = state.peers
-                .filter((peer) => task.candidates.includes(peer.id))
-                .map(({ id, details }) => ({ id, details }));
+              task.loadedDetails = task.candidates.map((id) => {
+                const peer = state.participants.find(
+                  (entry) => entry.id === id,
+                );
+                return { id, details: peer.details };
+              });
               task.phase = "select";
-              log(
-                state,
-                "Code",
-                "Loaded full responsibility notes for the shortlist. This adds evidence for the next judgment.",
-              );
-              say(
-                "New evidence is now available. A second judgment can distinguish ownership more precisely.",
-              );
+              state.notice =
+                "Full responsibility notes add new evidence for the second decision.";
+              log(state, "Code", state.notice);
             } else if (task.status === "routing" && task.phase === "select") {
-              const choice = task.preset === "context" ? "docs" : "payments";
-              const probabilities =
-                choice === "docs"
-                  ? { payments: 0.05, docs: 0.92, no_match: 0.03 }
-                  : { payments: 0.95, docs: 0.03, no_match: 0.02 };
+              const choice =
+                task.preset === "knowledge" ? "knowledge" : "orchestrator";
+              const probabilities = Object.fromEntries([
+                ...task.candidates.map((id) => [
+                  id,
+                  id === choice ? 0.95 : 0.03,
+                ]),
+                ["no_match", 0.02],
+              ]);
               task.judgments.push({
-                stage: "2. Select with details",
-                evidence: "Request + newly loaded full responsibility notes",
+                stage: "2. Select with full context",
+                evidence: "Request + newly loaded responsibility notes",
                 choice,
                 probabilities,
               });
-              task.peerId = choice;
-              task.status = "ready";
-              task.phase = "delivery";
               log(
                 state,
                 "Jev",
-                `Scripted judgment 2 chose ${choice} using the fuller notes. The two-judgment budget is used.`,
+                `Scripted Choice selected ${choice} using the fuller notes.`,
               );
-              say(
-                `Owner selected: ${choice}. Code will check availability before sending.`,
-              );
-            } else if (task.status === "ready") {
-              const peer = state.peers.find(
-                (entry) => entry.id === task.peerId,
-              );
-              const reserved = state.tasks.some(
-                (other) =>
-                  other.id !== task.id &&
-                  other.peerId === task.peerId &&
-                  ["attempting", "accepted", "unknown"].includes(
-                    other.delivery.outcome,
-                  ) &&
-                  other.status !== "completed" &&
-                  other.status !== "failed",
-              );
-              if (peer.busy || reserved) {
-                task.status = "deferred";
-                task.phase = "stopped";
-                task.reason =
-                  "The selected owner is busy or has an unresolved delivery.";
-                log(
-                  state,
-                  "Code",
-                  `${peer.id} is unavailable. Ownership was preserved; no substitute and no delivery.`,
-                );
-                say(
-                  "A free endpoint is not automatically the right owner. This request is deferred.",
-                );
-              } else {
-                task.delivery = {
-                  outcome: "attempting",
-                  attempts: 1,
-                  sessionId: `${peer.adapter}-${task.id}`,
-                };
-                task.status = "delivering";
-                task.phase = "receipt";
-                log(
-                  state,
-                  "Code",
-                  `Recorded an attempt for ${task.id}/${task.messageId}/${task.delivery.sessionId} before the adapter call.`,
-                );
+              resolve(state, task, choice);
+              state.notice = `Selected ${choice}. Code resolves its host and configured workflow.`;
+            } else if (
+              task.deliveries.some(
+                (delivery) => delivery.outcome === "attempting",
+              )
+            ) {
+              for (const delivery of task.deliveries.filter(
+                (entry) => entry.outcome === "attempting",
+              )) {
+                delivery.outcome = "accepted";
                 log(
                   state,
                   "Adapter",
-                  `${peer.adapter} adapter invoked once for ${peer.id}. Native acceptance is not yet known.`,
-                );
-                say(
-                  "Delivery was attempted. Next can simulate an acceptance receipt, or return a matching result directly.",
+                  `${delivery.host} accepted ${task.messageId}. A result is still outstanding.`,
                 );
               }
-            } else if (task.status === "delivering") {
-              task.delivery.outcome = "accepted";
-              task.status = "waiting for reply";
-              task.phase = "reply";
-              log(
-                state,
-                "Adapter",
-                "Simulated transport receipt: accepted. The task still has no result.",
-              );
-              say(
-                "Accepted delivery is not completed work. Return a matching reply when the endpoint finishes.",
-              );
-            } else if (task.status === "unknown")
+              updateDeliveryState(task);
+              state.notice = task.workflow
+                ? "The orchestrator received the request. Advance its configured workflow separately."
+                : "Acceptance recorded. Return each device's matching result.";
+            } else if (
+              task.deliveries.some(
+                (delivery) => delivery.outcome === "not_attempted",
+              )
+            )
+              deliver(state, task);
+            else if (task.status === "unknown")
               reject(
-                "The delivery is uncertain. Advancing cannot resend it; a matching reply may still resolve it.",
-              );
-            else if (task.status === "waiting for reply")
-              reject(
-                "The router is waiting for a correlated reply. Global agent activity does not complete this request.",
+                "Delivery is uncertain. No automatic resend; a matching late reply can resolve it.",
               );
             else
               reject(
-                "There is no automatic next step for this request. Its recorded outcome stays visible.",
+                "No router step is pending. A participant must return its result, or the request needs clarification.",
               );
-          } else if (action.type === "reply" || action.type === "wrongReply") {
+          } else if (action.type === "work") {
             if (
-              !task ||
-              !["delivering", "waiting for reply", "unknown"].includes(
-                task.status,
-              )
+              !task?.workflow ||
+              !task.deliveries.some((delivery) =>
+                ["attempting", "accepted", "unknown"].includes(
+                  delivery.outcome,
+                ),
+              ) ||
+              task.workflow.completed === task.workflow.stages.length
             ) {
-              reject("There is no outstanding delivery to reply to.");
+              reject(
+                "There is no pending orchestrator workflow step for this request.",
+              );
+              return state;
+            }
+            const step = task.workflow.stages[task.workflow.completed++];
+            state.notice = `Orchestrator completed “${step}”. Its configured workflow owns this sequence; Jev usage is unchanged.`;
+            log(state, "Orchestrator", state.notice);
+          } else if (
+            ["reply", "wrongReply", "wrongHost"].includes(action.type)
+          ) {
+            const delivery = outstanding(task);
+            if (!delivery) {
+              reject("There is no outstanding device delivery to reply to.");
               return state;
             }
             const reply = {
               taskId: task.id,
               inReplyTo:
-                action.type === "wrongReply" ? "M-OLD" : task.messageId,
-              sessionId: task.delivery.sessionId,
-              text: `Simulated result from ${task.peerId}: ${task.text}`,
+                action.type === "wrongReply"
+                  ? `${task.messageId}-other`
+                  : task.messageId,
+              participantId: delivery.participantId,
+              host:
+                action.type === "wrongHost"
+                  ? `${delivery.host}-other`
+                  : delivery.host,
+              sessionId: delivery.sessionId,
             };
             if (
               reply.taskId !== task.id ||
               reply.inReplyTo !== task.messageId ||
-              reply.sessionId !== task.delivery.sessionId
+              reply.participantId !== delivery.participantId ||
+              reply.host !== delivery.host ||
+              reply.sessionId !== delivery.sessionId
             ) {
-              log(
-                state,
-                "Code",
-                `Rejected reply for ${reply.inReplyTo}; the outstanding message is ${task.messageId}.`,
+              reject(
+                "Rejected reply: task, message, participant, device and session must all match. Nothing completed.",
               );
-              say("The mismatched reply changed no task or delivery state.");
-            } else {
-              task.reply = reply;
-              task.delivery.outcome = "accepted";
-              task.status = "completed";
-              task.phase = "done";
-              log(
-                state,
-                "Code",
-                `Matched task, message, and endpoint session. Stored ${task.id}'s result in the journal.`,
-              );
-              say(
-                state.callerConnected
-                  ? "The caller can read the completed result."
-                  : "The result is stored even though the caller is disconnected. Reconnect to read it.",
-              );
+              return state;
             }
-          } else if (
-            action.type === "disconnect" ||
-            action.type === "reconnect"
-          ) {
-            state.callerConnected = action.type === "reconnect";
+            if (
+              task.workflow &&
+              task.workflow.completed < task.workflow.stages.length
+            ) {
+              reject(
+                "The modeled orchestrator workflow is still running. Complete its remaining steps before returning its final result.",
+              );
+              return state;
+            }
+            reply.text = resultText(state, task, delivery);
+            delivery.reply = reply;
+            delivery.outcome = "accepted";
+            updateDeliveryState(task);
             log(
               state,
-              "Caller",
-              state.callerConnected
-                ? "Reconnected and read the current task record."
-                : "Disconnected. The router retains the task and continues independently.",
+              "Code",
+              `Stored matching reply from ${delivery.host} for ${task.id}/${task.messageId}.`,
             );
-            say(
-              state.callerConnected
-                ? "The caller sees the latest recorded state."
-                : "Only the caller connection changed. Keep advancing the router.",
-            );
+            state.notice =
+              task.status === "completed"
+                ? `Result collected for ${task.source}. It is available from any view, even if the original view is closed.`
+                : "Partial result stored. Other devices retain their own delivery state.";
           } else if (action.type === "restart") {
             state.boot++;
             for (const record of state.tasks) {
-              if (record.delivery.outcome === "attempting") {
-                record.delivery.outcome = "unknown";
-                record.status = "unknown";
-                record.phase = "parked";
+              let changed = false;
+              for (const delivery of record.deliveries)
+                if (delivery.outcome === "attempting") {
+                  delivery.outcome = "unknown";
+                  changed = true;
+                }
+              if (changed) {
+                updateDeliveryState(record);
                 record.reason =
-                  "Restart found an attempt without a conclusive outcome.";
+                  "Restart found an attempt with no conclusive receipt.";
               }
             }
-            log(
-              state,
-              "Code",
-              `Router process ${state.boot} reconstructed state from the modeled journal. No delivery was replayed.`,
+            state.notice = `Simulated router boot ${state.boot}. Recorded attempts become unknown; none are replayed.`;
+            log(state, "Code", state.notice);
+          } else if (
+            action.type === "loseReceipt" ||
+            action.type === "notSent"
+          ) {
+            const delivery = task?.deliveries.find(
+              (entry) => entry.outcome === "attempting",
             );
-            say(
-              "Recorded attempts survive this simulated restart. An unfinished send becomes unknown, never an automatic retry.",
-            );
-          } else if (action.type === "loseReceipt") {
-            if (!task || task.delivery.outcome !== "attempting") {
+            if (!delivery) {
               reject(
-                "Lose a delivery response after an attempt and before a conclusive receipt or reply.",
+                "Use this after a delivery attempt and before its receipt or result.",
               );
               return state;
             }
-            task.delivery.outcome = "unknown";
-            task.status = "unknown";
-            task.phase = "parked";
-            task.reason =
-              "The adapter cannot establish whether the endpoint accepted the message.";
-            log(
-              state,
-              "Adapter",
-              "Delivery response lost. The request may already be executing.",
-            );
-            say(
-              "The router parks this delivery. A timeout does not grant permission to send it again.",
-            );
+            delivery.outcome =
+              action.type === "loseReceipt" ? "unknown" : "not_sent";
+            updateDeliveryState(task);
+            state.notice = `${delivery.host}: ${delivery.outcome}. The router will not automatically resend this attempt.`;
+            log(state, "Adapter", state.notice);
+          } else if (action.type === "toggleLab") {
+            const device = state.devices.find((entry) => entry.id === "lab01");
+            device.reachable = !device.reachable;
+            state.notice = `lab01 is ${device.reachable ? "reachable" : "unreachable"} from the control plane. Existing work keeps its owner.`;
+            log(state, "Adapter", state.notice);
           } else if (action.type === "toggleBusy") {
-            const peer = state.peers.find((entry) => entry.id === "payments");
+            const peer = state.participants.find(
+              (entry) => entry.id === "orchestrator",
+            );
             peer.busy = !peer.busy;
-            log(
-              state,
-              "Adapter",
-              `Observed payments as ${peer.busy ? "busy" : "available"}. This does not change who owns a request.`,
-            );
-            say(
-              `Payments is now ${peer.busy ? "busy" : "available"}. Jev still judges responsibility; code handles availability.`,
-            );
-          } else if (action.type === "addAdapter") {
-            if (state.adapters.includes("script")) {
-              reject("The script adapter is already registered.");
-              return state;
-            }
-            state.adapters.push("script");
-            state.peers.push({
-              id: "local-check",
-              adapter: "script",
-              summary: "Runs one configured local check.",
-              details:
-                "A second adapter accepts the same envelope and returns a correlated result. No Claude session orchestrates this endpoint.",
-              busy: false,
-            });
-            log(
-              state,
-              "Code",
-              "Registered the script adapter and local-check endpoint. The task lifecycle and caller contract did not change.",
-            );
-            say(
-              "Select the local-check example and accept it. Its exact target needs no Jev judgment.",
-            );
-          } else if (action.type === "notSent") {
-            if (!task || task.delivery.outcome !== "attempting") {
-              reject(
-                "A definite not-sent report applies to an outstanding delivery attempt.",
-              );
-              return state;
-            }
-            task.delivery.outcome = "not_sent";
-            task.status = "failed";
-            task.phase = "done";
-            task.reason =
-              "The adapter established that delivery did not occur.";
-            log(
-              state,
-              "Adapter",
-              "Definite not-sent evidence recorded. No automatic resend was scheduled.",
-            );
-            say(
-              "This is different from unknown. A deliberate new request can be made after fixing the transport.",
-            );
+            state.notice = `Orchestrator is ${peer.busy ? "busy" : "available"}. Coding work queues for this one agent.`;
+            log(state, "Adapter", state.notice);
+          } else if (action.type === "toggleDrift") {
+            const device = state.devices.find((entry) => entry.id === "mini");
+            device.actualRevision =
+              device.actualRevision === device.configuredRevision
+                ? "cfg-11"
+                : device.configuredRevision;
+            state.notice = `Simulated mini's actual config changing to ${device.actualRevision}. The last observation stays unchanged until a new inspection returns.`;
+            log(state, "Fixture", state.notice);
           }
-          observeCaller();
+          observe(state);
           return state;
         }
-        return { initial, reduce, current, presets };
+        return { initial, reduce, current, outstanding, presets };
       })();
     </script>
     <script>
-      // Throwaway view: all state changes go through the portable model above.
+      // Throwaway view: inputs dispatch actions to the portable model.
       const scenarios = [
         {
-          id: "independent",
-          label: "Caller leaves",
-          preset: "payments",
-          title: "The caller can leave after acceptance",
+          id: "coding",
+          label: "Code from mba",
+          preset: "coding",
+          title: "Start on mba, read the result on mini",
           description:
-            "The service owns the work. Disconnect the caller, finish the exchange, then reconnect to read the result.",
+            "One orchestrator on mbp handles coding for all repositories. Closing Paseo and opening herdr elsewhere changes your view, not the agent or request.",
           steps: [
-            ["Accept the request", "submit"],
-            ["Disconnect the caller", "disconnect"],
-            ["Shortlist owners", "advance"],
-            ["Load their full notes", "advance"],
-            ["Choose the owner", "advance"],
-            ["Attempt delivery", "advance"],
+            ["Accept from mba", "submit"],
+            ["Shortlist responsibilities", "advance"],
+            ["Load full notes", "advance"],
+            ["Select the orchestrator", "advance"],
+            ["Deliver to mbp", "advance"],
             ["Record acceptance", "advance"],
-            ["Return the result", "reply"],
-            ["Reconnect and read", "reconnect"],
+            ["Close the mba view", "disconnect"],
+            ["Orchestrator: implement", "work"],
+            ["Orchestrator: verify", "work"],
+            ["Orchestrator: review", "work"],
+            ["Store its result", "reply"],
+            [
+              "Read through herdr on mini",
+              { type: "view", device: "mini", surface: "herdr" },
+            ],
           ],
         },
         {
-          id: "context",
-          label: "New evidence",
-          preset: "context",
-          title: "The second judgment sees something new",
+          id: "dotfiles",
+          label: "Change dotfiles",
+          preset: "dotfiles",
+          title: "Configuration source changes use the coding workflow",
           description:
-            "“Billing” initially points toward payments. The fuller ownership notes reveal that docs owns this build pipeline. Watch the selected owner change.",
+            "“Harness settings” initially suggests a device service. Fuller responsibilities reveal a dotfiles source change. One orchestrator prepares it for mba, mbp and mini using the configured workflow.",
           steps: [
-            ["Accept the build failure", "submit"],
+            ["Accept the dotfiles change", "submit"],
             ["Shortlist from brief notes", "advance"],
-            ["Load full responsibility notes", "advance"],
-            ["Select using the new evidence", "advance"],
-            ["Deliver to docs", "advance"],
-            ["Return a result directly", "reply"],
+            ["Load who owns source changes", "advance"],
+            ["Select the orchestrator", "advance"],
+            ["Deliver the change request", "advance"],
+            ["Record acceptance", "advance"],
+            ["Edit configuration source", "work"],
+            ["Validate all three profiles", "work"],
+            ["Review the change", "work"],
+            ["Return the prepared change", "reply"],
           ],
         },
         {
-          id: "abstain",
-          label: "No clear owner",
-          preset: "vague",
-          title: "A useful decision can be to stop",
+          id: "environment",
+          label: "Check environments",
+          preset: "environment",
+          title: "One request, three device services, no extra agents",
           description:
-            "This request gives too little information. The model records an abstention and attempts no delivery.",
+            "Inspect the harness and environment configured by dotfiles. Code knows the three destinations, sends one correlated message per device, and collects the observations. Watch mini report drift.",
           steps: [
-            ["Accept the vague request", "submit"],
-            ["Judge ownership", "advance"],
-            ["Try to advance anyway", "advance"],
+            ["Simulate drift on mini", "toggleDrift"],
+            ["Accept the inspection", "submit"],
+            ["Resolve the three profiles", "advance"],
+            ["Send to mba, mbp and mini", "advance"],
+            ["Record device receipts", "advance"],
+            ["Collect mba's observation", "reply"],
+            ["Collect mbp's observation", "reply"],
+            ["Collect mini's observation", "reply"],
           ],
         },
         {
-          id: "adapter",
-          label: "Another adapter",
-          preset: "script",
-          title: "A second endpoint uses the same lifecycle",
+          id: "knowledge",
+          label: "Knowledge work",
+          preset: "knowledge",
+          title: "A technology name is not a destination",
           description:
-            "Register a local script adapter, then submit a scheduled event to its known target. The router owns delivery and the reply without a sending Claude session.",
+            "An Incus notes summary belongs to the knowledge assistant on mini. The second judgment uses fuller responsibility notes to distinguish research from a live VM operation.",
           steps: [
-            ["Register the script adapter", "addAdapter"],
-            ["Accept the scheduled event", "submit"],
-            ["Resolve its explicit target", "advance"],
-            ["Attempt script delivery", "advance"],
-            ["Return its result", "reply"],
+            ["Accept the notes request", "submit"],
+            ["Shortlist Incus and knowledge", "advance"],
+            ["Load their responsibilities", "advance"],
+            ["Select the knowledge assistant", "advance"],
+            ["Deliver to mini", "advance"],
+            ["Return the summary", "reply"],
           ],
         },
         {
-          id: "restart",
+          id: "incus",
+          label: "Incus request",
+          preset: "vm",
+          title: "The orchestrator can call a service through the router",
+          description:
+            "Model a request from the orchestrator for a scratch micro VM. It has an exact destination, so needs no Jev decision. lab01 can be unreachable without changing ownership or creating another agent.",
+          steps: [
+            ["Make lab01 unreachable", "toggleLab"],
+            ["Accept the orchestrator's request", "submit"],
+            ["Resolve the Incus service", "advance"],
+            ["Queue for lab01", "advance"],
+            ["Bring lab01 back", "toggleLab"],
+            ["Deliver the queued request", "advance"],
+            ["Return the VM result", "reply"],
+          ],
+        },
+        {
+          id: "uncertain",
           label: "Uncertain delivery",
           preset: "directed",
-          title: "A crash is not permission to resend",
+          title: "A restart keeps the identity and the uncertainty",
           description:
-            "Restart after an attempted send. The router keeps the uncertainty and deduplicates a repeated request. A late matching reply can still resolve it.",
+            "Ask the orchestrator for status, then simulate a restart during delivery. Repeating the request returns the same receipt. A wrong reply changes nothing; a matching late result resolves the uncertainty.",
           steps: [
-            ["Accept a directed request", "submit"],
-            ["Resolve the target", "advance"],
+            ["Accept the status request", "submit"],
+            ["Resolve its known address", "advance"],
             ["Attempt delivery", "advance"],
             ["Restart before a receipt", "restart"],
-            ["Repeat the original request", "duplicate"],
+            ["Repeat the same request", "duplicate"],
             ["Try to advance", "advance"],
-            ["Receive the late result", "reply"],
+            ["Reject another message's reply", "wrongReply"],
+            ["Reject another device's reply", "wrongHost"],
+            ["Collect the matching late reply", "reply"],
           ],
         },
         {
-          id: "reply",
-          label: "Wrong reply",
-          preset: "directed",
-          title: "Activity alone cannot complete a task",
+          id: "vague",
+          label: "Unclear request",
+          preset: "vague",
+          title: "Ask for context before involving an agent",
           description:
-            "A reply to another message is not evidence about this request. Compare a rejected mismatched reply with the correctly correlated result.",
+            "The router can stop when a request is too vague. No participant, device operation or workflow starts.",
           steps: [
-            ["Accept the request", "submit"],
-            ["Resolve the target", "advance"],
-            ["Attempt delivery", "advance"],
-            ["Record acceptance", "advance"],
-            ["Receive a mismatched reply", "wrongReply"],
-            ["Receive the matching result", "reply"],
-          ],
-        },
-        {
-          id: "busy",
-          label: "Busy owner",
-          preset: "payments",
-          title: "Availability does not redefine ownership",
-          description:
-            "Make payments busy. Jev still selects the responsible endpoint, and code defers delivery instead of handing payment work to docs.",
-          steps: [
-            ["Mark payments busy", "toggleBusy"],
-            ["Accept the payment request", "submit"],
-            ["Shortlist owners", "advance"],
-            ["Load full notes", "advance"],
-            ["Select payments", "advance"],
-            ["Check availability", "advance"],
+            ["Accept the vague request", "submit"],
+            ["Judge the responsibility", "advance"],
+            ["Try to continue anyway", "advance"],
           ],
         },
       ];
@@ -1433,140 +1771,106 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
       let scenarioIndex = 0;
       let stepIndex = 0;
       let guided = true;
-      let nextMessageId = 1;
-      let draftMessageId = "M1";
       const $ = (id) => document.getElementById(id);
       const escape = (value) =>
         String(value ?? "").replace(
           /[&<>"']/g,
-          (character) =>
+          (char) =>
             ({
               "&": "&amp;",
               "<": "&lt;",
               ">": "&gt;",
               '"': "&quot;",
               "'": "&#39;",
-            })[character],
+            })[char],
         );
-      const facts = (entries) =>
-        `<dl class="facts">${entries.map(([key, value]) => `<div><dt>${escape(key)}</dt><dd>${escape(value)}</dd></div>`).join("")}</dl>`;
-
-      function freshMessageId() {
-        let id;
-        do {
-          id = `M${++nextMessageId}`;
-        } while (state.tasks.some((task) => task.messageId === id));
-        return id;
+      const pretty = (value) => value.replaceAll("_", " ");
+      const participantName = (id) =>
+        state.participants.find((peer) => peer.id === id)?.name ||
+        (id === "no_match" ? "No match" : id || "Unselected");
+      const fact = (name, value) =>
+        `<div><dt>${escape(name)}</dt><dd>${escape(value)}</dd></div>`;
+      function dispatch(action, fromGuide = false) {
+        if (typeof action === "string") action = { type: action };
+        if (action.type === "submit") {
+          const preset = RouterModel.presets[state.preset];
+          action = {
+            type: "submit",
+            message: {
+              source: preset.source,
+              messageId: $("message-id").value.trim(),
+              text: preset.text,
+              repo: preset.repo,
+              scope: [...preset.scope],
+              target: preset.target,
+            },
+          };
+        }
+        state = RouterModel.reduce(state, action);
+        if (!fromGuide) guided = false;
       }
-
       function startScenario(index) {
         scenarioIndex = index;
         stepIndex = 0;
         guided = true;
-        nextMessageId = 1;
-        draftMessageId = "M1";
         state = RouterModel.initial(scenarios[index].preset);
-        state.notice =
-          "Walkthrough ready. Press its first numbered step below.";
+        $("message-id").value = "M1";
         render();
       }
-      function dispatch(type, value, fromWalkthrough = false) {
-        if (!fromWalkthrough) guided = false;
-        if (type === "preset") draftMessageId = freshMessageId();
-        const preset = RouterModel.presets[state.preset];
-        const action =
-          type === "submit"
-            ? {
-                type,
-                message: {
-                  messageId: draftMessageId,
-                  source: preset.source,
-                  text: preset.text,
-                  target: preset.target,
-                },
-              }
-            : { type, value };
-        state = RouterModel.reduce(state, action);
-        if (fromWalkthrough) stepIndex++;
-        render();
-      }
-      function render() {
+      function renderCurrent() {
         const task = RouterModel.current(state);
-        $("message-id").value = draftMessageId;
         $("task-picker").innerHTML = state.tasks.length
           ? state.tasks
               .map(
                 (record) =>
-                  `<option value="${record.id}" ${record.id === state.currentId ? "selected" : ""}>${escape(`${record.id}: ${record.text} (${record.status})`)}</option>`,
+                  `<option value="${record.id}" ${record.id === state.currentId ? "selected" : ""}>${record.id} · ${escape(record.repo || record.source)} · ${escape(record.status)}</option>`,
               )
               .join("")
-          : '<option value="">No requests yet</option>';
-        $("task-picker").disabled = state.tasks.length === 0;
-        $("request-preset").innerHTML = Object.entries(RouterModel.presets)
+          : "<option>No requests yet</option>";
+        if (!task) {
+          $("current-state").innerHTML =
+            '<p class="message muted">No request yet. Start a walkthrough or choose an example below.</p>';
+          return;
+        }
+        const next = RouterModel.outstanding(task);
+        $("current-state").innerHTML =
+          `<div class="summary request-controls"><div><span class="label">State</span><span class="value">${escape(task.status)}</span></div><div><span class="label">Participant</span><span class="value">${escape(participantName(task.participantId))}</span></div><div><span class="label">Jev judgments</span><span class="value">${task.judgments.length}</span></div><div><span class="label">Delivery attempts</span><span class="value">${task.deliveries.reduce((sum, entry) => sum + entry.attempts, 0)}</span></div></div>
+          <div class="message"><p><strong>${escape(task.text)}</strong></p><dl class="facts">${fact("Message", `${task.id} · ${task.source}/${task.messageId}`)}${fact("Submitted from", task.origin)}${fact("Repository", task.repo ? `${state.githubIdentity}/${task.repo}` : "No repository needed")}${fact("Device scope", task.scope.join(", ") || "Unspecified")}${fact("Runs on", task.deliveries.map((entry) => entry.host).join(", ") || "Not resolved")}${fact("Result goes to", task.source)}${fact("View last saw", state.viewer.saw)}${fact("Next reply", next ? `${participantName(next.participantId)} on ${next.host}` : "None outstanding")}</dl></div>
+          ${task.workflow ? `<div class="message"><h3>${escape(task.workflow.name)} <span class="tag">Owned by Orchestrator</span></h3><ol class="flow">${task.workflow.stages.map((stage, index) => `<li class="${index < task.workflow.completed ? "done" : index === task.workflow.completed ? "current" : ""}">${index < task.workflow.completed ? "✓ " : ""}${escape(stage)}</li>`).join("")}</ol><p class="hint request-controls">Configured steps. Advancing the orchestrator does not spend another Jev judgment.</p></div>` : ""}
+          ${task.reason ? `<p class="note request-controls">${escape(task.reason)}</p>` : ""}
+          ${task.deliveries.length ? `<div class="scroll request-controls"><table><caption>Delivery per device</caption><thead><tr><th>Device</th><th>Delivery</th><th>Attempts</th><th>Result</th></tr></thead><tbody>${task.deliveries.map((entry) => `<tr><td>${escape(entry.host)}</td><td>${escape(pretty(entry.outcome))}</td><td>${entry.attempts}</td><td>${entry.reply ? escape(entry.reply.text) : "Pending"}</td></tr>`).join("")}</tbody></table></div>` : ""}
+          ${task.result ? `<div class="note request-controls"><strong>Collected result</strong><p class="result-text">${escape(task.result)}</p></div>` : ""}`;
+      }
+      function renderFleet() {
+        $("fleet").innerHTML = state.devices
           .map(
-            ([key, preset]) =>
-              `<option value="${key}" ${key === state.preset ? "selected" : ""}>${escape(preset.label)}</option>`,
+            (device) =>
+              `<article class="panel"><div class="peer-head"><h3>${device.id}</h3><span class="tag">${device.reachable ? "Reachable" : "Unreachable"}</span></div><p><strong>${escape(device.role)}</strong></p><p class="hint">${escape(device.hosts)}</p><dl class="facts">${fact("Profile", device.profile)}${fact("Config owner", device.dotfiles ? "dotfiles" : "Incus host configuration")}${device.dotfiles ? fact("Expected", device.configuredRevision) + fact("Last observed", device.observedRevision ? `${device.observedRevision}${device.observedRevision === device.configuredRevision ? " · matches" : " · drift"}` : "Not inspected") : fact("Agent required", "No - service adapter")}</dl></article>`,
           )
           .join("");
-        $("adapter-caption").textContent =
-          state.adapters.length === 1
-            ? "Claude first"
-            : "Claude + local script";
-        const stageIndex = !task
-          ? -1
-          : ({
-              accepted: 0,
-              routing: 1,
-              ready: 2,
-              delivering: 3,
-              "waiting for reply": 4,
-              completed: 5,
-            }[task.status] ?? -1);
-        $("current-state").innerHTML = `<div class="summary">
-          <div><span class="label">Request state</span><span class="value">${escape(task?.status || "Not started")}</span></div>
-          <div><span class="label">Owner</span><span class="value">${escape(task?.peerId || "Undecided")}</span></div>
-          <div><span class="label">Jev judgments</span><span class="value">${task?.judgments.length || 0} / 2</span></div>
-          <div><span class="label">Delivery attempts</span><span class="value">${task?.delivery.attempts || 0}</span></div>
-          </div><div class="message"><p>${task ? escape(task.text) : "No request has been accepted yet."}</p>
-          <span class="hint">Watching caller ${state.callerConnected ? "connected" : "disconnected"} · Last seen: ${escape(state.callerSaw)} · Router process ${state.boot}</span></div>
-          ${task?.reason ? `<p class="note" style="margin-top: 12px">${escape(task.reason)}</p>` : ""}
-          ${task?.reply ? `<p class="note" style="margin-top: 12px"><strong>Stored result:</strong> ${escape(task.reply.text)}</p>` : ""}
-          <ol class="flow" aria-label="Lifecycle stages">${["Accepted", "Routing", "Ready", "Attempted", "Waiting for reply", "Completed"].map((label, index) => `<li class="${index === stageIndex ? "current" : index < stageIndex ? "done" : ""}">${label}</li>`).join("")}</ol>`;
-        $("notice").textContent = state.notice;
-        $("directory").innerHTML = state.peers
-          .map((peer) => {
-            const reserved = state.tasks.find(
-              (record) =>
-                record.peerId === peer.id &&
-                ["attempting", "accepted", "unknown"].includes(
-                  record.delivery.outcome,
-                ) &&
-                !["completed", "failed"].includes(record.status),
-            );
-            const availability = peer.busy
-              ? "Busy"
-              : reserved
-                ? `Reserved by ${reserved.id}`
-                : "Available";
-            return `<div class="peer"><div class="peer-head"><strong>${escape(peer.id)}</strong><span class="tag">${escape(peer.adapter)} adapter</span><span class="tag">${escape(availability)}</span></div><p>${escape(peer.summary)}</p><p class="hint">${escape(peer.details)}</p></div>`;
-          })
+        $("directory").innerHTML = state.participants
+          .map(
+            (peer) =>
+              `<div class="peer"><div class="peer-head"><strong>${escape(peer.name)}</strong><span class="tag">${peer.kind}</span><span class="tag">${peer.host || "mba / mbp / mini"}</span>${peer.busy ? '<span class="tag">Busy</span>' : ""}</div><p>${escape(peer.details)}</p></div>`,
+          )
           .join("");
-        $("journal").innerHTML = task
-          ? facts([
-              ["Task / message", `${task.id} / ${task.messageId}`],
-              ["Source", task.source],
-              ["Code shortlist", task.candidates.join(", ") || "None"],
-              ["Delivery evidence", task.delivery.outcome],
-              ["Endpoint session", task.delivery.sessionId || "Not assigned"],
-              ["Return address", `Router task ${task.id}`],
-              [
-                "Stored reply",
-                task.reply ? `Matched ${task.reply.inReplyTo}` : "None",
-              ],
-              ["Recorded tasks", state.tasks.length],
-              ["Automatic resend", "Never"],
-            ])
-          : `<p class="muted">Acceptance will create a task record before the first decision.</p>`;
+        $("repositories").innerHTML = state.repositories
+          .map(
+            (repo) =>
+              `<div class="peer"><strong>${escape(repo.owner)}/${escape(repo.id)}</strong><p>Owner: Orchestrator · ${escape(repo.label)}</p><p class="hint">${escape(repo.stages.join(" → "))}</p></div>`,
+          )
+          .join("");
+      }
+      function renderEvidence() {
+        const task = RouterModel.current(state);
+        $("journal").innerHTML = state.tasks.length
+          ? state.tasks
+              .map(
+                (record) =>
+                  `<div class="peer"><strong>${record.id} · ${escape(record.source)}/${escape(record.messageId)}</strong><p>${escape(record.status)} · ${escape(participantName(record.participantId))}</p><p class="hint">${record.deliveries.filter((entry) => entry.reply).length}/${record.deliveries.length} device results · ${record.deliveries.reduce((sum, entry) => sum + entry.attempts, 0)} attempts</p></div>`,
+              )
+              .join("")
+          : '<p class="muted">Accepted requests will appear here.</p>';
         $("decisions").innerHTML = task?.judgments.length
           ? task.judgments
               .map(
@@ -1574,29 +1878,31 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
                   `<div class="judgment"><h3>${escape(judgment.stage)}</h3><p class="hint">${escape(judgment.evidence)}</p>${Object.entries(
                     judgment.probabilities,
                   )
+                    .sort((a, b) => b[1] - a[1])
                     .map(
                       ([id, probability]) =>
-                        `<div class="bar-row"><span>${escape(id)}</span><div class="track"><div class="bar" style="width:${probability * 100}%"></div></div><span>${Math.round(probability * 100)}%</span></div>`,
+                        `<div class="bar-row"><span>${escape(participantName(id))}</span><div class="track"><div class="bar" style="width:${probability * 100}%"></div></div><span>${Math.round(probability * 100)}%</span></div>`,
                     )
                     .join(
                       "",
-                    )}<p class="hint">Illustrative selection: <strong>${escape(judgment.choice)}</strong></p></div>`,
+                    )}<p class="hint">Choice: ${escape(participantName(judgment.choice))}</p></div>`,
               )
               .join("") +
             (task.loadedDetails.length
-              ? `<details open><summary>Evidence code loaded between judgments</summary>${task.loadedDetails.map((peer) => `<p class="hint"><strong>${escape(peer.id)}:</strong> ${escape(peer.details)}</p>`).join("")}</details>`
+              ? `<details><summary>Context loaded by code</summary>${task.loadedDetails.map((entry) => `<p><strong>${escape(participantName(entry.id))}:</strong> ${escape(entry.details)}</p>`).join("")}</details>`
               : "")
-          : `<p class="muted">${task?.explicitTarget ? "The target is explicit. Code resolves it with zero model judgments." : "Accept a request and advance to the first judgment."}</p>`;
+          : '<p class="muted">Known targets and replies use code. Ambiguous requests will show their scripted judgments here.</p>';
         $("trace").innerHTML = state.trace.length
-          ? [...state.trace]
-              .reverse()
+          ? state.trace
               .map(
-                (event) =>
-                  `<li><small>${event.number} · ${escape(event.owner)}</small>${escape(event.text)}</li>`,
+                (entry) =>
+                  `<li><small>${entry.number} · ${escape(entry.owner)}</small>${escape(entry.text)}</li>`,
               )
               .join("")
-          : `<li class="muted">Actions will appear here, newest first.</li>`;
+          : '<li class="muted">Actions will appear here.</li>';
         $("raw-state").textContent = JSON.stringify(state, null, 2);
+      }
+      function renderWalkthrough() {
         $("scenario-tabs").innerHTML = scenarios
           .map(
             (scenario, index) =>
@@ -1604,57 +1910,82 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
           )
           .join("");
         const scenario = scenarios[scenarioIndex];
+        const task = RouterModel.current(state);
         $("walkthrough").setAttribute("aria-labelledby", `tab-${scenario.id}`);
         $("walkthrough").innerHTML =
-          `<div class="walk-header"><div><h3>${escape(scenario.title)}</h3><p>${escape(scenario.description)}</p></div><button type="button" id="restart-walkthrough">Restart walkthrough</button></div>
-          <p class="hint">${!guided ? "Free play changed the setup. Restart this walkthrough to follow its steps." : stepIndex === scenario.steps.length ? "Walkthrough complete. Inspect the journal and trace, or try another scenario." : `Step ${stepIndex + 1} of ${scenario.steps.length}. Each button changes the actual model state.`}</p>
-          <div class="note"><p><strong>${escape(task?.status || "Not started")}</strong> · Owner: ${escape(task?.peerId || "undecided")} · Judgments: ${task?.judgments.length || 0} · Attempts: ${task?.delivery.attempts || 0}</p><p class="hint">${escape(state.notice)}</p></div>
-          <ol class="steps">${scenario.steps.map(([label], index) => `<li><button type="button" data-step="${index}" ${!guided || index !== stepIndex ? "disabled" : 'class="primary"'}><span class="step-number">${index < stepIndex && guided ? "✓" : `${index + 1}.`}</span>${escape(label)}</button></li>`).join("")}</ol>`;
+          `<div class="walk-header"><div><h3>${escape(scenario.title)}</h3><p>${escape(scenario.description)}</p></div><button type="button" id="restart-walkthrough">Restart walkthrough</button></div><p class="hint">${!guided ? "Free play changed the setup. Restart this walkthrough to follow its steps." : stepIndex === scenario.steps.length ? "Walkthrough complete. Inspect the evidence and journal, or try another scenario." : `Step ${stepIndex + 1} of ${scenario.steps.length}. Each button changes the model.`}</p><div class="note"><strong>${task ? `${task.id} · ${escape(task.status)} · ${escape(participantName(task.participantId))}` : "No request yet"}</strong><p>${escape(state.notice)}</p>${task ? `<p class="hint">${task.judgments.length} Jev judgments · ${task.deliveries.filter((entry) => entry.reply).length}/${task.deliveries.length} results · Viewing from ${state.viewer.device} / ${state.viewer.surface}${state.viewer.connected ? "" : " (closed)"}</p>` : ""}</div><ol class="steps">${scenario.steps.map(([label], index) => `<li><button type="button" data-step="${index}" ${!guided || index !== stepIndex ? "disabled" : 'class="primary"'}><span class="step-number">${index < stepIndex && guided ? "✓" : `${index + 1}.`}</span>${escape(label)}</button></li>`).join("")}</ol>`;
+      }
+      function render() {
+        $("request-preset").innerHTML = Object.entries(RouterModel.presets)
+          .map(
+            ([id, preset]) =>
+              `<option value="${id}" ${id === state.preset ? "selected" : ""}>${escape(preset.label)}</option>`,
+          )
+          .join("");
+        $("view-device").innerHTML = state.devices
+          .map(
+            (device) =>
+              `<option value="${device.id}" ${device.id === state.viewer.device ? "selected" : ""}>${device.id}</option>`,
+          )
+          .join("");
+        $("view-surface").value = state.viewer.surface;
+        $("viewer-state").textContent =
+          `${state.viewer.connected ? "Connected" : "Closed"} · last saw ${state.viewer.saw}`;
+        $("notice").textContent = state.notice;
+        renderCurrent();
+        renderFleet();
+        renderEvidence();
+        renderWalkthrough();
       }
       document.addEventListener("click", (event) => {
         const button = event.target.closest("button");
         if (!button || button.disabled) return;
-        if (button.dataset.action) dispatch(button.dataset.action);
-        else if (button.dataset.scenario !== undefined) {
+        if (button.dataset.action) {
+          dispatch(button.dataset.action);
+          render();
+        } else if (button.dataset.scenario !== undefined) {
           startScenario(Number(button.dataset.scenario));
           $(`tab-${scenarios[scenarioIndex].id}`).focus();
-        } else if (
-          button.dataset.step !== undefined &&
-          guided &&
-          Number(button.dataset.step) === stepIndex
-        ) {
-          dispatch(
-            scenarios[scenarioIndex].steps[stepIndex][1],
-            undefined,
-            true,
-          );
-          const next = document.querySelector(`[data-step="${stepIndex}"]`);
-          (next || $("restart-walkthrough")).focus({ preventScroll: true });
+        } else if (button.dataset.step !== undefined) {
+          dispatch(scenarios[scenarioIndex].steps[stepIndex][1], true);
+          stepIndex++;
+          render();
+          (
+            document.querySelector(`[data-step="${stepIndex}"]`) ||
+            $("restart-walkthrough")
+          ).focus({ preventScroll: true });
         } else if (button.id === "restart-walkthrough")
           startScenario(scenarioIndex);
         else if (button.id === "reset-all") startScenario(0);
         else if (button.id === "new-message-id") {
-          draftMessageId = freshMessageId();
-          guided = false;
-          render();
+          let number = state.nextId;
+          while (state.tasks.some((task) => task.messageId === `M${number}`))
+            number++;
+          $("message-id").value = `M${number}`;
         }
       });
-      $("message-id").addEventListener("input", (event) => {
-        draftMessageId = event.target.value;
-        guided = false;
+      $("request-preset").addEventListener("change", (event) => {
+        dispatch({ type: "preset", value: event.target.value });
         render();
       });
-      $("request-preset").addEventListener("change", (event) =>
-        dispatch("preset", event.target.value),
-      );
-      $("task-picker").addEventListener("change", (event) =>
-        dispatch("selectTask", event.target.value),
-      );
+      $("task-picker").addEventListener("change", (event) => {
+        dispatch({ type: "selectTask", value: event.target.value });
+        render();
+      });
+      for (const id of ["view-device", "view-surface"])
+        $(id).addEventListener("change", () => {
+          dispatch({
+            type: "view",
+            device: $("view-device").value,
+            surface: $("view-surface").value,
+          });
+          render();
+        });
       $("scenario-tabs").addEventListener("keydown", (event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
           return;
         event.preventDefault();
-        const index =
+        const next =
           event.key === "Home"
             ? 0
             : event.key === "End"
@@ -1663,10 +1994,9 @@ Rule: an uncertain delivery is never automatically sent again.</pre>
                   (event.key === "ArrowRight" ? 1 : -1) +
                   scenarios.length) %
                 scenarios.length;
-        startScenario(index);
-        $(`tab-${scenarios[index].id}`).focus();
+        startScenario(next);
+        $(`tab-${scenarios[next].id}`).focus();
       });
-      // Read-only snapshot for inspecting the same state that the page renders.
       window.routerPrototype = { snapshot: () => structuredClone(state) };
       render();
     </script>
