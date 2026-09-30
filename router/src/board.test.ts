@@ -211,37 +211,37 @@ test("a deadline that passed shows as passed without any write", () => {
   );
 });
 
-test("the page escapes task text and shows the needs-you items", () => {
+test("the page escapes task text and leads with what waits on you", () => {
   const model = boardModel(boardState(config, journal, 50), config, 50, {
-    M1: "2026-09-30T09:15:00.000Z",
+    M1: "1970-01-01T09:15:00.000Z",
   });
   const html = renderBoard(model, { refreshSeconds: 7 });
   assert.ok(html.includes("Fix &lt;b&gt;the&lt;/b&gt; build"));
   assert.ok(!html.includes("<b>the</b>"));
   assert.ok(html.includes('data-refresh="7"'));
-  // The needs-you widget is open and counts both items, with the command.
-  assert.match(html, /id="w-needs" class="widget attn" open/);
-  assert.ok(
-    html.includes(
-      '<span class="num">2</span><span class="label">needs you</span>',
-    ),
-  );
-  assert.ok(html.includes("T2: answer Q2 &quot;Force push?&quot;"));
+  // The headline counts both items; each strip says what and why.
+  assert.ok(html.includes('<h1 class="attn">Two things wait on you.</h1>'));
+  assert.ok(html.includes("<strong>needs a recipient</strong>"));
+  assert.ok(html.includes("Jev was not sure enough to send it."));
+  assert.ok(html.includes("<strong>asks you</strong>"));
+  assert.ok(html.includes('<div class="quote">Force push?</div>'));
+  // Without a viewer, the strips carry the command instead of buttons.
   assert.ok(html.includes("router answer --task T2 --question Q2 --text"));
   assert.ok(html.includes("router choose --task T1 --to orchestrator"));
-  assert.ok(html.includes("Nothing waits on operator."));
-  assert.ok(html.includes('<span class="dot busy"></span>orchestrator@mbp'));
-  // The transcript: your request, the agent's question, the result.
+  // The rail and the transcript.
   assert.ok(
     html.includes(
-      '<span class="who">you · M1</span>Fix &lt;b&gt;the&lt;/b&gt; build',
+      '<span class="dot busy"></span>orchestrator@mbp <span class="muted">busy or away</span>',
     ),
   );
-  assert.ok(html.includes("orchestrator@mbp · question</span>Force push?"));
-  assert.ok(html.includes("orchestrator@mbp · completed</span>all green"));
-  assert.ok(html.includes('<span class="time">09-30 09:15</span>'));
+  assert.ok(
+    html.includes("you, M1, 09:15</span>Fix &lt;b&gt;the&lt;/b&gt; build"),
+  );
+  assert.ok(html.includes("orchestrator@mbp, question</span>Force push?"));
+  assert.ok(html.includes("orchestrator@mbp, completed</span>all green"));
+  assert.ok(html.includes('<span class="time">09:15</span>'));
   // Open threads are expanded, and so is the latest one even if finished;
-  // an older finished thread is collapsed to its summary.
+  // an older finished thread is collapsed to its strip.
   assert.match(html, /id="t-T2" open/);
   assert.match(html, /id="t-T3" open/);
   const older = renderBoard(
@@ -249,6 +249,7 @@ test("the page escapes task text and shows the needs-you items", () => {
   );
   assert.match(older, /id="t-T1"(?! open)/);
   assert.match(older, /id="t-T3" open/);
+  assert.ok(older.includes('<h1 class="">Nothing waits on you.</h1>'));
 });
 
 test("messageTimes maps submit, update and answer ids to their journal time", () => {
@@ -368,21 +369,16 @@ test("controls appear only for a recognised viewer; the notice is escaped", () =
   const model = boardModel(boardState(config, journal, 50), config, 50);
   const anonymous = renderBoard(model);
   assert.ok(!anonymous.includes("<form"));
-  assert.ok(anonymous.includes("read only"));
-  assert.ok(anonymous.includes("router choose --task T1 --to orchestrator"));
+  assert.ok(anonymous.includes("Read only"));
   const mine = renderBoard(model, {
     actor: { login: "me@example.com", principals: ["you", "operator"] },
     notice: "<script>x</script> done",
   });
-  assert.ok(mine.includes("me@example.com"));
+  assert.ok(mine.includes("Acting as me@example.com"));
+  assert.ok(mine.includes("<span>&lt;script&gt;x&lt;/script&gt; done</span>"));
   assert.ok(
     mine.includes(
-      '<div class="notice">&lt;script&gt;x&lt;/script&gt; done</div>',
-    ),
-  );
-  assert.ok(
-    mine.includes(
-      '<input type="hidden" name="action" value="choose"><input type="hidden" name="task" value="T1"><button name="to" value="orchestrator">orchestrator</button>',
+      '<input type="hidden" name="action" value="choose"><input type="hidden" name="task" value="T1"><button name="to" value="orchestrator">Send to orchestrator</button>',
     ),
   );
   assert.ok(
@@ -390,18 +386,19 @@ test("controls appear only for a recognised viewer; the notice is escaped", () =
       '<input type="hidden" name="action" value="answer"><input type="hidden" name="task" value="T2"><input type="hidden" name="question" value="Q2">',
     ),
   );
+  assert.ok(mine.includes("<button>Send answer</button>"));
+  assert.ok(mine.includes('<button class="danger">Cancel T2</button>'));
+  assert.ok(mine.includes('onsubmit="return confirm(&quot;Cancel T2?'));
   assert.ok(
     mine.includes(
-      '<input type="hidden" name="action" value="cancel"><input type="hidden" name="task" value="T2">',
-    ),
-  );
-  assert.ok(
-    mine.includes(
-      '<input type="hidden" name="action" value="hold"><input type="hidden" name="placement" value="orchestrator@mbp"><input type="hidden" name="hold" value="1"><button class="quiet">take</button>',
+      '<input type="hidden" name="action" value="hold"><input type="hidden" name="placement" value="orchestrator@mbp"><input type="hidden" name="hold" value="1"><button class="quiet">Hold</button>',
     ),
   );
   assert.ok(!mine.includes("router choose --task T1"));
-  // A requester-only viewer gets no resolve controls and no operator label.
+  // No form sits inside a summary, which would also toggle it.
+  for (const m of mine.matchAll(/<summary>([^]*?)<\/summary>/g))
+    assert.ok(!m[1]?.includes("<form"), m[1] ?? "");
+  // A requester-only viewer gets no resolve controls.
   const guest = renderBoard(model, {
     actor: { login: "guest@example.com", principals: ["you"] },
   });
