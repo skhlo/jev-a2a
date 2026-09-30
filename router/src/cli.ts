@@ -8,7 +8,13 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
-import { boardModel, boardState, describeNeed, renderBoard } from "./board.ts";
+import {
+  boardModel,
+  boardState,
+  describeNeed,
+  messageTimes,
+  renderBoard,
+} from "./board.ts";
 import { readJournal } from "./journal.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
@@ -213,10 +219,12 @@ async function serve(config: RouterConfig): Promise<void> {
       return;
     }
     const now = Date.now();
+    const entries = readJournal(config.home);
     const model = boardModel(
-      boardState(config, readJournal(config.home), now),
+      boardState(config, entries, now),
       config,
       now,
+      messageTimes(entries),
     );
     if (path.endsWith("/board.json")) {
       res.writeHead(200, { "content-type": "application/json" });

@@ -5,7 +5,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { boardModel, boardState, describeNeed, renderBoard } from "./board.ts";
+import {
+  boardModel,
+  boardState,
+  describeNeed,
+  messageTimes,
+  renderBoard,
+} from "./board.ts";
 import { readJournal, type Entry } from "./journal.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Event } from "./types.ts";
@@ -204,13 +210,53 @@ test("a deadline that passed shows as passed without any write", () => {
 });
 
 test("the page escapes task text and shows the needs-you items", () => {
-  const model = boardModel(boardState(config, journal, 50), config, 50);
+  const model = boardModel(boardState(config, journal, 50), config, 50, {
+    M1: "2026-09-30T09:15:00.000Z",
+  });
   const html = renderBoard(model, 7);
   assert.ok(html.includes("Fix &lt;b&gt;the&lt;/b&gt; build"));
   assert.ok(!html.includes("<b>the</b>"));
-  assert.ok(html.includes('content="7"'));
+  assert.ok(html.includes('data-refresh="7"'));
+  // The needs-you widget is open and counts both items, with the command.
+  assert.match(html, /id="w-needs" class="widget attn" open/);
+  assert.ok(
+    html.includes(
+      '<span class="num">2</span><span class="label">needs you</span>',
+    ),
+  );
   assert.ok(html.includes("T2: answer Q2 &quot;Force push?&quot;"));
+  assert.ok(html.includes("router answer --task T2 --question Q2 --text"));
+  assert.ok(html.includes("router choose --task T1 --to orchestrator"));
   assert.ok(html.includes("Nothing waits on operator."));
-  assert.ok(html.includes("orchestrator@mbp</span>: not ready"));
-  assert.ok(html.includes("completed: all green"));
+  assert.ok(html.includes('<span class="dot busy"></span>orchestrator@mbp'));
+  // The transcript: your request, the agent's question, the result.
+  assert.ok(
+    html.includes(
+      '<span class="who">you · M1</span>Fix &lt;b&gt;the&lt;/b&gt; build',
+    ),
+  );
+  assert.ok(html.includes("orchestrator@mbp · question</span>Force push?"));
+  assert.ok(html.includes("orchestrator@mbp · completed</span>all green"));
+  assert.ok(html.includes('<span class="time">09-30 09:15</span>'));
+  // Open threads are expanded, and so is the latest one even if finished;
+  // an older finished thread is collapsed to its summary.
+  assert.match(html, /id="t-T2" open/);
+  assert.match(html, /id="t-T3" open/);
+  const older = renderBoard(
+    boardModel(boardState(config, journal, 500), config, 500),
+  );
+  assert.match(older, /id="t-T1"(?! open)/);
+  assert.match(older, /id="t-T3" open/);
+});
+
+test("messageTimes maps submit, update and answer ids to their journal time", () => {
+  assert.deepEqual(
+    messageTimes(journal),
+    Object.fromEntries(
+      ["M1", "M2", "Q1", "M3", "A1m", "W1", "Q2", "C1"].map((id) => [
+        id,
+        "2026-09-30T00:00:00Z",
+      ]),
+    ),
+  );
 });
