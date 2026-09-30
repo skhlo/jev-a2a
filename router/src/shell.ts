@@ -1,7 +1,7 @@
 // The imperative shell. One run: lock the journal, fold it into state, mark
 // interrupted attempts unknown, move the clock, apply the caller's event,
-// then perform the core's commands for placements on this host and record
-// each result. Nothing survives a run except the journal.
+// then perform the core's commands for every placement this router can reach
+// and record each result. Nothing survives a run except the journal.
 import {
   allDeliveries,
   blockedReason,
@@ -27,12 +27,11 @@ export type Shell = {
 };
 
 export type ShellOptions = {
-  adapter: () => Promise<Adapter>;
+  // One adapter per host, created on first use.
+  adapter: (endpoint: string) => Promise<Adapter>;
   now?: () => number;
   // Test hook for the crash-recovery acceptance: exit at a chosen point.
   crash?: "after_attempt" | "after_send" | undefined;
-  // Command the participant runs to reply; goes into the envelope verbatim.
-  replyCommand?: string;
 };
 
 export function fold(config: RouterConfig, journal: Journal): State {
@@ -50,9 +49,18 @@ export function fold(config: RouterConfig, journal: Journal): State {
 export function openShell(config: RouterConfig, options: ShellOptions): Shell {
   const journal = openJournal(config.home);
   const now = options.now ?? Date.now;
-  const replyCommand = options.replyCommand ?? "router";
   let state: State;
-  let adapter: Adapter | null = null;
+  const adapters = new Map<string, Adapter>();
+  const adapterFor = async (host: string): Promise<Adapter> => {
+    const entry = config.hosts[host];
+    if (!entry) throw new Error(`No endpoint configured for host ${host}`);
+    let adapter = adapters.get(host);
+    if (!adapter) {
+      adapter = await options.adapter(entry.paseo);
+      adapters.set(host, adapter);
+    }
+    return adapter;
+  };
   try {
     state = fold(config, journal);
   } catch (error) {
@@ -80,17 +88,27 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
     apply({ type: "restart" });
   apply({ type: "tick", now: now() });
 
-  const local = Object.entries(config.agents).filter(
-    ([key]) => state.placements[key]?.host === config.host,
-  );
+  // Placements this router serves: a configured agent on a configured host.
+  const served = Object.entries(config.agents).filter(([key]) => {
+    const host = state.placements[key]?.host;
+    return host !== undefined && config.hosts[host] !== undefined;
+  });
+  const isServed = (placement: string): boolean =>
+    served.some(([key]) => key === placement);
 
   async function observeAll(report: string[]): Promise<void> {
-    if (!local.length) return;
-    adapter ??= await options.adapter();
-    for (const [key, agentId] of local) {
+    for (const [key, agentId] of served) {
       const placement = state.placements[key];
       if (!placement) continue;
-      const seen = await adapter.observe(agentId);
+      let seen: Awaited<ReturnType<Adapter["observe"]>>;
+      try {
+        seen = await (await adapterFor(placement.host)).observe(agentId);
+      } catch (error: unknown) {
+        report.push(
+          `${key}: ${placement.host} unreachable (${error instanceof Error ? error.message : String(error)})`,
+        );
+        continue;
+      }
       const ready = seen?.ready ?? false;
       const event: Event =
         placement.session === agentId
@@ -110,6 +128,7 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
     const delivery = findDelivery(state, deliveryId);
     if (!delivery) throw new Error(`${deliveryId} vanished`);
     const send = currentSend(delivery);
+    const replyCommand = config.hosts[delivery.host]?.replyCommand ?? "router";
     const reply = `${replyCommand} reply --task ${taskId} --in-reply-to ${send.messageId} --kind completed --text "<result>"`;
     const head =
       send.kind === "answer"
@@ -131,7 +150,7 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
       const next = work.find(
         (c): c is Extract<typeof c, { type: "deliver" }> =>
           c.type === "deliver" &&
-          findDelivery(state, c.deliveryId)?.host === config.host,
+          isServed(findDelivery(state, c.deliveryId)?.placement ?? ""),
       );
       if (!next) break;
       const delivery = findDelivery(state, next.deliveryId);
@@ -147,13 +166,19 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
       report.push(attempted.message);
       if (!attempted.ok) break;
       if (options.crash === "after_attempt") process.exit(70);
-      adapter ??= await options.adapter();
       const key = `${delivery.id}/${next.messageId}`;
-      const outcome = await adapter.send(
-        agentId,
-        key,
-        envelope(delivery.taskId, delivery.id),
-      );
+      let outcome: Awaited<ReturnType<Adapter["send"]>>;
+      try {
+        outcome = await (
+          await adapterFor(delivery.host)
+        ).send(agentId, key, envelope(delivery.taskId, delivery.id));
+      } catch (error: unknown) {
+        // The host could not be reached at all: nothing was sent.
+        report.push(
+          `${delivery.id}: ${delivery.host} unreachable (${error instanceof Error ? error.message : String(error)})`,
+        );
+        outcome = "unknown";
+      }
       if (options.crash === "after_send") process.exit(71);
       const acked = apply({
         type: "adapterResult",
@@ -163,9 +188,9 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
       });
       report.push(acked.message);
     }
-    // Say why the rest waits, once per open delivery on this host.
+    // Say why the rest waits, once per open delivery this router serves.
     for (const d of allDeliveries(state)) {
-      if (d.host !== config.host || !findTask(state, d.taskId)) continue;
+      if (!isServed(d.placement) || !findTask(state, d.taskId)) continue;
       const why = blockedReason(state, d);
       if (why && why !== "closed" && why !== "not_pending")
         report.push(`${d.id} waits: ${why.replaceAll("_", " ")}`);
@@ -181,7 +206,7 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
     deliver,
     async close() {
       try {
-        await adapter?.close();
+        await Promise.all([...adapters.values()].map((a) => a.close()));
       } finally {
         journal.release();
       }

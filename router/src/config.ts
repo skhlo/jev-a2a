@@ -1,21 +1,33 @@
 // A deployment's configuration file: the core's configuration plus what the
-// shell on this host needs to reach its participants.
-import { readFileSync } from "node:fs";
+// shell needs to reach its participants on each machine.
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { validateConfig } from "./core.ts";
 import type { Config } from "./types.ts";
 
+export type HostConfig = {
+  // Paseo daemon endpoint: a websocket URL, or ssh://[user@]host[:port] to
+  // tunnel to a loopback-bound daemon the way the Paseo CLI does.
+  paseo: string;
+  // What a participant on this host runs to reply; goes into the envelope.
+  replyCommand: string;
+};
+
 export type RouterConfig = Config & {
-  // This machine's name as it appears in participants[].hosts.
-  host: string;
   // Journal directory. Defaults to ~/.local/state/jev-router.
   home: string;
-  paseo: { url: string };
-  // Placement key ("participant@host") -> Paseo agent id, for placements on
-  // this host. The agent id is the placement's session identity.
+  // Machines named in participants[].hosts that this router can reach.
+  hosts: Record<string, HostConfig>;
+  // Placement key ("participant@host") -> Paseo agent id. The agent id is the
+  // placement's session identity. Placements without an entry are not served.
   agents: Record<string, string>;
+  // Where `router serve` listens for replies from other hosts.
+  serve: { listen: string };
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
 
 export function loadConfig(path: string): RouterConfig {
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -24,34 +36,65 @@ export function loadConfig(path: string): RouterConfig {
   const fail = (message: string): never => {
     throw new Error(`Invalid router configuration (${path}): ${message}`);
   };
-  if (typeof extra.host !== "string" || !extra.host)
-    return fail("host names this machine");
-  const paseo = extra.paseo;
-  if (
-    paseo === null ||
-    typeof paseo !== "object" ||
-    typeof (paseo as { url?: unknown }).url !== "string"
-  )
-    return fail("paseo.url is the daemon's websocket URL");
+  if (!isRecord(extra.hosts) || !Object.keys(extra.hosts).length)
+    return fail("hosts maps each machine to its Paseo endpoint");
+  const hosts: Record<string, HostConfig> = {};
+  for (const [name, entry] of Object.entries(extra.hosts)) {
+    if (!isRecord(entry) || typeof entry.paseo !== "string" || !entry.paseo)
+      return fail(`hosts.${name}.paseo is a websocket URL or ssh://host`);
+    hosts[name] = {
+      paseo: entry.paseo,
+      replyCommand:
+        typeof entry.replyCommand === "string" && entry.replyCommand
+          ? entry.replyCommand
+          : "router",
+    };
+  }
   const agents = extra.agents ?? {};
-  if (agents === null || typeof agents !== "object" || Array.isArray(agents))
+  if (!isRecord(agents))
     return fail("agents maps placement keys to Paseo agent ids");
-  const known = new Set(
-    config.participants.flatMap((p) => p.hosts.map((h) => `${p.id}@${h}`)),
+  const known = new Map(
+    config.participants.flatMap((p) =>
+      p.hosts.map((h): [string, string] => [`${p.id}@${h}`, h]),
+    ),
   );
-  for (const [key, id] of Object.entries(agents as Record<string, unknown>)) {
-    if (!known.has(key)) fail(`agents names unknown placement ${key}`);
+  for (const [key, id] of Object.entries(agents)) {
+    const host = known.get(key);
+    if (!host) fail(`agents names unknown placement ${key}`);
+    else if (!hosts[host]) fail(`agents.${key}: host ${host} is not in hosts`);
     if (typeof id !== "string" || !id)
       fail(`agents.${key} must be an agent id`);
   }
+  const serve = isRecord(extra.serve) ? extra.serve : {};
   return {
     ...config,
-    host: extra.host,
     home:
       typeof extra.home === "string" && extra.home
         ? extra.home
         : join(homedir(), ".local", "state", "jev-router"),
-    paseo: { url: (paseo as { url: string }).url },
+    hosts,
     agents: agents as Record<string, string>,
+    serve: {
+      listen:
+        typeof serve.listen === "string" && serve.listen
+          ? serve.listen
+          : "127.0.0.1:7677",
+    },
   };
+}
+
+// KEY=VALUE lines from a secrets file next to the configuration, applied to
+// the environment where the environment does not already set them. Secrets
+// never live in the JSON configuration.
+export function loadSecrets(path: string): void {
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    if (value && process.env[key] === undefined) process.env[key] = value;
+  }
 }

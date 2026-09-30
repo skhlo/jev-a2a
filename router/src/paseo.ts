@@ -4,6 +4,8 @@
 // the same key and text is a no-op after a completed send, and answers
 // agent_request_outcome_unknown while a receipt is still pending; a send to a
 // running agent interrupts its turn, so the router sends only to idle agents.
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type Server, type Socket } from "node:net";
 import { createPaseoClient } from "@getpaseo/client";
 import type { AdapterOutcome } from "./types.ts";
 
@@ -21,9 +23,23 @@ export type Adapter = {
   close(): Promise<void>;
 };
 
-export async function createPaseoAdapter(url: string): Promise<Adapter> {
-  const client = createPaseoClient({ url });
-  await client.connect();
+// endpoint: a websocket URL, or ssh://[user@]host[:port] for a daemon bound to
+// loopback on another machine.
+export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
+  const tunnel = endpoint.startsWith("ssh://")
+    ? await openSshTunnel(endpoint)
+    : null;
+  const client = createPaseoClient({
+    url: tunnel ? `ws://127.0.0.1:${tunnel.port}/ws` : endpoint,
+  });
+  try {
+    await client.connect();
+  } catch (error) {
+    tunnel?.close();
+    throw tunnel?.failure()
+      ? new Error(`SSH to ${endpoint} failed: ${tunnel.failure()}`)
+      : error;
+  }
   return {
     async observe(agentId) {
       const result = await client.agents.ref(agentId).refresh();
@@ -52,6 +68,101 @@ export async function createPaseoAdapter(url: string): Promise<Adapter> {
         return "unknown";
       }
     },
-    close: () => client.close(),
+    async close() {
+      try {
+        await client.close();
+      } finally {
+        tunnel?.close();
+      }
+    },
   };
+}
+
+type Tunnel = { port: number; close(): void; failure(): string | null };
+
+// The Paseo CLI's tunnel, in miniature: a local listener that, on its first
+// connection, spawns `ssh -W 127.0.0.1:<daemonPort> <host>` and pipes the
+// socket through it. One connection per tunnel, which is all one run needs.
+function openSshTunnel(endpoint: string): Promise<Tunnel> {
+  const url = new URL(endpoint);
+  if (
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.pathname && url.pathname !== "/")
+  )
+    throw new Error(
+      `Unsupported ssh endpoint ${endpoint}: use ssh://[user@]host[:port]`,
+    );
+  const host = url.username
+    ? `${decodeURIComponent(url.username)}@${url.hostname}`
+    : url.hostname;
+  const args = [
+    "-T",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=10",
+    "-o",
+    "ClearAllForwardings=yes",
+    "-o",
+    "ExitOnForwardFailure=yes",
+    ...(url.port ? ["-p", url.port] : []),
+    "-W",
+    "127.0.0.1:6767",
+    host,
+  ];
+  let server: Server | null = null;
+  let socket: Socket | null = null;
+  let child: ChildProcess | null = null;
+  let stderr = "";
+  let failure: string | null = null;
+  const close = (): void => {
+    server?.close();
+    server = null;
+    socket?.destroy();
+    socket = null;
+    if (child && !child.killed) child.kill();
+    child = null;
+  };
+  return new Promise((resolve, reject) => {
+    server = createServer((accepted) => {
+      socket = accepted;
+      server?.close();
+      server = null;
+      const ssh = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
+      child = ssh;
+      ssh.stderr.on("data", (chunk: Buffer) => {
+        stderr = `${stderr}${chunk.toString()}`.slice(-2000);
+      });
+      ssh.on("error", (error) => {
+        failure = error.message;
+        accepted.destroy(error);
+      });
+      ssh.on("exit", (code, signal) => {
+        if (code !== 0 || signal)
+          failure = stderr.trim() || `ssh exited with ${signal ?? code}`;
+        accepted.destroy(failure ? new Error(failure) : undefined);
+      });
+      accepted.on("error", () => undefined);
+      accepted.on("close", () => {
+        if (child && !child.killed) child.kill();
+      });
+      accepted.pipe(ssh.stdin);
+      ssh.stdout.pipe(accepted);
+    });
+    server.once("error", (error) => {
+      close();
+      reject(error);
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const address = server?.address();
+      if (!address || typeof address === "string") {
+        close();
+        reject(new Error("Could not allocate a tunnel port"));
+        return;
+      }
+      resolve({ port: address.port, close, failure: () => failure });
+    });
+  });
 }

@@ -4,8 +4,9 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-import { loadConfig, type RouterConfig } from "./config.ts";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createServer } from "node:http";
+import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { openShell, type Shell } from "./shell.ts";
@@ -15,6 +16,7 @@ const USAGE = `router: a prompt with an envelope and a record
 
   router submit --to <participant> [--hosts a,b] [--message <id>] [--as <principal>] <text...>
   router run                                   observe placements, deliver what is eligible
+  router serve                                 accept replies from other hosts over HTTP
   router status [<task>]                       the record
   router needs-you [--as <principal>]          decisions waiting on a person
   router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ...] [--message <id>]
@@ -24,7 +26,8 @@ const USAGE = `router: a prompt with an envelope and a record
   router cancel <task> [--as <principal>]
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
-A participant's reply is authenticated by $PASEO_AGENT_ID.`;
+A participant's reply is authenticated by $PASEO_AGENT_ID; over HTTP, by
+$ROUTER_TOKEN from secrets.env.`;
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -60,6 +63,7 @@ const configPath =
   process.env.ROUTER_CONFIG ??
   join(homedir(), ".config", "jev-router", "config.json");
 const config = loadConfig(configPath);
+loadSecrets(join(configPath, "..", "secrets.env"));
 
 const requester = (): string => {
   const chosen = values.as ?? process.env.ROUTER_AS;
@@ -93,20 +97,107 @@ function fail(message: string): never {
 }
 
 const crash = process.env.ROUTER_CRASH;
-const shell = openShell(config, {
-  adapter: () => createPaseoAdapter(config.paseo.url),
-  crash:
-    crash === "after_attempt" || crash === "after_send" ? crash : undefined,
-  replyCommand: process.env.ROUTER_REPLY_COMMAND ?? "router",
-});
+const open = (): Shell =>
+  openShell(config, {
+    adapter: createPaseoAdapter,
+    crash:
+      crash === "after_attempt" || crash === "after_send" ? crash : undefined,
+  });
 
-let exitCode = 0;
-try {
-  exitCode = await main(shell, config);
-} finally {
-  await shell.close();
+if (command === "serve") {
+  await serve(config);
+} else {
+  const shell = open();
+  let exitCode = 0;
+  try {
+    exitCode = await main(shell, config);
+  } finally {
+    await shell.close();
+  }
+  process.exit(exitCode);
 }
-process.exit(exitCode);
+
+// `router serve`: replies and answers from other hosts. Each request is one
+// shell run, and requests are handled one at a time so the journal lock is
+// never contended from inside the server.
+async function serve(config: RouterConfig): Promise<void> {
+  const token = process.env.ROUTER_TOKEN;
+  if (!token) fail("ROUTER_TOKEN is not set; add it to secrets.env.");
+  const authorized = (header: string | undefined): boolean => {
+    const given = Buffer.from(header?.replace(/^Bearer\s+/i, "") ?? "");
+    const wanted = Buffer.from(token);
+    return given.length === wanted.length && timingSafeEqual(given, wanted);
+  };
+  let queue: Promise<unknown> = Promise.resolve();
+  const handle = (
+    event: Event,
+  ): Promise<{ outcome: unknown; report: string[] }> => {
+    const run = queue.then(async () => {
+      const shell = open();
+      try {
+        const outcome = shell.apply(event);
+        const report = outcome.ok ? await shell.deliver() : [];
+        return { outcome, report };
+      } finally {
+        await shell.close();
+      }
+    });
+    queue = run.catch(() => undefined);
+    return run;
+  };
+  const server = createServer((req, res) => {
+    const reply = (status: number, body: unknown): void => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method === "GET" && req.url === "/health")
+      return reply(200, { ok: true });
+    if (!authorized(req.headers.authorization))
+      return reply(401, { ok: false, code: "unauthorized" });
+    if (req.method !== "POST" || req.url !== "/events")
+      return reply(404, { ok: false, code: "not_found" });
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let event: unknown;
+      try {
+        event = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        return reply(400, { ok: false, code: "bad_json" });
+      }
+      if (
+        event === null ||
+        typeof event !== "object" ||
+        !["update", "answer"].includes(
+          String((event as { type?: unknown }).type),
+        )
+      )
+        return reply(400, {
+          ok: false,
+          code: "bad_event",
+          message: "serve accepts update and answer events",
+        });
+      handle(event as Event).then(
+        ({ outcome, report }) => reply(200, { ...(outcome as object), report }),
+        (error: unknown) =>
+          reply(500, {
+            ok: false,
+            code: "error",
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      );
+    });
+  });
+  const [host, port] = config.serve.listen.split(":");
+  await new Promise<void>((resolve) =>
+    server.listen(Number(port), host, () => resolve()),
+  );
+  console.log(`router serve listening on http://${config.serve.listen}`);
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", () => server.close(() => resolve()));
+    process.once("SIGTERM", () => server.close(() => resolve()));
+  });
+}
 
 async function main(shell: Shell, config: RouterConfig): Promise<number> {
   const say = (lines: string[]): void => {
@@ -221,7 +312,7 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
         if (!shell.state.tasks.length) console.log("No tasks recorded.");
         for (const task of shell.state.tasks) console.log(oneLine(task));
         for (const [key, p] of Object.entries(shell.state.placements))
-          if (p.host === config.host)
+          if (config.agents[key])
             console.log(
               `${key}: ${p.ready ? "ready" : "not ready"}${p.hold ? ", held" : ""} · session ${p.session}`,
             );
