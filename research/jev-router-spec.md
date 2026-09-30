@@ -2,7 +2,7 @@
 
 Status: verified as an executable model on 2026-09-29 and 2026-09-30, then
 built in TypeScript under `router/` and run live across two Paseo hosts and
-TypeSafe's Jev the same day (tickets 001 to 005). This is the authoritative
+TypeSafe's Jev the same day. This is the authoritative
 design; the [original design](jev-router-design.html) is historical. herdr is
 not connected.
 
@@ -91,12 +91,12 @@ shell what to do next (`judge` or `deliver`); the core performs no I/O.
 
 ## Configuration
 
-| Key            | Decides                                                                                                                                                                                                                                                                                                                                                                                                   |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `policy`       | `threshold` in (0, 1] for dispatching on a judgment; `deadline`, `maxText` and `maxOpenTasks`, all positive. Validation refuses anything else, plus unknown participant kinds, duplicate or empty hosts, and permissions that name unknown ids.                                                                                                                                                           |
-| `principals`   | Non-participant identities and their role: `requester` or `operator`. Names are free; a household may have several requesters.                                                                                                                                                                                                                                                                            |
-| `participants` | `id`, `name`, `kind` (`agent` or `service`), `hosts`, `idempotent`, `responsibility`. The responsibility text is what Jev sees, so write it as an ownership rule with what it is not for, followed by a few example requests in every language requests arrive in (ticket 003: three Korean examples raised Korean probabilities by 0.17 on average; a note saying "requests may be Korean" did nothing). |
-| `permissions`  | For each principal or participant, which participants it may address. Absent means nobody. Jev only ever chooses among a sender's permitted participants.                                                                                                                                                                                                                                                 |
+| Key            | Decides                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policy`       | `threshold` in (0, 1] for dispatching on a judgment; `deadline`, `maxText` and `maxOpenTasks`, all positive. Validation refuses anything else, plus unknown participant kinds, duplicate or empty hosts, and permissions that name unknown ids.                                                                                                                                                         |
+| `principals`   | Non-participant identities and their role: `requester` or `operator`. Names are free; a household may have several requesters.                                                                                                                                                                                                                                                                          |
+| `participants` | `id`, `name`, `kind` (`agent` or `service`), `hosts`, `idempotent`, `responsibility`. The responsibility text is what Jev sees, so write it as an ownership rule with what it is not for, followed by a few example requests in every language requests arrive in (measured: three Korean examples raised Korean probabilities by 0.17 on average; a note saying "requests may be Korean" did nothing). |
+| `permissions`  | For each principal or participant, which participants it may address. Absent means nobody. Jev only ever chooses among a sender's permitted participants.                                                                                                                                                                                                                                               |
 
 Not configuration, by design: message identity, the delivery state machine,
 the eligibility rule, reply correlation, and what each event may do.
@@ -291,14 +291,14 @@ actually used.
 
 ## Open decisions
 
-1. Threshold: 0.9 provisional. Ticket 003 measured that responsibility text
+1. Threshold: 0.9 provisional. A 24-request Korean-heavy sample showed that responsibility text
    in the request's language moves probabilities more than the threshold
    does; a labeled request set is still to be collected before pinning the
    value and the Jev model version.
 2. Authentication of participant replies: a local reply is trusted on
    `PASEO_AGENT_ID`; a reply over HTTP is trusted on the shared
    `ROUTER_TOKEN`, so any holder of the token can reply as any participant.
-   Board actions are authenticated by Tailscale identity (ticket 005) and
+   Board actions are authenticated by Tailscale identity and
    are not affected.
 3. Raising a hold from where the person is typing: today a hold is set by
    hand, from the CLI or the board. Detecting that the person has taken
@@ -320,7 +320,7 @@ only ever added: a removed participant's open deliveries stay readable.
 
 ## Verified live, and not
 
-Verified on 2026-09-30 (details in the tickets): the envelope round trip
+Verified on 2026-09-30: the envelope round trip
 through Paseo on the same and on a second host; the idle gate; crash
 recovery with the same key and one prompt in the agent's transcript;
 questions and answers pinned to a session; Jev dispatch, abstention and
@@ -362,6 +362,6 @@ Deployment decisions taken on 2026-09-30, outside the contract:
 - The vault participant's responsibility text is authored next to the vault's
   `AGENTS.md`, from its role section and the `CONTEXT.md` glossary, with
   example requests in Korean, and is refreshed when those change. The router
-  config copies it; the vault owns it (ticket 003, round 2). Folder names
+  config copies it; the vault owns it. Folder names
   that identify companies or business areas stay out of it, since the text
   goes to an external API.
