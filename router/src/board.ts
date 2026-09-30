@@ -612,29 +612,16 @@ export function renderBoard(
         : `<p class="muted">No open tasks.</p>`
     }</div></details>`;
 
-  const judged = [...model.open, ...model.finished]
-    .filter((t) => t.judgments.length)
-    .sort((a, b) => Number(b.id.slice(1)) - Number(a.id.slice(1)));
   const pOf = (j: Task["judgments"][number]): string =>
     j.probabilities ? (j.probabilities[j.choice] ?? 0).toFixed(2) : "invalid";
-  const last = judged[0]?.judgments.at(-1);
-  const jevRow =
-    `<details id="w-jev" class="row"><summary><span class="k">Jev</span><span class="v">${last ? `last pick ${esc(last.choice)} at ${esc(pOf(last))} for ${esc(judged[0]?.id)}${last.model ? `<span class="muted">, ${esc(last.model)}</span>` : ""}` : "no judgments yet"}</span><span class="more">${judged.length ? "recent" : ""}</span></summary>` +
-    `<div class="body"><table><tr><th>Task</th><th>Choice</th><th>p</th><th>Runner-up</th></tr>` +
-    judged
-      .slice(0, 8)
-      .map((t) => {
-        const j = t.judgments.at(-1);
-        if (!j) return "";
-        const other = j.probabilities
-          ? Object.entries(j.probabilities)
-              .filter(([id]) => id !== j.choice)
-              .sort((a, b) => b[1] - a[1])[0]
-          : undefined;
-        return `<tr><td><a class="id" href="#t-${esc(t.id)}">${esc(t.id)}</a></td><td>${esc(j.choice)}</td><td>${esc(pOf(j))}</td><td class="muted">${other ? `${esc(other[0])} ${other[1].toFixed(2)}` : ""}</td></tr>`;
-      })
-      .join("") +
-    `</table></div></details>`;
+  const runnerUp = (j: Task["judgments"][number]): string => {
+    const other = j.probabilities
+      ? Object.entries(j.probabilities)
+          .filter(([id]) => id !== j.choice)
+          .sort((x, y) => y[1] - x[1])[0]
+      : undefined;
+    return other ? `${other[0]} ${other[1].toFixed(2)}` : "";
+  };
 
   // The record: strips that open into conversations.
   const threads = [...model.finished, ...model.open].sort(
@@ -659,7 +646,7 @@ export function renderBoard(
     const lastJudgment = t.judgments.at(-1);
     if (lastJudgment)
       msgs.push(
-        `<div class="sys">Jev picked ${esc(lastJudgment.choice)} at ${esc(pOf(lastJudgment))}</div>`,
+        `<div class="sys">Jev picked ${esc(lastJudgment.choice)} at ${esc(pOf(lastJudgment))}${runnerUp(lastJudgment) ? `, runner-up ${esc(runnerUp(lastJudgment))}` : ""}${lastJudgment.model ? `, ${esc(lastJudgment.model)}` : ""}</div>`,
       );
     if (t.routing && !t.final)
       msgs.push(
@@ -703,7 +690,7 @@ export function renderBoard(
       `<span class="id">${esc(t.id)}</span>` +
       `<span class="chip ${statusClass(t.status)}">${esc(plain(t.status))}</span>` +
       `<span class="excerpt">${esc(t.text)}</span>` +
-      `<span class="to">${t.recipient ? `to ${esc(t.recipient)}` : t.final ? "no recipient" : "no recipient yet"}</span>` +
+      `<span class="to">${t.recipient ? `to ${esc(t.recipient)}` : t.final ? "no recipient" : "no recipient yet"}${lastJudgment ? `<span class="muted">, Jev ${lastJudgment.choice === t.recipient ? "" : `${esc(lastJudgment.choice)} `}${esc(pOf(lastJudgment))}</span>` : ""}</span>` +
       `</summary><div class="messages">${msgs.join("")}</div></details>`
     );
   };
@@ -719,7 +706,7 @@ ${options.notice ? `<div class="notice"><div><span>${esc(options.notice)}</span>
 <div id="app" data-refresh="${refreshSeconds}">
 <header class="top"><span class="brand">Router</span><span>${actor ? `Acting as ${esc(actor.login)}` : "Read only"}</span><span>Updated ${esc(clock(model.at))}Z</span><span class="spacer"></span><nav>${latestId ? `<a href="#t-${esc(latestId)}">Jump to latest</a>` : ""}<a href="board.json">JSON</a></nav></header>
 ${hero}
-<section class="rail">${agentsRow}${openRow}${jevRow}</section>
+<section class="rail">${agentsRow}${openRow}</section>
 <section class="record"><h2>Record</h2><p class="sub">The last ${model.finished.length} finished and everything open. Open a strip to read the exchange.</p>
 ${threads.length ? threads.map(thread).join("") : `<p class="muted">No tasks recorded yet.</p>`}
 </section>

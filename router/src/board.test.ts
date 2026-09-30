@@ -244,6 +244,16 @@ test("the page escapes task text and leads with what waits on you", () => {
   assert.ok(html.includes("orchestrator@mbp, question</span>Force push?"));
   assert.ok(html.includes("orchestrator@mbp, completed</span>all green"));
   assert.ok(html.includes('<span class="time">09:15</span>'));
+  // Jev's pick sits on the strip, and in full inside the thread.
+  assert.ok(
+    html.includes(
+      'no recipient yet<span class="muted">, Jev orchestrator 0.60</span>',
+    ),
+  );
+  assert.ok(
+    html.includes("Jev picked orchestrator at 0.60, runner-up knowledge 0.20"),
+  );
+  assert.ok(!html.includes('id="w-jev"'));
   // Open threads are expanded, and so is the latest one even if finished;
   // an older finished thread is collapsed to its strip.
   assert.match(html, /id="t-T2" open/);
