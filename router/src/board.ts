@@ -3,6 +3,7 @@
 // HTML is one rendering of it: a sentence about what waits on you with the
 // strips that clear it, a status rail, then the record as a session
 // transcript. Nothing here writes.
+import { randomBytes } from "node:crypto";
 import { A2A_STATE, currentSend, needsYou, reduce } from "./core.ts";
 import { fold } from "./shell.ts";
 import type { RouterConfig } from "./config.ts";
@@ -12,8 +13,10 @@ import type {
   Event,
   NeedsYouItem,
   Role,
+  RoutingReason,
   Send,
   State,
+  StuckReason,
   Task,
   Update,
 } from "./types.ts";
@@ -188,6 +191,10 @@ export function identify(
   return principals?.length ? { login, principals } : null;
 }
 
+// Message ids the router mints for answers: time-ordered, unique enough.
+export const newMessageId = (): string =>
+  `m-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+
 export type ActionResult =
   { ok: true; event: Event } | { ok: false; message: string };
 
@@ -213,8 +220,6 @@ export function actionEvent(
       ? { ok: false, message: `Missing ${missing.join(", ")}.` }
       : null;
   };
-  const messageId = (): string =>
-    `m-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
   switch (field("action")) {
     case "choose": {
       const by = need("requester");
@@ -236,7 +241,7 @@ export function actionEvent(
             type: "answer",
             by,
             taskId: field("task"),
-            messageId: messageId(),
+            messageId: newMessageId(),
             questionId: field("question"),
             text: field("text"),
           },
@@ -303,8 +308,9 @@ const day = (iso: string | undefined): string => (iso ? iso.slice(5, 10) : "");
 
 // Design tokens. One saturated hue (indigo) stands for you; the rest of the
 // color is traffic-signal state: amber waits on you, green is ready or done,
-// red failed, violet held. IBM Plex Sans KR sets Latin and Hangul as one
-// family; Plex Mono is for identifiers only.
+// red failed, violet held. Type is IBM Plex Sans KR when the device has it
+// (one family for Latin and Hangul), else the platform's Hangul-capable
+// sans; nothing is fetched from a third party for a private page.
 const STYLE = `
 :root {
   --bg: #F6F7F4; --surface: #FFFFFF; --ink: #16181D; --muted: #626873; --line: #D9DCE0;
@@ -461,14 +467,14 @@ const COUNT_WORDS = [
   "Nine things",
 ];
 
-const ROUTING_WHY: Record<string, string> = {
+const ROUTING_WHY: Record<RoutingReason, string> = {
   no_owner: "Jev found no owner among your participants.",
   low_confidence: "Jev was not sure enough to send it.",
   invalid_judgment: "Jev's answer could not be used.",
   routing_unavailable: "Jev could not be reached.",
 };
 
-const STUCK_WHY: Record<string, string> = {
+const STUCK_WHY: Record<StuckReason, string> = {
   task_ended: "The task ended before this send was confirmed.",
   session_replaced: "The session it was pinned to has been replaced.",
   unknown_send: "The send's outcome is unknown and cannot be retried.",
@@ -533,7 +539,7 @@ export function renderBoard(
         : `<code>${esc(commandFor(item))}</code>`;
       return (
         `<li class="need"><div class="what"><a class="id" href="#t-${esc(item.taskId)}">${esc(item.taskId)}</a><strong>needs a recipient</strong></div>` +
-        `<div class="why">${esc(ROUTING_WHY[item.reason] ?? plain(item.reason))}${item.suggestions.length ? ` Its ranking: ${esc(item.suggestions.join(", "))}.` : ""}</div>` +
+        `<div class="why">${esc(ROUTING_WHY[item.reason])}${item.suggestions.length ? ` Its ranking: ${esc(item.suggestions.join(", "))}.` : ""}</div>` +
         quote +
         controls +
         `</li>`
@@ -565,7 +571,7 @@ export function renderBoard(
       : `<code>${esc(commandFor(item))}</code>`;
     return (
       `<li class="need"><div class="what"><a class="id" href="#t-${esc(item.taskId)}">${esc(item.deliveryId)}</a><strong>needs your confirmation</strong></div>` +
-      `<div class="why">${esc(STUCK_WHY[item.reason] ?? plain(item.reason))} Check the session, then record what happened to message ${esc(item.messageId)}.</div>` +
+      `<div class="why">${esc(STUCK_WHY[item.reason])} Check the session, then record what happened to message ${esc(item.messageId)}.</div>` +
       quote +
       controls +
       `</li>`
@@ -699,8 +705,6 @@ export function renderBoard(
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Router</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
 <style>${STYLE}</style></head><body>
 ${options.notice ? `<div class="notice"><div><span>${esc(options.notice)}</span><a href="./">Dismiss</a></div></div>` : ""}
 <div id="app" data-refresh="${refreshSeconds}">

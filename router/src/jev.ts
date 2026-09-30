@@ -13,9 +13,11 @@ export type JevOptions = {
   model?: string;
   timeoutMs?: number;
   fetch?: typeof fetch;
+  // Pause before the one retry; tests shorten it.
+  retryMs?: number;
 };
 
-export type Judgment =
+export type JudgeResult =
   | {
       ok: true;
       choice: string;
@@ -50,7 +52,7 @@ export function jevRequest(
 
 // The parts of a response the router uses, or why it cannot use them. Pure,
 // so the mapping is testable without the network.
-export function parseJudgment(body: unknown, ms: number): Judgment {
+export function parseJudgment(body: unknown, ms: number): JudgeResult {
   if (!isRecord(body) || !isRecord(body.answers))
     return { ok: false, reason: "response has no answers", ms };
   const answer = body.answers[QUESTION];
@@ -85,7 +87,7 @@ export function parseJudgment(body: unknown, ms: number): Judgment {
 export async function judge(
   question: JudgmentQuestion,
   options: JevOptions,
-): Promise<Judgment> {
+): Promise<JudgeResult> {
   const url = options.url ?? "https://api.typesafe.ai/v1/systemone";
   const model = options.model ?? "jev-latest";
   const timeoutMs = options.timeoutMs ?? 20_000;
@@ -126,6 +128,8 @@ export async function judge(
         ms: elapsed(),
       };
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) =>
+      setTimeout(resolve, options.retryMs ?? 1500),
+    );
   }
 }

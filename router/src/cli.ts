@@ -4,24 +4,15 @@
 import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
-import {
-  actionEvent,
-  boardModel,
-  boardState,
-  describeNeed,
-  identify,
-  messageTimes,
-  renderBoard,
-} from "./board.ts";
-import { readJournal } from "./journal.ts";
+import { describeNeed, newMessageId } from "./board.ts";
+import { boardListener, eventsListener, type Run } from "./server.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
 import { openShell, type Shell } from "./shell.ts";
-import type { Event, State, Task } from "./types.ts";
+import type { Event, Role, State, Task } from "./types.ts";
 
 const USAGE = `router: a prompt with an envelope and a record
 
@@ -39,8 +30,8 @@ const USAGE = `router: a prompt with an envelope and a record
   router cancel <task> [--as <principal>]
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
-A participant's reply is authenticated by $PASEO_AGENT_ID; over HTTP, by
-$ROUTER_TOKEN from secrets.env.`;
+A participant's reply is authenticated by $PASEO_AGENT_ID (never --as); over
+HTTP, by $ROUTER_TOKEN from secrets.env.`;
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -78,31 +69,24 @@ const configPath =
 const config = loadConfig(configPath);
 loadSecrets(join(configPath, "..", "secrets.env"));
 
-const requester = (): string => {
+// The principal the caller acts as: --as, $ROUTER_AS, or the first
+// configured principal in the needed role.
+const principalIn = (role: Role): string => {
   const chosen = values.as ?? process.env.ROUTER_AS;
   if (chosen) return chosen;
   const first = Object.entries(config.principals ?? {}).find(
-    ([, role]) => role === "requester",
+    ([, r]) => r === role,
   );
-  if (!first) fail("No requester principal in the configuration; pass --as.");
+  if (!first) fail(`No ${role} principal in the configuration; pass --as.`);
   return first[0];
 };
-const operator = (): string => {
-  const chosen = values.as ?? process.env.ROUTER_AS;
-  if (chosen) return chosen;
-  const first = Object.entries(config.principals ?? {}).find(
-    ([, role]) => role === "operator",
-  );
-  if (!first) fail("No operator principal in the configuration; pass --as.");
-  return first[0];
-};
+const requester = (): string => principalIn("requester");
+const operator = (): string => principalIn("operator");
 const need = (name: keyof typeof values): string => {
   const value = values[name];
   if (typeof value !== "string" || !value) fail(`--${name} is required.`);
   return value;
 };
-const newMessageId = (): string =>
-  `m-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 
 function fail(message: string): never {
   console.error(message);
@@ -111,7 +95,7 @@ function fail(message: string): never {
 
 const crash = process.env.ROUTER_CRASH;
 const apiKey = process.env.TYPESAFE_API_KEY;
-const open = (): Shell =>
+const open = (): Promise<Shell> =>
   openShell(config, {
     adapter: createPaseoAdapter,
     judge: apiKey
@@ -124,7 +108,7 @@ const open = (): Shell =>
 if (command === "serve") {
   await serve(config);
 } else {
-  const shell = open();
+  const shell = await open();
   let exitCode = 0;
   try {
     exitCode = await main(shell, config);
@@ -134,23 +118,16 @@ if (command === "serve") {
   process.exit(exitCode);
 }
 
-// `router serve`: replies and answers from other hosts. Each request is one
-// shell run, and requests are handled one at a time so the journal lock is
-// never contended from inside the server.
+// `router serve`: replies and answers from other hosts, and the board. Each
+// event is one shell run, and runs are handled one at a time so the journal
+// lock is never contended from inside the server.
 async function serve(config: RouterConfig): Promise<void> {
   const token = process.env.ROUTER_TOKEN;
   if (!token) fail("ROUTER_TOKEN is not set; add it to secrets.env.");
-  const authorized = (header: string | undefined): boolean => {
-    const given = Buffer.from(header?.replace(/^Bearer\s+/i, "") ?? "");
-    const wanted = Buffer.from(token);
-    return given.length === wanted.length && timingSafeEqual(given, wanted);
-  };
   let queue: Promise<unknown> = Promise.resolve();
-  const handle = (
-    event: Event,
-  ): Promise<{ outcome: unknown; report: string[] }> => {
+  const handle = (event: Event): Promise<Run> => {
     const run = queue.then(async () => {
-      const shell = open();
+      const shell = await open();
       try {
         const outcome = shell.apply(event);
         const report = outcome.ok ? await shell.deliver() : [];
@@ -162,145 +139,23 @@ async function serve(config: RouterConfig): Promise<void> {
     queue = run.catch(() => undefined);
     return run;
   };
-  const server = createServer((req, res) => {
-    const reply = (status: number, body: unknown): void => {
-      res.writeHead(status, { "content-type": "application/json" });
-      res.end(JSON.stringify(body));
-    };
-    if (req.method === "GET" && req.url === "/health")
-      return reply(200, { ok: true });
-    if (!authorized(req.headers.authorization))
-      return reply(401, { ok: false, code: "unauthorized" });
-    if (req.method !== "POST" || req.url !== "/events")
-      return reply(404, { ok: false, code: "not_found" });
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let event: unknown;
-      try {
-        event = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      } catch {
-        return reply(400, { ok: false, code: "bad_json" });
-      }
-      if (
-        event === null ||
-        typeof event !== "object" ||
-        !["update", "answer"].includes(
-          String((event as { type?: unknown }).type),
-        )
-      )
-        return reply(400, {
-          ok: false,
-          code: "bad_event",
-          message: "serve accepts update and answer events",
-        });
-      handle(event as Event).then(
-        ({ outcome, report }) => reply(200, { ...(outcome as object), report }),
-        (error: unknown) =>
-          reply(500, {
-            ok: false,
-            code: "error",
-            message: error instanceof Error ? error.message : String(error),
-          }),
-      );
-    });
-  });
-  // The board: a fold of the journal, no lock, no token. It listens on
-  // loopback and is exposed through Tailscale Serve, which stamps the
-  // viewer's login on each request; that login decides whether the page
-  // gets controls and whom an action is recorded as. Serve strips its mount
-  // path, so routes match by suffix.
-  const board = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", "http://board");
-    const path = url.pathname;
-    const actor = identify(req.headers, config.serve.identities);
-    const back = (notice: string): void => {
-      res
-        .writeHead(303, {
-          location: `./${notice ? `?notice=${encodeURIComponent(notice)}` : ""}`,
-        })
-        .end();
-    };
-    if (req.method === "POST" && path.endsWith("/actions")) {
-      if (!actor) {
-        res.writeHead(403, { "content-type": "text/plain" });
-        res.end("No tailnet identity, or a login the router does not know.");
-        return;
-      }
-      const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
-      req.on("end", () => {
-        const form = new URLSearchParams(
-          Buffer.concat(chunks).toString("utf8"),
-        );
-        const action = actionEvent(form, actor, config.principals ?? {});
-        if (!action.ok) return back(action.message);
-        console.log(`board: ${actor.login} → ${JSON.stringify(action.event)}`);
-        handle(action.event).then(
-          ({ outcome }) => back((outcome as { message: string }).message),
-          (error: unknown) =>
-            back(error instanceof Error ? error.message : String(error)),
-        );
-      });
-      return;
-    }
-    if (req.method !== "GET") {
-      res.writeHead(405).end();
-      return;
-    }
-    if (path.endsWith("/whoami")) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(
-        JSON.stringify({
-          login: actor?.login ?? null,
-          principals: actor?.principals ?? [],
-          headers: Object.fromEntries(
-            Object.entries(req.headers).filter(([k]) =>
-              k.startsWith("tailscale-"),
-            ),
-          ),
-        }),
-      );
-      return;
-    }
-    if (!path.endsWith("/") && !path.endsWith("/board.json")) {
-      // Under a mount such as /router, the page's relative links need the
-      // trailing slash.
-      res.writeHead(302, { location: `${path}/` }).end();
-      return;
-    }
-    const now = Date.now();
-    const entries = readJournal(config.home);
-    const model = boardModel(
-      boardState(config, entries, now),
-      config,
-      now,
-      messageTimes(entries),
-    );
-    if (path.endsWith("/board.json")) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(model));
-    } else {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(
-        renderBoard(model, { actor, notice: url.searchParams.get("notice") }),
-      );
-    }
-  });
-  const listen = (s: typeof server, address: string): Promise<void> => {
+  const deps = { config, handle, log: (line: string) => console.log(line) };
+  const events = createServer(eventsListener(deps, token));
+  const board = createServer(boardListener(deps));
+  const listen = (s: typeof events, address: string): Promise<void> => {
     const [host, port] = address.split(":");
     return new Promise((resolve) =>
       s.listen(Number(port), host, () => resolve()),
     );
   };
-  await listen(server, config.serve.listen);
+  await listen(events, config.serve.listen);
   await listen(board, config.serve.board);
   console.log(`router serve listening on http://${config.serve.listen}`);
   console.log(`router board on http://${config.serve.board}`);
   await new Promise<void>((resolve) => {
     const stop = (): void => {
       board.close();
-      server.close(() => resolve());
+      events.close(() => resolve());
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
@@ -344,7 +199,8 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
       say(await shell.deliver());
       return 0;
     case "reply": {
-      const by = process.env.PASEO_AGENT_ID ?? values.as;
+      // A reply's identity is the session's own, never chosen by hand.
+      const by = process.env.PASEO_AGENT_ID;
       if (!by)
         fail(
           "Replies come from a participant session: $PASEO_AGENT_ID is unset.",

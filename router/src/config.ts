@@ -66,28 +66,39 @@ export function loadConfig(path: string): RouterConfig {
       p.hosts.map((h): [string, string] => [`${p.id}@${h}`, h]),
     ),
   );
+  const agentIds: Record<string, string> = {};
   for (const [key, id] of Object.entries(agents)) {
     const host = known.get(key);
     if (!host) fail(`agents names unknown placement ${key}`);
     else if (!hosts[host]) fail(`agents.${key}: host ${host} is not in hosts`);
     if (typeof id !== "string" || !id)
-      fail(`agents.${key} must be an agent id`);
+      return fail(`agents.${key} must be an agent id`);
+    agentIds[key] = id;
   }
   const serve = isRecord(extra.serve) ? extra.serve : {};
+  const board =
+    typeof serve.board === "string" && serve.board
+      ? serve.board
+      : "127.0.0.1:7678";
+  // The board trusts Tailscale Serve's login header, so it must only be
+  // reachable through Serve: loopback, never an interface address.
+  if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(board))
+    fail(`serve.board must be a loopback address, not ${board}`);
   const identities: Record<string, string[]> = {};
   if (serve.identities !== undefined) {
     if (!isRecord(serve.identities))
       fail("serve.identities maps a tailnet login to a list of principals");
     else
       for (const [login, list] of Object.entries(serve.identities)) {
-        if (
-          !Array.isArray(list) ||
-          !list.every(
-            (p) => typeof p === "string" && p in (config.principals ?? {}),
-          )
-        )
-          fail(`serve.identities.${login} must list configured principals`);
-        identities[login] = list as string[];
+        const principals: string[] = [];
+        for (const p of Array.isArray(list) ? list : [undefined])
+          if (typeof p === "string" && p in (config.principals ?? {}))
+            principals.push(p);
+          else
+            return fail(
+              `serve.identities.${login} must list configured principals`,
+            );
+        identities[login] = principals;
       }
   }
   const jev = isRecord(extra.jev) ? extra.jev : {};
@@ -98,16 +109,13 @@ export function loadConfig(path: string): RouterConfig {
         ? extra.home
         : join(homedir(), ".local", "state", "jev-router"),
     hosts,
-    agents: agents as Record<string, string>,
+    agents: agentIds,
     serve: {
       listen:
         typeof serve.listen === "string" && serve.listen
           ? serve.listen
           : "127.0.0.1:7677",
-      board:
-        typeof serve.board === "string" && serve.board
-          ? serve.board
-          : "127.0.0.1:7678",
+      board,
       identities,
     },
     jev: {
