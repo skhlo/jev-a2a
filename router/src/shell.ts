@@ -13,7 +13,7 @@ import {
   reduce,
 } from "./core.ts";
 import type { RouterConfig } from "./config.ts";
-import { openJournal, type Journal } from "./journal.ts";
+import { openJournal, type Entry } from "./journal.ts";
 import type { Adapter } from "./paseo.ts";
 import type { Judgment } from "./jev.ts";
 import type {
@@ -43,9 +43,11 @@ export type ShellOptions = {
   crash?: "after_attempt" | "after_send" | undefined;
 };
 
-export function fold(config: RouterConfig, journal: Journal): State {
+// A journal holds only accepted events, so a rejection on replay means the
+// record and the code disagree; nothing sensible can be shown or done.
+export function fold(config: RouterConfig, entries: Entry[]): State {
   let state = initial(config);
-  for (const { event } of journal.entries()) {
+  for (const { event } of entries) {
     state = reduce(state, event as Event);
     if (!state.last?.ok)
       throw new Error(
@@ -71,7 +73,7 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
     return adapter;
   };
   try {
-    state = fold(config, journal);
+    state = fold(config, journal.entries());
   } catch (error) {
     journal.release();
     throw error;

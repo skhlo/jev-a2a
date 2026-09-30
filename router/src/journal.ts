@@ -50,6 +50,22 @@ export function openJournal(home: string): Journal {
   };
 }
 
+// A reader's view of the journal: no lock, no appends. The writer appends
+// one whole line per call, so a final line without its newline is a write in
+// progress and is left for the next read.
+export function readJournal(home: string): Entry[] {
+  let text = "";
+  try {
+    text = readFileSync(join(home, "journal.jsonl"), "utf8");
+  } catch (error: unknown) {
+    if (!isCode(error, "ENOENT")) throw error;
+    return [];
+  }
+  const lines = text.split("\n");
+  lines.pop();
+  return lines.filter((line) => line.trim()).map((line) => parseEntry(line));
+}
+
 // The lock names its owner. A run that died mid-way does not block the next
 // one; a live owner is waited for, since runs are short.
 const LOCK_WAIT_MS = 15_000;

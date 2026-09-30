@@ -22,8 +22,9 @@ export type RouterConfig = Config & {
   // Placement key ("participant@host") -> Paseo agent id. The agent id is the
   // placement's session identity. Placements without an entry are not served.
   agents: Record<string, string>;
-  // Where `router serve` listens for replies from other hosts.
-  serve: { listen: string };
+  // Where `router serve` listens for replies from other hosts, and where it
+  // serves the read-only board (loopback; expose it through Tailscale Serve).
+  serve: { listen: string; board: string };
   // Jev for unaddressed requests. The API key comes from TYPESAFE_API_KEY.
   jev: { model: string; url?: string; timeoutMs?: number };
 };
@@ -82,6 +83,10 @@ export function loadConfig(path: string): RouterConfig {
         typeof serve.listen === "string" && serve.listen
           ? serve.listen
           : "127.0.0.1:7677",
+      board:
+        typeof serve.board === "string" && serve.board
+          ? serve.board
+          : "127.0.0.1:7678",
     },
     jev: {
       model:

@@ -8,6 +8,8 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
+import { boardModel, boardState, describeNeed, renderBoard } from "./board.ts";
+import { readJournal } from "./journal.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
 import { openShell, type Shell } from "./shell.ts";
@@ -19,7 +21,7 @@ const USAGE = `router: a prompt with an envelope and a record
                                                without --to, Jev picks the recipient
   router choose --task <T> --to <participant>  answer a needs_recipient
   router run                                   observe placements, deliver what is eligible
-  router serve                                 accept replies from other hosts over HTTP
+  router serve                                 accept replies from other hosts over HTTP; serve the board
   router status [<task>]                       the record
   router needs-you [--as <principal>]          decisions waiting on a person
   router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ...] [--message <id>]
@@ -195,14 +197,52 @@ async function serve(config: RouterConfig): Promise<void> {
       );
     });
   });
-  const [host, port] = config.serve.listen.split(":");
-  await new Promise<void>((resolve) =>
-    server.listen(Number(port), host, () => resolve()),
-  );
+  // The board: a read-only fold of the journal, no lock, no token. It listens
+  // on loopback and is exposed through Tailscale Serve, so it answers the
+  // same content under any path prefix Serve mounts it at.
+  const board = createServer((req, res) => {
+    if (req.method !== "GET") {
+      res.writeHead(405).end();
+      return;
+    }
+    const path = new URL(req.url ?? "/", "http://board").pathname;
+    if (!path.endsWith("/") && !path.endsWith("/board.json")) {
+      // Under a mount such as /router, the page's relative board.json link
+      // needs the trailing slash.
+      res.writeHead(302, { location: `${path}/` }).end();
+      return;
+    }
+    const now = Date.now();
+    const model = boardModel(
+      boardState(config, readJournal(config.home), now),
+      config,
+      now,
+    );
+    if (path.endsWith("/board.json")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(model));
+    } else {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(renderBoard(model));
+    }
+  });
+  const listen = (s: typeof server, address: string): Promise<void> => {
+    const [host, port] = address.split(":");
+    return new Promise((resolve) =>
+      s.listen(Number(port), host, () => resolve()),
+    );
+  };
+  await listen(server, config.serve.listen);
+  await listen(board, config.serve.board);
   console.log(`router serve listening on http://${config.serve.listen}`);
+  console.log(`router board on http://${config.serve.board}`);
   await new Promise<void>((resolve) => {
-    process.once("SIGINT", () => server.close(() => resolve()));
-    process.once("SIGTERM", () => server.close(() => resolve()));
+    const stop = (): void => {
+      board.close();
+      server.close(() => resolve());
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
   });
 }
 
@@ -302,14 +342,7 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
       const who = values.as ?? process.env.ROUTER_AS ?? requester();
       const items = needsYou(shell.state, who);
       if (!items.length) console.log(`Nothing waits on ${who}.`);
-      for (const item of items)
-        console.log(
-          item.kind === "choose"
-            ? `${item.taskId}: choose a recipient (${item.reason}${item.suggestions.length ? `; suggested ${item.suggestions.join(", ")}` : ""})`
-            : item.kind === "answer"
-              ? `${item.taskId}: answer ${item.questionId} "${item.text}"`
-              : `${item.deliveryId}: resolve ${item.messageId} (${item.reason})`,
-        );
+      for (const item of items) console.log(describeNeed(item));
       return 0;
     }
     case "status": {
