@@ -10,7 +10,6 @@
   return {
     policy: {
       threshold: 0.9, // provisional; tune on labeled routing examples
-      maxJudgments: 1,
       deadline: 100, // model ticks in the prototype; a real deployment uses time
       maxText: 4000,
       maxOpenTasks: 20,

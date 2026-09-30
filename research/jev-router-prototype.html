@@ -676,6 +676,9 @@
             <button type="button" data-action="toggleBusy">
               Toggle orchestrator busy
             </button>
+            <button type="button" data-action="toggleHold">
+              You take / hand back the orchestrator session
+            </button>
             <button type="button" data-action="toggleLab">
               Toggle lab01 reachable
             </button>
@@ -754,15 +757,21 @@
 
       <section class="panel" aria-labelledby="contract-title">
         <h2 id="contract-title">The contract in one screen</h2>
+        <p class="hint">
+          A summary. The event table in
+          <a href="jev-router-spec.md">jev-router-spec.md</a> is authoritative.
+        </p>
         <pre>
-submit   { messageId, text, to?, hosts? }   → receipt (same key + content = same task)
-judged   { choice, probabilities }          → recipient, or ask the sender
-attempt  { deliveryId }                     → recorded first; session marked busy
-adapter  accepted | not_sent | unknown      → not_sent requeues; unknown retries
-                                              only with the same deduplicated key
-update   { inReplyTo, kind }                → working | question | completed | failed
-answer   { questionId, text }               → queued to the same pinned session
-resolve  (operator) finished | not_sent     → closes uncertainty; never resends
+submit         { messageId, text, to?, hosts? }  → receipt (same key + content = same task)
+judged         { choice, probabilities }         → recipient, or ask the sender
+attempt        { deliveryId }                    → recorded first; session marked busy
+adapterResult  accepted | not_sent | unknown     → not_sent requeues; unknown retries
+                                                   only with the same deduplicated key
+update         { inReplyTo, kind }               → working | question | completed | failed
+                                                   progress after a question settles it
+answer         { questionId, text }              → queued to the same pinned session
+observe        { ready?, hold?, session? }       → idle gate; hold = you are in the session
+resolve        (operator) finished | not_sent    → closes uncertainty; never resends
 
 Identity: sender principal + messageId. A reply must come from the
 delivery's pinned session and answer its current message.</pre>
@@ -852,6 +861,20 @@ delivery's pinned session and answer its current message.</pre>
         },
       };
 
+      const BLOCKED = {
+        not_ready: "waits for its session to be idle",
+        held: "waits while you are using its session",
+        in_flight: "waits for an unconfirmed send to the same session",
+        queued_behind:
+          "is queued behind an earlier request for the same session",
+        session_replaced:
+          "is pinned to a session that was replaced; an operator must reconcile it",
+        not_pending: "has nothing to send",
+        closed: "is closed",
+      };
+      const presetFor = (task) =>
+        Object.keys(presets).find((id) => presets[id].text === task?.text) ||
+        "vague";
       let state;
       let world;
       let scenarioIndex = 0;
@@ -968,7 +991,7 @@ delivery's pinned session and answer its current message.</pre>
           const why = blocked ? Core.blockedReason(state, blocked) : null;
           const message =
             why && why !== "not_pending" && why !== "closed"
-              ? `Nothing to send: ${blocked.id} is ${pretty(why)}.${Core.currentSend(blocked).outcome === "unknown" ? " Its unconfirmed send is retried with the same key once the session is idle." : ""}`
+              ? `Nothing to send: ${blocked.id} ${BLOCKED[why] || pretty(why)}.${Core.currentSend(blocked).outcome === "unknown" ? " Its unconfirmed send is retried with the same key once the session is idle." : ""}`
               : task?.status === "needs_recipient"
                 ? "Nothing to send until the sender chooses a recipient."
                 : task?.status === "uncertain"
@@ -981,9 +1004,7 @@ delivery's pinned session and answer its current message.</pre>
           event({ type: "attempt", deliveryId: next.deliveryId });
           return;
         }
-        const preset =
-          Object.values(presets).find((p) => p.text === task.text) ||
-          presets.vague;
+        const preset = presets[presetFor(task)];
         const options = Object.keys(next.question.criteria);
         const scripted = preset.jev || { none: 0.9 };
         const listed = Object.entries(scripted).filter(([id]) =>
@@ -1048,10 +1069,9 @@ delivery's pinned session and answer its current message.</pre>
         }
         let text = "";
         if (kind === "working") {
-          const preset = Object.values(presets).find(
-            (p) => p.text === task.text,
-          );
-          const stages = workflows[preset?.workflow] || ["Working"];
+          const stages = workflows[presets[presetFor(task)].workflow] || [
+            "Working",
+          ];
           const done = world.stages[delivery.id] || 0;
           text = stages[Math.min(done, stages.length - 1)];
           world.stages[delivery.id] = done + 1;
@@ -1117,18 +1137,12 @@ delivery's pinned session and answer its current message.</pre>
         duplicate: () => {
           const task = current();
           if (!task) return say(false, "Submit a request first.");
-          const preset =
-            Object.keys(presets).find((id) => presets[id].text === task.text) ||
-            "vague";
-          submit(preset, task.messageId, task.text);
+          submit(presetFor(task), task.messageId, task.text);
         },
         conflict: () => {
           const task = current();
           if (!task) return say(false, "Submit a request first.");
-          const preset =
-            Object.keys(presets).find((id) => presets[id].text === task.text) ||
-            "vague";
-          submit(preset, task.messageId, `${task.text} (changed)`);
+          submit(presetFor(task), task.messageId, `${task.text} (changed)`);
         },
         answer,
         cancel: () => {
@@ -1150,6 +1164,12 @@ delivery's pinned session and answer its current message.</pre>
         wrongMessage: () => participantReply("completed", "wrongMessage"),
         wrongSession: () => participantReply("completed", "wrongSession"),
         toggleBusy: () => toggleReady(ORCH_PLACEMENT),
+        toggleHold: () =>
+          event({
+            type: "observe",
+            placement: ORCH_PLACEMENT,
+            hold: !state.placements[ORCH_PLACEMENT].hold,
+          }),
         idle: () => {
           const placements = new Set(
             (current()?.deliveries || []).map((d) => d.placement),
@@ -1539,7 +1559,7 @@ delivery's pinned session and answer its current message.</pre>
                   (d) =>
                     d.placement === key && Core.isOpen(d) && d.session === null,
                 ).length;
-                return `<div class="peer"><div class="peer-head"><strong>${escape(name(p.participant))}</strong><span class="tag ${p.ready ? "on" : ""}">${p.ready ? "Ready" : "Not ready"}</span></div><p class="hint">${escape(p.session)}</p><p>${holder ? `In flight: ${holder.taskId}` : "Free"}${queued ? ` · ${queued} queued` : ""}</p></div>`;
+                return `<div class="peer"><div class="peer-head"><strong>${escape(name(p.participant))}</strong><span class="tag ${p.ready && !p.hold ? "on" : ""}">${p.hold ? "Held by you" : p.ready ? "Ready" : "Not ready"}</span></div><p class="hint">${escape(p.session)}</p><p>${holder ? `In flight: ${holder.taskId}` : "Free"}${queued ? ` · ${queued} queued` : ""}</p></div>`;
               })
               .join(
                 "",

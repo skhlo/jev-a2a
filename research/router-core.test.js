@@ -1,48 +1,103 @@
-// Executable contract for router-core.js. Run: node --test research/
+// Executable contract for router-core.js. Run: node --test research/router-core.test.js
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Core = require("./router-core.js");
 const config = require("./router-example-config.js");
 
-const {
-  initial,
-  reduce,
-  commands,
-  currentSend,
-  isOpen,
-  inFlight,
-  blockedReason,
-} = Core;
+const { initial, reduce, commands, currentSend, isOpen } = Core;
 const ORCH = "orchestrator@mbp#1";
 const KNOW = "knowledge@mini#1";
 const LAB = "incus@lab01#1";
 
 // ---- Oracle: invariants checked independently of the implementation ----
+// The oracle derives eligibility, in-flight, status and judgment validity
+// itself, so a wrong rule in the core cannot approve its own behavior.
+
+const last = (d) => d.sends[d.sends.length - 1];
+const open = (d) => d.end === null;
+const unconfirmed = (d) =>
+  open(d) &&
+  d.session !== null &&
+  ["attempting", "unknown"].includes(last(d).outcome);
+const isIdempotent = (state, d) =>
+  state.config.participants.find((p) => p.id === d.participant).idempotent;
+const deliveriesOf = (state) => state.tasks.flatMap((t) => t.deliveries);
+
+function oracleEligible(state, d) {
+  const task = state.tasks.find((t) => t.id === d.taskId);
+  const placement = state.placements[d.placement];
+  const send = last(d);
+  if (task.final || !open(d)) return false;
+  const retry = send.outcome === "unknown" && isIdempotent(state, d);
+  if (send.outcome !== "pending" && !retry) return false;
+  if (!placement.ready || placement.hold) return false;
+  if (d.session !== null && d.session !== placement.session) return false;
+  const all = deliveriesOf(state);
+  if (all.some((o) => o !== d && o.placement === d.placement && unconfirmed(o)))
+    return false;
+  if (d.session === null) {
+    const older = all.slice(0, all.indexOf(d));
+    if (
+      older.some(
+        (o) =>
+          o.placement === d.placement &&
+          o.session === null &&
+          open(o) &&
+          !state.tasks.find((t) => t.id === o.taskId).final,
+      )
+    )
+      return false;
+  }
+  return true;
+}
+
+function oracleStatus(task) {
+  if (task.final) return task.final.status;
+  if (task.routing)
+    return task.routing.state === "judging" ? "routing" : "needs_recipient";
+  const live = task.deliveries.filter(open);
+  if (live.some((d) => d.question)) return "needs_answer";
+  const outcomes = live.map((d) => last(d).outcome);
+  if (outcomes.includes("unknown")) return "uncertain";
+  if (outcomes.includes("accepted")) return "working";
+  if (outcomes.includes("attempting")) return "delivering";
+  return "queued";
+}
 
 function stateViolations(state) {
   const out = [];
   const { policy, permissions } = state.config;
-  const deliveries = state.tasks.flatMap((task) => task.deliveries);
+  const deliveries = deliveriesOf(state);
   for (const task of state.tasks) {
     const receipt = state.receipts[`${task.source}/${task.messageId}`];
     if (receipt?.taskId !== task.id)
       out.push(`${task.id}: missing request receipt`);
-    if (task.status !== Core.status(task)) out.push(`${task.id}: stale status`);
+    if (task.status !== oracleStatus(task))
+      out.push(`${task.id}: stale status`);
     if (
       task.to !== null &&
       (task.judgments.length || (task.recipient && task.chosenBy !== "address"))
     )
       out.push(`${task.id}: addressed request used a judgment`);
-    if (task.judgments.length > policy.maxJudgments)
-      out.push(`${task.id}: judgment budget exceeded`);
+    if (task.judgments.length > 1)
+      out.push(`${task.id}: more than one judgment`);
     if (task.recipient && !permissions[task.source]?.includes(task.recipient))
       out.push(`${task.id}: unauthorized recipient`);
     if (task.chosenBy === "judgment") {
-      const last = task.judgments.at(-1);
+      const j = task.judgments.at(-1);
+      const options = [...(permissions[task.source] || []), "none"];
+      const p = j?.probabilities;
+      const sound =
+        p &&
+        Object.keys(p).length === options.length &&
+        options.every(
+          (id) => typeof p[id] === "number" && p[id] >= 0 && p[id] <= 1,
+        ) &&
+        Math.abs(Object.values(p).reduce((a, b) => a + b, 0) - 1) < 0.01;
       if (
-        !last?.valid ||
-        last.choice !== task.recipient ||
-        last.probabilities[last.choice] < policy.threshold
+        !sound ||
+        j.choice !== task.recipient ||
+        p[j.choice] < policy.threshold
       )
         out.push(`${task.id}: selected without a confident valid judgment`);
     }
@@ -66,25 +121,35 @@ function stateViolations(state) {
       out.push(`${task.id}: canceled after work may have been delivered`);
     if (
       task.final &&
-      task.deliveries.some((d) => isOpen(d) && d.session === null)
+      task.deliveries.some((d) => open(d) && d.session === null)
     )
       out.push(`${task.id}: terminal task still has sendable work`);
   }
-  const unconfirmed = {};
+  const holders = {};
   for (const d of deliveries) {
-    if (inFlight(d)) {
-      if (unconfirmed[d.placement])
+    if (unconfirmed(d)) {
+      if (holders[d.placement])
         out.push(
-          `${d.placement}: two unconfirmed sends (${unconfirmed[d.placement]}, ${d.id})`,
+          `${d.placement}: two unconfirmed sends (${holders[d.placement]}, ${d.id})`,
         );
-      unconfirmed[d.placement] = d.id;
+      holders[d.placement] = d.id;
     }
     if (d.session !== null) {
       const owner = state.sessions[d.session];
       if (owner?.participant !== d.participant || owner.host !== d.host)
         out.push(`${d.id}: pinned to a foreign session`);
     }
-    if (d.question && !isOpen(d))
+    // A delivery that may have reached a session stays pinned to it.
+    if (
+      d.session === null &&
+      d.sends.some((s) =>
+        s.trail.some((step) =>
+          ["unknown", "accepted", "reply_seen"].includes(step),
+        ),
+      )
+    )
+      out.push(`${d.id}: unpinned after a possibly delivered attempt`);
+    if (d.question && !open(d))
       out.push(`${d.id}: question on a closed delivery`);
     if (
       ["completed", "failed"].includes(d.end?.reason) &&
@@ -93,10 +158,9 @@ function stateViolations(state) {
       out.push(`${d.id}: result from another session`);
     // A message is sent again only after a definite not_sent, or after
     // unknown through an adapter that deduplicates by the same message key.
-    const idempotent = state.config.participants.find(
-      (p) => p.id === d.participant,
-    ).idempotent;
-    const safeBefore = idempotent ? ["not_sent", "unknown"] : ["not_sent"];
+    const safeBefore = isIdempotent(state, d)
+      ? ["not_sent", "unknown"]
+      : ["not_sent"];
     for (const send of d.sends) {
       send.trail.forEach((step, i) => {
         if (
@@ -164,7 +228,7 @@ function stepViolations(prev, event, next) {
           if (
             event.type !== "attempt" ||
             event.deliveryId !== d.id ||
-            blockedReason(prev, d) !== null
+            !oracleEligible(prev, d)
           )
             out.push(`${d.id}: attempted without an eligible attempt event`);
         }
@@ -179,6 +243,23 @@ function stepViolations(prev, event, next) {
         `${placement}: still ready after a send; the next send could interrupt it`,
       );
   }
+  if (event.type === "observe" && event.session !== undefined) {
+    const p = next.placements[event.placement];
+    const replaced = p.session !== prev.placements[event.placement].session;
+    if (replaced && p.ready && event.ready !== true)
+      out.push(
+        `${event.placement}: replaced session counted as ready unobserved`,
+      );
+  }
+  // The shell is offered exactly the eligible work.
+  const offered = new Set(
+    commands(next)
+      .filter((c) => c.type === "deliver")
+      .map((c) => c.deliveryId),
+  );
+  for (const d of deliveriesOf(next))
+    if (oracleEligible(next, d) !== offered.has(d.id))
+      out.push(`${d.id}: commands() disagrees with the oracle on eligibility`);
   return out;
 }
 
@@ -390,6 +471,70 @@ test("question, answer and final result stay on one pinned session", () => {
     text: "Prepared change.",
   });
   assert.equal(task(s).status, "completed");
+});
+
+test("a person can hold a session, and a question settled in the session clears itself", () => {
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Draft the Q3 memo.",
+    to: "knowledge",
+  });
+  // Holding an idle session keeps the router out until the hold is lifted.
+  s = expectOk(s, { type: "observe", placement: "knowledge@mini", hold: true });
+  assert.equal(Core.blockedReason(s, Core.findDelivery(s, "D1")), "held");
+  assert.deepEqual(commands(s), []);
+  s = expectReject(s, { type: "attempt", deliveryId: "D1" }, "not_eligible");
+  s = expectOk(s, {
+    type: "observe",
+    placement: "knowledge@mini",
+    hold: false,
+  });
+  s = deliver(s, "D1");
+  const KNOW = "knowledge@mini#1";
+  s = expectOk(s, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "Q1",
+    inReplyTo: "M1",
+    kind: "question",
+    text: "Which quarter's numbers?",
+  });
+  assert.equal(task(s).status, "needs_answer");
+  // The person answers in the session; the participant's next progress
+  // update tells the router the question is settled.
+  s = expectOk(s, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "R1",
+    inReplyTo: "M1",
+    kind: "working",
+    text: "Using the confirmed Q3 figures.",
+  });
+  assert.equal(task(s).status, "working");
+  assert.equal(Core.findDelivery(s, "D1").question, null);
+  s = expectReject(
+    s,
+    {
+      type: "answer",
+      by: "you",
+      taskId: "T1",
+      messageId: "A1",
+      questionId: "Q1",
+      text: "Q3",
+    },
+    "no_question",
+  );
+  // A hold does not survive a replaced session: nobody is typing in it yet.
+  s = expectOk(s, { type: "observe", placement: "knowledge@mini", hold: true });
+  s = expectOk(s, {
+    type: "observe",
+    placement: "knowledge@mini",
+    session: "knowledge@mini#2",
+  });
+  assert.equal(s.placements["knowledge@mini"].hold, false);
+  assert.equal(s.placements["knowledge@mini"].ready, false);
 });
 
 test("addressed service request fans out per host with zero judgments", () => {
@@ -701,7 +846,10 @@ test("sends only to an idle session, in arrival order; open tasks do not block n
     commands(s).map((c) => c.deliveryId),
     ["D1"],
   );
-  assert.equal(blockedReason(s, Core.findDelivery(s, "D2")), "queued_behind");
+  assert.equal(
+    Core.blockedReason(s, Core.findDelivery(s, "D2")),
+    "queued_behind",
+  );
   s = deliver(s, "D1");
   // The turn started: sending now would interrupt it (Paseo cancels an active turn).
   assert.deepEqual(commands(s), []);
@@ -721,7 +869,7 @@ test("sends only to an idle session, in arrival order; open tasks do not block n
     commands(s).map((c) => c.deliveryId),
     ["D2"],
   );
-  assert.equal(blockedReason(s, Core.findDelivery(s, "D3")), "in_flight");
+  assert.equal(Core.blockedReason(s, Core.findDelivery(s, "D3")), "in_flight");
   // Replies for different tasks correlate independently.
   s = expectOk(s, {
     type: "update",
@@ -768,11 +916,11 @@ test("deadline fails the task; an unconfirmed send still blocks its session unti
     "the uncertain send still holds the session",
   );
   assert.equal(
-    blockedReason(s, Core.findDelivery(s, "D1")),
+    Core.blockedReason(s, Core.findDelivery(s, "D1")),
     "closed",
     "no retry after the deadline",
   );
-  assert.equal(blockedReason(s, Core.findDelivery(s, "D2")), "in_flight");
+  assert.equal(Core.blockedReason(s, Core.findDelivery(s, "D2")), "in_flight");
   s = expectReject(
     s,
     {
@@ -981,7 +1129,7 @@ test("not_sent requeues safely; replaced sessions get new work, old pins keep th
     ready: true,
   });
   assert.equal(
-    blockedReason(s, Core.findDelivery(s, "D1")),
+    Core.blockedReason(s, Core.findDelivery(s, "D1")),
     "session_replaced",
   );
   s = expectOk(s, {
@@ -1061,10 +1209,34 @@ test("the core carries no deployment: any valid configuration works, invalid one
     () => initial({ ...config, principals: { you: "admin" } }),
     /unknown role/,
   );
+  const withPolicy = (policy) => ({
+    ...config,
+    policy: { ...config.policy, ...policy },
+  });
+  const withParticipant = (patch) => ({
+    ...config,
+    participants: [
+      { ...config.participants[0], ...patch },
+      ...config.participants.slice(1),
+    ],
+  });
+  for (const [broken, message] of [
+    [withPolicy({ threshold: 5 }), /threshold/],
+    [withPolicy({ threshold: NaN }), /threshold/],
+    [withPolicy({ deadline: -1 }), /deadline/],
+    [withPolicy({ maxOpenTasks: 0 }), /maxOpenTasks/],
+    [withParticipant({ kind: "robot" }), /kind/],
+    [withParticipant({ hosts: ["mbp", "mbp"] }), /distinct host/],
+    [withParticipant({ hosts: [7] }), /distinct host/],
+    [withParticipant({ idempotent: "yes" }), /idempotent/],
+    [{ ...config, participants: [null] }, /participant ids/],
+    [{ ...config, permissions: { you: "orchestrator" } }, /must be a list/],
+    [{ ...config, principals: [] }, /principals must be an object/],
+  ])
+    assert.throws(() => initial(broken), message);
   const other = {
     policy: {
       threshold: 0.8,
-      maxJudgments: 1,
       deadline: 10,
       maxText: 100,
       maxOpenTasks: 2,
@@ -1135,6 +1307,145 @@ test("the core carries no deployment: any valid configuration works, invalid one
   );
 });
 
+test("a retry that comes back not_sent keeps the pin: the first attempt may have arrived", () => {
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Job",
+    to: "orchestrator",
+  });
+  s = deliver(s, "D1", "unknown");
+  s = idle(s);
+  s = deliver(s, "D1", "not_sent");
+  const d = Core.findDelivery(s, "D1");
+  assert.equal(d.session, ORCH, "still pinned");
+  assert.deepEqual(currentSend(d).trail, [
+    "attempting",
+    "unknown",
+    "attempting",
+    "not_sent",
+  ]);
+  s = expectReject(
+    s,
+    { type: "cancel", by: "you", taskId: "T1" },
+    "not_cancelable",
+  );
+  // The session is replaced: the message must not follow to the new one.
+  s = expectOk(s, {
+    type: "observe",
+    placement: "orchestrator@mbp",
+    session: "orchestrator@mbp#2",
+    ready: true,
+  });
+  assert.equal(
+    Core.blockedReason(s, Core.findDelivery(s, "D1")),
+    "session_replaced",
+  );
+  assert.deepEqual(commands(s), []);
+  s = expectOk(s, {
+    type: "resolve",
+    by: "operator",
+    deliveryId: "D1",
+    messageId: "M1",
+    outcome: "not_sent",
+    evidence: "Old session's history shows no prompt.",
+  });
+  assert.equal(task(s).status, "failed");
+});
+
+test("guards with exact boundaries", () => {
+  // Threshold: exactly the threshold dispatches; just below asks the sender.
+  let s = submit(initial(config), { messageId: "M1", text: "a" });
+  s = judge(s, "T1", "orchestrator", 0.9);
+  assert.equal(task(s).recipient, "orchestrator");
+  s = submit(s, { messageId: "M2", text: "b" });
+  s = judge(s, "T2", "orchestrator", 0.89);
+  assert.equal(task(s, "T2").routing.reason, "low_confidence");
+  assert.deepEqual(task(s, "T2").routing.suggestions[0], "orchestrator");
+  // Probabilities must sum to one.
+  s = submit(s, { messageId: "M3", text: "c" });
+  const options = Object.keys(Core.judgmentQuestion(s, task(s, "T3")).criteria);
+  s = expectOk(s, {
+    type: "judged",
+    taskId: "T3",
+    choice: "orchestrator",
+    probabilities: Object.fromEntries(options.map((id) => [id, 0.5])),
+  });
+  assert.equal(task(s, "T3").routing.reason, "invalid_judgment");
+  // Time never moves backwards.
+  s = expectOk(s, { type: "tick", now: 5 });
+  s = expectReject(s, { type: "tick", now: 4 }, "invalid");
+  // An operator cannot resolve an attempt in progress, nor call an accepted send not_sent.
+  s = submit(s, { messageId: "M4", text: "d", to: "knowledge" });
+  s = expectOk(s, { type: "attempt", deliveryId: "D2" });
+  s = expectReject(
+    s,
+    {
+      type: "resolve",
+      by: "operator",
+      deliveryId: "D2",
+      messageId: "M4",
+      outcome: "finished",
+      evidence: "x",
+    },
+    "in_progress",
+  );
+  s = expectOk(s, {
+    type: "adapterResult",
+    deliveryId: "D2",
+    messageId: "M4",
+    outcome: "accepted",
+  });
+  s = expectReject(
+    s,
+    {
+      type: "resolve",
+      by: "operator",
+      deliveryId: "D2",
+      messageId: "M4",
+      outcome: "not_sent",
+      evidence: "x",
+    },
+    "invalid",
+  );
+  // A reply to a message that was never sent is not a reply.
+  s = expectOk(s, {
+    type: "update",
+    by: KNOW,
+    taskId: "T4",
+    messageId: "Q1",
+    inReplyTo: "M4",
+    kind: "question",
+    text: "?",
+  });
+  s = expectOk(s, {
+    type: "answer",
+    by: "you",
+    taskId: "T4",
+    messageId: "A1",
+    questionId: "Q1",
+    text: "!",
+  });
+  s = expectReject(
+    s,
+    {
+      type: "update",
+      by: KNOW,
+      taskId: "T4",
+      messageId: "R1",
+      inReplyTo: "A1",
+      kind: "completed",
+    },
+    "wrong_message",
+  );
+  // A replaced session is not ready until observed.
+  s = expectOk(s, {
+    type: "observe",
+    placement: "knowledge@mini",
+    session: "knowledge@mini#2",
+  });
+  assert.equal(s.placements["knowledge@mini"].ready, false);
+});
+
 test("every status maps to an A2A v1.0 task state", () => {
   for (const name of [
     "routing",
@@ -1144,7 +1455,9 @@ test("every status maps to an A2A v1.0 task state", () => {
     "uncertain",
     "needs_recipient",
     "needs_answer",
-    ...Core.TERMINAL,
+    "completed",
+    "failed",
+    "canceled",
   ])
     assert.match(Core.A2A_STATE[name], /^TASK_STATE_/);
 });
@@ -1187,6 +1500,8 @@ function randomEvent(s, r) {
       "judged",
       "choose",
       "attempt",
+      "attempt2",
+      "attempt3",
       "ack",
       "ack",
       "update",
@@ -1244,6 +1559,8 @@ function randomEvent(s, r) {
         to: pick(participants),
       };
     case "attempt":
+    case "attempt2":
+    case "attempt3":
       return {
         type: "attempt",
         deliveryId: deliveries.length ? pick(deliveries).id : "D1",
@@ -1305,7 +1622,9 @@ function randomEvent(s, r) {
             placement,
             session: `${placement}#${2 + Math.floor(r() * 1e6)}`,
           }
-        : { type: "observe", placement, ready: r() < 0.7 };
+        : r() < 0.15
+          ? { type: "observe", placement, hold: r() < 0.5 }
+          : { type: "observe", placement, ready: r() < 0.7 };
     }
     case "restart":
       return { type: "restart" };
@@ -1325,6 +1644,10 @@ test("random event sequences never violate the contract", () => {
       s = apply(s, event);
       for (const t of s.tasks) reached.add(t.status);
       if (s.last.ok) reached.add(`ok:${event.type}`);
+      else
+        reached.add(
+          `reject:${s.last.code}${s.last.code === "not_eligible" ? " " + s.last.message.split(": ").pop() : ""}`,
+        );
       for (const d of Core.allDeliveries(s))
         for (const send of d.sends)
           send.trail.forEach((step, i) => {
@@ -1359,6 +1682,29 @@ test("random event sequences never violate the contract", () => {
     "ok:tick",
     "resend after not_sent",
     "resend after unknown",
+    // Every blocking reason and rejection path must occur, or the random run
+    // says nothing about them.
+    "reject:not_eligible not ready.",
+    "reject:not_eligible held.",
+    "reject:not_eligible in flight.",
+    "reject:not_eligible queued behind.",
+    "reject:not_eligible session replaced.",
+    "reject:not_eligible closed.",
+    "reject:not_eligible not pending.",
+    "reject:conflict",
+    "reject:forbidden",
+    "reject:unauthenticated",
+    "reject:stale_ack",
+    "reject:wrong_session",
+    "reject:wrong_message",
+    "reject:question_open",
+    "reject:no_question",
+    "reject:not_cancelable",
+    "reject:not_pinned",
+    "reject:in_progress",
+    "reject:terminal",
+    "reject:not_waiting",
+    "reject:not_routing",
   ])
     assert.ok(reached.has(expected), `random run never reached ${expected}`);
 });

@@ -8,7 +8,7 @@
   else root.RouterCore = api;
 })(typeof self !== "undefined" ? self : this, function () {
   // The core carries no deployment. A configuration supplies:
-  //   policy        threshold, maxJudgments, deadline, maxText, maxOpenTasks
+  //   policy        threshold, deadline, maxText, maxOpenTasks
   //   principals    authenticated non-participant identities -> "requester" | "operator"
   //   participants  { id, name, kind, hosts, idempotent, responsibility }
   //                 idempotent: the adapter deduplicates by the router's message
@@ -21,39 +21,49 @@
     const fail = (message) => {
       throw new Error(`Invalid router configuration: ${message}`);
     };
-    if (!config || typeof config !== "object")
-      fail("a configuration object is required");
-    for (const key of [
-      "threshold",
-      "maxJudgments",
-      "deadline",
-      "maxText",
-      "maxOpenTasks",
-    ])
-      if (typeof config.policy?.[key] !== "number")
-        fail(`policy.${key} must be a number`);
-    if (!Array.isArray(config.participants) || !config.participants.length)
+    const isRecord = (value) =>
+      value !== null && typeof value === "object" && !Array.isArray(value);
+    const positive = (value) => Number.isFinite(value) && value > 0;
+    if (!isRecord(config)) fail("a configuration object is required");
+    const { policy, participants, principals = {}, permissions = {} } = config;
+    if (!isRecord(policy)) fail("policy is required");
+    if (!(policy.threshold > 0 && policy.threshold <= 1))
+      fail("policy.threshold must be in (0, 1]");
+    for (const key of ["deadline", "maxText", "maxOpenTasks"])
+      if (!positive(policy[key]))
+        fail(`policy.${key} must be a positive number`);
+    if (!Array.isArray(participants) || !participants.length)
       fail("at least one participant is required");
     const ids = new Set();
-    for (const p of config.participants) {
-      if (typeof p.id !== "string" || ids.has(p.id))
-        fail(`participant ids must be unique strings (${p.id})`);
+    for (const p of participants) {
+      if (!isRecord(p) || typeof p.id !== "string" || !p.id || ids.has(p.id))
+        fail(`participant ids must be unique non-empty strings (${p?.id})`);
       ids.add(p.id);
-      if (!Array.isArray(p.hosts) || !p.hosts.length)
-        fail(`${p.id} needs at least one host`);
+      if (!["agent", "service"].includes(p.kind))
+        fail(`${p.id} kind must be agent or service`);
+      if (
+        !Array.isArray(p.hosts) ||
+        !p.hosts.length ||
+        p.hosts.some((host) => typeof host !== "string" || !host) ||
+        new Set(p.hosts).size !== p.hosts.length
+      )
+        fail(`${p.id} needs a non-empty list of distinct host names`);
       if (typeof p.responsibility !== "string" || !p.responsibility.trim())
         fail(`${p.id} needs a responsibility`);
       if (typeof p.idempotent !== "boolean")
         fail(`${p.id} must declare idempotent: true | false`);
     }
-    for (const [id, role] of Object.entries(config.principals || {})) {
+    if (!isRecord(principals)) fail("principals must be an object");
+    for (const [id, role] of Object.entries(principals)) {
       if (!ROLES.includes(role))
         fail(`principal ${id} has unknown role ${role}`);
       if (ids.has(id)) fail(`principal ${id} collides with a participant id`);
     }
-    for (const [id, targets] of Object.entries(config.permissions || {})) {
-      if (!ids.has(id) && !(id in (config.principals || {})))
+    if (!isRecord(permissions)) fail("permissions must be an object");
+    for (const [id, targets] of Object.entries(permissions)) {
+      if (!ids.has(id) && !(id in principals))
         fail(`permissions name unknown principal ${id}`);
+      if (!Array.isArray(targets)) fail(`permissions for ${id} must be a list`);
       for (const target of targets)
         if (!ids.has(target))
           fail(`${id} may address unknown participant ${target}`);
@@ -62,7 +72,6 @@
   }
 
   const MESSAGE_ID = /^[A-Za-z0-9._:-]{1,64}$/;
-  const TERMINAL = ["completed", "failed", "canceled"];
   const clone = (value) => structuredClone(value);
   const placementKey = (participant, host) => `${participant}@${host}`;
   const digest = (value) => JSON.stringify(value);
@@ -80,6 +89,7 @@
           host,
           session,
           ready: true,
+          hold: false,
         };
         sessions[session] = { participant: participant.id, host };
       }
@@ -132,6 +142,36 @@
     return (state.config.permissions[principal] || []).includes(participantId);
   }
 
+  // Shared checks. Each returns a rejection, or null when the input is fine.
+  const badMessageId = (id) =>
+    typeof id === "string" && MESSAGE_ID.test(id)
+      ? null
+      : reject("invalid", "A message ID is 1-64 letters, digits or . _ : -");
+  const badText = (state, text) =>
+    typeof text === "string" &&
+    text.trim() &&
+    text.length <= state.config.policy.maxText
+      ? null
+      : reject(
+          "invalid",
+          `Text must be non-empty and at most ${state.config.policy.maxText} characters.`,
+        );
+  const notSender = (state, by, task) =>
+    principalOf(state, by) === task.source
+      ? null
+      : reject("forbidden", "Only the original sender can do this.");
+  // Same key and content: the earlier receipt. Same key, other content: conflict.
+  const priorReceipt = (state, key, content) => {
+    const receipt = state.receipts[key];
+    if (!receipt) return null;
+    return receipt.digest === content
+      ? ok(`${key} already recorded as ${receipt.taskId}. Nothing repeated.`, {
+          taskId: receipt.taskId,
+          duplicate: true,
+        })
+      : reject("conflict", `${key} already identifies different content.`);
+  };
+
   // Why a delivery's current send cannot be attempted now, or null if it can.
   function blockedReason(state, delivery) {
     const task = findTask(state, delivery.taskId);
@@ -142,7 +182,6 @@
       send.outcome === "unknown" &&
       participant(state, delivery.participant).idempotent;
     if (send.outcome !== "pending" && !retry) return "not_pending";
-    if (!placement.ready) return "not_ready";
     if (delivery.session !== null && placement.session !== delivery.session)
       return "session_replaced";
     const holder = allDeliveries(state).find(
@@ -152,15 +191,20 @@
         inFlight(other),
     );
     if (holder) return "in_flight";
+    if (placement.hold) return "held";
+    if (!placement.ready) return "not_ready";
     if (delivery.session !== null) return null;
-    const earlier = allDeliveries(state).find(
-      (other) =>
-        other.placement === delivery.placement &&
-        other.session === null &&
-        isOpen(other) &&
-        !isTerminal(findTask(state, other.taskId)) &&
-        other.seq < delivery.seq,
-    );
+    // Deliveries are created in order, so position is arrival order.
+    const all = allDeliveries(state);
+    const earlier = all
+      .slice(0, all.indexOf(delivery))
+      .find(
+        (other) =>
+          other.placement === delivery.placement &&
+          other.session === null &&
+          isOpen(other) &&
+          !isTerminal(findTask(state, other.taskId)),
+      );
     return earlier ? "queued_behind" : null;
   }
 
@@ -282,20 +326,8 @@
           "unauthenticated",
           "A replaced session cannot submit new work.",
         );
-      if (typeof messageId !== "string" || !MESSAGE_ID.test(messageId))
-        return reject(
-          "invalid",
-          "A message ID is 1-64 letters, digits or . _ : -",
-        );
-      if (
-        typeof text !== "string" ||
-        !text.trim() ||
-        text.length > state.config.policy.maxText
-      )
-        return reject(
-          "invalid",
-          `Request text must be non-empty and at most ${state.config.policy.maxText} characters.`,
-        );
+      const invalid = badMessageId(messageId) || badText(state, text);
+      if (invalid) return invalid;
       if (
         hosts !== null &&
         (to === null || !Array.isArray(hosts) || !hosts.length)
@@ -307,18 +339,8 @@
       const wanted = hosts === null ? null : [...new Set(hosts)].sort();
       const key = `${source}/${messageId}`;
       const content = digest({ text, to, hosts: wanted });
-      const receipt = state.receipts[key];
-      if (receipt) {
-        if (receipt.digest !== content)
-          return reject(
-            "conflict",
-            `${key} already identifies different content.`,
-          );
-        return ok(
-          `Existing receipt ${receipt.taskId} for ${key}. Nothing repeated.`,
-          { taskId: receipt.taskId, duplicate: true },
-        );
-      }
+      const prior = priorReceipt(state, key, content);
+      if (prior) return prior;
       if (to !== null) {
         if (!participant(state, to))
           return reject("invalid", `${to} is not a registered participant.`);
@@ -372,8 +394,6 @@
           "not_routing",
           "No judgment is pending for this request.",
         );
-      if (task.judgments.length >= state.config.policy.maxJudgments)
-        return reject("budget", "The judgment budget is spent.");
       const options = Object.keys(judgmentQuestion(state, task).criteria);
       const valid =
         options.includes(choice) &&
@@ -393,15 +413,13 @@
         model,
         valid,
       });
-      const ranked = valid
+      // Suggestions are the permitted options in Jev's order; the sender decides.
+      const suggestions = valid
         ? Object.entries(probabilities)
             .filter(([id]) => id !== "none")
             .sort((a, b) => b[1] - a[1])
+            .map(([id]) => id)
         : [];
-      const suggestions = ranked
-        .filter(([, p]) => p >= 0.1)
-        .slice(0, 2)
-        .map(([id]) => id);
       if (!valid) {
         askForRecipient(task, "invalid_judgment", []);
         return ok(
@@ -447,11 +465,8 @@
     choose(state, { by, taskId, to }) {
       const task = findTask(state, taskId);
       if (!task) return reject("not_found", "No such request.");
-      if (principalOf(state, by) !== task.source)
-        return reject(
-          "forbidden",
-          "Only the original sender can choose the recipient.",
-        );
+      const forbidden = notSender(state, by, task);
+      if (forbidden) return forbidden;
       if (isTerminal(task) || task.routing?.state !== "needs_recipient")
         return reject(
           "not_waiting",
@@ -503,9 +518,11 @@
         );
       send.trail.push(outcome);
       if (outcome === "not_sent") {
-        // Definitely not delivered: safe to queue again. An unpinned request can go to a new session.
+        // Definitely not delivered: safe to queue again. The request may move to
+        // a new session only if no earlier attempt could have reached this one.
         send.outcome = "pending";
-        if (delivery.sends.length === 1) delivery.session = null;
+        if (delivery.sends.length === 1 && !send.trail.includes("unknown"))
+          delivery.session = null;
       } else send.outcome = outcome;
       return ok(`${delivery.id}/${messageId}: adapter reported ${outcome}.`, {
         actor: "Adapter",
@@ -525,8 +542,8 @@
         );
       if (!["working", "question", "completed", "failed"].includes(kind))
         return reject("invalid", "Unknown reply kind.");
-      if (typeof messageId !== "string" || !MESSAGE_ID.test(messageId))
-        return reject("invalid", "A reply needs its own message ID.");
+      const invalid = badMessageId(messageId);
+      if (invalid) return invalid;
       const send = delivery.sends.find(
         (entry) => entry.messageId === inReplyTo,
       );
@@ -553,15 +570,13 @@
           "question_open",
           "One question may be outstanding per delivery.",
         );
-      const record = {
+      delivery.updates.push({
         messageId,
         inReplyTo,
         kind,
         text,
         digest: content,
-        effect: "history",
-      };
-      delivery.updates.push(record);
+      });
 
       if (!isOpen(delivery))
         return ok(
@@ -577,24 +592,20 @@
         send.trail.push("reply_seen");
       }
       if (kind === "working") {
-        if (delivery.question)
-          return ok(
-            `${delivery.id}: progress kept as history while a question is open.`,
-          );
-        delivery.working = true;
-        record.effect = "working";
-        return ok(`${delivery.id}: ${text || "working"}.`, {
-          actor: "Participant",
-        });
+        // Progress after a question means it was settled in the session.
+        const settled = delivery.question !== null;
+        delivery.question = null;
+        return ok(
+          `${delivery.id}: ${text || "working"}.${settled ? " The open question was settled in the session." : ""}`,
+          { actor: "Participant" },
+        );
       }
       if (kind === "question") {
         delivery.question = { id: messageId, text };
-        record.effect = "question";
         return ok(`${delivery.id} asks: ${text}`, { actor: "Participant" });
       }
       delivery.question = null;
       delivery.end = { reason: kind, text, messageId, by };
-      record.effect = "final";
       if (isTerminal(task)) {
         task.late.push({ deliveryId: delivery.id, kind, text });
         return ok(
@@ -610,27 +621,15 @@
     answer(state, { by, taskId, messageId, questionId, text }) {
       const task = findTask(state, taskId);
       if (!task) return reject("not_found", "No such request.");
-      if (principalOf(state, by) !== task.source)
-        return reject("forbidden", "Only the original sender can answer.");
-      if (typeof messageId !== "string" || !MESSAGE_ID.test(messageId))
-        return reject("invalid", "An answer needs its own message ID.");
-      if (
-        typeof text !== "string" ||
-        !text.trim() ||
-        text.length > state.config.policy.maxText
-      )
-        return reject("invalid", "Answer text is required.");
+      const invalid =
+        notSender(state, by, task) ||
+        badMessageId(messageId) ||
+        badText(state, text);
+      if (invalid) return invalid;
       const key = `${task.source}/${messageId}`;
       const content = digest({ taskId, questionId, text });
-      const receipt = state.receipts[key];
-      if (receipt) {
-        if (receipt.digest !== content)
-          return reject(
-            "conflict",
-            `${key} already identifies different content.`,
-          );
-        return ok(`Answer ${key} already recorded.`, { duplicate: true });
-      }
+      const prior = priorReceipt(state, key, content);
+      if (prior) return prior;
       if (isTerminal(task))
         return reject(
           "terminal",
@@ -661,8 +660,8 @@
     cancel(state, { by, taskId }) {
       const task = findTask(state, taskId);
       if (!task) return reject("not_found", "No such request.");
-      if (principalOf(state, by) !== task.source)
-        return reject("forbidden", "Only the original sender can cancel.");
+      const forbidden = notSender(state, by, task);
+      if (forbidden) return forbidden;
       if (isTerminal(task))
         return reject(
           "not_cancelable",
@@ -718,21 +717,28 @@
       );
     },
 
-    observe(state, { placement, ready, session }) {
+    // ready: the adapter saw the session idle. hold: a person is using the
+    // session and the router must not send to it, idle or not.
+    observe(state, { placement, ready, hold, session }) {
       const entry = state.placements[placement];
       if (!entry) return reject("not_found", "No such placement.");
-      if (ready !== undefined) entry.ready = Boolean(ready);
       if (session !== undefined && session !== entry.session) {
         if (typeof session !== "string" || state.sessions[session])
           return reject("invalid", "A new session needs a new identity.");
         entry.session = session;
+        // A new session has not been observed idle yet, and nobody holds it.
+        entry.ready = ready === true;
+        entry.hold = hold === true;
         state.sessions[session] = {
           participant: entry.participant,
           host: entry.host,
         };
+      } else {
+        if (ready !== undefined) entry.ready = Boolean(ready);
+        if (hold !== undefined) entry.hold = Boolean(hold);
       }
       return ok(
-        `${placement}: ${entry.ready ? "ready" : "not ready"}, session ${entry.session}.`,
+        `${placement}: ${entry.ready ? "ready" : "not ready"}${entry.hold ? ", held" : ""}, session ${entry.session}.`,
         { actor: "Adapter" },
       );
     },
@@ -781,8 +787,7 @@
     task.recipient = participantId;
     task.chosenBy = chosenBy;
     task.deliveries = (task.hosts || entry.hosts).map((host) => ({
-      id: `D${state.nextDelivery}`,
-      seq: state.nextDelivery++,
+      id: `D${state.nextDelivery++}`,
       taskId: task.id,
       participant: participantId,
       host,
@@ -798,7 +803,6 @@
         },
       ],
       question: null,
-      working: false,
       updates: [],
       end: null,
     }));
@@ -835,12 +839,10 @@
     currentSend,
     isOpen,
     inFlight,
-    principalOf,
     findTask,
     findDelivery,
     allDeliveries,
     judgmentQuestion,
     A2A_STATE,
-    TERMINAL,
   };
 });
