@@ -9,9 +9,11 @@ import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
 import {
+  actionEvent,
   boardModel,
   boardState,
   describeNeed,
+  identify,
   messageTimes,
   renderBoard,
 } from "./board.ts";
@@ -203,18 +205,67 @@ async function serve(config: RouterConfig): Promise<void> {
       );
     });
   });
-  // The board: a read-only fold of the journal, no lock, no token. It listens
-  // on loopback and is exposed through Tailscale Serve, so it answers the
-  // same content under any path prefix Serve mounts it at.
+  // The board: a fold of the journal, no lock, no token. It listens on
+  // loopback and is exposed through Tailscale Serve, which stamps the
+  // viewer's login on each request; that login decides whether the page
+  // gets controls and whom an action is recorded as. Serve strips its mount
+  // path, so routes match by suffix.
   const board = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://board");
+    const path = url.pathname;
+    const actor = identify(req.headers, config.serve.identities);
+    const back = (notice: string): void => {
+      res
+        .writeHead(303, {
+          location: `./${notice ? `?notice=${encodeURIComponent(notice)}` : ""}`,
+        })
+        .end();
+    };
+    if (req.method === "POST" && path.endsWith("/actions")) {
+      if (!actor) {
+        res.writeHead(403, { "content-type": "text/plain" });
+        res.end("No tailnet identity, or a login the router does not know.");
+        return;
+      }
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        const form = new URLSearchParams(
+          Buffer.concat(chunks).toString("utf8"),
+        );
+        const action = actionEvent(form, actor, config.principals ?? {});
+        if (!action.ok) return back(action.message);
+        console.log(`board: ${actor.login} → ${JSON.stringify(action.event)}`);
+        handle(action.event).then(
+          ({ outcome }) => back((outcome as { message: string }).message),
+          (error: unknown) =>
+            back(error instanceof Error ? error.message : String(error)),
+        );
+      });
+      return;
+    }
     if (req.method !== "GET") {
       res.writeHead(405).end();
       return;
     }
-    const path = new URL(req.url ?? "/", "http://board").pathname;
+    if (path.endsWith("/whoami")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          login: actor?.login ?? null,
+          principals: actor?.principals ?? [],
+          headers: Object.fromEntries(
+            Object.entries(req.headers).filter(([k]) =>
+              k.startsWith("tailscale-"),
+            ),
+          ),
+        }),
+      );
+      return;
+    }
     if (!path.endsWith("/") && !path.endsWith("/board.json")) {
-      // Under a mount such as /router, the page's relative board.json link
-      // needs the trailing slash.
+      // Under a mount such as /router, the page's relative links need the
+      // trailing slash.
       res.writeHead(302, { location: `${path}/` }).end();
       return;
     }
@@ -231,7 +282,9 @@ async function serve(config: RouterConfig): Promise<void> {
       res.end(JSON.stringify(model));
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(renderBoard(model));
+      res.end(
+        renderBoard(model, { actor, notice: url.searchParams.get("notice") }),
+      );
     }
   });
   const listen = (s: typeof server, address: string): Promise<void> => {

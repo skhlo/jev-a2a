@@ -6,9 +6,11 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  actionEvent,
   boardModel,
   boardState,
   describeNeed,
+  identify,
   messageTimes,
   renderBoard,
 } from "./board.ts";
@@ -22,7 +24,7 @@ const config: RouterConfig = {
   home: "/nowhere",
   hosts: { mbp: { paseo: "ws://x", replyCommand: "router" } },
   agents: { "orchestrator@mbp": "A1" },
-  serve: { listen: "127.0.0.1:0", board: "127.0.0.1:0" },
+  serve: { listen: "127.0.0.1:0", board: "127.0.0.1:0", identities: {} },
   jev: { model: "jev-latest" },
 };
 
@@ -213,7 +215,7 @@ test("the page escapes task text and shows the needs-you items", () => {
   const model = boardModel(boardState(config, journal, 50), config, 50, {
     M1: "2026-09-30T09:15:00.000Z",
   });
-  const html = renderBoard(model, 7);
+  const html = renderBoard(model, { refreshSeconds: 7 });
   assert.ok(html.includes("Fix &lt;b&gt;the&lt;/b&gt; build"));
   assert.ok(!html.includes("<b>the</b>"));
   assert.ok(html.includes('data-refresh="7"'));
@@ -259,4 +261,150 @@ test("messageTimes maps submit, update and answer ids to their journal time", ()
       ]),
     ),
   );
+});
+
+const identities = {
+  "me@example.com": ["you", "operator"],
+  "guest@example.com": ["you"],
+};
+const roles = { you: "requester", operator: "operator" } as const;
+
+test("identify: Serve's login header, mapped to principals, or nothing", () => {
+  assert.equal(identify({}, identities), null);
+  assert.equal(
+    identify({ "tailscale-user-login": "nobody@example.com" }, identities),
+    null,
+  );
+  assert.equal(
+    identify({ "tailscale-user-login": "me@example.com" }, {}),
+    null,
+  );
+  assert.deepEqual(
+    identify({ "tailscale-user-login": "me@example.com" }, identities),
+    {
+      login: "me@example.com",
+      principals: ["you", "operator"],
+    },
+  );
+});
+
+test("actionEvent: each form becomes its event, signed by the principal the role needs", () => {
+  const me = { login: "me@example.com", principals: ["you", "operator"] };
+  const guest = { login: "guest@example.com", principals: ["you"] };
+  const of = (body: string, actor = me) =>
+    actionEvent(new URLSearchParams(body), actor, roles);
+  assert.deepEqual(of("action=choose&task=T1&to=knowledge"), {
+    ok: true,
+    event: { type: "choose", by: "you", taskId: "T1", to: "knowledge" },
+  });
+  const answer = of("action=answer&task=T2&question=Q2&text=main+please");
+  assert.ok(answer.ok && answer.event.type === "answer");
+  if (answer.ok && answer.event.type === "answer") {
+    assert.equal(answer.event.text, "main please");
+    assert.equal(answer.event.by, "you");
+    assert.match(answer.event.messageId, /^m-/);
+  }
+  assert.deepEqual(of("action=cancel&task=T1"), {
+    ok: true,
+    event: { type: "cancel", by: "you", taskId: "T1" },
+  });
+  assert.deepEqual(
+    of(
+      "action=resolve&delivery=D1&message=M1&outcome=finished&evidence=saw+it",
+    ),
+    {
+      ok: true,
+      event: {
+        type: "resolve",
+        by: "operator",
+        deliveryId: "D1",
+        messageId: "M1",
+        outcome: "finished",
+        evidence: "saw it",
+      },
+    },
+  );
+  assert.deepEqual(of("action=hold&placement=orchestrator%40mbp&hold=1"), {
+    ok: true,
+    event: { type: "observe", placement: "orchestrator@mbp", hold: true },
+  });
+  assert.deepEqual(of("action=hold&placement=orchestrator%40mbp&hold=0"), {
+    ok: true,
+    event: { type: "observe", placement: "orchestrator@mbp", hold: false },
+  });
+  // Refusals: no principal in the needed role, missing fields, bad values.
+  assert.deepEqual(
+    of(
+      "action=resolve&delivery=D1&message=M1&outcome=finished&evidence=x",
+      guest,
+    ),
+    {
+      ok: false,
+      message: "guest@example.com has no operator principal.",
+    },
+  );
+  assert.deepEqual(of("action=choose&task=T1"), {
+    ok: false,
+    message: "Missing to.",
+  });
+  assert.deepEqual(of("action=answer&task=T2&question=Q2&text=+"), {
+    ok: false,
+    message: "Missing text.",
+  });
+  assert.deepEqual(
+    of("action=resolve&delivery=D1&message=M1&outcome=maybe&evidence=x"),
+    {
+      ok: false,
+      message: "Outcome is finished or not_sent.",
+    },
+  );
+  assert.deepEqual(of("action=submit&text=hi"), {
+    ok: false,
+    message: 'Unknown action "submit".',
+  });
+});
+
+test("controls appear only for a recognised viewer; the notice is escaped", () => {
+  const model = boardModel(boardState(config, journal, 50), config, 50);
+  const anonymous = renderBoard(model);
+  assert.ok(!anonymous.includes("<form"));
+  assert.ok(anonymous.includes("read only"));
+  assert.ok(anonymous.includes("router choose --task T1 --to orchestrator"));
+  const mine = renderBoard(model, {
+    actor: { login: "me@example.com", principals: ["you", "operator"] },
+    notice: "<script>x</script> done",
+  });
+  assert.ok(mine.includes("me@example.com"));
+  assert.ok(
+    mine.includes(
+      '<div class="notice">&lt;script&gt;x&lt;/script&gt; done</div>',
+    ),
+  );
+  assert.ok(
+    mine.includes(
+      '<input type="hidden" name="action" value="choose"><input type="hidden" name="task" value="T1"><button name="to" value="orchestrator">orchestrator</button>',
+    ),
+  );
+  assert.ok(
+    mine.includes(
+      '<input type="hidden" name="action" value="answer"><input type="hidden" name="task" value="T2"><input type="hidden" name="question" value="Q2">',
+    ),
+  );
+  assert.ok(
+    mine.includes(
+      '<input type="hidden" name="action" value="cancel"><input type="hidden" name="task" value="T2">',
+    ),
+  );
+  assert.ok(
+    mine.includes(
+      '<input type="hidden" name="action" value="hold"><input type="hidden" name="placement" value="orchestrator@mbp"><input type="hidden" name="hold" value="1"><button class="quiet">take</button>',
+    ),
+  );
+  assert.ok(!mine.includes("router choose --task T1"));
+  // A requester-only viewer gets no resolve controls and no operator label.
+  const guest = renderBoard(model, {
+    actor: { login: "guest@example.com", principals: ["you"] },
+  });
+  assert.ok(guest.includes('value="choose"'));
+  assert.ok(!guest.includes('value="resolve"'));
 });

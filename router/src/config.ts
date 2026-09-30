@@ -22,9 +22,14 @@ export type RouterConfig = Config & {
   // Placement key ("participant@host") -> Paseo agent id. The agent id is the
   // placement's session identity. Placements without an entry are not served.
   agents: Record<string, string>;
-  // Where `router serve` listens for replies from other hosts, and where it
-  // serves the read-only board (loopback; expose it through Tailscale Serve).
-  serve: { listen: string; board: string };
+  // Where `router serve` listens for replies from other hosts, where it
+  // serves the board (loopback; expose it through Tailscale Serve), and which
+  // tailnet logins may act from the board, as which principals.
+  serve: {
+    listen: string;
+    board: string;
+    identities: Record<string, string[]>;
+  };
   // Jev for unaddressed requests. The API key comes from TYPESAFE_API_KEY.
   jev: { model: string; url?: string; timeoutMs?: number };
 };
@@ -69,6 +74,22 @@ export function loadConfig(path: string): RouterConfig {
       fail(`agents.${key} must be an agent id`);
   }
   const serve = isRecord(extra.serve) ? extra.serve : {};
+  const identities: Record<string, string[]> = {};
+  if (serve.identities !== undefined) {
+    if (!isRecord(serve.identities))
+      fail("serve.identities maps a tailnet login to a list of principals");
+    else
+      for (const [login, list] of Object.entries(serve.identities)) {
+        if (
+          !Array.isArray(list) ||
+          !list.every(
+            (p) => typeof p === "string" && p in (config.principals ?? {}),
+          )
+        )
+          fail(`serve.identities.${login} must list configured principals`);
+        identities[login] = list as string[];
+      }
+  }
   const jev = isRecord(extra.jev) ? extra.jev : {};
   return {
     ...config,
@@ -87,6 +108,7 @@ export function loadConfig(path: string): RouterConfig {
         typeof serve.board === "string" && serve.board
           ? serve.board
           : "127.0.0.1:7678",
+      identities,
     },
     jev: {
       model:

@@ -8,7 +8,9 @@ import type { RouterConfig } from "./config.ts";
 import type { Entry } from "./journal.ts";
 import type {
   Delivery,
+  Event,
   NeedsYouItem,
+  Role,
   Send,
   State,
   Task,
@@ -170,6 +172,122 @@ function commandFor(item: NeedsYouItem): string {
   }
 }
 
+// Who is looking, as Tailscale Serve reports it, and which principals the
+// configuration lets that login act as. Null when the request did not come
+// through Serve or the login is not mapped: the page then only reads.
+export type Actor = { login: string; principals: string[] };
+
+export function identify(
+  headers: Record<string, string | string[] | undefined>,
+  identities: Record<string, string[]>,
+): Actor | null {
+  const login = headers["tailscale-user-login"];
+  if (typeof login !== "string" || !login) return null;
+  const principals = identities[login];
+  return principals?.length ? { login, principals } : null;
+}
+
+export type ActionResult =
+  { ok: true; event: Event } | { ok: false; message: string };
+
+// A form post from the page as the event it stands for. `by` is the actor's
+// principal in the role the action needs; the core enforces the rest.
+export function actionEvent(
+  form: URLSearchParams,
+  actor: Actor,
+  roles: Record<string, Role>,
+): ActionResult {
+  const field = (name: string): string => form.get(name)?.trim() ?? "";
+  const as = (role: Role): string | null =>
+    actor.principals.find((p) => roles[p] === role) ?? null;
+  const need = (role: Role): string | ActionResult => {
+    const by = as(role);
+    return (
+      by ?? { ok: false, message: `${actor.login} has no ${role} principal.` }
+    );
+  };
+  const required = (...names: string[]): ActionResult | null => {
+    const missing = names.filter((n) => !field(n));
+    return missing.length
+      ? { ok: false, message: `Missing ${missing.join(", ")}.` }
+      : null;
+  };
+  const messageId = (): string =>
+    `m-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+  switch (field("action")) {
+    case "choose": {
+      const by = need("requester");
+      if (typeof by !== "string") return by;
+      return (
+        required("task", "to") ?? {
+          ok: true,
+          event: { type: "choose", by, taskId: field("task"), to: field("to") },
+        }
+      );
+    }
+    case "answer": {
+      const by = need("requester");
+      if (typeof by !== "string") return by;
+      return (
+        required("task", "question", "text") ?? {
+          ok: true,
+          event: {
+            type: "answer",
+            by,
+            taskId: field("task"),
+            messageId: messageId(),
+            questionId: field("question"),
+            text: field("text"),
+          },
+        }
+      );
+    }
+    case "cancel": {
+      const by = need("requester");
+      if (typeof by !== "string") return by;
+      return (
+        required("task") ?? {
+          ok: true,
+          event: { type: "cancel", by, taskId: field("task") },
+        }
+      );
+    }
+    case "resolve": {
+      const by = need("operator");
+      if (typeof by !== "string") return by;
+      const outcome = field("outcome");
+      if (outcome !== "finished" && outcome !== "not_sent")
+        return { ok: false, message: "Outcome is finished or not_sent." };
+      return (
+        required("delivery", "message", "evidence") ?? {
+          ok: true,
+          event: {
+            type: "resolve",
+            by,
+            deliveryId: field("delivery"),
+            messageId: field("message"),
+            outcome,
+            evidence: field("evidence"),
+          },
+        }
+      );
+    }
+    case "hold":
+      return (
+        required("placement") ?? {
+          ok: true,
+          event: {
+            type: "observe",
+            placement: field("placement"),
+            hold: field("hold") === "1",
+          },
+        }
+      );
+    default:
+      return { ok: false, message: `Unknown action "${field("action")}".` };
+  }
+}
+
 const esc = (value: unknown): string =>
   String(value)
     .replaceAll("&", "&amp;")
@@ -261,6 +379,12 @@ th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-s
 .msg.failed .who { color: var(--bad); }
 .sys { align-self: center; font-size: .8rem; color: var(--muted); text-align: center; padding: 0 12px; }
 .sys.attn { color: var(--attn); }
+.act { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+.act input { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); min-width: 14rem; }
+.act button { font: inherit; font-size: .88rem; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--you); background: var(--you); color: var(--card); cursor: pointer; }
+.act button.quiet { background: transparent; color: var(--muted); border-color: var(--line); }
+.thread > summary .act { margin-left: 8px; }
+.notice { background: var(--you-bg); border-left: 3px solid var(--you); padding: 6px 12px; border-radius: 6px; margin: -6px 0 14px; font-size: .9rem; }
 .log { font-family: var(--mono); font-size: .78rem; color: var(--muted); white-space: pre-wrap; }
 @media (max-width: 600px) { .msg { max-width: 94%; } .widget[open] { grid-column: auto; } }
 `;
@@ -290,7 +414,66 @@ const statusClass = (status: TaskView["status"]): string =>
         ? "bad"
         : "";
 
-export function renderBoard(model: BoardModel, refreshSeconds = 10): string {
+export type RenderOptions = {
+  refreshSeconds?: number;
+  // Controls are rendered only for a recognised viewer.
+  actor?: Actor | null;
+  // Outcome of the last action, shown once under the header.
+  notice?: string | null;
+};
+
+export function renderBoard(
+  model: BoardModel,
+  options: RenderOptions = {},
+): string {
+  const refreshSeconds = options.refreshSeconds ?? 10;
+  const actor = options.actor ?? null;
+  const roles = new Map(model.needsYou.map((n) => [n.principal, n.role]));
+  const can = (role: string): boolean =>
+    actor !== null && actor.principals.some((p) => roles.get(p) === role);
+  const hidden = (fields: Record<string, string>): string =>
+    Object.entries(fields)
+      .map(
+        ([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`,
+      )
+      .join("");
+  const form = (fields: Record<string, string>, controls: string): string =>
+    `<form method="post" action="actions" class="act">${hidden(fields)}${controls}</form>`;
+  // The controls that clear a needs-you item, or the command when the viewer
+  // cannot act from here.
+  const controlsFor = (item: NeedsYouItem): string => {
+    if (item.kind === "choose" && can("requester"))
+      return (
+        form(
+          { action: "choose", task: item.taskId },
+          item.suggestions
+            .map(
+              (to) =>
+                `<button name="to" value="${esc(to)}">${esc(to)}</button>`,
+            )
+            .join(""),
+        ) +
+        form(
+          { action: "cancel", task: item.taskId },
+          `<button class="quiet">cancel</button>`,
+        )
+      );
+    if (item.kind === "answer" && can("requester"))
+      return form(
+        { action: "answer", task: item.taskId, question: item.questionId },
+        `<input name="text" required placeholder="Your answer" autocomplete="off"><button>Send</button>`,
+      );
+    if (item.kind === "resolve" && can("operator"))
+      return form(
+        {
+          action: "resolve",
+          delivery: item.deliveryId,
+          message: item.messageId,
+        },
+        `<input name="evidence" required placeholder="What you saw" autocomplete="off"><button name="outcome" value="finished">finished</button><button name="outcome" value="not_sent" class="quiet">not sent</button>`,
+      );
+    return `<code>${esc(commandFor(item))}</code>`;
+  };
   const requester = model.needsYou.filter((n) => n.role !== "operator");
   const operator = model.needsYou.filter((n) => n.role === "operator");
   const needItems = requester.flatMap((n) => n.items);
@@ -307,7 +490,7 @@ export function renderBoard(model: BoardModel, refreshSeconds = 10): string {
         ({ principal, role, items }) =>
           `<div><span class="label muted">${esc(principal)} · ${esc(role)}</span>` +
           (items.length
-            ? `<ul>${items.map((i) => `<li>${esc(describeNeed(i))}<br><code>${esc(commandFor(i))}</code></li>`).join("")}</ul>`
+            ? `<ul>${items.map((i) => `<li>${esc(describeNeed(i))}<br>${controlsFor(i)}</li>`).join("")}</ul>`
             : `<div class="muted">Nothing waits on ${esc(principal)}.</div>`) +
           `</div>`,
       )
@@ -321,11 +504,12 @@ export function renderBoard(model: BoardModel, refreshSeconds = 10): string {
     `<details id="w-agents" class="widget"><summary>` +
     `<span class="num">${ready}<span class="muted" style="font-size:.5em">/${model.placements.length}</span></span><span class="label">agents ready</span>` +
     `<span class="brief agents">${model.placements.map((p) => `<span>${dot(p)}${esc(p.key)}</span>`).join("")}</span>` +
-    `</summary><div class="body"><table><tr><th>placement</th><th>state</th><th>session</th></tr>` +
+    `</summary><div class="body"><table><tr><th>placement</th><th>state</th><th>session</th><th></th></tr>` +
     model.placements
       .map(
         (p) =>
-          `<tr><td>${dot(p)}${esc(p.key)}</td><td>${p.hold ? "held by you" : p.ready ? "ready" : "busy or away"}</td><td class="mono">${esc(p.session)}</td></tr>`,
+          `<tr><td>${dot(p)}${esc(p.key)}</td><td>${p.hold ? "held by you" : p.ready ? "ready" : "busy or away"}</td><td class="mono">${esc(p.session)}</td>` +
+          `<td>${actor ? form({ action: "hold", placement: p.key, hold: p.hold ? "0" : "1" }, `<button class="quiet">${p.hold ? "hand back" : "take"}</button>`) : ""}</td></tr>`,
       )
       .join("") +
     `</table></div></details>`;
@@ -386,7 +570,10 @@ export function renderBoard(model: BoardModel, refreshSeconds = 10): string {
     if (t.routing && !t.final)
       msgs.push(
         t.routing.state === "needs_recipient"
-          ? `<div class="sys attn">waiting for you to choose a recipient (${esc(t.routing.reason.replaceAll("_", " "))})</div>`
+          ? `<div class="sys attn">waiting for you to choose a recipient (${esc(t.routing.reason.replaceAll("_", " "))})</div>` +
+              (can("requester")
+                ? `<div class="sys">${form({ action: "choose", task: t.id }, t.routing.suggestions.map((to) => `<button name="to" value="${esc(to)}">${esc(to)}</button>`).join(""))}</div>`
+                : "")
           : `<div class="sys">asking Jev</div>`,
       );
     for (const d of t.deliveries) {
@@ -399,10 +586,15 @@ export function renderBoard(model: BoardModel, refreshSeconds = 10): string {
           msgs.push(
             `<div class="sys">${esc(d.placement)}: ${esc(s.outcome)}</div>`,
           );
-        for (const u of d.updates.filter((u) => u.inReplyTo === s.messageId))
+        for (const u of d.updates.filter((u) => u.inReplyTo === s.messageId)) {
           msgs.push(
             `<div class="msg agent ${u.kind === "question" ? "question" : u.kind === "failed" ? "failed" : ""}"><span class="who">${esc(d.placement)} · ${esc(u.kind)}${model.times[u.messageId] ? ` · ${clock(model.times[u.messageId])}` : ""}</span>${esc(u.text)}</div>`,
           );
+          if (d.question?.id === u.messageId && !t.final && can("requester"))
+            msgs.push(
+              `<div class="msg you">${form({ action: "answer", task: t.id, question: u.messageId }, `<input name="text" required placeholder="Your answer" autocomplete="off"><button>Send</button>`)}</div>`,
+            );
+        }
       }
       if (d.end && !["completed", "failed"].includes(d.end.reason))
         msgs.push(
@@ -420,6 +612,12 @@ export function renderBoard(model: BoardModel, refreshSeconds = 10): string {
       `<span class="excerpt">${esc(t.text)}</span>` +
       `<span class="muted">→ ${esc(t.recipient ?? "?")}</span>` +
       `<span class="time">${esc(day(started))} ${esc(clock(started))}</span>` +
+      (!t.final && can("requester")
+        ? form(
+            { action: "cancel", task: t.id },
+            `<button class="quiet">cancel</button>`,
+          )
+        : "") +
       `</summary><div class="messages">${msgs.join("")}</div></details>`
     );
   };
@@ -429,7 +627,8 @@ export function renderBoard(model: BoardModel, refreshSeconds = 10): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Router</title><style>${STYLE}</style></head><body>
 <div id="app" data-refresh="${refreshSeconds}">
-<header><h1>Router</h1><span class="at">as of ${esc(model.at.slice(0, 19).replace("T", " "))}Z · live</span><span class="spacer"></span>${latestId ? `<a href="#t-${esc(latestId)}">latest</a>` : ""} <a href="board.json">json</a></header>
+<header><h1>Router</h1><span class="at">as of ${esc(model.at.slice(0, 19).replace("T", " "))}Z · live${actor ? ` · ${esc(actor.login)}` : " · read only"}</span><span class="spacer"></span>${latestId ? `<a href="#t-${esc(latestId)}">latest</a>` : ""} <a href="board.json">json</a></header>
+${options.notice ? `<div class="notice">${esc(options.notice)}</div>` : ""}
 <section class="widgets">${needsWidget}${agentsWidget}${openWidget}${jevWidget}</section>
 <section class="transcript"><h2>Record <span class="muted">· last ${model.finished.length} finished and everything open</span></h2>
 ${threads.length ? threads.map(thread).join("") : `<p class="muted">No tasks recorded.</p>`}
