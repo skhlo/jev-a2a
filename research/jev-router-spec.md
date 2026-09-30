@@ -38,13 +38,17 @@ works in it natively while a task runs: reads, redirects, answers a question in
 the conversation. None of that goes through the router. The router only needs
 three things to stay true while someone is in a session:
 
-1. It never sends to a session that is not idle, so it cannot interrupt a turn,
-   whoever started it.
+1. It sends only to a session it has just seen idle, so it does not interrupt
+   a turn it can see. A turn a person starts between that observation and the
+   send is the one race left, and the hold is what closes it.
 2. A person can **hold** a placement: while held, the router does not send to
-   it even when idle. Holding is how a person says "I am typing here".
+   it even when idle. Holding is how a person says "I am typing here". A hold
+   belongs to the person, so it outlives a restarted session. How a hold is
+   raised from where the person is typing is still open (decision 3).
 3. When a participant reports progress after asking a question, the question
-   counts as settled. Answering in the session is the normal path; answering
-   through the router is for the sender who is not sitting in front of it.
+   counts as settled, and an answer the router had queued but not yet sent is
+   withdrawn. Answering in the session is the normal path; answering through
+   the router is for the sender who is not sitting in front of it.
 
 The pinned session in the journal doubles as the deep link: from a task, open
 the session it went to.
@@ -108,27 +112,27 @@ Events (`reduce(state, event) → state`, with `state.last` = `{ ok, code?, mess
 
 | Event                                                                | Who                                          | Effect                                                                                                                                                                                                                                                                          |
 | -------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `submit { by, messageId, text, to?, hosts?, via? }`                  | a requester or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev.                                                                                                                                      |
+| `submit { by, messageId, text, to?, hosts?, via? }`                  | a requester or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev; without it, a sender permitted to address nobody is refused.                                                                         |
 | `judged { taskId, choice, probabilities, model }` / `judgeFailed`    | shell, after Jev                             | One judgment per request. Selects the recipient, or asks the sender (`no_owner`, `low_confidence`, `invalid_judgment`, `routing_unavailable`) with the permitted participants ranked in Jev's order as suggestions.                                                             |
 | `choose { by, taskId, to }`                                          | original sender                              | Resolves a pending recipient choice once.                                                                                                                                                                                                                                       |
 | `attempt { deliveryId }`                                             | shell                                        | Commits `attempting`, pins the session and marks it busy **before** the adapter call. Rejected unless eligible.                                                                                                                                                                 |
 | `adapterResult { deliveryId, messageId, outcome }`                   | shell                                        | `accepted`, `unknown`, or `not_sent`. `not_sent` re-queues; the request may move to another session only if no earlier attempt on this one could have arrived. `unknown` is retried with the same key only for a deduplicating adapter. Applies only to an attempt in progress. |
-| `update { by, taskId, messageId, inReplyTo, kind, text }`            | pinned session                               | `working`, `question`, `completed`, `failed`. Proves receipt. `working` after a question settles the question. Replies to earlier messages are kept as history only.                                                                                                            |
+| `update { by, taskId, messageId, inReplyTo, kind, text }`            | pinned session                               | `working`, `question`, `completed`, `failed`. Proves receipt. `working` after a question settles the question. A reply to the message before an unsent queued answer withdraws that answer. Other replies to earlier messages are kept as history only.                         |
 | `answer { by, taskId, messageId, questionId, text }`                 | original sender                              | Consumes the open question and queues the answer to the same session. Rejected once the question was settled in the session.                                                                                                                                                    |
 | `cancel { by, taskId }`                                              | original sender                              | Only while nothing may have reached the participant.                                                                                                                                                                                                                            |
 | `resolve { by: operator, deliveryId, messageId, outcome, evidence }` | operator                                     | Closes an open pinned delivery as `finished` or `not_sent`. Never resends.                                                                                                                                                                                                      |
-| `observe { placement, ready?, hold?, session? }`                     | shell's presence refresh; a person's hold    | Readiness, hold and session replacement. A new session is neither ready nor held until an observation says so.                                                                                                                                                                  |
+| `observe { placement, ready?, hold?, session? }`                     | shell's presence refresh; a person's hold    | Readiness, hold and session replacement. A new session is not ready until an observation says so; a hold stays until released.                                                                                                                                                  |
 | `restart` / `tick { now }`                                           | router                                       | Interrupted attempts become `unknown`; deadlines fire.                                                                                                                                                                                                                          |
 
 Queries: `commands(state)` is the shell's work list; `needsYou(state,
 principal)` is a person's. A requester's list holds its own open tasks that
 wait for a recipient (`choose`, with Jev's ranked suggestions) or an answer
-(`answer`, one per delivery). An operator's list holds pinned deliveries the
-router can no longer move by itself (`resolve`): an unknown send with no
-deduplicating retry, a pin to a replaced session, or a send still holding a
-session after its task ended. The oracle checks that each list names exactly
-the decisions that principal can act on right now, and that every item's event
-succeeds.
+the router can still deliver (`answer`, one per delivery on a live session).
+An operator's list holds pinned deliveries the router can no longer move by
+itself (`resolve`): an unknown send with no deduplicating retry, a pin to a
+replaced session, or a send left unconfirmed after its task ended. The oracle
+restates both lists from this paragraph, compares them after every event, and
+checks that every item's event succeeds.
 
 A delivery is **eligible** when its task is open; its current message is
 pending, or unknown with a deduplicating adapter; it is unpinned or pinned to
@@ -147,7 +151,7 @@ unpinned, no older unpinned delivery waits for the same placement.
 | The sender is the authenticated caller, never a field. Only the pinned session can reply, and only to a message sent on that delivery.                                                              | Anything else lets a stray or replayed message steer a task.                                                                                                                                  |
 | One outstanding question per delivery.                                                                                                                                                              | Keeps "what needs me" a single item per task.                                                                                                                                                 |
 | `unknown` is retried only through a deduplicating adapter, on the same session, when idle, before the deadline. Otherwise a matching reply or an operator `resolve` closes it.                      | With Paseo receipts a same-key retry confirms or makes the first send; it cannot run twice. A receipt stuck `pending` after a daemon crash stays unknown forever, so the operator path stays. |
-| The deadline fails the task and expires never-sent deliveries; an unconfirmed send keeps holding its session until it ends or is resolved.                                                          | A retry after the deadline could start work nobody waits for; freeing the session could let the next send interrupt a turn that did start.                                                    |
+| The deadline ends the task with its verdict and expires never-sent deliveries; an unconfirmed send keeps holding its session until it ends or is resolved.                                          | A retry after the deadline could start work nobody waits for; freeing the session could let the next send interrupt a turn that did start.                                                    |
 | Cancel only while nothing may have reached the participant.                                                                                                                                         | Nothing can stop a turn already handed over. Steering it is done in the session.                                                                                                              |
 | A task's verdict counts the deliveries that returned `completed` when it ended: all → `completed`, some → `partial`, none → `failed`. `final` records `completed` of `of`.                          | A request to a service on three hosts where one sleeps should end as "two answers, one unavailable", with the answers in the record, not as a failure.                                        |
 | A late final result after the deadline is kept as evidence; the verdict does not change.                                                                                                            | The record must not lose work, and a terminal state must not flip.                                                                                                                            |
@@ -162,7 +166,7 @@ unpinned, no older unpinned delivery waits for the same placement.
 | uncertain                      | A send may or may not have arrived                | `TASK_STATE_WORKING` (detail in metadata)   |
 | needs_recipient / needs_answer | The sender must choose or answer                  | `TASK_STATE_INPUT_REQUIRED`                 |
 | completed / partial            | Every host answered / some did                    | `TASK_STATE_COMPLETED` (detail in metadata) |
-| failed / canceled              | No host answered / withdrawn before delivery      | `TASK_STATE_FAILED` / `TASK_STATE_CANCELED` |
+| failed / canceled              | No host completed / withdrawn before delivery     | `TASK_STATE_FAILED` / `TASK_STATE_CANCELED` |
 
 A2A v1.0 has no "unknown" state, so uncertainty travels in extension metadata.
 Router fields (recipient, judgment, delivery outcomes) go under an extension
@@ -176,12 +180,15 @@ the task.
 
 Checked by the oracle in `router-core.test.js` after every event of every test,
 including 400 random sequences of 90 events each, half with a non-deduplicating
-participant. The oracle derives eligibility, in-flight, status and judgment
-validity itself rather than calling the core, so a wrong rule cannot approve
-its own behavior. A coverage guard requires every status, every accepted event
-type, both kinds of resend, and every rejection code and blocking reason
-(including `held`) and every kind of "needs you" item to occur, so the run
-cannot pass vacuously.
+participant. The oracle derives eligibility, in-flight, status, judgment
+validity, the verdict and the needs-you lists itself rather than calling the
+core. That catches a core rule that drifts from the spec, not an oracle that
+restates the core's mistake: the review of this redo found the verdict oracle
+had copied the core's formula and passed a timed-out task with no deliveries
+as `completed`, so the verdict check is now stated by cases. A coverage guard
+requires every status, every accepted event type, both kinds of resend, every
+rejection code and blocking reason, a held pinned send, a withdrawn answer and
+every kind of "needs you" item to occur, so the run cannot pass vacuously.
 
 1. One task per `source/messageId`; receipts never change.
 2. At most one unconfirmed send per placement.
@@ -194,13 +201,16 @@ cannot pass vacuously.
 9. A rejected event changes nothing but the log.
 10. Canceled tasks never had a possibly-delivered attempt; terminal tasks have no sendable work.
 
-Mutation checks: 41 deliberately broken guards each fail the suite, covering
-the in-flight gate, readiness, hold, the needs-you list, the verdict, FIFO, retry rules (deduplication,
-deadline, replaced session), restart replay, the unpin-after-retry bug found in
-review, reply session and message correlation, the settled-question rule,
-threshold boundary, probability sum, operator rules, cancel, deadline,
-permissions, double answers, time direction, and configuration validation.
-Eight eligibility mutants are caught by the random run alone. Removing the
+Mutation checks are run by hand while a rule is added and are not kept in the
+repository, so the record here is a description, not a count. Guards broken
+one at a time and caught by the suite: the in-flight gate, readiness, hold
+(including for pinned sends), FIFO, retry rules (deduplication, deadline,
+replaced session), restart replay, the unpin-after-retry bug found in review,
+reply session and message correlation, the settled-question rule and answer
+withdrawal, the verdict by cases, the needs-you lists, threshold boundary,
+probability sum, operator rules, cancel, deadline, permissions, double
+answers, time direction and configuration validation. Most eligibility, verdict
+and needs-you mutants are caught by the random run alone. Removing the
 rollback in `reduce` is equivalent today, because every handler validates
 before mutating; the rollback stays so that property does not depend on
 handler order.
@@ -323,6 +333,6 @@ Deployment decisions taken on 2026-09-30, outside the contract:
   asks the orchestrator through the router, which adds
   `knowledge: ["orchestrator"]` to permissions when that repository is set up.
 - Vault status moves forward by agents up to 전문 검토 대기; only the person
-  moves 검토 완료 → 확정/폐기. Items in those two states are the vault's
-  contribution to the "needs you" list. The rule lives in the vault's own
-  `AGENTS.md`.
+  moves 검토 완료 → 확정/폐기. A view shows items in those two states next to
+  the router's "needs you" list; the router itself knows nothing of them. The
+  rule lives in the vault's own `AGENTS.md`.

@@ -14,7 +14,7 @@ const LAB = "incus@lab01#1";
 // The oracle derives eligibility, in-flight, status and judgment validity
 // itself, so a wrong rule in the core cannot approve its own behavior.
 
-const last = (d) => d.sends[d.sends.length - 1];
+const last = (d) => d.sends.findLast((send) => send.outcome !== "withdrawn");
 const open = (d) => d.end === null;
 const unconfirmed = (d) =>
   open(d) &&
@@ -85,8 +85,8 @@ function needsYouViolations(state) {
         if (!open(d) || d.session === null || last(d).outcome === "attempting")
           return false;
         const task = state.tasks.find((t) => t.id === d.taskId);
+        if (task.final) return last(d).outcome !== "accepted";
         return (
-          task.final !== null ||
           state.placements[d.placement].session !== d.session ||
           (last(d).outcome === "unknown" && !isIdempotent(state, d))
         );
@@ -121,7 +121,12 @@ function needsYouViolations(state) {
       .map((t) => t.id);
     const answers = mine.flatMap((t) =>
       t.deliveries
-        .filter((d) => open(d) && d.question)
+        .filter(
+          (d) =>
+            open(d) &&
+            d.question &&
+            state.placements[d.placement].session === d.session,
+        )
         .map((d) => d.question.id),
     );
     const listed = {
@@ -138,14 +143,12 @@ function needsYouViolations(state) {
       const permitted = state.config.permissions[principal] || [];
       const event =
         item.kind === "choose"
-          ? permitted.length
-            ? {
-                type: "choose",
-                by,
-                taskId: item.taskId,
-                to: item.suggestions[0] ?? permitted[0],
-              }
-            : { type: "cancel", by, taskId: item.taskId }
+          ? {
+              type: "choose",
+              by,
+              taskId: item.taskId,
+              to: item.suggestions[0] ?? permitted[0],
+            }
           : {
               type: "answer",
               by,
@@ -203,8 +206,11 @@ function stateViolations(state) {
     }
     if (
       task.status === "completed" &&
-      !task.deliveries.every(
-        (d) => d.end?.reason === "completed" && d.end.by === d.session,
+      !(
+        task.deliveries.length &&
+        task.deliveries.every(
+          (d) => d.end?.reason === "completed" && d.end.by === d.session,
+        )
       )
     )
       out.push(`${task.id}: completed without every pinned session's result`);
@@ -227,22 +233,23 @@ function stateViolations(state) {
     // The verdict counts the hosts that had answered when the task ended;
     // later results are evidence only.
     if (task.final && task.final.status !== "canceled") {
-      const counted =
+      const lateDone = task.late.filter((l) => l.kind === "completed").length;
+      const done =
         task.deliveries.filter((d) => d.end?.reason === "completed").length -
-        task.late.filter((l) => l.kind === "completed").length;
-      const expected =
-        counted === task.deliveries.length
-          ? "completed"
-          : counted
-            ? "partial"
-            : "failed";
-      if (
-        task.final.completed !== counted ||
-        task.final.of !== task.deliveries.length ||
-        task.final.status !== expected
-      )
+        lateDone;
+      const notDone = task.deliveries.length - done;
+      const { status: verdict, completed, of } = task.final;
+      const consistent =
+        completed === done &&
+        of === task.deliveries.length &&
+        (verdict === "completed"
+          ? done > 0 && notDone === 0
+          : verdict === "partial"
+            ? done > 0 && notDone > 0
+            : verdict === "failed" && done === 0);
+      if (!consistent)
         out.push(
-          `${task.id}: verdict ${task.final.status} disagrees with its deliveries`,
+          `${task.id}: verdict ${verdict} disagrees with its deliveries`,
         );
     }
   }
@@ -415,6 +422,7 @@ const idle = (state, placement = "orchestrator@mbp") =>
 const strictConfig = structuredClone(config);
 strictConfig.participants.find((p) => p.id === "orchestrator").idempotent =
   false;
+strictConfig.policy.maxOpenTasks = 3;
 const deliver = (state, deliveryId, outcome = "accepted") => {
   state = expectOk(state, { type: "attempt", deliveryId });
   const messageId = currentSend(Core.findDelivery(state, deliveryId)).messageId;
@@ -648,15 +656,130 @@ test("a person can hold a session, and a question settled in the session clears 
     },
     "no_question",
   );
-  // A hold does not survive a replaced session: nobody is typing in it yet.
+  // A hold belongs to the person, so it survives a replaced session.
   s = expectOk(s, { type: "observe", placement: "knowledge@mini", hold: true });
   s = expectOk(s, {
     type: "observe",
     placement: "knowledge@mini",
     session: "knowledge@mini#2",
+    ready: true,
   });
-  assert.equal(s.placements["knowledge@mini"].hold, false);
-  assert.equal(s.placements["knowledge@mini"].ready, false);
+  assert.equal(s.placements["knowledge@mini"].hold, true);
+  assert.deepEqual(commands(s), []);
+});
+
+const ask = (s, by, messageId, inReplyTo, text) =>
+  expectOk(s, {
+    type: "update",
+    by,
+    taskId: "T1",
+    messageId,
+    inReplyTo,
+    kind: "question",
+    text,
+  });
+const answerQ = (s, messageId, questionId, text) =>
+  expectOk(s, {
+    type: "answer",
+    by: "you",
+    taskId: "T1",
+    messageId,
+    questionId,
+    text,
+  });
+
+test("a hold also stops pinned sends: a queued answer and a deduplicated retry", () => {
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Draft.",
+    to: "knowledge",
+  });
+  s = deliver(s, "D1");
+  s = ask(s, KNOW, "Q1", "M1", "Which?");
+  s = answerQ(s, "A1", "Q1", "That one.");
+  s = idle(s, "knowledge@mini");
+  s = expectOk(s, { type: "observe", placement: "knowledge@mini", hold: true });
+  assert.equal(Core.blockedReason(s, Core.findDelivery(s, "D1")), "held");
+  s = expectOk(s, {
+    type: "observe",
+    placement: "knowledge@mini",
+    hold: false,
+  });
+  assert.deepEqual(commands(s), [
+    { type: "deliver", deliveryId: "D1", messageId: "A1" },
+  ]);
+  // A retry after an unknown send is a pinned send too.
+  let r = submit(initial(config), {
+    messageId: "M1",
+    text: "Draft.",
+    to: "knowledge",
+  });
+  r = deliver(r, "D1", "unknown");
+  r = idle(r, "knowledge@mini");
+  r = expectOk(r, { type: "observe", placement: "knowledge@mini", hold: true });
+  assert.equal(Core.blockedReason(r, Core.findDelivery(r, "D1")), "held");
+});
+
+test("a queued answer is withdrawn when the participant moves on in the session", () => {
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Draft.",
+    to: "knowledge",
+  });
+  s = deliver(s, "D1");
+  s = ask(s, KNOW, "Q1", "M1", "Which?");
+  s = answerQ(s, "A1", "Q1", "That one.");
+  // The person answered in the session before the router could send A1.
+  s = expectOk(s, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "R1",
+    inReplyTo: "M1",
+    kind: "working",
+    text: "Going with the second.",
+  });
+  const d = Core.findDelivery(s, "D1");
+  assert.equal(d.sends[1].outcome, "withdrawn");
+  assert.equal(Core.currentSend(d).messageId, "M1");
+  assert.equal(task(s).status, "working");
+  s = idle(s, "knowledge@mini");
+  assert.deepEqual(commands(s), []);
+  // The exchange continues on M1.
+  s = expectOk(s, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "R2",
+    inReplyTo: "M1",
+    kind: "completed",
+    text: "Done.",
+  });
+  assert.equal(task(s).status, "completed");
+  // Once an answer has been attempted, a stale reply to the request can
+  // neither withdraw it nor settle a later question.
+  let t = submit(initial(config), {
+    messageId: "M1",
+    text: "Draft.",
+    to: "knowledge",
+  });
+  t = deliver(t, "D1");
+  t = ask(t, KNOW, "Q1", "M1", "Which?");
+  t = answerQ(t, "A1", "Q1", "That.");
+  t = idle(t, "knowledge@mini");
+  t = deliver(t, "D1");
+  t = ask(t, KNOW, "Q2", "A1", "Sure?");
+  t = expectOk(t, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "R0",
+    inReplyTo: "M1",
+    kind: "working",
+    text: "stale",
+  });
+  assert.equal(Core.findDelivery(t, "D1").question.id, "Q2");
+  assert.equal(Core.findDelivery(t, "D1").sends[1].outcome, "accepted");
 });
 
 test("the needs-you list names exactly the open decisions per principal", () => {
@@ -694,21 +817,14 @@ test("the needs-you list names exactly the open decisions per principal", () => 
   ]);
   // Another requester's question is not this requester's decision.
   assert.deepEqual(Core.needsYou(s, ORCH_ID), []);
-  // A pin to a replaced session is the operator's, not the requester's.
+  // A pin to a replaced session is the operator's, not the requester's: an
+  // answer could no longer be delivered.
   s = expectOk(s, {
     type: "observe",
     placement: "knowledge@mini",
     session: "knowledge@mini#2",
   });
-  assert.deepEqual(Core.needsYou(s, "you"), [
-    {
-      kind: "answer",
-      taskId: "T1",
-      deliveryId: "D1",
-      questionId: "Q1",
-      text: "Which thing?",
-    },
-  ]);
+  assert.deepEqual(Core.needsYou(s, "you"), []);
   assert.deepEqual(Core.needsYou(s, "operator"), [
     {
       kind: "resolve",
@@ -1315,10 +1431,21 @@ test("unclear, low-confidence, invalid or unavailable routing asks the sender", 
   s = expectOk(s, { type: "judgeFailed", taskId: "T4", reason: "timed out" });
   assert.equal(task(s, "T4").routing.reason, "routing_unavailable");
 
-  // A caller with no permitted recipients never reaches Jev.
-  s = expectOk(s, { type: "submit", by: KNOW, messageId: "K1", text: "help" });
-  assert.equal(task(s, "T5").routing.reason, "no_permitted_participants");
-  assert.equal(commands(s).filter((c) => c.type === "judge").length, 0);
+  // A caller with no permitted recipients has nobody to route to.
+  s = expectReject(
+    s,
+    { type: "submit", by: KNOW, messageId: "K1", text: "help" },
+    "forbidden",
+  );
+  // A task that never got a delivery cannot have completed.
+  s = expectOk(s, { type: "submit", by: "you", messageId: "M5", text: "z" });
+  s = expectOk(s, { type: "tick", now: task(s, "T5").deadline });
+  assert.deepEqual(task(s, "T5").final, {
+    status: "failed",
+    reason: "deadline",
+    completed: 0,
+    of: 0,
+  });
 });
 
 test("not_sent requeues safely; replaced sessions get new work, old pins keep theirs", () => {
@@ -1779,7 +1906,7 @@ function randomEvent(s, r) {
       return {
         type: "submit",
         by: pick(["you", "you", ORCH, KNOW, "mallory"]),
-        messageId: `M${Math.floor(r() * 8)}`,
+        messageId: r() < 0.03 ? "" : `M${Math.floor(r() * 8)}`,
         text: pick(["a", "b"]),
         to,
         hosts,
@@ -1790,6 +1917,7 @@ function randomEvent(s, r) {
       const c = pick(work);
       if (c.type === "deliver")
         return { type: "attempt", deliveryId: c.deliveryId };
+      if (r() < 0.15) return { type: "judgeFailed", taskId: c.taskId };
       const options = Object.keys(c.question.criteria);
       const choice = pick(options);
       const p = pick([0.95, 0.5, 1]);
@@ -1859,7 +1987,11 @@ function randomEvent(s, r) {
         text: "ok",
       };
     case "cancel":
-      return { type: "cancel", by: pick(["you", ORCH]), taskId };
+      return {
+        type: "cancel",
+        by: pick(["you", ORCH]),
+        taskId: r() < 0.05 ? "T999" : taskId,
+      };
     case "resolve": {
       const d = deliveries.length ? pick(deliveries) : null;
       return {
@@ -1884,7 +2016,7 @@ function randomEvent(s, r) {
           : { type: "observe", placement, ready: r() < 0.7 };
     }
     case "restart":
-      return { type: "restart" };
+      return r() < 0.1 ? { type: "nonsense" } : { type: "restart" };
     default:
       return { type: "tick", now: s.now + Math.floor(r() * 40) };
   }
@@ -1906,10 +2038,19 @@ test("random event sequences never violate the contract", () => {
             `needs:${item.kind}${item.reason ? ":" + item.reason : ""}`,
           );
       if (s.last.ok) reached.add(`ok:${event.type}`);
-      else
+      else {
         reached.add(
           `reject:${s.last.code}${s.last.code === "not_eligible" ? " " + s.last.message.split(": ").pop() : ""}`,
         );
+        if (
+          s.last.message.endsWith("held.") &&
+          Core.findDelivery(s, event.deliveryId).session !== null
+        )
+          reached.add("held pinned");
+      }
+      for (const d of Core.allDeliveries(s))
+        if (d.sends.some((send) => send.outcome === "withdrawn"))
+          reached.add("withdrawn");
       for (const d of Core.allDeliveries(s))
         for (const send of d.sends)
           send.trail.forEach((step, i) => {
@@ -1955,6 +2096,13 @@ test("random event sequences never violate the contract", () => {
     // says nothing about them.
     "reject:not_eligible not ready.",
     "reject:not_eligible held.",
+    "held pinned",
+    "withdrawn",
+    "ok:judgeFailed",
+    "reject:invalid",
+    "reject:not_found",
+    "reject:capacity",
+    "reject:unknown_event",
     "reject:not_eligible in flight.",
     "reject:not_eligible queued behind.",
     "reject:not_eligible session replaced.",

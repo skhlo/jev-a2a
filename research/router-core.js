@@ -27,7 +27,10 @@
     if (!isRecord(config)) fail("a configuration object is required");
     const { policy, participants, principals = {}, permissions = {} } = config;
     if (!isRecord(policy)) fail("policy is required");
-    if (!(policy.threshold > 0 && policy.threshold <= 1))
+    if (
+      typeof policy.threshold !== "number" ||
+      !(policy.threshold > 0 && policy.threshold <= 1)
+    )
       fail("policy.threshold must be in (0, 1]");
     for (const key of ["deadline", "maxText", "maxOpenTasks"])
       if (!positive(policy[key]))
@@ -117,8 +120,20 @@
     allDeliveries(state).find((d) => d.id === id);
   const participant = (state, id) =>
     state.config.participants.find((entry) => entry.id === id);
-  const currentSend = (delivery) => delivery.sends[delivery.sends.length - 1];
+  // A withdrawn answer never left the router; the exchange continues on the
+  // message before it.
+  const currentSend = (delivery) =>
+    delivery.sends.findLast((send) => send.outcome !== "withdrawn");
   const isOpen = (delivery) => delivery.end === null;
+  // The pinned session is no longer the placement's current one.
+  const sessionReplaced = (state, delivery) =>
+    delivery.session !== null &&
+    state.placements[delivery.placement].session !== delivery.session;
+  // An unknown send may be repeated with the same key only when the adapter
+  // deduplicates by it.
+  const retryable = (state, delivery, send) =>
+    send.outcome === "unknown" &&
+    participant(state, delivery.participant).idempotent;
   // A send whose arrival is unconfirmed. It blocks other sends to its
   // placement: the participant may be starting a turn it must not lose.
   const inFlight = (delivery) =>
@@ -178,12 +193,9 @@
     const send = currentSend(delivery);
     const placement = state.placements[delivery.placement];
     if (isTerminal(task) || !isOpen(delivery)) return "closed";
-    const retry =
-      send.outcome === "unknown" &&
-      participant(state, delivery.participant).idempotent;
-    if (send.outcome !== "pending" && !retry) return "not_pending";
-    if (delivery.session !== null && placement.session !== delivery.session)
-      return "session_replaced";
+    if (send.outcome !== "pending" && !retryable(state, delivery, send))
+      return "not_pending";
+    if (sessionReplaced(state, delivery)) return "session_replaced";
     const holder = allDeliveries(state).find(
       (other) =>
         other !== delivery &&
@@ -258,34 +270,35 @@
     return "queued";
   }
 
+  // Why an open, pinned delivery needs an operator, or null if it does not:
+  // the router cannot confirm its send after the task ended, its session was
+  // replaced, or its send is unknown with no deduplicating retry.
+  function stuckReason(state, delivery) {
+    if (!isOpen(delivery) || delivery.session === null) return null;
+    const send = currentSend(delivery);
+    if (send.outcome === "attempting") return null;
+    if (isTerminal(findTask(state, delivery.taskId)))
+      return send.outcome === "accepted" ? null : "task_ended";
+    if (sessionReplaced(state, delivery)) return "session_replaced";
+    if (send.outcome === "unknown" && !retryable(state, delivery, send))
+      return "unknown_send";
+    return null;
+  }
+
   // What a principal must decide, in task order. A requester gets its own
-  // tasks waiting for a recipient or an answer. An operator gets pinned
-  // deliveries the router can no longer move by itself: an unknown send with
-  // no deduplicating retry, a pin to a replaced session, or a send still
-  // holding a session after its task ended.
+  // tasks waiting for a recipient or for an answer the router can still
+  // deliver. An operator gets the stuck deliveries.
   function needsYou(state, principal) {
-    const role = roleOf(state, principal);
     const items = [];
-    if (role === "operator") {
+    if (roleOf(state, principal) === "operator") {
       for (const delivery of allDeliveries(state)) {
-        if (!isOpen(delivery) || delivery.session === null) continue;
-        const send = currentSend(delivery);
-        if (send.outcome === "attempting") continue;
-        const task = findTask(state, delivery.taskId);
-        const reason = isTerminal(task)
-          ? "task_ended"
-          : state.placements[delivery.placement].session !== delivery.session
-            ? "session_replaced"
-            : send.outcome === "unknown" &&
-                !participant(state, delivery.participant).idempotent
-              ? "unknown_send"
-              : null;
+        const reason = stuckReason(state, delivery);
         if (reason)
           items.push({
             kind: "resolve",
-            taskId: task.id,
+            taskId: delivery.taskId,
             deliveryId: delivery.id,
-            messageId: send.messageId,
+            messageId: currentSend(delivery).messageId,
             reason,
           });
       }
@@ -301,7 +314,11 @@
           suggestions: task.routing.suggestions,
         });
       for (const delivery of task.deliveries)
-        if (isOpen(delivery) && delivery.question)
+        if (
+          isOpen(delivery) &&
+          delivery.question &&
+          !sessionReplaced(state, delivery)
+        )
           items.push({
             kind: "answer",
             taskId: task.id,
@@ -411,6 +428,11 @@
             `${to} does not run on every requested host.`,
           );
       }
+      if (to === null && !(state.config.permissions[source] || []).length)
+        return reject(
+          "forbidden",
+          `${source} may not address any participant, so there is nobody to route to.`,
+        );
       const open = state.tasks.filter((task) => !isTerminal(task)).length;
       if (open >= state.config.policy.maxOpenTasks)
         return reject("capacity", "Too many open requests. Try again later.");
@@ -436,8 +458,6 @@
       state.tasks.push(task);
       state.receipts[key] = { taskId: task.id, digest: content };
       if (to !== null) select(state, task, to, "address");
-      else if (!(state.config.permissions[source] || []).length)
-        askForRecipient(task, "no_permitted_participants", []);
       return ok(`${task.id} recorded for ${key}. The caller may disconnect.`, {
         taskId: task.id,
       });
@@ -620,6 +640,21 @@
           );
         return ok(`Reply ${messageId} already recorded.`, { duplicate: true });
       }
+      // A reply to the message before an answer that never left the router
+      // means the participant moved on: the question was settled in the
+      // session, and the queued answer is withdrawn.
+      const queued = isOpen(delivery) && currentSend(delivery);
+      if (
+        queued &&
+        queued !== send &&
+        queued.kind === "answer" &&
+        queued.outcome === "pending" &&
+        !queued.trail.length &&
+        delivery.sends[delivery.sends.indexOf(queued) - 1] === send
+      ) {
+        queued.outcome = "withdrawn";
+        queued.trail.push("withdrawn");
+      }
       const current = isOpen(delivery) && send === currentSend(delivery);
       if (current && kind === "question" && delivery.question)
         return reject(
@@ -782,17 +817,15 @@
         if (typeof session !== "string" || state.sessions[session])
           return reject("invalid", "A new session needs a new identity.");
         entry.session = session;
-        // A new session has not been observed idle yet, and nobody holds it.
+        // A new session has not been observed idle yet. A hold belongs to
+        // the person, not the session, so it stays until released.
         entry.ready = ready === true;
-        entry.hold = hold === true;
         state.sessions[session] = {
           participant: entry.participant,
           host: entry.host,
         };
-      } else {
-        if (ready !== undefined) entry.ready = Boolean(ready);
-        if (hold !== undefined) entry.hold = Boolean(hold);
-      }
+      } else if (ready !== undefined) entry.ready = Boolean(ready);
+      if (hold !== undefined) entry.hold = Boolean(hold);
       return ok(
         `${placement}: ${entry.ready ? "ready" : "not ready"}${entry.hold ? ", held" : ""}, session ${entry.session}.`,
         { actor: "Adapter" },
@@ -873,7 +906,7 @@
       (d) => d.end?.reason === "completed",
     ).length;
     const status =
-      completed === of ? "completed" : completed ? "partial" : "failed";
+      of && completed === of ? "completed" : completed ? "partial" : "failed";
     return {
       status,
       reason: status === "completed" ? null : reason,
@@ -902,7 +935,6 @@
     initial,
     reduce,
     commands,
-    status,
     blockedReason,
     currentSend,
     isOpen,
