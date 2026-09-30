@@ -258,6 +258,61 @@
     return "queued";
   }
 
+  // What a principal must decide, in task order. A requester gets its own
+  // tasks waiting for a recipient or an answer. An operator gets pinned
+  // deliveries the router can no longer move by itself: an unknown send with
+  // no deduplicating retry, a pin to a replaced session, or a send still
+  // holding a session after its task ended.
+  function needsYou(state, principal) {
+    const role = roleOf(state, principal);
+    const items = [];
+    if (role === "operator") {
+      for (const delivery of allDeliveries(state)) {
+        if (!isOpen(delivery) || delivery.session === null) continue;
+        const send = currentSend(delivery);
+        if (send.outcome === "attempting") continue;
+        const task = findTask(state, delivery.taskId);
+        const reason = isTerminal(task)
+          ? "task_ended"
+          : state.placements[delivery.placement].session !== delivery.session
+            ? "session_replaced"
+            : send.outcome === "unknown" &&
+                !participant(state, delivery.participant).idempotent
+              ? "unknown_send"
+              : null;
+        if (reason)
+          items.push({
+            kind: "resolve",
+            taskId: task.id,
+            deliveryId: delivery.id,
+            messageId: send.messageId,
+            reason,
+          });
+      }
+      return items;
+    }
+    for (const task of state.tasks) {
+      if (task.source !== principal || isTerminal(task)) continue;
+      if (task.routing?.state === "needs_recipient")
+        items.push({
+          kind: "choose",
+          taskId: task.id,
+          reason: task.routing.reason,
+          suggestions: task.routing.suggestions,
+        });
+      for (const delivery of task.deliveries)
+        if (isOpen(delivery) && delivery.question)
+          items.push({
+            kind: "answer",
+            taskId: task.id,
+            deliveryId: delivery.id,
+            questionId: delivery.question.id,
+            text: delivery.question.text,
+          });
+    }
+    return items;
+  }
+
   // A2A v1.0 task state for a router status. Router detail travels in metadata.
   const A2A_STATE = {
     routing: "TASK_STATE_SUBMITTED",
@@ -843,6 +898,7 @@
     findDelivery,
     allDeliveries,
     judgmentQuestion,
+    needsYou,
     A2A_STATE,
   };
 });

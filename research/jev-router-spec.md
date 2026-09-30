@@ -120,6 +120,16 @@ Events (`reduce(state, event) → state`, with `state.last` = `{ ok, code?, mess
 | `observe { placement, ready?, hold?, session? }`                     | shell's presence refresh; a person's hold    | Readiness, hold and session replacement. A new session is neither ready nor held until an observation says so.                                                                                                                                                                  |
 | `restart` / `tick { now }`                                           | router                                       | Interrupted attempts become `unknown`; deadlines fire.                                                                                                                                                                                                                          |
 
+Queries: `commands(state)` is the shell's work list; `needsYou(state,
+principal)` is a person's. A requester's list holds its own open tasks that
+wait for a recipient (`choose`, with Jev's ranked suggestions) or an answer
+(`answer`, one per delivery). An operator's list holds pinned deliveries the
+router can no longer move by itself (`resolve`): an unknown send with no
+deduplicating retry, a pin to a replaced session, or a send still holding a
+session after its task ended. The oracle checks that each list names exactly
+the decisions that principal can act on right now, and that every item's event
+succeeds.
+
 A delivery is **eligible** when its task is open; its current message is
 pending, or unknown with a deduplicating adapter; it is unpinned or pinned to
 the placement's current session; no other send to the placement is unconfirmed
@@ -168,7 +178,8 @@ participant. The oracle derives eligibility, in-flight, status and judgment
 validity itself rather than calling the core, so a wrong rule cannot approve
 its own behavior. A coverage guard requires every status, every accepted event
 type, both kinds of resend, and every rejection code and blocking reason
-(including `held`) to occur, so the run cannot pass vacuously.
+(including `held`) and every kind of "needs you" item to occur, so the run
+cannot pass vacuously.
 
 1. One task per `source/messageId`; receipts never change.
 2. At most one unconfirmed send per placement.
@@ -181,8 +192,8 @@ type, both kinds of resend, and every rejection code and blocking reason
 9. A rejected event changes nothing but the log.
 10. Canceled tasks never had a possibly-delivered attempt; terminal tasks have no sendable work.
 
-Mutation checks: 35 deliberately broken guards each fail the suite, covering
-the in-flight gate, readiness, hold, FIFO, retry rules (deduplication,
+Mutation checks: 38 deliberately broken guards each fail the suite, covering
+the in-flight gate, readiness, hold, the needs-you list, FIFO, retry rules (deduplication,
 deadline, replaced session), restart replay, the unpin-after-retry bug found in
 review, reply session and message correlation, the settled-question rule,
 threshold boundary, probability sum, operator rules, cancel, deadline,
@@ -265,9 +276,6 @@ actually used.
 
 ## Still to model
 
-- **A "needs you" list.** The statuses exist (`needs_recipient`, `needs_answer`,
-  uncertain deliveries awaiting an operator), but nothing collects them per
-  requester. That list is what a person's own device should show first.
 - **Partial results for multi-host service requests.** A request to a service
   on several hosts fails as a whole at the deadline if one host never became
   ready. A deployment with a machine that sleeps wants "checked two of three;
@@ -309,3 +317,17 @@ Principals: `you` (every view, any device) as requester, and `operator`.
 Permissions: `you` may address all four participants; the orchestrator may ask
 the two services; nobody else may address anyone. Coding handoffs between the
 person's own sessions and the orchestrator go through the git remote.
+
+Deployment decisions taken on 2026-09-30, outside the contract:
+
+- Review lenses such as a "CIO" are skill packs used inside the vault agent's
+  session, not positions. A lens becomes a position only if it needs its own
+  memory and address.
+- Vault tooling that lands in a repository (skills, scripts, templates) is the
+  coding orchestrator's work. The vault meta agent keeps vault structure and
+  asks the orchestrator through the router, which adds
+  `knowledge: ["orchestrator"]` to permissions when that repository is set up.
+- Vault status moves forward by agents up to 전문 검토 대기; only the person
+  moves 검토 완료 → 확정/폐기. Items in those two states are the vault's
+  contribution to the "needs you" list. The rule lives in the vault's own
+  `AGENTS.md`.

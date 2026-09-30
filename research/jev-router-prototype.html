@@ -744,7 +744,15 @@
         </div>
       </section>
 
-      <section class="grid" aria-label="Journal and event log">
+      <section class="grid" aria-label="Needs you, journal and event log">
+        <div class="panel">
+          <h2>Needs you</h2>
+          <p class="hint">
+            <code>needsYou(state, principal)</code>: the decisions only a person
+            can make. What a portable device shows first.
+          </p>
+          <div id="needs-you"></div>
+        </div>
         <div class="panel">
           <h2>Journal</h2>
           <div id="journal"></div>
@@ -1595,6 +1603,24 @@ delivery's pinned session and answer its current message.</pre>
               .join("") +
             `<details><summary>What Jev was asked</summary><pre>${escape(JSON.stringify(Core.judgmentQuestion(state, task), null, 2))}</pre></details>`
           : `<p class="muted">${task?.to ? "Addressed request: no judgment." : "Unaddressed requests show their judgment here."}</p>`;
+        const NEEDS = {
+          choose: (item) =>
+            `${item.taskId}: choose a recipient (${pretty(item.reason)}${item.suggestions.length ? `; Jev suggests ${item.suggestions.map(name).join(", ")}` : ""})`,
+          answer: (item) => `${item.taskId}: answer "${item.text}"`,
+          resolve: (item) =>
+            `${item.deliveryId}: reconcile ${item.messageId} (${pretty(item.reason)})`,
+        };
+        $("needs-you").innerHTML =
+          [
+            ["You", Core.needsYou(state, "you")],
+            ["Operator", Core.needsYou(state, "operator")],
+          ]
+            .filter(([, items]) => items.length)
+            .map(
+              ([who, items]) =>
+                `<div class="peer"><strong>${who}</strong>${items.map((item) => `<p>${escape(NEEDS[item.kind](item))}</p>`).join("")}</div>`,
+            )
+            .join("") || '<p class="muted">Nothing waits on a person.</p>';
         $("journal").innerHTML = state.tasks.length
           ? state.tasks
               .map(

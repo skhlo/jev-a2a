@@ -5,6 +5,7 @@ const Core = require("./router-core.js");
 const config = require("./router-example-config.js");
 
 const { initial, reduce, commands, currentSend, isOpen } = Core;
+const ORCH_ID = "orchestrator";
 const ORCH = "orchestrator@mbp#1";
 const KNOW = "knowledge@mini#1";
 const LAB = "incus@lab01#1";
@@ -62,6 +63,105 @@ function oracleStatus(task) {
   if (outcomes.includes("accepted")) return "working";
   if (outcomes.includes("attempting")) return "delivering";
   return "queued";
+}
+
+// The "needs you" list is complete and every item is actionable: it names
+// exactly the decisions its principal can make right now, and nothing else.
+function needsYouViolations(state) {
+  const out = [];
+  const sessionOf = (id) =>
+    Object.values(state.placements).find((p) => p.participant === id)?.session;
+  const principals = [
+    ...Object.keys(state.config.principals),
+    ...state.config.participants.map((p) => p.id),
+  ];
+  for (const principal of principals) {
+    const items = Core.needsYou(state, principal);
+    const by = state.config.principals[principal]
+      ? principal
+      : sessionOf(principal);
+    if (state.config.principals[principal] === "operator") {
+      const expected = deliveriesOf(state).filter((d) => {
+        if (!open(d) || d.session === null || last(d).outcome === "attempting")
+          return false;
+        const task = state.tasks.find((t) => t.id === d.taskId);
+        return (
+          task.final !== null ||
+          state.placements[d.placement].session !== d.session ||
+          (last(d).outcome === "unknown" && !isIdempotent(state, d))
+        );
+      });
+      if (
+        items.length !== expected.length ||
+        items.some(
+          (item, i) =>
+            item.kind !== "resolve" || item.deliveryId !== expected[i].id,
+        )
+      )
+        out.push(`operator list differs from the stuck deliveries`);
+      for (const item of items) {
+        const next = reduce(state, {
+          type: "resolve",
+          by,
+          deliveryId: item.deliveryId,
+          messageId: item.messageId,
+          outcome: "finished",
+          evidence: "oracle",
+        });
+        if (!next.last.ok)
+          out.push(
+            `${item.deliveryId}: listed for the operator but not resolvable (${next.last.code})`,
+          );
+      }
+      continue;
+    }
+    const mine = state.tasks.filter((t) => t.source === principal && !t.final);
+    const chooses = mine
+      .filter((t) => t.status === "needs_recipient")
+      .map((t) => t.id);
+    const answers = mine.flatMap((t) =>
+      t.deliveries
+        .filter((d) => open(d) && d.question)
+        .map((d) => d.question.id),
+    );
+    const listed = {
+      choose: items.filter((i) => i.kind === "choose").map((i) => i.taskId),
+      answer: items.filter((i) => i.kind === "answer").map((i) => i.questionId),
+    };
+    if (
+      items.length !== chooses.length + answers.length ||
+      JSON.stringify(listed.choose) !== JSON.stringify(chooses) ||
+      JSON.stringify(listed.answer) !== JSON.stringify(answers)
+    )
+      out.push(`${principal}: needs-you list differs from open decisions`);
+    for (const item of items) {
+      const permitted = state.config.permissions[principal] || [];
+      const event =
+        item.kind === "choose"
+          ? permitted.length
+            ? {
+                type: "choose",
+                by,
+                taskId: item.taskId,
+                to: item.suggestions[0] ?? permitted[0],
+              }
+            : { type: "cancel", by, taskId: item.taskId }
+          : {
+              type: "answer",
+              by,
+              taskId: item.taskId,
+              messageId: "oracle-answer",
+              questionId: item.questionId,
+              text: "oracle",
+            };
+      const next = reduce(state, event);
+      if (!next.last.ok)
+        out.push(
+          `${item.taskId}: listed for ${principal} but not actionable (${next.last.code})`,
+        );
+    }
+  }
+  return out;
 }
 
 function stateViolations(state) {
@@ -172,6 +272,7 @@ function stateViolations(state) {
       });
     }
   }
+  out.push(...needsYouViolations(state));
   return out;
 }
 
@@ -535,6 +636,78 @@ test("a person can hold a session, and a question settled in the session clears 
   });
   assert.equal(s.placements["knowledge@mini"].hold, false);
   assert.equal(s.placements["knowledge@mini"].ready, false);
+});
+
+test("the needs-you list names exactly the open decisions per principal", () => {
+  let s = submit(initial(config), { messageId: "M1", text: "Do the thing." });
+  assert.deepEqual(Core.needsYou(s, "you"), []);
+  s = judge(s, "T1", "orchestrator", 0.5);
+  assert.deepEqual(Core.needsYou(s, "you"), [
+    {
+      kind: "choose",
+      taskId: "T1",
+      reason: "low_confidence",
+      suggestions: task(s).routing.suggestions,
+    },
+  ]);
+  assert.deepEqual(Core.needsYou(s, "operator"), []);
+  s = expectOk(s, { type: "choose", by: "you", taskId: "T1", to: "knowledge" });
+  s = deliver(s, "D1");
+  s = expectOk(s, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "Q1",
+    inReplyTo: "M1",
+    kind: "question",
+    text: "Which thing?",
+  });
+  assert.deepEqual(Core.needsYou(s, "you"), [
+    {
+      kind: "answer",
+      taskId: "T1",
+      deliveryId: "D1",
+      questionId: "Q1",
+      text: "Which thing?",
+    },
+  ]);
+  // Another requester's question is not this requester's decision.
+  assert.deepEqual(Core.needsYou(s, ORCH_ID), []);
+  // A pin to a replaced session is the operator's, not the requester's.
+  s = expectOk(s, {
+    type: "observe",
+    placement: "knowledge@mini",
+    session: "knowledge@mini#2",
+  });
+  assert.deepEqual(Core.needsYou(s, "you"), [
+    {
+      kind: "answer",
+      taskId: "T1",
+      deliveryId: "D1",
+      questionId: "Q1",
+      text: "Which thing?",
+    },
+  ]);
+  assert.deepEqual(Core.needsYou(s, "operator"), [
+    {
+      kind: "resolve",
+      taskId: "T1",
+      deliveryId: "D1",
+      messageId: "M1",
+      reason: "session_replaced",
+    },
+  ]);
+  s = expectOk(s, {
+    type: "resolve",
+    by: "operator",
+    deliveryId: "D1",
+    messageId: "M1",
+    outcome: "finished",
+    evidence: "Session gone; the answer was given in person.",
+  });
+  assert.deepEqual(Core.needsYou(s, "you"), []);
+  assert.deepEqual(Core.needsYou(s, "operator"), []);
+  assert.equal(task(s).status, "failed");
 });
 
 test("addressed service request fans out per host with zero judgments", () => {
@@ -1643,6 +1816,11 @@ test("random event sequences never violate the contract", () => {
       const event = randomEvent(s, r);
       s = apply(s, event);
       for (const t of s.tasks) reached.add(t.status);
+      for (const principal of ["you", ORCH_ID, "operator"])
+        for (const item of Core.needsYou(s, principal))
+          reached.add(
+            `needs:${item.kind}${item.reason ? ":" + item.reason : ""}`,
+          );
       if (s.last.ok) reached.add(`ok:${event.type}`);
       else
         reached.add(
@@ -1681,6 +1859,12 @@ test("random event sequences never violate the contract", () => {
     "ok:restart",
     "ok:tick",
     "resend after not_sent",
+    "needs:choose:no_owner",
+    "needs:choose:low_confidence",
+    "needs:answer",
+    "needs:resolve:task_ended",
+    "needs:resolve:session_replaced",
+    "needs:resolve:unknown_send",
     "resend after unknown",
     // Every blocking reason and rejection path must occur, or the random run
     // says nothing about them.
