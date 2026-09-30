@@ -1,41 +1,59 @@
-# Jev router: contract and hardened design
+# Jev router: contract
 
-Status: proposed, verified as an executable model on 2026-09-29. Not implemented
-against live Paseo, herdr, Incus or TypeSafe. This document is the authoritative
-design. The [original design](jev-router-design.html) is historical; where the two
-differ, this one records the decision and the reason.
+Status: proposed, verified as an executable model on 2026-09-29 and 2026-09-30.
+Not implemented against live Paseo, herdr or TypeSafe. This document is the
+authoritative design of the router as a general tool. The
+[original design](jev-router-design.html) is historical; where the two differ,
+this one records the decision and the reason.
 
 | Artifact                    | Role                                                                                                          |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `router-core.js`            | Pure reducer implementing this contract. No I/O.                                                              |
+| `router-core.js`            | Pure reducer implementing this contract. No I/O, no built-in deployment.                                      |
+| `router-example-config.js`  | One example deployment. The page and tests load it; nothing in the core depends on it.                        |
 | `router-core.test.js`       | Scenario tests, an independent invariant oracle, random sequences. `node --test research/router-core.test.js` |
-| `jev-router-prototype.html` | Interactive view over the same module. Open directly in a browser.                                            |
+| `jev-router-prototype.html` | Interactive view over the core with the example deployment. Open directly in a browser.                       |
 
-## Shape
+## What the router is
 
-One router process with one journal on always-on mbp sits between senders and
-four registered participants:
+A small always-on process with one journal that carries requests between
+**principals** and **participants** and brings each reply back to its sender.
+Jev decides who owns an unaddressed request; code handles everything else.
+The router is not a topology: participants, their hosts, who may address whom,
+and the policy numbers are configuration, and a deployment can change them
+without touching the router.
 
-| Participant         | Kind    | Placement      | May address                     |
-| ------------------- | ------- | -------------- | ------------------------------- |
-| Orchestrator        | agent   | mbp            | dotfiles service, Incus service |
-| Knowledge assistant | agent   | mini           | nobody                          |
-| Dotfiles service    | service | mba, mbp, mini | nobody                          |
-| Incus service       | service | lab01          | nobody                          |
+Terms:
 
-You (through Paseo or herdr on any device) may address all four. A **placement**
-is a participant on one host; each has one current **session**. Views submit and
-read through the router. They never prompt a router-owned session directly,
-because that races the router (see Paseo below). Dotfiles owns harness and
-environment configuration on mba, mbp and mini; source changes go to the
-orchestrator's workflow, inspection of what is applied goes to the dotfiles
-service. The orchestrator owns its workflow steps; the router only carries
-messages. Participants, placements, permissions and repositories are illustrative
-configuration, not discovered.
+- **Principal:** an authenticated identity. Either a configured non-participant
+  (`requester`, who may submit, choose, answer and cancel; or `operator`, who
+  may reconcile uncertain deliveries and may not submit) or a participant acting
+  through one of its sessions.
+- **Participant:** an agent or a service with a stable id, a responsibility
+  description that Jev reads in full, one or more hosts, and an `idempotent`
+  flag saying whether its adapter deduplicates by the router's message key.
+- **Placement:** a participant on one host, with one current **session**. The
+  router pins each delivery to the session it sent to.
+- **View:** any surface through which a person submits and reads. Views
+  authenticate as a requester and never prompt a router-owned session directly,
+  because that races the router.
 
 The core is a functional core: the shell authenticates callers, calls Jev and
 adapters, and feeds their results back as events. `commands(state)` tells the
 shell what to do next (`judge` or `deliver`). The core never performs I/O.
+`initial(config)` validates the configuration and refuses an invalid one.
+
+## Configuring a deployment
+
+| Key            | Decides                                                                                                                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `policy`       | `threshold` for dispatching on a judgment, `maxJudgments` per request, `deadline`, `maxText`, `maxOpenTasks`.                                                                             |
+| `principals`   | Non-participant identities and their role: `requester` or `operator`. Names are free; a household may have several requesters.                                                            |
+| `participants` | `id`, `name`, `kind` (`agent` or `service`), `hosts`, `idempotent`, `responsibility`. The responsibility text is what Jev sees, so write it as an ownership rule with what it is not for. |
+| `permissions`  | For each principal or participant, which participants it may address. Absent means nobody. Jev only ever chooses among a sender's permitted participants.                                 |
+
+What is not configuration, by design: message identity, the delivery state
+machine, the eligibility rule, reply correlation, and what each event may do.
+Those are the contract below.
 
 ## Decisions made while merging
 
@@ -46,8 +64,8 @@ without it.
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Jev            | One Choice with full responsibilities plus `none`; dispatch only if the chosen option's probability is at least the threshold (0.9, provisional). Otherwise the sender chooses.                                                                           | TypeSafe's staged "progressive context" is for large rosters (182 skills); its Choice docs advise giving the full list rather than a shortlist. Four participants fit in one call. The prototype's two-stage shortlist is removed. |
 | Busy recipient | Queue in the router, per placement, in arrival order. Send only when a fresh observation says the session is idle, and never while another of the router's sends to it is unconfirmed. An accepted send marks the session busy until a newer observation. | A Paseo send to a running agent cancels its turn, and Paseo has no inbox. Holding the session until the task finishes is unnecessary: once the turn has started and ended, the next task cannot interrupt anything.                |
-| Concurrency    | Open tasks do not block new ones. A participant decides how much it runs at once: the orchestrator can hand a task to background subagents, end its turn, take the next task, and reply to each when done.                                                | Serial versus parallel is the participant harness's decision, not transport policy. Correlation by task and message ID keeps interleaved replies apart.                                                                            |
-| Fan-out        | One recipient per request. An explicitly addressed request may name several hosts of that recipient; each host gets its own delivery. Never fan out on ambiguity.                                                                                         | Keeps the original "never send to multiple suggestions" rule while allowing a device inspection across three machines.                                                                                                             |
+| Concurrency    | Open tasks do not block new ones. A participant decides how much it runs at once: an agent can hand a task to background subagents, end its turn, take the next task, and reply to each when done.                                                        | Serial versus parallel is the participant harness's decision, not transport policy. Correlation by task and message ID keeps interleaved replies apart.                                                                            |
+| Fan-out        | One recipient per request. An explicitly addressed request may name several hosts of that recipient; each host gets its own delivery. Never fan out on ambiguity.                                                                                         | Keeps the original "never send to multiple suggestions" rule while allowing one service to be asked on several machines at once.                                                                                                   |
 | Authorization  | The sender principal is the authenticated caller, never a field. Permissions decide who may address whom. Only the delivery's pinned session can reply.                                                                                                   | Replaces the unauthenticated `source` field in the earlier prototype.                                                                                                                                                              |
 | Questions      | One outstanding question per delivery; the sender's answer is queued to the same pinned session.                                                                                                                                                          | Agents need clarification; without it the recipient could not ask within the task.                                                                                                                                                 |
 | Uncertainty    | `unknown` is retried only through an adapter that deduplicates by the router's message key, only on the same pinned session, only when idle and before the deadline. Otherwise a matching reply or an operator `resolve` closes it.                       | With Paseo SDK receipts a same-key retry either confirms an earlier send or makes the first one; it cannot run twice. A receipt stuck `pending` after a daemon crash stays unknown on every retry, so the operator path remains.   |
@@ -59,19 +77,19 @@ without it.
 
 Events (`reduce(state, event) → state`, with `state.last` = `{ ok, code?, message }`):
 
-| Event                                                                | Who                                  | Effect                                                                                                                                                                       |
-| -------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `submit { by, messageId, text, to?, hosts?, via? }`                  | you or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev.                                   |
-| `judged { taskId, choice, probabilities, model }` / `judgeFailed`    | shell, after Jev                     | Selects the recipient or asks the sender (`no_owner`, `low_confidence`, `invalid_judgment`, `routing_unavailable`).                                                          |
-| `choose { by, taskId, to }`                                          | original sender                      | Resolves a pending recipient choice once.                                                                                                                                    |
-| `attempt { deliveryId }`                                             | shell                                | Commits `attempting`, pins the session and marks it busy **before** the adapter call. Rejected unless eligible.                                                              |
-| `adapterResult { deliveryId, messageId, outcome }`                   | shell                                | `accepted`, `unknown`, or `not_sent`. `not_sent` re-queues; `unknown` is retried with the same key only for a deduplicating adapter. Applies only to an attempt in progress. |
-| `update { by, taskId, messageId, inReplyTo, kind, text }`            | pinned session                       | `working`, `question`, `completed`, `failed`. Proves receipt. Replies to earlier messages are kept as history only.                                                          |
-| `answer { by, taskId, messageId, questionId, text }`                 | original sender                      | Consumes the open question and queues the answer to the same session.                                                                                                        |
-| `cancel { by, taskId }`                                              | original sender                      | Only while nothing may have reached the participant.                                                                                                                         |
-| `resolve { by: operator, deliveryId, messageId, outcome, evidence }` | operator                             | Closes an open pinned delivery as `finished` or `not_sent`. Never resends.                                                                                                   |
-| `observe { placement, ready?, session? }`                            | shell's presence refresh             | Readiness and session replacement.                                                                                                                                           |
-| `restart` / `tick { now }`                                           | router                               | Interrupted attempts become `unknown`; deadlines fire.                                                                                                                       |
+| Event                                                                | Who                                          | Effect                                                                                                                                                                       |
+| -------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `submit { by, messageId, text, to?, hosts?, via? }`                  | a requester or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev.                                   |
+| `judged { taskId, choice, probabilities, model }` / `judgeFailed`    | shell, after Jev                             | Selects the recipient or asks the sender (`no_owner`, `low_confidence`, `invalid_judgment`, `routing_unavailable`).                                                          |
+| `choose { by, taskId, to }`                                          | original sender                              | Resolves a pending recipient choice once.                                                                                                                                    |
+| `attempt { deliveryId }`                                             | shell                                        | Commits `attempting`, pins the session and marks it busy **before** the adapter call. Rejected unless eligible.                                                              |
+| `adapterResult { deliveryId, messageId, outcome }`                   | shell                                        | `accepted`, `unknown`, or `not_sent`. `not_sent` re-queues; `unknown` is retried with the same key only for a deduplicating adapter. Applies only to an attempt in progress. |
+| `update { by, taskId, messageId, inReplyTo, kind, text }`            | pinned session                               | `working`, `question`, `completed`, `failed`. Proves receipt. Replies to earlier messages are kept as history only.                                                          |
+| `answer { by, taskId, messageId, questionId, text }`                 | original sender                              | Consumes the open question and queues the answer to the same session.                                                                                                        |
+| `cancel { by, taskId }`                                              | original sender                              | Only while nothing may have reached the participant.                                                                                                                         |
+| `resolve { by: operator, deliveryId, messageId, outcome, evidence }` | operator                                     | Closes an open pinned delivery as `finished` or `not_sent`. Never resends.                                                                                                   |
+| `observe { placement, ready?, session? }`                            | shell's presence refresh                     | Readiness and session replacement.                                                                                                                                           |
+| `restart` / `tick { now }`                                           | router                                       | Interrupted attempts become `unknown`; deadlines fire.                                                                                                                       |
 
 A delivery is **eligible** when its task is open; its current message is
 pending, or unknown with a deduplicating adapter; its placement is ready; it is
@@ -188,17 +206,28 @@ are tuned, since `jev-latest` moves. Limits: 255 options, 64k tokens per request
 
 A Choice picks relatively and can confidently select a near miss. If labeled
 examples show that, add a relevance question (a Noul) to the same call rather
-than a second call. Not added now: no evidence yet.
+than a second call. Not added now: no evidence yet. TypeSafe handles non-English
+input "not equally well", so tune the threshold on requests in the languages
+actually used.
+
+## Router-wide additions still to model
+
+- **A "needs you" view.** The statuses exist (`needs_recipient`, `needs_answer`,
+  uncertain deliveries awaiting an operator), but nothing collects them into one
+  list per requester. That list is what a person's own device should show.
+- **Partial results for multi-host service requests.** Today a request to a
+  service on several hosts fails as a whole at the deadline if one host never
+  became ready. A deployment with a machine that sleeps wants "checked on two of
+  three hosts; the third was unavailable" as a result.
 
 ## Open decisions
 
 1. Threshold and deadline values: provisional 0.9 and 100 model ticks until
    labeled routing examples and real task durations exist.
 2. Authentication mechanism for views and participant sessions, including remote
-   devices reaching mbp.
-3. Router-owned service adapters (dotfiles inspection, Incus) are assumed to
-   deduplicate by message key like Paseo. If one cannot, mark it
-   `idempotent: false`.
+   devices reaching the router host.
+3. Router-owned service adapters are assumed to deduplicate by message key like
+   Paseo. If one cannot, mark it `idempotent: false`.
 
 ## Not verified
 
@@ -208,3 +237,25 @@ real journal, throughput. The model proves the contract is consistent and that
 its guards hold; it does not prove the adapters behave as their help and source
 suggest. The next experiment is the original design's first slice: one addressed
 request and reply through a real Paseo session with a durable journal.
+
+## Example deployment
+
+`router-example-config.js` models the setup this design was drawn from. It is
+one instance of the contract, not part of it; a deployment is expected to
+change it.
+
+| Machine | Role in the example                                                                                                                                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| mba     | The person's portable window and decision inbox. Runs views only, plus a dotfiles-inspection placement. No participant positions, since a laptop sleeps and travels.                                                     |
+| mbp     | Always-on Linux host: the router and its journal, the coding orchestrator, and the person's own hands-on agent sessions. Sessions the person drives are never registered participants, so the router cannot prompt them. |
+| mini    | Knowledge-work host: the vault and its agents. The example still models one "knowledge assistant"; the vault's own `AGENTS.md` defines the real positions, and its responsibility text should come from there.           |
+| lab01   | Incus host with a VM service; no reasoning agent.                                                                                                                                                                        |
+
+Principals: `you` (every view, any device) as requester and `operator`.
+Permissions: `you` may address all four participants; the orchestrator may ask
+the two services; nobody else may address anyone. Coding handoffs between the
+person's own sessions and the orchestrator go through the git remote.
+
+Position design (which persistent agents exist, their skills, tools, memory,
+definition of done and output destination) is a deployment question. It is
+recorded separately from this contract when decided.

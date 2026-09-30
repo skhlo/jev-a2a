@@ -2,6 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Core = require("./router-core.js");
+const config = require("./router-example-config.js");
 
 const {
   initial,
@@ -208,7 +209,7 @@ const task = (state, id = "T1") => Core.findTask(state, id);
 const idle = (state, placement = "orchestrator@mbp") =>
   expectOk(state, { type: "observe", placement, ready: true });
 // A participant whose adapter cannot deduplicate, like a herdr pane.
-const strictConfig = structuredClone(Core.defaultConfig);
+const strictConfig = structuredClone(config);
 strictConfig.participants.find((p) => p.id === "orchestrator").idempotent =
   false;
 const deliver = (state, deliveryId, outcome = "accepted") => {
@@ -243,7 +244,7 @@ const submit = (state, fields) =>
 // ---- Walkthroughs ----
 
 test("unaddressed coding request: one judgment, delivery, result readable later", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Fix reply handling in jev-a2a.",
     via: "Paseo on mba",
@@ -288,7 +289,7 @@ test("unaddressed coding request: one judgment, delivery, result readable later"
 });
 
 test("question, answer and final result stay on one pinned session", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Change harness settings in dotfiles.",
   });
@@ -392,7 +393,7 @@ test("question, answer and final result stay on one pinned session", () => {
 });
 
 test("addressed service request fans out per host with zero judgments", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Inspect applied configs.",
     to: "environment",
@@ -451,12 +452,12 @@ test("addressed service request fans out per host with zero judgments", () => {
   });
   assert.equal(task(s).status, "failed");
   expectReject(
-    initial(),
+    initial(config),
     { type: "submit", by: "you", messageId: "M1", text: "x", hosts: ["mba"] },
     "invalid",
   );
   expectReject(
-    initial(),
+    initial(config),
     {
       type: "submit",
       by: "you",
@@ -470,7 +471,7 @@ test("addressed service request fans out per host with zero judgments", () => {
 });
 
 test("orchestrator may request a VM; unready hosts queue; other agents are forbidden", () => {
-  let s = expectOk(initial(), {
+  let s = expectOk(initial(config), {
     type: "observe",
     placement: "incus@lab01",
     ready: false,
@@ -499,7 +500,7 @@ test("orchestrator may request a VM; unready hosts queue; other agents are forbi
   });
   assert.equal(task(s).status, "completed");
   expectReject(
-    initial(),
+    initial(config),
     {
       type: "submit",
       by: KNOW,
@@ -510,12 +511,12 @@ test("orchestrator may request a VM; unready hosts queue; other agents are forbi
     "forbidden",
   );
   expectReject(
-    initial(),
+    initial(config),
     { type: "submit", by: "mallory", messageId: "M1", text: "hi" },
     "unauthenticated",
   );
   expectReject(
-    initial(),
+    initial(config),
     { type: "submit", by: "operator", messageId: "M1", text: "hi" },
     "unauthenticated",
   );
@@ -614,7 +615,7 @@ test("without deduplication, restart keeps uncertainty; duplicates and wrong rep
 });
 
 test("with deduplication, an unknown send is retried with the same key", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Report workflow status.",
     to: "orchestrator",
@@ -646,7 +647,7 @@ test("with deduplication, an unknown send is retried with the same key", () => {
   ]);
   assert.equal(task(s).status, "working");
   // A persistently pending receipt (daemon crashed mid-send) needs an operator.
-  let stuck = submit(initial(), {
+  let stuck = submit(initial(config), {
     messageId: "M1",
     text: "x",
     to: "orchestrator",
@@ -664,7 +665,7 @@ test("with deduplication, an unknown send is retried with the same key", () => {
 });
 
 test("reply before the adapter acknowledgment is authoritative", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Status?",
     to: "orchestrator",
@@ -693,7 +694,7 @@ test("reply before the adapter acknowledgment is authoritative", () => {
 });
 
 test("sends only to an idle session, in arrival order; open tasks do not block new ones", () => {
-  let s = initial();
+  let s = initial(config);
   for (const id of ["M1", "M2", "M3"])
     s = submit(s, { messageId: id, text: `Job ${id}`, to: "orchestrator" });
   assert.deepEqual(
@@ -749,7 +750,7 @@ test("sends only to an idle session, in arrival order; open tasks do not block n
 });
 
 test("deadline fails the task; an unconfirmed send still blocks its session until reconciled", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Long job",
     to: "orchestrator",
@@ -837,7 +838,7 @@ test("deadline fails the task; an unconfirmed send still blocks its session unti
 });
 
 test("late final reply after the deadline is kept as evidence", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Long job",
     to: "orchestrator",
@@ -864,7 +865,7 @@ test("late final reply after the deadline is kept as evidence", () => {
 });
 
 test("unclear, low-confidence, invalid or unavailable routing asks the sender", () => {
-  let s = submit(initial(), { messageId: "M1", text: "Handle this." });
+  let s = submit(initial(config), { messageId: "M1", text: "Handle this." });
   s = judge(s, "T1", "none", 0.9);
   assert.equal(task(s).status, "needs_recipient");
   assert.equal(Core.A2A_STATE.needs_recipient, "TASK_STATE_INPUT_REQUIRED");
@@ -917,7 +918,7 @@ test("unclear, low-confidence, invalid or unavailable routing asks the sender", 
 });
 
 test("not_sent requeues safely; replaced sessions get new work, old pins keep theirs", () => {
-  let s = submit(initial(), {
+  let s = submit(initial(config), {
     messageId: "M1",
     text: "Job",
     to: "orchestrator",
@@ -995,7 +996,7 @@ test("not_sent requeues safely; replaced sessions get new work, old pins keep th
 });
 
 test("cancel only while nothing may have reached the participant", () => {
-  let s = expectOk(initial(), {
+  let s = expectOk(initial(config), {
     type: "observe",
     placement: "incus@lab01",
     ready: false,
@@ -1018,7 +1019,7 @@ test("cancel only while nothing may have reached the participant", () => {
 });
 
 test("input limits", () => {
-  const s = initial();
+  const s = initial(config);
   expectReject(
     s,
     { type: "submit", by: "you", messageId: "has space", text: "x" },
@@ -1047,6 +1048,90 @@ test("input limits", () => {
     full,
     { type: "submit", by: "you", messageId: "M99", text: "x", to: "knowledge" },
     "capacity",
+  );
+});
+
+test("the core carries no deployment: any valid configuration works, invalid ones are refused", () => {
+  assert.throws(() => initial(), /configuration object is required/);
+  assert.throws(
+    () => initial({ ...config, permissions: { you: ["ghost"] } }),
+    /unknown participant ghost/,
+  );
+  assert.throws(
+    () => initial({ ...config, principals: { you: "admin" } }),
+    /unknown role/,
+  );
+  const other = {
+    policy: {
+      threshold: 0.8,
+      maxJudgments: 1,
+      deadline: 10,
+      maxText: 100,
+      maxOpenTasks: 2,
+    },
+    principals: { alice: "requester", bob: "requester", ops: "operator" },
+    participants: [
+      {
+        id: "writer",
+        name: "Writer",
+        kind: "agent",
+        hosts: ["desk"],
+        idempotent: false,
+        responsibility: "Drafts text.",
+      },
+      {
+        id: "editor",
+        name: "Editor",
+        kind: "agent",
+        hosts: ["desk", "lap"],
+        idempotent: true,
+        responsibility: "Edits drafts.",
+      },
+    ],
+    permissions: { alice: ["writer"], writer: ["editor"] },
+  };
+  let s = expectOk(initial(other), {
+    type: "submit",
+    by: "alice",
+    messageId: "m1",
+    text: "Draft it.",
+  });
+  assert.deepEqual(Object.keys(commands(s)[0].question.criteria), [
+    "writer",
+    "none",
+  ]);
+  s = judge(s, "T1", "writer", 0.85);
+  s = deliver(s, "D1");
+  s = expectOk(s, {
+    type: "submit",
+    by: "writer@desk#1",
+    messageId: "w1",
+    text: "Edit it.",
+    to: "editor",
+    hosts: ["lap"],
+  });
+  assert.equal(task(s, "T2").deliveries[0].placement, "editor@lap");
+  expectReject(
+    s,
+    { type: "submit", by: "bob", messageId: "b1", text: "x", to: "writer" },
+    "forbidden",
+  );
+  expectReject(
+    s,
+    { type: "submit", by: "ops", messageId: "o1", text: "x" },
+    "unauthenticated",
+  );
+  expectReject(
+    s,
+    {
+      type: "resolve",
+      by: "alice",
+      deliveryId: "D1",
+      messageId: "m1",
+      outcome: "finished",
+      evidence: "x",
+    },
+    "forbidden",
   );
 });
 
@@ -1234,7 +1319,7 @@ test("random event sequences never violate the contract", () => {
   for (let seed = 1; seed <= 400; seed++) {
     const r = rng(seed);
     // Half the runs use a participant whose adapter cannot deduplicate.
-    let s = initial(seed % 2 ? Core.defaultConfig : strictConfig);
+    let s = initial(seed % 2 ? config : strictConfig);
     for (let step = 0; step < 90; step++) {
       const event = randomEvent(s, r);
       s = apply(s, event);

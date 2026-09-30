@@ -7,64 +7,59 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.RouterCore = api;
 })(typeof self !== "undefined" ? self : this, function () {
-  const defaultConfig = {
-    policy: {
-      threshold: 0.9,
-      maxJudgments: 1,
-      deadline: 100,
-      maxText: 4000,
-      maxOpenTasks: 20,
-    },
-    participants: [
-      {
-        id: "orchestrator",
-        name: "Orchestrator",
-        kind: "agent",
-        hosts: ["mbp"],
-        idempotent: true,
-        responsibility:
-          "Coding across every skhlo repository, including changes to dotfiles source and harness settings, using its configured workflows. Not for inspecting what is applied on a device.",
-      },
-      {
-        id: "knowledge",
-        name: "Knowledge assistant",
-        kind: "agent",
-        hosts: ["mini"],
-        idempotent: true,
-        responsibility:
-          "Notes, research and synthesis, including notes about Incus or any other technology. Not for live machine operations.",
-      },
-      {
-        id: "environment",
-        name: "Dotfiles service",
-        kind: "service",
-        hosts: ["mba", "mbp", "mini"],
-        idempotent: true,
-        responsibility:
-          "Inspects the harness and environment configuration applied on mba, mbp and mini. Never changes dotfiles source.",
-      },
-      {
-        id: "incus",
-        name: "Incus service",
-        kind: "service",
-        hosts: ["lab01"],
-        idempotent: true,
-        responsibility:
-          "Performs configured micro VM operations on lab01. Not for questions or notes about Incus.",
-      },
-    ],
-    // idempotent: the adapter deduplicates by the router's message key (the
-    // Paseo SDK's messageId receipts; router-owned services must do the same),
-    // so an unknown send may be retried with the same key.
-    // Which participants each authenticated principal may address.
-    permissions: {
-      you: ["orchestrator", "knowledge", "environment", "incus"],
-      orchestrator: ["environment", "incus"],
-      knowledge: [],
-      environment: [],
-      incus: [],
-    },
-  };
+  // The core carries no deployment. A configuration supplies:
+  //   policy        threshold, maxJudgments, deadline, maxText, maxOpenTasks
+  //   principals    authenticated non-participant identities -> "requester" | "operator"
+  //   participants  { id, name, kind, hosts, idempotent, responsibility }
+  //                 idempotent: the adapter deduplicates by the router's message
+  //                 key, so an unknown send may be retried with the same key
+  //   permissions   principal or participant id -> participant ids it may address
+  // router-example-config.js is one deployment, used by the page and the tests.
+  const ROLES = ["requester", "operator"];
+
+  function validateConfig(config) {
+    const fail = (message) => {
+      throw new Error(`Invalid router configuration: ${message}`);
+    };
+    if (!config || typeof config !== "object")
+      fail("a configuration object is required");
+    for (const key of [
+      "threshold",
+      "maxJudgments",
+      "deadline",
+      "maxText",
+      "maxOpenTasks",
+    ])
+      if (typeof config.policy?.[key] !== "number")
+        fail(`policy.${key} must be a number`);
+    if (!Array.isArray(config.participants) || !config.participants.length)
+      fail("at least one participant is required");
+    const ids = new Set();
+    for (const p of config.participants) {
+      if (typeof p.id !== "string" || ids.has(p.id))
+        fail(`participant ids must be unique strings (${p.id})`);
+      ids.add(p.id);
+      if (!Array.isArray(p.hosts) || !p.hosts.length)
+        fail(`${p.id} needs at least one host`);
+      if (typeof p.responsibility !== "string" || !p.responsibility.trim())
+        fail(`${p.id} needs a responsibility`);
+      if (typeof p.idempotent !== "boolean")
+        fail(`${p.id} must declare idempotent: true | false`);
+    }
+    for (const [id, role] of Object.entries(config.principals || {})) {
+      if (!ROLES.includes(role))
+        fail(`principal ${id} has unknown role ${role}`);
+      if (ids.has(id)) fail(`principal ${id} collides with a participant id`);
+    }
+    for (const [id, targets] of Object.entries(config.permissions || {})) {
+      if (!ids.has(id) && !(id in (config.principals || {})))
+        fail(`permissions name unknown principal ${id}`);
+      for (const target of targets)
+        if (!ids.has(target))
+          fail(`${id} may address unknown participant ${target}`);
+    }
+    return config;
+  }
 
   const MESSAGE_ID = /^[A-Za-z0-9._:-]{1,64}$/;
   const TERMINAL = ["completed", "failed", "canceled"];
@@ -72,7 +67,8 @@
   const placementKey = (participant, host) => `${participant}@${host}`;
   const digest = (value) => JSON.stringify(value);
 
-  function initial(config = defaultConfig) {
+  function initial(config) {
+    validateConfig(config);
     const placements = {};
     const sessions = {};
     for (const participant of config.participants)
@@ -88,7 +84,7 @@
         sessions[session] = { participant: participant.id, host };
       }
     return {
-      config: clone(config),
+      config: { principals: {}, permissions: {}, ...clone(config) },
       now: 0,
       boot: 1,
       placements,
@@ -121,11 +117,16 @@
     ["attempting", "unknown"].includes(currentSend(delivery).outcome);
   const isTerminal = (task) => task.final !== null;
 
-  // Authenticated caller -> principal. Views authenticate as "you".
+  // Authenticated caller -> principal: a configured principal id, or the
+  // participant that owns the calling session.
   function principalOf(state, by) {
-    if (by === "you" || by === "operator") return by;
+    if (typeof by !== "string") return null;
+    if (state.config.principals[by]) return by;
     return state.sessions[by]?.participant ?? null;
   }
+  const roleOf = (state, principal) =>
+    state.config.principals[principal] ||
+    (participant(state, principal) ? "participant" : null);
 
   function mayAddress(state, principal, participantId) {
     return (state.config.permissions[principal] || []).includes(participantId);
@@ -267,7 +268,7 @@
       { by, messageId, text, to = null, hosts = null, via = null },
     ) {
       const source = principalOf(state, by);
-      if (!source || source === "operator")
+      if (!source || roleOf(state, source) === "operator")
         return reject(
           "unauthenticated",
           "Only the user or a current participant session can submit.",
@@ -679,7 +680,7 @@
     },
 
     resolve(state, { by, deliveryId, messageId, outcome, evidence }) {
-      if (by !== "operator")
+      if (roleOf(state, principalOf(state, by)) !== "operator")
         return reject(
           "forbidden",
           "Only an operator can reconcile a delivery.",
@@ -825,7 +826,7 @@
   }
 
   return {
-    defaultConfig,
+    validateConfig,
     initial,
     reduce,
     commands,

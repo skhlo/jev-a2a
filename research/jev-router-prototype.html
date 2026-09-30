@@ -541,9 +541,10 @@
         <div class="note">
           <strong>Every button runs the tested contract.</strong> This page
           drives <code>router-core.js</code>, the same pure module that
-          <code>router-core.test.js</code> checks. Jev answers, adapters and
-          participants are scripted. Nothing leaves this page; refreshing resets
-          it.
+          <code>router-core.test.js</code> checks, loaded with one example
+          deployment from <code>router-example-config.js</code>. The router
+          itself carries no deployment. Jev answers, adapters and participants
+          are scripted; nothing leaves this page, and refreshing resets it.
         </div>
       </header>
 
@@ -723,8 +724,9 @@
         <div class="panel">
           <h2>Participant directory</h2>
           <p class="hint">
-            Registered in configuration. Jev reads these responsibilities in
-            full; permissions decide who may address whom.
+            From the example configuration, not built into the router. Jev reads
+            these responsibilities in full; permissions decide who may address
+            whom.
           </p>
           <div id="directory"></div>
         </div>
@@ -780,6 +782,7 @@ delivery's pinned session and answer its current message.</pre>
     </main>
 
     <script src="router-core.js"></script>
+    <script src="router-example-config.js"></script>
     <script>
       // Throwaway view. The world below scripts Jev, adapters and participants;
       // every decision goes through RouterCore.reduce.
@@ -875,7 +878,7 @@ delivery's pinned session and answer its current message.</pre>
         `<div><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>`;
 
       function reset(preset = "coding") {
-        state = Core.initial();
+        state = Core.initial(window.RouterExampleConfig);
         world = {
           preset,
           viewer: {
