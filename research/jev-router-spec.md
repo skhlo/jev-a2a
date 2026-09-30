@@ -1,8 +1,10 @@
 # Jev router: design
 
-Status: proposed, verified as an executable model on 2026-09-29 and 2026-09-30.
-Not implemented against live Paseo, herdr or TypeSafe. This is the authoritative
-design; the [original design](jev-router-design.html) is historical.
+Status: verified as an executable model on 2026-09-29 and 2026-09-30, then
+built in TypeScript under `router/` and run live across two Paseo hosts and
+TypeSafe's Jev the same day (tickets 001 to 005). This is the authoritative
+design; the [original design](jev-router-design.html) is historical. herdr is
+not connected.
 
 | Artifact                    | Role                                                                                                          |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -123,6 +125,7 @@ Events (`reduce(state, event) → state`, with `state.last` = `{ ok, code?, mess
 | `resolve { by: operator, deliveryId, messageId, outcome, evidence }` | operator                                     | Closes an open pinned delivery as `finished` or `not_sent`. Never resends.                                                                                                                                                                                                      |
 | `observe { placement, ready?, hold?, session? }`                     | shell's presence refresh; a person's hold    | Readiness, hold and session replacement. A new session is not ready until an observation says so; a hold stays until released.                                                                                                                                                  |
 | `restart` / `tick { now }`                                           | router                                       | Interrupted attempts become `unknown`; deadlines fire.                                                                                                                                                                                                                          |
+| `configured { config }`                                              | router                                       | The configuration in force from here on; invalid ones are refused. Recorded first and on every change, so replay uses the rules of the time.                                                                                                                                    |
 
 Queries: `commands(state)` is the shell's work list; `needsYou(state,
 principal)` is a person's. A requester's list holds its own open tasks that
@@ -288,23 +291,43 @@ actually used.
 
 ## Open decisions
 
-1. Threshold and deadline values: provisional 0.9 and 100 model ticks until
-   labeled routing examples and real task durations exist.
-2. Authentication for views and participant sessions, including remote devices
-   reaching the router host.
-3. How a person raises and releases a hold from where they are typing.
-4. Router-owned service adapters are assumed to deduplicate by message key like
-   Paseo. If one cannot, mark it `idempotent: false`.
+1. Threshold: 0.9 provisional. Ticket 003 measured that responsibility text
+   in the request's language moves probabilities more than the threshold
+   does; a labeled request set is still to be collected before pinning the
+   value and the Jev model version.
+2. Authentication of participant replies: a local reply is trusted on
+   `PASEO_AGENT_ID`; a reply over HTTP is trusted on the shared
+   `ROUTER_TOKEN`, so any holder of the token can reply as any participant.
+   Board actions are authenticated by Tailscale identity (ticket 005) and
+   are not affected.
+3. Raising a hold from where the person is typing: today a hold is set by
+   hand, from the CLI or the board. Detecting that the person has taken
+   over a session is not built.
+4. Router-owned service adapters are assumed to deduplicate by message key
+   like Paseo. If one cannot, mark it `idempotent: false`.
 
-## Not verified
+## Record and configuration
 
-Everything live: Jev routing accuracy and latency, adapter acknowledgments,
-receiver enrollment, remote return paths, persistence and crash behavior of a
-real journal, throughput. The model proves the contract is consistent and that
-its guards hold; it does not prove the adapters behave as their help and source
-suggest. The next experiment is one addressed request and reply through a real
-Paseo session with a durable journal. This model is JavaScript because it is
-throwaway; a real router is written in TypeScript against the same contract.
+The journal carries the configuration in force: the router records a
+`configured` event on a fresh journal and whenever the core part of the
+configuration (policy, participants, principals, permissions) changes. A
+replay judges each event by the rules that applied when it happened, so a
+deployment can raise the threshold or add a participant without making its
+own record unreadable. Each task keeps the participants its sender could
+address when it asked, each judgment the threshold it was held to, and each
+delivery whether its participant deduplicated at the time. Placements are
+only ever added: a removed participant's open deliveries stay readable.
+
+## Verified live, and not
+
+Verified on 2026-09-30 (details in the tickets): the envelope round trip
+through Paseo on the same and on a second host; the idle gate; crash
+recovery with the same key and one prompt in the agent's transcript;
+questions and answers pinned to a session; Jev dispatch, abstention and
+low-confidence hand-back with latency of 250 to 300 ms; the board and its
+actions over the tailnet. Not exercised live: a host that is down for a
+whole run, token rotation, a participant on another host submitting work,
+`resolve` from the board, throughput.
 
 ## Example deployment
 
