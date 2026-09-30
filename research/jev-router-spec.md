@@ -336,3 +336,9 @@ Deployment decisions taken on 2026-09-30, outside the contract:
   moves 검토 완료 → 확정/폐기. A view shows items in those two states next to
   the router's "needs you" list; the router itself knows nothing of them. The
   rule lives in the vault's own `AGENTS.md`.
+- The vault participant's responsibility text is authored next to the vault's
+  `AGENTS.md`, from its role section and the `CONTEXT.md` glossary, with
+  example requests in Korean, and is refreshed when those change. The router
+  config copies it; the vault owns it (ticket 003, round 2). Folder names
+  that identify companies or business areas stay out of it, since the text
+  goes to an external API.
