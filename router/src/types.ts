@@ -63,6 +63,9 @@ export type Delivery = {
   id: string;
   taskId: string;
   participant: string;
+  // Whether the adapter deduplicates, as configured when the delivery was
+  // created.
+  idempotent: boolean;
   host: string;
   placement: string;
   session: string | null;
@@ -84,6 +87,8 @@ export type Judgment = {
   probabilities: Record<string, number> | null;
   model: string | null;
   valid: boolean;
+  // The dispatch threshold this judgment was held to.
+  threshold: number;
 };
 
 export type TerminalStatus = "completed" | "partial" | "failed" | "canceled";
@@ -113,6 +118,8 @@ export type Task = {
   hosts: string[] | null;
   via: string | null;
   deadline: number;
+  // Participants the sender could address when it asked.
+  permitted: string[];
   routing: Routing | null;
   judgments: Judgment[];
   recipient: string | null;
@@ -156,6 +163,7 @@ export type State = {
 };
 
 export type Event =
+  | { type: "configured"; config: Config }
   | {
       type: "submit";
       by: string;

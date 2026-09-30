@@ -1,14 +1,19 @@
 // The record: an append-only JSON-lines file. State is never stored; it is
 // always the fold of the journal. One writer at a time, guarded by a lock
-// directory for the duration of a CLI run.
+// file for the duration of a run.
 import {
   appendFileSync,
+  closeSync,
   mkdirSync,
+  openSync,
   readFileSync,
   rmSync,
-  writeFileSync,
+  statSync,
+  truncateSync,
+  writeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 export type Entry = { at: string; event: Record<string, unknown> };
 
@@ -19,24 +24,32 @@ export type Journal = {
   release(): void;
 };
 
-export function openJournal(home: string): Journal {
+export type LockOptions = {
+  // How long to wait for a live owner. A run that asks Jev and tunnels to a
+  // host can hold the lock for the better part of a minute.
+  waitMs?: number;
+  pollMs?: number;
+  now?: () => number;
+};
+
+export const LOCK_WAIT_MS = 90_000;
+const LOCK_POLL_MS = 100;
+// A lock file younger than this with no readable pid is one being created.
+const LOCK_GRACE_MS = 2_000;
+
+export async function openJournal(
+  home: string,
+  options: LockOptions = {},
+): Promise<Journal> {
   mkdirSync(home, { recursive: true });
   const path = join(home, "journal.jsonl");
   const lock = join(home, "journal.lock");
-  acquire(lock);
+  await acquire(lock, options);
+  repair(path);
   return {
     path,
     entries() {
-      let text = "";
-      try {
-        text = readFileSync(path, "utf8");
-      } catch (error: unknown) {
-        if (!isCode(error, "ENOENT")) throw error;
-      }
-      return text
-        .split("\n")
-        .filter((line) => line.trim())
-        .map((line) => parseEntry(line));
+      return readJournal(home);
     },
     append(event) {
       appendFileSync(
@@ -45,7 +58,9 @@ export function openJournal(home: string): Journal {
       );
     },
     release() {
-      rmSync(lock, { recursive: true, force: true });
+      // Only the owner removes the lock; a contender that reclaimed it must
+      // not lose its own lock to our release.
+      if (lockOwner(lock) === process.pid) rmSync(lock, { force: true });
     },
   };
 }
@@ -66,45 +81,80 @@ export function readJournal(home: string): Entry[] {
   return lines.filter((line) => line.trim()).map((line) => parseEntry(line));
 }
 
-// The lock names its owner. A run that died mid-way does not block the next
-// one; a live owner is waited for, since runs are short.
-const LOCK_WAIT_MS = 15_000;
-const LOCK_POLL_MS = 100;
+// A final line without its newline is a write that died mid-way. It was
+// never acknowledged, so the writer drops it rather than append after it.
+function repair(path: string): void {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error: unknown) {
+    if (isCode(error, "ENOENT")) return;
+    throw error;
+  }
+  if (!text || text.endsWith("\n")) return;
+  truncateSync(
+    path,
+    Buffer.byteLength(text.slice(0, text.lastIndexOf("\n") + 1)),
+  );
+}
 
-function acquire(lock: string): void {
-  const deadline = Date.now() + LOCK_WAIT_MS;
+// The lock is a file created exclusively, holding its owner's pid. A run
+// that died mid-way does not block the next one; a live owner is waited for.
+async function acquire(lock: string, options: LockOptions): Promise<void> {
+  const now = options.now ?? Date.now;
+  const waitMs = options.waitMs ?? LOCK_WAIT_MS;
+  const pollMs = options.pollMs ?? LOCK_POLL_MS;
+  const deadline = now() + waitMs;
   for (;;) {
+    let fd: number | null = null;
     try {
-      mkdirSync(lock);
-      writeFileSync(join(lock, "pid"), String(process.pid));
+      fd = openSync(lock, "wx");
+      writeSync(fd, String(process.pid));
       return;
     } catch (error: unknown) {
       if (!isCode(error, "EEXIST")) throw error;
-      const owner = lockOwner(lock);
-      if (owner === null || !alive(owner)) {
-        rmSync(lock, { recursive: true, force: true });
-        continue;
-      }
-      if (Date.now() >= deadline)
-        throw new Error(
-          `Another router run (pid ${owner}) has held ${lock} for ${LOCK_WAIT_MS / 1000}s.`,
-        );
-      Atomics.wait(
-        new Int32Array(new SharedArrayBuffer(4)),
-        0,
-        0,
-        LOCK_POLL_MS,
-      );
+    } finally {
+      if (fd !== null) closeSync(fd);
     }
+    if (isDirectory(lock)) {
+      // A lock from before the lock was a file.
+      rmSync(lock, { recursive: true, force: true });
+      continue;
+    }
+    const owner = lockOwner(lock);
+    if (owner === null && ageMs(lock, now) > LOCK_GRACE_MS)
+      rmSync(lock, { force: true });
+    else if (owner !== null && !alive(owner)) rmSync(lock, { force: true });
+    else if (now() >= deadline)
+      throw new Error(
+        `Another router run (pid ${owner ?? "unknown"}) has held ${lock} for ${waitMs / 1000}s.`,
+      );
+    await sleep(pollMs);
   }
 }
 
 function lockOwner(lock: string): number | null {
   try {
-    const pid = Number(readFileSync(join(lock, "pid"), "utf8"));
+    const pid = Number(readFileSync(lock, "utf8"));
     return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch {
     return null;
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function ageMs(path: string, now: () => number): number {
+  try {
+    return now() - statSync(path).mtimeMs;
+  } catch {
+    return Infinity;
   }
 }
 
@@ -123,6 +173,7 @@ function parseEntry(line: string): Entry {
     value === null ||
     typeof value !== "object" ||
     typeof (value as { at?: unknown }).at !== "string" ||
+    (value as { event?: unknown }).event === null ||
     typeof (value as { event?: unknown }).event !== "object"
   )
     throw new Error(`Corrupt journal line: ${line}`);

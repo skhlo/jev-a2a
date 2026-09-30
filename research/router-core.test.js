@@ -20,8 +20,8 @@ const unconfirmed = (d) =>
   open(d) &&
   d.session !== null &&
   ["attempting", "unknown"].includes(last(d).outcome);
-const isIdempotent = (state, d) =>
-  state.config.participants.find((p) => p.id === d.participant).idempotent;
+// As recorded on the delivery: the configuration may have changed since.
+const isIdempotent = (state, d) => d.idempotent;
 const deliveriesOf = (state) => state.tasks.flatMap((t) => t.deliveries);
 
 function oracleEligible(state, d) {
@@ -184,11 +184,13 @@ function stateViolations(state) {
       out.push(`${task.id}: addressed request used a judgment`);
     if (task.judgments.length > 1)
       out.push(`${task.id}: more than one judgment`);
-    if (task.recipient && !permissions[task.source]?.includes(task.recipient))
+    // Authorization is judged by the rules when the request was made; the
+    // configuration may have changed since.
+    if (task.recipient && !task.permitted.includes(task.recipient))
       out.push(`${task.id}: unauthorized recipient`);
     if (task.chosenBy === "judgment") {
       const j = task.judgments.at(-1);
-      const options = [...(permissions[task.source] || []), "none"];
+      const options = [...task.permitted, "none"];
       const p = j?.probabilities;
       const sound =
         p &&
@@ -200,7 +202,7 @@ function stateViolations(state) {
       if (
         !sound ||
         j.choice !== task.recipient ||
-        p[j.choice] < policy.threshold
+        p[j.choice] < j.threshold
       )
         out.push(`${task.id}: selected without a confident valid judgment`);
     }
@@ -1688,6 +1690,62 @@ test("the core carries no deployment: any valid configuration works, invalid one
     },
     "forbidden",
   );
+});
+
+test("the record carries its configuration: rules change without breaking replay", () => {
+  // A request dispatched at threshold 0.9 with a 0.92 judgment.
+  let s = initial(config);
+  s = expectOk(s, { type: "tick", now: 1 });
+  s = idle(s);
+  s = submit(s, { messageId: "M1", text: "Check the dotfiles everywhere." });
+  s = judge(s, "T1", "orchestrator", 0.92);
+  assert.equal(task(s).status, "queued");
+  s = deliver(s, "D1");
+  // The deployment raises the threshold and adds a participant on a new
+  // host. Recorded, the change applies from here on; what happened before
+  // stands, and the new placement exists.
+  const stricter = structuredClone(config);
+  stricter.policy.threshold = 0.95;
+  stricter.participants.push({
+    id: "reviewer",
+    name: "Reviewer",
+    kind: "agent",
+    hosts: ["mba"],
+    idempotent: true,
+    responsibility: "Reviews drafts.",
+  });
+  stricter.permissions.you.push("reviewer");
+  s = expectOk(s, { type: "configured", config: stricter });
+  assert.equal(s.config.policy.threshold, 0.95);
+  assert.ok(s.placements["reviewer@mba"]);
+  assert.equal(s.placements["orchestrator@mbp"].ready, false, "kept");
+  assert.equal(task(s).status, "working", "earlier dispatch stands");
+  s = submit(s, { messageId: "M2", text: "Check the dotfiles again." });
+  s = judge(s, "T2", "orchestrator", 0.92);
+  assert.equal(task(s, "T2").status, "needs_recipient", "new rule applies");
+  assert.ok(
+    Object.keys(Core.judgmentQuestion(s, task(s, "T2")).criteria).includes(
+      "reviewer",
+    ),
+  );
+  // Removing a participant keeps its placement and its open delivery, and
+  // drops it from pending suggestions.
+  const smaller = structuredClone(config);
+  smaller.participants = smaller.participants.filter(
+    (p) => p.id !== "orchestrator",
+  );
+  smaller.permissions.you = ["knowledge", "environment", "incus"];
+  delete smaller.permissions.orchestrator;
+  s = expectOk(s, { type: "configured", config: smaller });
+  assert.ok(s.placements["orchestrator@mbp"]);
+  assert.equal(task(s).status, "working");
+  assert.ok(!task(s, "T2").routing.suggestions.includes("orchestrator"));
+  assert.deepEqual(Core.commands(s).filter((c) => c.type === "deliver"), []);
+  // An invalid configuration is refused and changes nothing.
+  const broken = structuredClone(config);
+  broken.policy = { threshold: 2 };
+  s = expectReject(s, { type: "configured", config: broken }, "invalid");
+  assert.equal(s.config.participants.length, smaller.participants.length);
 });
 
 test("a retry that comes back not_sent keeps the pin: the first attempt may have arrived", () => {

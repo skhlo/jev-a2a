@@ -17,6 +17,7 @@ const question = judgmentQuestion(initial(config), {
   hosts: null,
   via: null,
   deadline: 100,
+  permitted: ["orchestrator", "knowledge", "environment", "incus"],
   routing: { state: "judging", suggestions: [], reason: null },
   judgments: [],
   recipient: null,
@@ -115,7 +116,11 @@ test("HTTP failures become judgeFailed reasons; 429 is retried once", async () =
       ),
     );
   }) as typeof fetch;
-  const result = await judge(question, { apiKey: "k", fetch: flaky });
+  const result = await judge(question, {
+    apiKey: "k",
+    fetch: flaky,
+    retryMs: 1,
+  });
   assert.equal(n, 2);
   assert.equal(result.ok, true);
   if (result.ok) assert.equal(result.choice, "none");

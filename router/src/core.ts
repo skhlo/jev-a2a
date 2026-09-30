@@ -123,19 +123,7 @@ export function initial(config: Config): State {
   validateConfig(config);
   const placements: State["placements"] = {};
   const sessions: State["sessions"] = {};
-  for (const participant of config.participants)
-    for (const host of participant.hosts) {
-      const key = placementKey(participant.id, host);
-      const session = `${key}#1`;
-      placements[key] = {
-        participant: participant.id,
-        host,
-        session,
-        ready: true,
-        hold: false,
-      };
-      sessions[session] = { participant: participant.id, host };
-    }
+  addPlacements(config, placements, sessions);
   return {
     config: { principals: {}, permissions: {}, ...clone(config) },
     now: 0,
@@ -182,9 +170,8 @@ const sessionReplaced = (state: State, delivery: Delivery): boolean =>
   state.placements[delivery.placement]?.session !== delivery.session;
 // An unknown send may be repeated with the same key only when the adapter
 // deduplicates by it.
-const retryable = (state: State, delivery: Delivery, send: Send): boolean =>
-  send.outcome === "unknown" &&
-  participant(state, delivery.participant)?.idempotent === true;
+const retryable = (_state: State, delivery: Delivery, send: Send): boolean =>
+  send.outcome === "unknown" && delivery.idempotent;
 // A send whose arrival is unconfirmed. It blocks other sends to its
 // placement: the participant may be starting a turn it must not lose.
 export const inFlight = (delivery: Delivery): boolean =>
@@ -309,10 +296,11 @@ export function commands(state: State): Command[] {
   return work;
 }
 
-// One Choice over the caller's permitted participants, plus an abstention.
+// One Choice over the participants the sender could address when it asked,
+// plus an abstention.
 export function judgmentQuestion(state: State, task: Task): JudgmentQuestion {
   const criteria: Record<string, string> = {};
-  for (const id of state.config.permissions[task.source] ?? [])
+  for (const id of task.permitted)
     criteria[id] = participant(state, id)?.responsibility ?? "";
   criteria.none =
     "No listed responsibility clearly owns this request, or it lacks context.";
@@ -373,7 +361,11 @@ export function needsYou(state: State, principal: string): NeedsYouItem[] {
   }
   for (const task of state.tasks) {
     if (task.source !== principal || isTerminal(task)) continue;
-    if (task.routing?.state === "needs_recipient")
+    // A choice is only a choice while the sender may still address someone.
+    if (
+      task.routing?.state === "needs_recipient" &&
+      (state.config.permissions[principal] ?? []).length
+    )
       items.push({
         kind: "choose",
         taskId: task.id,
@@ -422,6 +414,28 @@ type Handler<K extends Event["type"]> = (
 ) => Outcome;
 type Handlers = { [K in Event["type"]]: Handler<K> };
 
+// Every placement the configuration names, keeping the ones already known.
+function addPlacements(
+  config: Config,
+  placements: State["placements"],
+  sessions: State["sessions"],
+): void {
+  for (const participant of config.participants)
+    for (const host of participant.hosts) {
+      const key = placementKey(participant.id, host);
+      if (placements[key]) continue;
+      const session = `${key}#1`;
+      placements[key] = {
+        participant: participant.id,
+        host,
+        session,
+        ready: true,
+        hold: false,
+      };
+      sessions[session] = { participant: participant.id, host };
+    }
+}
+
 export function reduce(previous: State, event: Event): State {
   const state = clone(previous);
   state.last = null;
@@ -466,6 +480,32 @@ const reject = (code: string, message: string): Rejected => ({
 });
 
 const handlers: Handlers = {
+  // The configuration in force from here on. The journal carries it, so a
+  // replay judges each event by the rules that applied when it happened, and
+  // a deployment can change policy, participants or permissions without
+  // making its own record unreadable. Placements are only ever added: open
+  // deliveries may still point at a participant that was removed.
+  configured(state, { config }) {
+    let next: Config;
+    try {
+      next = validateConfig(config);
+    } catch (error: unknown) {
+      return reject(
+        "invalid",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    state.config = { principals: {}, permissions: {}, ...clone(next) };
+    addPlacements(next, state.placements, state.sessions);
+    // A pending choice only suggests what the sender may still address.
+    for (const task of state.tasks)
+      if (task.routing?.state === "needs_recipient")
+        task.routing.suggestions = task.routing.suggestions.filter((id) =>
+          mayAddress(state, task.source, id),
+        );
+    return ok("Configuration recorded.");
+  },
+
   submit(state, { by, messageId, text, to = null, hosts = null, via = null }) {
     const source = principalOf(state, by);
     if (!source || roleOf(state, source) === "operator")
@@ -524,6 +564,8 @@ const handlers: Handlers = {
       hosts: wanted,
       via,
       deadline: state.now + state.config.policy.deadline,
+      // Whom the sender could address when it asked; the judgment's options.
+      permitted: [...(state.config.permissions[source] ?? [])],
       routing: { state: "judging", suggestions: [], reason: null },
       judgments: [],
       recipient: null,
@@ -555,11 +597,13 @@ const handlers: Handlers = {
       values.every((p) => typeof p === "number" && p >= 0 && p <= 1) &&
       Math.abs(values.reduce<number>((sum, p) => sum + (p as number), 0) - 1) <
         0.01;
+    const threshold = state.config.policy.threshold;
     task.judgments.push({
       choice,
       probabilities: valid ? probabilities : null,
       model,
       valid,
+      threshold,
     });
     // Suggestions are the permitted options in Jev's order; the sender decides.
     const suggestions = valid
@@ -576,7 +620,7 @@ const handlers: Handlers = {
       );
     }
     const chosen = probabilities[choice] ?? 0;
-    if (choice === "none" || chosen < state.config.policy.threshold) {
+    if (choice === "none" || chosen < threshold) {
       askForRecipient(
         task,
         choice === "none" ? "no_owner" : "low_confidence",
@@ -951,6 +995,9 @@ function select(
     id: `D${state.nextDelivery++}`,
     taskId: task.id,
     participant: participantId,
+    // Whether the adapter deduplicates, as configured when this delivery
+    // was created; the participant may be reconfigured later.
+    idempotent: entry.idempotent,
     host,
     placement: placementKey(participantId, host),
     session: null,

@@ -14,10 +14,11 @@ import {
 } from "./core.ts";
 import type { RouterConfig } from "./config.ts";
 import { openJournal, type Entry } from "./journal.ts";
-import type { Adapter } from "./paseo.ts";
-import type { Judgment } from "./jev.ts";
+import { RouterBug, type Adapter } from "./paseo.ts";
+import type { JudgeResult } from "./jev.ts";
 import type {
   Command,
+  Config,
   Event,
   JudgmentQuestion,
   Outcome,
@@ -37,7 +38,7 @@ export type ShellOptions = {
   // One adapter per host, created on first use.
   adapter: (endpoint: string) => Promise<Adapter>;
   // Asks Jev; null when Jev is not configured, so unaddressed requests wait.
-  judge: ((question: JudgmentQuestion) => Promise<Judgment>) | null;
+  judge: ((question: JudgmentQuestion) => Promise<JudgeResult>) | null;
   now?: () => number;
   // Test hook for the crash-recovery acceptance: exit at a chosen point.
   crash?: "after_attempt" | "after_send" | undefined;
@@ -45,9 +46,34 @@ export type ShellOptions = {
 
 // A journal holds only accepted events, so a rejection on replay means the
 // record and the code disagree; nothing sensible can be shown or done.
+// The part of the deployment configuration the core reasons about, in the
+// shape the core stores it, so it can be compared with the recorded one.
+export function coreConfig(config: RouterConfig): Required<Config> {
+  return {
+    policy: config.policy,
+    participants: config.participants,
+    principals: config.principals ?? {},
+    permissions: config.permissions ?? {},
+  };
+}
+
+// Key order is not meaning; compare configurations by content.
+const canonical = (value: unknown): string =>
+  JSON.stringify(value, (_key, v: unknown) =>
+    v !== null && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        )
+      : v,
+  );
+
 export function fold(config: RouterConfig, entries: Entry[]): State {
-  let state = initial(config);
+  let state = initial(coreConfig(config));
   for (const { event } of entries) {
+    // The journal holds events the core accepted; the core re-validates on
+    // replay and the throw below catches anything that no longer fits.
     state = reduce(state, event as Event);
     if (!state.last?.ok)
       throw new Error(
@@ -57,8 +83,11 @@ export function fold(config: RouterConfig, entries: Entry[]): State {
   return state;
 }
 
-export function openShell(config: RouterConfig, options: ShellOptions): Shell {
-  const journal = openJournal(config.home);
+export async function openShell(
+  config: RouterConfig,
+  options: ShellOptions,
+): Promise<Shell> {
+  const journal = await openJournal(config.home);
   const now = options.now ?? Date.now;
   let state: State;
   const adapters = new Map<string, Adapter>();
@@ -72,8 +101,9 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
     }
     return adapter;
   };
+  const entries = journal.entries();
   try {
-    state = fold(config, journal.entries());
+    state = fold(config, entries);
   } catch (error) {
     journal.release();
     throw error;
@@ -89,6 +119,25 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
     }
     return outcome;
   };
+
+  // The configuration in force is part of the record, so a replay uses the
+  // rules that applied at the time. Record it first, and again whenever it
+  // changes.
+  if (
+    !entries.some(({ event }) => event.type === "configured") ||
+    canonical(coreConfig(config)) !== canonical(state.config)
+  ) {
+    const recorded = reduce(state, {
+      type: "configured",
+      config: coreConfig(config),
+    });
+    if (!recorded.last?.ok) {
+      journal.release();
+      throw new Error(`Configuration rejected: ${recorded.last?.message}`);
+    }
+    journal.append({ type: "configured", config: coreConfig(config) });
+    state = recorded;
+  }
 
   // A send left "attempting" means the previous run died mid-send.
   if (
@@ -115,8 +164,11 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
       try {
         seen = await (await adapterFor(placement.host)).observe(agentId);
       } catch (error: unknown) {
+        // Readiness is what this run saw; an earlier run's idle must not
+        // carry over a failed look.
+        apply({ type: "observe", placement: key, ready: false });
         report.push(
-          `${key}: ${placement.host} unreachable (${error instanceof Error ? error.message : String(error)})`,
+          `${key}: ${placement.host} unreachable (${error instanceof Error ? error.message : String(error)}); not ready`,
         );
         continue;
       }
@@ -214,6 +266,9 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
           await adapterFor(delivery.host)
         ).send(agentId, key, envelope(delivery.taskId, delivery.id));
       } catch (error: unknown) {
+        // A key conflict is the router contradicting its own record; stop
+        // here with the send left "attempting" for the operator.
+        if (error instanceof RouterBug) throw error;
         // The host could not be reached at all: nothing was sent.
         report.push(
           `${delivery.id}: ${delivery.host} unreachable (${error instanceof Error ? error.message : String(error)})`,

@@ -16,12 +16,35 @@ export type Observation = {
   pendingPermissions: number;
 };
 
+// A fault in the router itself, as opposed to a host that cannot be reached:
+// the run must stop and say so rather than record an outcome.
+export class RouterBug extends Error {
+  override name = "RouterBug";
+}
+
 export type Adapter = {
   // null: the daemon does not know this agent.
   observe(agentId: string): Promise<Observation | null>;
   send(agentId: string, key: string, text: string): Promise<AdapterOutcome>;
   close(): Promise<void>;
 };
+
+// What a failed send means. Only a refusal before any send is a definite
+// not_sent; a key conflict is the router contradicting its own record;
+// anything else may have reached the agent.
+export function sendFailure(
+  error: unknown,
+  agentId: string,
+  key: string,
+): AdapterOutcome {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("agent_request_key_conflict"))
+    throw new RouterBug(
+      `${key} was already sent to ${agentId} with different text.`,
+    );
+  if (/^Agent not found: |^Agent identifier /.test(message)) return "not_sent";
+  return "unknown";
+}
 
 // endpoint: a websocket URL, or ssh://[user@]host[:port] for a daemon bound to
 // loopback on another machine.
@@ -56,16 +79,7 @@ export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
         await client.agents.ref(agentId).send(text, { messageId: key });
         return "accepted";
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("agent_request_key_conflict"))
-          throw new Error(
-            `Router bug: ${key} was already sent to ${agentId} with different text.`,
-          );
-        // Only a refusal before any send is a definite not_sent. Anything
-        // else may have reached the agent.
-        if (/^Agent not found: |^Agent identifier /.test(message))
-          return "not_sent";
-        return "unknown";
+        return sendFailure(error, agentId, key);
       }
     },
     async close() {
