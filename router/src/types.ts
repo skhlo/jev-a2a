@@ -171,6 +171,10 @@ export type Event =
       choice: string;
       probabilities: Record<string, number>;
       model?: string | null;
+      // Recorded for tuning; the core does not read them.
+      confidence?: number | null;
+      usage?: unknown;
+      ms?: number;
     }
   | { type: "judgeFailed"; taskId: string; reason?: string }
   | { type: "choose"; by: string; taskId: string; to: string }

@@ -9,12 +9,15 @@ import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
 import { createPaseoAdapter } from "./paseo.ts";
+import { judge } from "./jev.ts";
 import { openShell, type Shell } from "./shell.ts";
 import type { Event, State, Task } from "./types.ts";
 
 const USAGE = `router: a prompt with an envelope and a record
 
-  router submit --to <participant> [--hosts a,b] [--message <id>] [--as <principal>] <text...>
+  router submit [--to <participant>] [--hosts a,b] [--message <id>] [--as <principal>] <text...>
+                                               without --to, Jev picks the recipient
+  router choose --task <T> --to <participant>  answer a needs_recipient
   router run                                   observe placements, deliver what is eligible
   router serve                                 accept replies from other hosts over HTTP
   router status [<task>]                       the record
@@ -97,9 +100,13 @@ function fail(message: string): never {
 }
 
 const crash = process.env.ROUTER_CRASH;
+const apiKey = process.env.TYPESAFE_API_KEY;
 const open = (): Shell =>
   openShell(config, {
     adapter: createPaseoAdapter,
+    judge: apiKey
+      ? (question) => judge(question, { ...config.jev, apiKey })
+      : null,
     crash:
       crash === "after_attempt" || crash === "after_send" ? crash : undefined,
   });
@@ -215,20 +222,23 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
     case "submit": {
       const text = rest.join(" ").trim();
       if (!text) fail("Give the request text after the options.");
-      if (!values.to)
-        fail(
-          "This slice delivers addressed requests only: pass --to <participant>.",
-        );
       const event: Event = {
         type: "submit",
         by: requester(),
         messageId: values.message ?? newMessageId(),
         text,
-        to: values.to,
+        to: values.to ?? null,
         hosts: values.hosts ? values.hosts.split(",") : null,
       };
       return applyAndDeliver(event);
     }
+    case "choose":
+      return applyAndDeliver({
+        type: "choose",
+        by: requester(),
+        taskId: need("task"),
+        to: need("to"),
+      });
     case "run":
       say(await shell.deliver());
       return 0;

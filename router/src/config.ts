@@ -24,6 +24,8 @@ export type RouterConfig = Config & {
   agents: Record<string, string>;
   // Where `router serve` listens for replies from other hosts.
   serve: { listen: string };
+  // Jev for unaddressed requests. The API key comes from TYPESAFE_API_KEY.
+  jev: { model: string; url?: string; timeoutMs?: number };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -66,6 +68,7 @@ export function loadConfig(path: string): RouterConfig {
       fail(`agents.${key} must be an agent id`);
   }
   const serve = isRecord(extra.serve) ? extra.serve : {};
+  const jev = isRecord(extra.jev) ? extra.jev : {};
   return {
     ...config,
     home:
@@ -79,6 +82,14 @@ export function loadConfig(path: string): RouterConfig {
         typeof serve.listen === "string" && serve.listen
           ? serve.listen
           : "127.0.0.1:7677",
+    },
+    jev: {
+      model:
+        typeof jev.model === "string" && jev.model ? jev.model : "jev-latest",
+      ...(typeof jev.url === "string" && jev.url ? { url: jev.url } : {}),
+      ...(typeof jev.timeoutMs === "number"
+        ? { timeoutMs: jev.timeoutMs }
+        : {}),
     },
   };
 }

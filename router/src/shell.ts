@@ -15,7 +15,14 @@ import {
 import type { RouterConfig } from "./config.ts";
 import { openJournal, type Journal } from "./journal.ts";
 import type { Adapter } from "./paseo.ts";
-import type { Event, Outcome, State } from "./types.ts";
+import type { Judgment } from "./jev.ts";
+import type {
+  Command,
+  Event,
+  JudgmentQuestion,
+  Outcome,
+  State,
+} from "./types.ts";
 
 export type Shell = {
   readonly state: State;
@@ -29,6 +36,8 @@ export type Shell = {
 export type ShellOptions = {
   // One adapter per host, created on first use.
   adapter: (endpoint: string) => Promise<Adapter>;
+  // Asks Jev; null when Jev is not configured, so unaddressed requests wait.
+  judge: ((question: JudgmentQuestion) => Promise<Judgment>) | null;
   now?: () => number;
   // Test hook for the crash-recovery acceptance: exit at a chosen point.
   crash?: "after_attempt" | "after_send" | undefined;
@@ -137,16 +146,46 @@ export function openShell(config: RouterConfig, options: ShellOptions): Shell {
     return `${head} (use --kind question to ask the sender something, --kind working for progress, --kind failed if you cannot do it).\n\n${send.text}`;
   }
 
+  // One Jev call per unaddressed request. The event carries what the core
+  // needs plus confidence, usage and latency for tuning the threshold later.
+  async function judgeAll(report: string[]): Promise<void> {
+    const pending = commands(state).filter(
+      (c): c is Extract<Command, { type: "judge" }> => c.type === "judge",
+    );
+    for (const c of pending) {
+      if (!options.judge) {
+        report.push(
+          `${c.taskId} waits for a recipient: Jev is not configured (TYPESAFE_API_KEY).`,
+        );
+        continue;
+      }
+      const result = await options.judge(c.question);
+      const outcome = apply(
+        result.ok
+          ? {
+              type: "judged",
+              taskId: c.taskId,
+              choice: result.choice,
+              probabilities: result.probabilities,
+              model: result.model,
+              confidence: result.confidence,
+              usage: result.usage,
+              ms: result.ms,
+            }
+          : { type: "judgeFailed", taskId: c.taskId, reason: result.reason },
+      );
+      report.push(
+        `${outcome.message}${result.ok ? ` (confidence ${result.confidence ?? "?"}, ${result.ms} ms, ${result.model ?? "model unknown"})` : ""}`,
+      );
+    }
+  }
+
   async function deliver(): Promise<string[]> {
     const report: string[] = [];
+    await judgeAll(report);
     await observeAll(report);
     for (;;) {
       const work = commands(state);
-      for (const c of work)
-        if (c.type === "judge")
-          report.push(
-            `${c.taskId} has no recipient: Jev is not wired in this slice, submit with --to.`,
-          );
       const next = work.find(
         (c): c is Extract<typeof c, { type: "deliver" }> =>
           c.type === "deliver" &&
