@@ -547,7 +547,7 @@ export function renderBoard(
           )
         : `<code>${esc(commandFor(item))}</code>`;
       return (
-        `<li class="need"><div class="what"><a class="id" href="#t-${esc(item.taskId)}">${esc(item.taskId)}</a><strong>asks you</strong><span class="muted">${esc(item.deliveryId)}</span></div>` +
+        `<li class="need"><div class="what"><a class="id" href="#t-${esc(item.taskId)}">${esc(item.taskId)}</a><strong>asks you</strong></div>` +
         `<div class="quote">${esc(item.text)}</div>` +
         controls +
         `</li>`
@@ -646,10 +646,15 @@ export function renderBoard(
     !iso ? "" : iso.slice(0, 10) === today ? clock(iso) : day(iso);
   const thread = (t: TaskView): string => {
     const msgs: string[] = [];
+    // The delivery id only earns its place when a task fans out.
+    const who = (d: DeliveryView): string =>
+      t.deliveries.length > 1
+        ? `${esc(d.placement)} (${esc(d.id)})`
+        : esc(d.placement);
     if (!t.final && can("requester"))
       msgs.push(`<div class="tools">${cancelForm(t.id)}</div>`);
     msgs.push(
-      `<div class="msg you"><span class="who">${esc(t.source.split("/")[0])}, ${esc(t.messageId)}${model.times[t.messageId] ? `, ${clock(model.times[t.messageId])}` : ""}</span>${esc(t.text)}</div>`,
+      `<div class="msg you" title="message ${esc(t.messageId)}"><span class="who">${esc(t.source.split("/")[0])}${model.times[t.messageId] ? `, ${clock(model.times[t.messageId])}` : ""}</span>${esc(t.text)}</div>`,
     );
     const lastJudgment = t.judgments.at(-1);
     if (lastJudgment)
@@ -666,7 +671,7 @@ export function renderBoard(
       for (const s of d.sends) {
         if (s.kind === "answer")
           msgs.push(
-            `<div class="msg you"><span class="who">you, answer${s.outcome === "withdrawn" ? ", withdrawn" : s.outcome !== "accepted" ? `, ${esc(s.outcome)}` : ""}</span>${esc(s.text)}</div>`,
+            `<div class="msg you" title="message ${esc(s.messageId)}"><span class="who">you, answer${s.outcome === "withdrawn" ? ", withdrawn" : s.outcome !== "accepted" ? `, ${esc(s.outcome)}` : ""}${model.times[s.messageId] ? `, ${clock(model.times[s.messageId])}` : ""}</span>${esc(s.text)}</div>`,
           );
         else if (s.outcome !== "accepted")
           msgs.push(
@@ -674,7 +679,7 @@ export function renderBoard(
           );
         for (const u of d.updates.filter((u) => u.inReplyTo === s.messageId)) {
           msgs.push(
-            `<div class="msg agent ${u.kind === "question" ? "question" : u.kind === "failed" ? "failed" : ""}"><span class="who">${esc(d.placement)}, ${esc(u.kind)}${model.times[u.messageId] ? `, ${clock(model.times[u.messageId])}` : ""}</span>${esc(u.text)}</div>`,
+            `<div class="msg agent ${u.kind === "question" ? "question" : u.kind === "failed" ? "failed" : ""}" title="message ${esc(u.messageId)}"><span class="who">${who(d)}, ${esc(u.kind)}${model.times[u.messageId] ? `, ${clock(model.times[u.messageId])}` : ""}</span>${esc(u.text)}</div>`,
           );
           if (d.question?.id === u.messageId && !t.final)
             msgs.push(

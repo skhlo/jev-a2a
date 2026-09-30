@@ -235,8 +235,12 @@ test("the page escapes task text and leads with what waits on you", () => {
     ),
   );
   assert.ok(
-    html.includes("you, M1, 09:15</span>Fix &lt;b&gt;the&lt;/b&gt; build"),
+    html.includes(
+      'title="message M1"><span class="who">you, 09:15</span>Fix &lt;b&gt;the&lt;/b&gt; build',
+    ),
   );
+  // A single delivery is named by its placement alone; ids stay in tooltips.
+  assert.ok(!html.includes("(D1)"));
   assert.ok(html.includes("orchestrator@mbp, question</span>Force push?"));
   assert.ok(html.includes("orchestrator@mbp, completed</span>all green"));
   assert.ok(html.includes('<span class="time">09:15</span>'));
