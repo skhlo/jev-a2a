@@ -50,10 +50,14 @@ export function openJournal(home: string): Journal {
   };
 }
 
-// The lock names its owner so a run that died mid-way does not block the next
-// one; a live owner does.
+// The lock names its owner. A run that died mid-way does not block the next
+// one; a live owner is waited for, since runs are short.
+const LOCK_WAIT_MS = 15_000;
+const LOCK_POLL_MS = 100;
+
 function acquire(lock: string): void {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
     try {
       mkdirSync(lock);
       writeFileSync(join(lock, "pid"), String(process.pid));
@@ -61,14 +65,22 @@ function acquire(lock: string): void {
     } catch (error: unknown) {
       if (!isCode(error, "EEXIST")) throw error;
       const owner = lockOwner(lock);
-      if (owner !== null && alive(owner))
+      if (owner === null || !alive(owner)) {
+        rmSync(lock, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() >= deadline)
         throw new Error(
-          `Another router run (pid ${owner}) holds ${lock}. Wait for it.`,
+          `Another router run (pid ${owner}) has held ${lock} for ${LOCK_WAIT_MS / 1000}s.`,
         );
-      rmSync(lock, { recursive: true, force: true });
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        LOCK_POLL_MS,
+      );
     }
   }
-  throw new Error(`Could not take ${lock}.`);
 }
 
 function lockOwner(lock: string): number | null {
