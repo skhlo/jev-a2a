@@ -149,18 +149,20 @@ unpinned, no older unpinned delivery waits for the same placement.
 | `unknown` is retried only through a deduplicating adapter, on the same session, when idle, before the deadline. Otherwise a matching reply or an operator `resolve` closes it.                      | With Paseo receipts a same-key retry confirms or makes the first send; it cannot run twice. A receipt stuck `pending` after a daemon crash stays unknown forever, so the operator path stays. |
 | The deadline fails the task and expires never-sent deliveries; an unconfirmed send keeps holding its session until it ends or is resolved.                                                          | A retry after the deadline could start work nobody waits for; freeing the session could let the next send interrupt a turn that did start.                                                    |
 | Cancel only while nothing may have reached the participant.                                                                                                                                         | Nothing can stop a turn already handed over. Steering it is done in the session.                                                                                                              |
-| A late final result after the deadline is kept as evidence; the task stays failed.                                                                                                                  | The record must not lose work, and a terminal state must not flip.                                                                                                                            |
+| A task's verdict counts the deliveries that returned `completed` when it ended: all → `completed`, some → `partial`, none → `failed`. `final` records `completed` of `of`.                          | A request to a service on three hosts where one sleeps should end as "two answers, one unavailable", with the answers in the record, not as a failure.                                        |
+| A late final result after the deadline is kept as evidence; the verdict does not change.                                                                                                            | The record must not lose work, and a terminal state must not flip.                                                                                                                            |
 
 ### Status and A2A v1.0 mapping
 
-| Router status                  | Meaning                                           | A2A task state                                 |
-| ------------------------------ | ------------------------------------------------- | ---------------------------------------------- |
-| routing                        | Waiting for Jev                                   | `TASK_STATE_SUBMITTED`                         |
-| queued / delivering            | Waiting for a ready session / attempt in progress | `TASK_STATE_SUBMITTED`                         |
-| working                        | A participant has the message                     | `TASK_STATE_WORKING`                           |
-| uncertain                      | A send may or may not have arrived                | `TASK_STATE_WORKING` (detail in metadata)      |
-| needs_recipient / needs_answer | The sender must choose or answer                  | `TASK_STATE_INPUT_REQUIRED`                    |
-| completed / failed / canceled  | Terminal                                          | `TASK_STATE_COMPLETED` / `FAILED` / `CANCELED` |
+| Router status                  | Meaning                                           | A2A task state                              |
+| ------------------------------ | ------------------------------------------------- | ------------------------------------------- |
+| routing                        | Waiting for Jev                                   | `TASK_STATE_SUBMITTED`                      |
+| queued / delivering            | Waiting for a ready session / attempt in progress | `TASK_STATE_SUBMITTED`                      |
+| working                        | A participant has the message                     | `TASK_STATE_WORKING`                        |
+| uncertain                      | A send may or may not have arrived                | `TASK_STATE_WORKING` (detail in metadata)   |
+| needs_recipient / needs_answer | The sender must choose or answer                  | `TASK_STATE_INPUT_REQUIRED`                 |
+| completed / partial            | Every host answered / some did                    | `TASK_STATE_COMPLETED` (detail in metadata) |
+| failed / canceled              | No host answered / withdrawn before delivery      | `TASK_STATE_FAILED` / `TASK_STATE_CANCELED` |
 
 A2A v1.0 has no "unknown" state, so uncertainty travels in extension metadata.
 Router fields (recipient, judgment, delivery outcomes) go under an extension
@@ -186,14 +188,14 @@ cannot pass vacuously.
 3. A message is attempted again only right after a definite `not_sent`, or right after `unknown` when its adapter deduplicates.
 4. A new attempt happens only through an `attempt` event for a delivery the oracle finds eligible, and leaves the placement not ready. `commands()` offers exactly the eligible deliveries.
 5. Addressed requests use zero judgments; judged recipients passed the threshold with valid output; recipients are always permitted for the sender.
-6. `completed` means every delivery returned `completed` from its pinned session.
+6. `completed` means every delivery returned `completed` from its pinned session; `partial` and `failed` count exactly the deliveries that had, late results excluded.
 7. Terminal states, recipients, closed deliveries and send histories never change.
 8. A delivery that may have reached a session stays pinned to it; the pin is released only when every attempt on it was definitely `not_sent`.
 9. A rejected event changes nothing but the log.
 10. Canceled tasks never had a possibly-delivered attempt; terminal tasks have no sendable work.
 
-Mutation checks: 38 deliberately broken guards each fail the suite, covering
-the in-flight gate, readiness, hold, the needs-you list, FIFO, retry rules (deduplication,
+Mutation checks: 41 deliberately broken guards each fail the suite, covering
+the in-flight gate, readiness, hold, the needs-you list, the verdict, FIFO, retry rules (deduplication,
 deadline, replaced session), restart replay, the unpin-after-retry bug found in
 review, reply session and message correlation, the settled-question rule,
 threshold boundary, probability sum, operator rules, cancel, deadline,
@@ -273,13 +275,6 @@ examples show that, add a relevance question (a Noul) to the same call rather
 than a second call. Not added now: no evidence yet. TypeSafe handles non-English
 input "not equally well", so tune the threshold on requests in the languages
 actually used.
-
-## Still to model
-
-- **Partial results for multi-host service requests.** A request to a service
-  on several hosts fails as a whole at the deadline if one host never became
-  ready. A deployment with a machine that sleeps wants "checked two of three;
-  the third was unavailable".
 
 ## Open decisions
 

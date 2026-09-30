@@ -224,6 +224,27 @@ function stateViolations(state) {
       task.deliveries.some((d) => open(d) && d.session === null)
     )
       out.push(`${task.id}: terminal task still has sendable work`);
+    // The verdict counts the hosts that had answered when the task ended;
+    // later results are evidence only.
+    if (task.final && task.final.status !== "canceled") {
+      const counted =
+        task.deliveries.filter((d) => d.end?.reason === "completed").length -
+        task.late.filter((l) => l.kind === "completed").length;
+      const expected =
+        counted === task.deliveries.length
+          ? "completed"
+          : counted
+            ? "partial"
+            : "failed";
+      if (
+        task.final.completed !== counted ||
+        task.final.of !== task.deliveries.length ||
+        task.final.status !== expected
+      )
+        out.push(
+          `${task.id}: verdict ${task.final.status} disagrees with its deliveries`,
+        );
+    }
   }
   const holders = {};
   for (const d of deliveries) {
@@ -768,7 +789,14 @@ test("addressed service request fans out per host with zero judgments", () => {
     kind: "failed",
     text: "drift: cfg-11",
   });
-  assert.equal(task(s).status, "failed");
+  // Two hosts answered, one reported failure: the answers are the result.
+  assert.equal(task(s).status, "partial");
+  assert.deepEqual(task(s).final, {
+    status: "partial",
+    reason: "delivery",
+    completed: 2,
+    of: 3,
+  });
   expectReject(
     initial(config),
     { type: "submit", by: "you", messageId: "M1", text: "x", hosts: ["mba"] },
@@ -786,6 +814,61 @@ test("addressed service request fans out per host with zero judgments", () => {
     },
     "invalid",
   );
+});
+
+test("a multi-host request ends partial at the deadline when a host never woke; none answered means failed", () => {
+  // mba is asleep: its placement never becomes ready.
+  let s = expectOk(initial(config), {
+    type: "observe",
+    placement: "environment@mba",
+    ready: false,
+  });
+  s = submit(s, {
+    messageId: "M1",
+    text: "Check dotfiles.",
+    to: "environment",
+  });
+  s = deliver(s, "D2");
+  s = deliver(s, "D3");
+  for (const [by, id, text] of [
+    ["environment@mbp#1", "R2", "cfg-12"],
+    ["environment@mini#1", "R3", "cfg-12"],
+  ])
+    s = expectOk(s, {
+      type: "update",
+      by,
+      taskId: "T1",
+      messageId: id,
+      inReplyTo: "M1",
+      kind: "completed",
+      text,
+    });
+  // Only the sleeping host's delivery is still open.
+  assert.equal(task(s).status, "queued");
+  s = expectOk(s, { type: "tick", now: task(s).deadline });
+  assert.deepEqual(task(s).final, {
+    status: "partial",
+    reason: "deadline",
+    completed: 2,
+    of: 3,
+  });
+  assert.equal(Core.findDelivery(s, "D1").end.reason, "expired");
+  assert.equal(Core.A2A_STATE.partial, "TASK_STATE_COMPLETED");
+  assert.deepEqual(Core.needsYou(s, "you"), []);
+  assert.deepEqual(Core.needsYou(s, "operator"), []);
+  // A single-host request is all or nothing; nothing answered means failed.
+  let f = submit(initial(config), {
+    messageId: "M1",
+    text: "Check.",
+    to: "incus",
+  });
+  f = expectOk(f, { type: "tick", now: task(f).deadline });
+  assert.deepEqual(task(f).final, {
+    status: "failed",
+    reason: "deadline",
+    completed: 0,
+    of: 1,
+  });
 });
 
 test("orchestrator may request a VM; unready hosts queue; other agents are forbidden", () => {
@@ -1629,6 +1712,7 @@ test("every status maps to an A2A v1.0 task state", () => {
     "needs_recipient",
     "needs_answer",
     "completed",
+    "partial",
     "failed",
     "canceled",
   ])
@@ -1844,6 +1928,7 @@ test("random event sequences never violate the contract", () => {
     "uncertain",
     "needs_answer",
     "completed",
+    "partial",
     "failed",
     "canceled",
     "ok:submit",

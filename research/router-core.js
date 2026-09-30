@@ -323,6 +323,7 @@
     needs_recipient: "TASK_STATE_INPUT_REQUIRED",
     needs_answer: "TASK_STATE_INPUT_REQUIRED",
     completed: "TASK_STATE_COMPLETED",
+    partial: "TASK_STATE_COMPLETED",
     failed: "TASK_STATE_FAILED",
     canceled: "TASK_STATE_CANCELED",
   };
@@ -729,7 +730,7 @@
         );
       for (const delivery of task.deliveries)
         delivery.end = { reason: "canceled" };
-      task.final = { status: "canceled", reason: "sender" };
+      task.final = { ...verdict(task), status: "canceled", reason: "sender" };
       return ok(`${task.id} canceled before any delivery.`);
     },
 
@@ -821,12 +822,12 @@
       for (const task of state.tasks)
         if (!isTerminal(task) && now >= task.deadline) {
           task.routing = null;
-          task.final = { status: "failed", reason: "deadline" };
-          expired.push(task.id);
+          task.final = verdict(task, "deadline");
+          expired.push(`${task.id} ${task.final.status}`);
         }
       return ok(
         expired.length
-          ? `Deadline passed for ${expired.join(", ")}. Unconfirmed sends keep holding their sessions until they end or are reconciled.`
+          ? `Deadline passed: ${expired.join(", ")}. Unconfirmed sends keep holding their sessions until they end or are reconciled.`
           : `Clock at ${now}.`,
       );
     },
@@ -863,6 +864,24 @@
     }));
   }
 
+  // The final word on a task from its deliveries so far: completed when every
+  // host answered, partial when some did (the record says which), failed when
+  // none did. Results after this point are kept as evidence, not counted.
+  function verdict(task, reason = "delivery") {
+    const of = task.deliveries.length;
+    const completed = task.deliveries.filter(
+      (d) => d.end?.reason === "completed",
+    ).length;
+    const status =
+      completed === of ? "completed" : completed ? "partial" : "failed";
+    return {
+      status,
+      reason: status === "completed" ? null : reason,
+      completed,
+      of,
+    };
+  }
+
   // Close what can no longer happen, then derive status.
   function settle(state, task) {
     if (isTerminal(task)) {
@@ -873,14 +892,8 @@
     } else if (
       task.deliveries.length &&
       task.deliveries.every((d) => !isOpen(d))
-    ) {
-      const allCompleted = task.deliveries.every(
-        (d) => d.end.reason === "completed",
-      );
-      task.final = allCompleted
-        ? { status: "completed", reason: null }
-        : { status: "failed", reason: "delivery" };
-    }
+    )
+      task.final = verdict(task);
     task.status = status(task);
   }
 

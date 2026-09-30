@@ -1301,7 +1301,7 @@ delivery's pinned session and answer its current message.</pre>
           preset: "environment",
           title: "One addressed request, three device deliveries",
           description:
-            "An explicit recipient needs no Jev. Each device gets its own delivery and reply; one result cannot complete the others. mini reports drift.",
+            "An explicit recipient needs no Jev. Each device gets its own delivery and reply; one result cannot complete the others. mini reports drift as its answer. Had a host slept past the deadline, the task would end partial: the answers that arrived are the result.",
           steps: [
             ["Simulate drift on mini", "toggleDrift"],
             ["Submit to the dotfiles service", "submit"],
@@ -1625,7 +1625,7 @@ delivery's pinned session and answer its current message.</pre>
           ? state.tasks
               .map(
                 (t) =>
-                  `<div class="peer"><strong>${t.id} · ${escape(t.source)}/${escape(t.messageId)}</strong><p>${escape(pretty(t.status))} · ${escape(name(t.recipient))}</p><p class="hint">${t.deliveries.filter((d) => d.end).length}/${t.deliveries.length} deliveries closed</p></div>`,
+                  `<div class="peer"><strong>${t.id} · ${escape(t.source)}/${escape(t.messageId)}</strong><p>${escape(pretty(t.status))} · ${escape(name(t.recipient))}</p><p class="hint">${t.final && t.final.status !== "canceled" ? `${t.final.completed} of ${t.final.of} deliveries completed${t.final.reason ? ` · ${escape(pretty(t.final.reason))}` : ""}` : `${t.deliveries.filter((d) => d.end).length}/${t.deliveries.length} deliveries closed`}</p></div>`,
               )
               .join("")
           : '<p class="muted">Recorded requests appear here.</p>';
