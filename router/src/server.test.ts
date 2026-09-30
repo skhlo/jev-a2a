@@ -5,7 +5,14 @@ import { createServer, type Server } from "node:http";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { boardListener, eventsListener, sameSite, type Run } from "./server.ts";
+import {
+  bind,
+  boardListener,
+  eventsListener,
+  sameSite,
+  type Bindable,
+  type Run,
+} from "./server.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
@@ -240,4 +247,58 @@ test("board: a record the code cannot replay is a 500, not a crash", async () =>
   } finally {
     server.close();
   }
+});
+
+test("bind: a taken port is one sentence; an absent address is waited for, then given up", async () => {
+  const first = createServer();
+  const url = await serve(first);
+  const port = new URL(url).port;
+  try {
+    await assert.rejects(
+      bind(createServer(), `127.0.0.1:${port}`, "board"),
+      /board address 127\.0\.0\.1:\d+ is in use\. Is router serve already running\?/,
+    );
+  } finally {
+    first.close();
+  }
+  // 192.0.2.1 is documentation space and on no interface here.
+  await assert.rejects(
+    bind(createServer(), "192.0.2.1:0", "events", { waitMs: 0 }),
+    /events cannot listen on 192\.0\.2\.1:0: .*EADDRNOTAVAIL/,
+  );
+  // Until the deadline, EADDRNOTAVAIL is retried and reported once.
+  let attempts = 0;
+  const lines: string[] = [];
+  const slept: number[] = [];
+  const late: Bindable = {
+    listen: (_port, _host, ready) => {
+      attempts += 1;
+      if (attempts < 3) {
+        const error = Object.assign(new Error("listen EADDRNOTAVAIL"), {
+          code: "EADDRNOTAVAIL",
+        });
+        setImmediate(() => handler?.(error));
+      } else setImmediate(ready);
+    },
+    once: (_event, h) => (handler = h),
+    removeListener: () => (handler = undefined),
+  };
+  let handler: ((error: Error) => void) | undefined;
+  let clock = 0;
+  await bind(late, "[::1]:7677", "events", {
+    waitMs: 10_000,
+    pollMs: 2_000,
+    log: (line) => lines.push(line),
+    now: () => clock,
+    sleep: (ms) => {
+      slept.push(ms);
+      clock += ms;
+      return Promise.resolve();
+    },
+  });
+  assert.equal(attempts, 3);
+  assert.deepEqual(slept, [2_000, 2_000]);
+  assert.deepEqual(lines, [
+    "The events address [::1]:7677 is not on this host yet; waiting.",
+  ]);
 });

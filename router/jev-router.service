@@ -1,0 +1,22 @@
+# `router serve` as a systemd user service. Install on the router host:
+#
+#   cp router/jev-router.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now jev-router
+#   loginctl enable-linger            # start at boot, before any login
+#
+# Logs: journalctl --user -u jev-router. After a code change:
+# systemctl --user restart jev-router. The wrapper ~/.local/bin/router owns
+# the checkout path; secrets.env is read by the CLI itself.
+[Unit]
+Description=Jev router: replies over HTTP and the board
+
+[Service]
+ExecStart=%h/.local/bin/router serve
+# The user manager's PATH is not the shell's; name where node comes from.
+Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:/usr/bin
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

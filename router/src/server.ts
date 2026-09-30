@@ -204,4 +204,77 @@ export function boardListener(deps: ServerDeps): RequestListener {
   };
 }
 
+// What `bind` needs of a server: enough to be faked in a test.
+export type Bindable = {
+  listen(port: number, host: string, ready: () => void): unknown;
+  once(event: "error", handler: (error: Error) => void): unknown;
+  removeListener(event: "error", handler: (error: Error) => void): unknown;
+};
+
+export type BindOptions = {
+  // How long an address that is not on this host yet is waited for: at
+  // boot the tailnet address arrives after the service starts.
+  waitMs?: number;
+  pollMs?: number;
+  log?: (line: string) => void;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+};
+
+const errorCode = (error: unknown): string | undefined =>
+  error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined;
+
+// Listens on `host:port`, or throws one plain sentence saying why not.
+export async function bind(
+  server: Bindable,
+  address: string,
+  what: string,
+  options: BindOptions = {},
+): Promise<void> {
+  const {
+    waitMs = 120_000,
+    pollMs = 2_000,
+    log = () => undefined,
+    now = Date.now,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = options;
+  const at = address.lastIndexOf(":");
+  const host = address.slice(0, at).replace(/^\[|\]$/g, "");
+  const port = Number(address.slice(at + 1));
+  const attempt = (): Promise<void> =>
+    new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
+    });
+  const deadline = now() + waitMs;
+  let waited = false;
+  for (;;) {
+    try {
+      return await attempt();
+    } catch (error: unknown) {
+      const code = errorCode(error);
+      if (code === "EADDRINUSE")
+        throw new Error(
+          `The ${what} address ${address} is in use. Is router serve already running? (systemctl --user status jev-router)`,
+        );
+      if (code === "EADDRNOTAVAIL" && now() < deadline) {
+        if (!waited)
+          log(
+            `The ${what} address ${address} is not on this host yet; waiting.`,
+          );
+        waited = true;
+        await sleep(pollMs);
+        continue;
+      }
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`The ${what} cannot listen on ${address}: ${reason}`);
+    }
+  }
+}
+
 export type { IncomingMessage, ServerResponse };
