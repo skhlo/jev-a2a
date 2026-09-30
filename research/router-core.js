@@ -649,7 +649,6 @@
         queued !== send &&
         queued.kind === "answer" &&
         queued.outcome === "pending" &&
-        !queued.trail.length &&
         delivery.sends[delivery.sends.indexOf(queued) - 1] === send
       ) {
         queued.outcome = "withdrawn";
