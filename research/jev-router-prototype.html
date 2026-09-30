@@ -1,0 +1,1775 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Jev router prototype</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f5f1;
+        --panel: #fff;
+        --ink: #202a32;
+        --muted: #596773;
+        --line: #d9dfe3;
+        --accent: #2457b7;
+        --soft: #edf3ff;
+        --code: #f1f3f5;
+        --warn: #8a5300;
+        --warn-soft: #fff4e0;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #151a20;
+          --panel: #1c242d;
+          --ink: #e5ebf0;
+          --muted: #aab7c4;
+          --line: #394550;
+          --accent: #8fb3ff;
+          --soft: #202f48;
+          --code: #27333f;
+          --warn: #f3c178;
+          --warn-soft: #3a2d17;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          16px/1.55 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1160px;
+        margin: auto;
+        padding: 48px 24px 64px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+      h1 {
+        font-size: clamp(2rem, 5vw, 3.35rem);
+        line-height: 1.1;
+        letter-spacing: -0.045em;
+        margin-bottom: 18px;
+      }
+      h2 {
+        font-size: 1.3rem;
+        margin-bottom: 14px;
+      }
+      h3 {
+        font-size: 1rem;
+        margin-bottom: 10px;
+      }
+      p {
+        margin-bottom: 14px;
+      }
+      a {
+        color: var(--accent);
+        text-underline-offset: 3px;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        max-width: 100%;
+      }
+      button {
+        padding: 8px 12px;
+        cursor: pointer;
+        text-align: left;
+      }
+      select,
+      input {
+        padding: 8px;
+      }
+      input {
+        width: 110px;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      :is(button, select, input, summary, a):focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      button.primary,
+      button[aria-selected="true"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      @media (prefers-color-scheme: dark) {
+        button.primary,
+        button[aria-selected="true"] {
+          color: #13233c;
+        }
+      }
+      section {
+        margin-top: 28px;
+      }
+      .eyebrow {
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 750;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin-bottom: 13px;
+      }
+      .intro {
+        max-width: 800px;
+        font-size: 1.08rem;
+      }
+      .muted,
+      .hint {
+        color: var(--muted);
+      }
+      .hint {
+        font-size: 0.87rem;
+      }
+      .note {
+        border-left: 3px solid var(--accent);
+        padding: 12px 17px;
+        background: var(--soft);
+        border-radius: 0 7px 7px 0;
+      }
+      .note.warn {
+        border-color: var(--warn);
+        background: var(--warn-soft);
+      }
+      .note p:last-child,
+      .panel p:last-child {
+        margin-bottom: 0;
+      }
+      .panel {
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        background: var(--panel);
+        min-width: 0;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .architecture {
+        display: grid;
+        grid-template-columns: 1fr 30px 2fr 30px 1.2fr;
+        align-items: center;
+        gap: 8px;
+        margin: 24px 0 10px;
+      }
+      .architecture .node {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 17px;
+        background: var(--panel);
+      }
+      .architecture .router {
+        border: 2px solid var(--accent);
+        background: var(--soft);
+      }
+      .architecture strong {
+        display: block;
+      }
+      .arrow {
+        text-align: center;
+        font-size: 1.4rem;
+        color: var(--accent);
+      }
+      .return {
+        font-size: 0.87rem;
+        color: var(--muted);
+        text-align: center;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 15px;
+        margin-top: 16px;
+      }
+      .label {
+        display: block;
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin-bottom: 5px;
+      }
+      .value {
+        font-size: 1.15rem;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+      }
+      .block {
+        margin: 18px 0 0;
+        padding-top: 15px;
+        border-top: 1px solid var(--line);
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 9px;
+      }
+      .toolbar label {
+        font-size: 0.9rem;
+        font-weight: 650;
+      }
+      .spaced {
+        margin-top: 16px;
+      }
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 16px;
+      }
+      .controls fieldset {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 10px 12px 12px;
+        margin: 0;
+        min-width: 0;
+        display: grid;
+        gap: 7px;
+        align-content: start;
+      }
+      .controls legend {
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        padding: 0 4px;
+      }
+      #notice {
+        margin-top: 14px;
+        min-height: 3em;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin-bottom: 16px;
+      }
+      .tabs button {
+        font-size: 0.87rem;
+      }
+      .walk-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: 12px;
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 0;
+        list-style: none;
+        margin: 18px 0 0;
+      }
+      .steps li {
+        min-width: 0;
+      }
+      .steps button {
+        width: 100%;
+        height: 100%;
+      }
+      .step-number {
+        display: inline-block;
+        min-width: 1.8em;
+        font-weight: 700;
+      }
+      .tag {
+        display: inline-block;
+        padding: 2px 7px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        font-size: 0.76rem;
+        color: var(--muted);
+      }
+      .tag.on {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .peer {
+        border-top: 1px solid var(--line);
+        padding: 13px 0;
+      }
+      .peer:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .peer:last-child {
+        padding-bottom: 0;
+      }
+      .peer p {
+        margin: 5px 0;
+        font-size: 0.88rem;
+      }
+      .peer-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      dl {
+        margin: 0;
+      }
+      .facts > div {
+        display: grid;
+        grid-template-columns: minmax(115px, 0.7fr) 1.4fr;
+        gap: 12px;
+        padding: 7px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .facts > div:last-child {
+        border: 0;
+      }
+      dt {
+        color: var(--muted);
+      }
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .judgment + .judgment {
+        padding-top: 14px;
+        margin-top: 14px;
+        border-top: 1px solid var(--line);
+      }
+      .bar-row {
+        display: grid;
+        grid-template-columns: minmax(90px, 1fr) 1fr 40px;
+        gap: 10px;
+        align-items: center;
+        font-size: 0.85rem;
+        margin: 6px 0;
+      }
+      .track {
+        position: relative;
+        height: 7px;
+        background: var(--code);
+        border-radius: 10px;
+      }
+      .bar {
+        height: 100%;
+        border-radius: 10px;
+        background: var(--accent);
+      }
+      .threshold {
+        position: absolute;
+        top: -3px;
+        bottom: -3px;
+        width: 2px;
+        background: var(--warn);
+      }
+      .log {
+        max-height: 350px;
+        overflow: auto;
+        padding: 0;
+        list-style: none;
+        margin: 0;
+      }
+      .log li {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.9rem;
+      }
+      .log small {
+        color: var(--accent);
+        font-weight: 700;
+        margin-right: 8px;
+      }
+      .scroll {
+        overflow: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+        text-align: left;
+      }
+      caption {
+        text-align: left;
+        font-weight: 650;
+        padding-bottom: 8px;
+      }
+      th,
+      td {
+        padding: 8px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+      }
+      code,
+      pre {
+        font-family: ui-monospace, monospace;
+        font-size: 0.86em;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      pre {
+        padding: 16px;
+        background: var(--code);
+        border-radius: 7px;
+        overflow: auto;
+        max-height: 450px;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 650;
+      }
+      details {
+        margin-top: 15px;
+      }
+      details > :not(summary) {
+        margin-top: 14px;
+      }
+      .fleet {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .fleet h3 {
+        margin: 0;
+        font-size: 1.25rem;
+      }
+      .fleet .peer-head {
+        margin-bottom: 10px;
+      }
+      .fleet .facts > div {
+        display: block;
+      }
+      .result-text {
+        white-space: pre-line;
+        margin: 8px 0 0;
+      }
+      footer {
+        margin-top: 28px;
+        border-top: 1px solid var(--line);
+        padding-top: 20px;
+        font-size: 0.87rem;
+        color: var(--muted);
+      }
+      @media (max-width: 1000px) {
+        .fleet,
+        .controls {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      @media (max-width: 760px) {
+        main {
+          padding: 28px 16px 40px;
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .summary {
+          grid-template-columns: 1fr 1fr;
+        }
+        .architecture {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+        .architecture .node {
+          padding: 12px 15px;
+        }
+        .arrow {
+          transform: rotate(90deg);
+          line-height: 1;
+        }
+        .panel {
+          padding: 17px;
+        }
+        .walk-header {
+          display: block;
+        }
+        .walk-header button {
+          margin-bottom: 8px;
+        }
+      }
+      @media (max-width: 520px) {
+        .fleet,
+        .controls,
+        .steps {
+          grid-template-columns: 1fr;
+        }
+        .toolbar select {
+          width: 100%;
+        }
+        .facts > div {
+          grid-template-columns: 100px minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">
+          Personal control plane / interactive contract model
+        </p>
+        <h1>Four devices.<br />One place to coordinate.</h1>
+        <p class="intro">
+          A small router on mbp carries requests between you, one coding
+          orchestrator, a knowledge assistant and two device services. Jev
+          decides who owns an unaddressed request; code handles everything else.
+        </p>
+        <div class="note">
+          <strong>Every button runs the tested contract.</strong> This page
+          drives <code>router-core.js</code>, the same pure module that
+          <code>router-core.test.js</code> checks, loaded with one example
+          deployment from <code>router-example-config.js</code>. The router
+          itself carries no deployment. Jev answers, adapters and participants
+          are scripted; nothing leaves this page, and refreshing resets it.
+        </div>
+      </header>
+
+      <div
+        class="architecture"
+        aria-label="Paseo or herdr on any device connects to the router on mbp, which delivers to agents and services."
+      >
+        <div class="node">
+          <strong>Paseo / herdr</strong
+          ><span class="hint">Views: submit and read from any device</span>
+        </div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="node router">
+          <strong>Router · mbp</strong
+          ><span class="hint"
+            >One Jev Choice · journal · sends only to idle sessions</span
+          >
+        </div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="node">
+          <strong>Participants</strong
+          ><span class="hint"
+            >Orchestrator · knowledge assistant · dotfiles and Incus
+            services</span
+          >
+        </div>
+      </div>
+      <p class="return">
+        Replies come back through the router, correlated to the exact message
+        and session. Views never prompt a router-owned session directly.
+      </p>
+
+      <section class="panel" aria-labelledby="current-title">
+        <h2 id="current-title">Current request</h2>
+        <div class="toolbar">
+          <label for="task-picker">Inspect</label
+          ><select id="task-picker"></select>
+        </div>
+        <div id="current-state"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="walk-title">
+        <h2 id="walk-title">Guided walkthroughs</h2>
+        <div
+          id="scenario-tabs"
+          class="tabs"
+          role="tablist"
+          aria-label="Scenarios"
+        ></div>
+        <div id="walkthrough" role="tabpanel"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="play-title">
+        <h2 id="play-title">Free play</h2>
+        <div class="toolbar">
+          <label for="view-device">Viewing from</label
+          ><select id="view-device"></select
+          ><label for="view-surface">through</label
+          ><select id="view-surface">
+            <option>Paseo</option>
+            <option>herdr</option></select
+          ><span id="viewer-state" class="hint"></span>
+        </div>
+        <div class="toolbar spaced">
+          <label for="request-preset">Request</label
+          ><select id="request-preset"></select
+          ><label for="message-id">Message ID</label
+          ><input
+            id="message-id"
+            value="M1"
+            maxlength="64"
+            autocomplete="off"
+          /><button type="button" id="new-message-id">New ID</button>
+        </div>
+        <div class="controls">
+          <fieldset>
+            <legend>Sender</legend>
+            <button type="button" class="primary" data-action="submit">
+              Submit request
+            </button>
+            <button type="button" data-action="duplicate">
+              Repeat same request
+            </button>
+            <button type="button" data-action="conflict">
+              Reuse ID, change text
+            </button>
+            <button type="button" data-action="answer">
+              Answer the question
+            </button>
+            <button type="button" data-action="cancel">Cancel request</button>
+          </fieldset>
+          <fieldset>
+            <legend>Router and adapter</legend>
+            <button type="button" class="primary" data-action="step">
+              Next router step
+            </button>
+            <button type="button" data-action="accepted">
+              Adapter: accepted
+            </button>
+            <button type="button" data-action="unknown">
+              Adapter: response lost
+            </button>
+            <button type="button" data-action="notSent">
+              Adapter: definitely not sent
+            </button>
+            <button type="button" data-action="restart">Restart router</button>
+          </fieldset>
+          <fieldset>
+            <legend>Participant</legend>
+            <button type="button" data-action="progress">
+              Report progress
+            </button>
+            <button type="button" data-action="question">Ask a question</button>
+            <button type="button" data-action="final">
+              Return final result
+            </button>
+            <button type="button" data-action="wrongMessage">
+              Reply to another message
+            </button>
+            <button type="button" data-action="wrongSession">
+              Reply from another session
+            </button>
+          </fieldset>
+          <fieldset>
+            <legend>Devices</legend>
+            <button type="button" data-action="idle">
+              Participant goes idle
+            </button>
+            <button type="button" data-action="toggleBusy">
+              Toggle orchestrator busy
+            </button>
+            <button type="button" data-action="toggleHold">
+              You take / hand back the orchestrator session
+            </button>
+            <button type="button" data-action="toggleLab">
+              Toggle lab01 reachable
+            </button>
+            <button type="button" data-action="replaceSession">
+              Replace orchestrator session
+            </button>
+            <button type="button" data-action="toggleDrift">
+              Toggle mini config drift
+            </button>
+          </fieldset>
+          <fieldset>
+            <legend>Time and operator</legend>
+            <button type="button" data-action="deadline">
+              Pass the deadline
+            </button>
+            <button type="button" data-action="reconcile">
+              Operator: reconcile
+            </button>
+          </fieldset>
+          <fieldset>
+            <legend>View</legend>
+            <button type="button" data-action="disconnect">
+              Close the view
+            </button>
+            <button type="button" data-action="reconnect">
+              Reconnect the view
+            </button>
+            <button type="button" id="reset-all">Reset model</button>
+          </fieldset>
+        </div>
+        <div id="notice" class="note" role="status" aria-live="polite"></div>
+      </section>
+
+      <section aria-labelledby="fleet-title">
+        <h2 id="fleet-title">Devices and placements</h2>
+        <p class="hint">
+          A placement is a participant on a device, with one current session.
+          The router sends only when a fresh observation says the session is
+          idle, and never while one of its sends is unconfirmed. How many open
+          tasks a participant works on at once is its own decision.
+        </p>
+        <div id="fleet" class="fleet"></div>
+      </section>
+
+      <section class="grid" aria-label="Directory and decisions">
+        <div class="panel">
+          <h2>Participant directory</h2>
+          <p class="hint">
+            From the example configuration, not built into the router. Jev reads
+            these responsibilities in full; permissions decide who may address
+            whom.
+          </p>
+          <div id="directory"></div>
+        </div>
+        <div class="panel">
+          <h2>Jev decision</h2>
+          <p class="hint">
+            One scripted Choice over the sender's permitted participants plus
+            <em>none</em>. Below the threshold, the sender chooses. Addressed
+            requests and replies use no judgment.
+          </p>
+          <div id="decisions"></div>
+        </div>
+      </section>
+
+      <section class="grid" aria-label="Needs you, journal and event log">
+        <div class="panel">
+          <h2>Needs you</h2>
+          <p class="hint">
+            <code>needsYou(state, principal)</code>: the decisions only a person
+            can make. What a portable device shows first.
+          </p>
+          <div id="needs-you"></div>
+        </div>
+        <div class="panel">
+          <h2>Journal</h2>
+          <div id="journal"></div>
+        </div>
+        <div class="panel">
+          <h2>What happened</h2>
+          <ol id="trace" class="log" aria-label="Router event log"></ol>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="contract-title">
+        <h2 id="contract-title">The contract in one screen</h2>
+        <p class="hint">
+          A summary. The event table in
+          <a href="jev-router-spec.md">jev-router-spec.md</a> is authoritative.
+        </p>
+        <pre>
+submit         { messageId, text, to?, hosts? }  → receipt (same key + content = same task)
+judged         { choice, probabilities }         → recipient, or ask the sender
+attempt        { deliveryId }                    → recorded first; session marked busy
+adapterResult  accepted | not_sent | unknown     → not_sent requeues; unknown retries
+                                                   only with the same deduplicated key
+update         { inReplyTo, kind }               → working | question | completed | failed
+                                                   progress after a question settles it
+answer         { questionId, text }              → queued to the same pinned session
+observe        { ready?, hold?, session? }       → idle gate; hold = you are in the session
+resolve        (operator) finished | not_sent    → closes uncertainty; never resends
+
+Identity: sender principal + messageId. A reply must come from the
+delivery's pinned session and answer its current message.</pre>
+        <details>
+          <summary>Inspect the raw model state</summary>
+          <pre id="raw-state"></pre>
+        </details>
+      </section>
+      <footer>
+        <p>
+          Contract: <a href="jev-router-spec.md">jev-router-spec.md</a>. Model:
+          <code>router-core.js</code>; tests:
+          <code>node --test research/router-core.test.js</code>. The
+          <a href="jev-router-design.html">original design</a> is historical.
+        </p>
+      </footer>
+    </main>
+
+    <script src="router-core.js"></script>
+    <script src="router-example-config.js"></script>
+    <script>
+      // Throwaway view. The world below scripts Jev, adapters and participants;
+      // every decision goes through RouterCore.reduce.
+      const Core = window.RouterCore;
+      const ORCH_PLACEMENT = "orchestrator@mbp";
+      const devices = [
+        { id: "mba", role: "Main daily driver", dotfiles: true },
+        { id: "mbp", role: "Always-on Linux box · router", dotfiles: true },
+        { id: "mini", role: "Knowledge work box", dotfiles: true },
+        { id: "lab01", role: "Incus micro VM host", dotfiles: false },
+      ];
+      const workflows = {
+        coding: ["Implement", "Verify", "Review"],
+        dotfiles: ["Edit config source", "Validate mba / mbp / mini", "Review"],
+      };
+      // Scripted Jev answers: probability of each option, keyed by request text.
+      const presets = {
+        coding: {
+          label: "Coding: fix reply handling",
+          text: "Prepare a fix for reply handling in jev-a2a using the coding workflow.",
+          jev: { orchestrator: 0.95 },
+          workflow: "coding",
+        },
+        dotfiles: {
+          label: "Dotfiles: change harness settings",
+          text: "Prepare a shared harness settings change in dotfiles for mba, mbp and mini.",
+          jev: { orchestrator: 0.92, environment: 0.05 },
+          workflow: "dotfiles",
+        },
+        environment: {
+          label: "Inspect applied configs (addressed)",
+          text: "Inspect applied harness and environment configs.",
+          to: "environment",
+          hosts: ["mba", "mbp", "mini"],
+        },
+        knowledge: {
+          label: "Knowledge: summarize Incus notes",
+          text: "Summarize my notes on Incus micro VM tradeoffs.",
+          jev: { knowledge: 0.93, incus: 0.04 },
+        },
+        ambiguous: {
+          label: "Ambiguous: look into Incus",
+          text: "Look into Incus.",
+          jev: { incus: 0.55, knowledge: 0.38 },
+        },
+        vague: {
+          label: "Unclear: handle this",
+          text: "Handle this.",
+          jev: { none: 0.9 },
+        },
+        directed: {
+          label: "Addressed: orchestrator status",
+          text: "Report the status of the jev-a2a coding workflow.",
+          to: "orchestrator",
+        },
+        vm: {
+          label: "Orchestrator asks for a VM",
+          text: "Prepare a scratch micro VM on lab01 for a coding run.",
+          by: "orchestrator",
+          to: "incus",
+        },
+        forbidden: {
+          label: "Knowledge assistant asks for a VM",
+          text: "Create a VM for my experiment.",
+          by: "knowledge",
+          to: "incus",
+        },
+      };
+
+      const BLOCKED = {
+        not_ready: "waits for its session to be idle",
+        held: "waits while you are using its session",
+        in_flight: "waits for an unconfirmed send to the same session",
+        queued_behind:
+          "is queued behind an earlier request for the same session",
+        session_replaced:
+          "is pinned to a session that was replaced; an operator must reconcile it",
+        not_pending: "has nothing to send",
+        closed: "is closed",
+      };
+      const presetFor = (task) =>
+        Object.keys(presets).find((id) => presets[id].text === task?.text) ||
+        "vague";
+      let state;
+      let world;
+      let scenarioIndex = 0;
+      let stepIndex = 0;
+      let guided = true;
+      const $ = (id) => document.getElementById(id);
+      const escape = (value) =>
+        String(value ?? "").replace(
+          /[&<>"']/g,
+          (char) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[char],
+        );
+      const pretty = (value) => String(value ?? "").replaceAll("_", " ");
+      const name = (id) =>
+        state.config.participants.find((p) => p.id === id)?.name ||
+        (id === "none" ? "None" : id || "Not chosen");
+      const fact = (label, value) =>
+        `<div><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>`;
+
+      function reset(preset = "coding") {
+        state = Core.initial(window.RouterExampleConfig);
+        world = {
+          preset,
+          viewer: {
+            device: "mba",
+            surface: "Paseo",
+            connected: true,
+            saw: "No request",
+          },
+          replies: 0,
+          answers: 0,
+          stages: {},
+          config: { mba: "cfg-12", mbp: "cfg-12", mini: "cfg-12" },
+          actual: { mba: "cfg-12", mbp: "cfg-12", mini: "cfg-12" },
+          observed: {},
+          viewTask: null,
+          notice: null,
+        };
+        $("message-id").value = "M1";
+      }
+
+      // ---- World actions: each turns into one or more core events ----
+
+      const current = () =>
+        Core.findTask(state, world.viewTask) || state.tasks.at(-1);
+      const say = (ok, message) => {
+        world.notice = { ok, message };
+      };
+      const sessionOf = (participantId) => {
+        const placement = Object.values(state.placements).find(
+          (p) => p.participant === participantId,
+        );
+        return placement.session;
+      };
+      const event = (e) => {
+        state = Core.reduce(state, e);
+        if (e.type === "submit" && state.last.ok)
+          world.viewTask = state.last.taskId;
+        world.notice = state.last;
+      };
+      // The delivery a scripted participant would reply on: pinned, open, message sent.
+      const replyTarget = (task) =>
+        task?.deliveries.find(
+          (d) =>
+            Core.isOpen(d) &&
+            d.session &&
+            Core.currentSend(d).trail.includes("attempting"),
+        );
+      const attemptTarget = (task) =>
+        task?.deliveries.find(
+          (d) => Core.currentSend(d).outcome === "attempting",
+        );
+
+      function submit(
+        presetId = world.preset,
+        messageId = $("message-id").value.trim(),
+        text,
+      ) {
+        const preset = presets[presetId];
+        return event({
+          type: "submit",
+          by: preset.by ? sessionOf(preset.by) : "you",
+          messageId,
+          text: text ?? preset.text,
+          to: preset.to ?? null,
+          hosts: preset.hosts ?? null,
+          via: preset.by
+            ? `${name(preset.by)} session`
+            : `${world.viewer.surface} on ${world.viewer.device}`,
+        });
+      }
+
+      function routerStep() {
+        const task = current();
+        const work = Core.commands(state).filter(
+          (c) =>
+            !task ||
+            c.taskId === task.id ||
+            Core.findDelivery(state, c.deliveryId)?.taskId === task.id,
+        );
+        const next = work[0];
+        if (!next) {
+          const blocked = task?.deliveries.find(
+            (d) =>
+              Core.isOpen(d) &&
+              ["pending", "unknown"].includes(Core.currentSend(d).outcome),
+          );
+          const why = blocked ? Core.blockedReason(state, blocked) : null;
+          const message =
+            why && why !== "not_pending" && why !== "closed"
+              ? `Nothing to send: ${blocked.id} ${BLOCKED[why] || pretty(why)}.${Core.currentSend(blocked).outcome === "unknown" ? " Its unconfirmed send is retried with the same key once the session is idle." : ""}`
+              : task?.status === "needs_recipient"
+                ? "Nothing to send until the sender chooses a recipient."
+                : task?.status === "uncertain"
+                  ? "Nothing to send. Without deduplication an uncertain send is never repeated; a matching reply or an operator resolves it."
+                  : "No router step is pending for this request.";
+          say(false, message);
+          return;
+        }
+        if (next.type === "deliver") {
+          event({ type: "attempt", deliveryId: next.deliveryId });
+          return;
+        }
+        const preset = presets[presetFor(task)];
+        const options = Object.keys(next.question.criteria);
+        const scripted = preset.jev || { none: 0.9 };
+        const listed = Object.entries(scripted).filter(([id]) =>
+          options.includes(id),
+        );
+        const spare =
+          (1 - listed.reduce((sum, [, p]) => sum + p, 0)) /
+          (options.length - listed.length);
+        const probabilities = Object.fromEntries(
+          options.map((id) => [id, scripted[id] ?? spare]),
+        );
+        const choice = Object.entries(probabilities).sort(
+          (a, b) => b[1] - a[1],
+        )[0][0];
+        event({
+          type: "judged",
+          taskId: task.id,
+          choice,
+          probabilities,
+          model: "scripted",
+        });
+      }
+
+      function adapter(outcome) {
+        const task = current();
+        const delivery = attemptTarget(task);
+        if (!delivery) {
+          say(false, "No attempt is in progress for this request.");
+          return;
+        }
+        event({
+          type: "adapterResult",
+          deliveryId: delivery.id,
+          messageId: Core.currentSend(delivery).messageId,
+          outcome,
+        });
+      }
+
+      function resultText(task, delivery) {
+        if (delivery.participant === "environment") {
+          const host = delivery.host;
+          world.observed[host] = world.actual[host];
+          return world.actual[host] === world.config[host]
+            ? `${host}: applied ${world.actual[host]}, matches dotfiles.`
+            : `${host}: applied ${world.actual[host]}, drift from dotfiles ${world.config[host]}.`;
+        }
+        if (delivery.participant === "incus")
+          return "scratch-vm is ready on lab01.";
+        if (delivery.participant === "knowledge")
+          return "Your Incus notes summary is ready.";
+        return task.to === "orchestrator"
+          ? "Workflow status: green."
+          : `Prepared and reviewed the change on mbp.`;
+      }
+
+      function participantReply(kind, variant = null) {
+        const task = current();
+        const delivery = replyTarget(task);
+        if (!delivery) {
+          say(false, "No delivery has reached a participant yet.");
+          return;
+        }
+        let text = "";
+        if (kind === "working") {
+          const stages = workflows[presets[presetFor(task)].workflow] || [
+            "Working",
+          ];
+          const done = world.stages[delivery.id] || 0;
+          text = stages[Math.min(done, stages.length - 1)];
+          world.stages[delivery.id] = done + 1;
+        } else if (kind === "question")
+          text = "Stage the change on a branch, or open a PR?";
+        else text = resultText(task, delivery);
+        event({
+          type: "update",
+          by:
+            variant === "wrongSession"
+              ? `${delivery.participant}@elsewhere#9`
+              : delivery.session,
+          taskId: task.id,
+          messageId: `R${++world.replies}`,
+          inReplyTo:
+            variant === "wrongMessage"
+              ? "M-other"
+              : Core.currentSend(delivery).messageId,
+          kind,
+          text,
+        });
+      }
+
+      function answer() {
+        const task = current();
+        const question = task?.deliveries.find((d) => d.question)?.question;
+        const by =
+          task?.source === "you" ? "you" : task && sessionOf(task.source);
+        event({
+          type: "answer",
+          by,
+          taskId: task?.id,
+          messageId: `A${++world.answers}`,
+          questionId: question?.id ?? "none",
+          text: "A branch only; I will review it.",
+        });
+      }
+
+      function reconcile() {
+        const delivery = current()?.deliveries.find(
+          (d) => Core.isOpen(d) && d.session,
+        );
+        event({
+          type: "resolve",
+          by: "operator",
+          deliveryId: delivery?.id ?? "none",
+          messageId: delivery ? Core.currentSend(delivery).messageId : "none",
+          outcome: "finished",
+          evidence:
+            "Checked the session: the turn ended without a router reply.",
+        });
+      }
+
+      const toggleReady = (placement) =>
+        event({
+          type: "observe",
+          placement,
+          ready: !state.placements[placement].ready,
+        });
+
+      const actions = {
+        submit: () => submit(),
+        duplicate: () => {
+          const task = current();
+          if (!task) return say(false, "Submit a request first.");
+          submit(presetFor(task), task.messageId, task.text);
+        },
+        conflict: () => {
+          const task = current();
+          if (!task) return say(false, "Submit a request first.");
+          submit(presetFor(task), task.messageId, `${task.text} (changed)`);
+        },
+        answer,
+        cancel: () => {
+          const task = current();
+          event({
+            type: "cancel",
+            by: task?.source === "you" ? "you" : task && sessionOf(task.source),
+            taskId: task?.id,
+          });
+        },
+        step: routerStep,
+        accepted: () => adapter("accepted"),
+        unknown: () => adapter("unknown"),
+        notSent: () => adapter("not_sent"),
+        restart: () => event({ type: "restart" }),
+        progress: () => participantReply("working"),
+        question: () => participantReply("question"),
+        final: () => participantReply("completed"),
+        wrongMessage: () => participantReply("completed", "wrongMessage"),
+        wrongSession: () => participantReply("completed", "wrongSession"),
+        toggleBusy: () => toggleReady(ORCH_PLACEMENT),
+        toggleHold: () =>
+          event({
+            type: "observe",
+            placement: ORCH_PLACEMENT,
+            hold: !state.placements[ORCH_PLACEMENT].hold,
+          }),
+        idle: () => {
+          const placements = new Set(
+            (current()?.deliveries || []).map((d) => d.placement),
+          );
+          if (!placements.size)
+            return say(false, "No participant is involved yet.");
+          for (const placement of placements)
+            event({ type: "observe", placement, ready: true });
+        },
+        toggleLab: () => toggleReady("incus@lab01"),
+        replaceSession: () => {
+          const n =
+            Number(state.placements[ORCH_PLACEMENT].session.split("#")[1]) + 1;
+          event({
+            type: "observe",
+            placement: ORCH_PLACEMENT,
+            session: `${ORCH_PLACEMENT}#${n}`,
+          });
+        },
+        toggleDrift: () => {
+          world.actual.mini =
+            world.actual.mini === world.config.mini
+              ? "cfg-11"
+              : world.config.mini;
+          say(
+            true,
+            `mini's applied config is now ${world.actual.mini}. The last observation changes only when a new inspection returns.`,
+          );
+        },
+        deadline: () =>
+          event({
+            type: "tick",
+            now: Math.max(
+              state.now,
+              current()?.deadline ?? state.now + state.config.policy.deadline,
+            ),
+          }),
+        reconcile,
+        disconnect: () => {
+          world.viewer.connected = false;
+          say(true, "View closed. The router and participants carry on.");
+        },
+        reconnect: () => {
+          world.viewer.connected = true;
+          say(true, "View reconnected to the journal.");
+        },
+      };
+
+      function dispatch(action, fromGuide = false) {
+        if (typeof action === "function") action();
+        else actions[action]();
+        if (!fromGuide) guided = false;
+      }
+
+      // ---- Walkthroughs ----
+
+      const view = (device, surface) => () => {
+        world.viewer = { ...world.viewer, device, surface, connected: true };
+        say(
+          true,
+          `Viewing through ${surface} on ${device}. The same request; nothing moved.`,
+        );
+      };
+      const scenarios = [
+        {
+          id: "coding",
+          label: "Code from mba",
+          preset: "coding",
+          title: "Start on mba, read the result on mini",
+          description:
+            "One Jev judgment picks the orchestrator. The router records the attempt before calling Paseo, then keeps the result after your view closes.",
+          steps: [
+            ["Submit through Paseo on mba", "submit"],
+            ["Jev selects the orchestrator", "step"],
+            ["Record the attempt, then send", "step"],
+            ["Paseo accepts", "accepted"],
+            ["Close the mba view", "disconnect"],
+            ["Orchestrator: implement", "progress"],
+            ["Orchestrator: verify", "progress"],
+            ["Orchestrator: review", "progress"],
+            ["Orchestrator returns the result", "final"],
+            ["Read it through herdr on mini", view("mini", "herdr")],
+          ],
+        },
+        {
+          id: "dotfiles",
+          label: "Question and answer",
+          preset: "dotfiles",
+          title: "A participant asks; the answer reaches the same session",
+          description:
+            "Full responsibility notes let one judgment tell a dotfiles source change from a device inspection. The orchestrator asks one question; your answer is queued to its pinned session.",
+          steps: [
+            ["Submit the dotfiles change", "submit"],
+            ["Jev selects the orchestrator", "step"],
+            ["Record the attempt, then send", "step"],
+            ["Paseo accepts", "accepted"],
+            [
+              "Orchestrator asks and ends its turn",
+              () => {
+                actions.question();
+                actions.idle();
+              },
+            ],
+            ["Answer it", "answer"],
+            ["Send the answer", "step"],
+            ["Paseo accepts the answer", "accepted"],
+            [
+              "Edit, validate, review",
+              () => {
+                actions.progress();
+                actions.progress();
+                actions.progress();
+              },
+            ],
+            ["Return the prepared change", "final"],
+          ],
+        },
+        {
+          id: "environment",
+          label: "Check environments",
+          preset: "environment",
+          title: "One addressed request, three device deliveries",
+          description:
+            "An explicit recipient needs no Jev. Each device gets its own delivery and reply; one result cannot complete the others. mini reports drift as its answer. Had a host slept past the deadline, the task would end partial: the answers that arrived are the result.",
+          steps: [
+            ["Simulate drift on mini", "toggleDrift"],
+            ["Submit to the dotfiles service", "submit"],
+            ["Send to mba", "step"],
+            ["Send to mbp", "step"],
+            ["Send to mini", "step"],
+            ["mba replies (proves receipt)", "final"],
+            ["mbp replies", "final"],
+            ["mini reports drift", "final"],
+          ],
+        },
+        {
+          id: "incus",
+          label: "Unreachable device",
+          preset: "vm",
+          title: "The orchestrator asks a service for a VM",
+          description:
+            "Participants may address only what their permissions allow. An unreachable lab01 queues the request without changing its recipient.",
+          steps: [
+            ["Make lab01 unreachable", "toggleLab"],
+            ["Orchestrator submits the VM request", "submit"],
+            ["Try to send", "step"],
+            ["Bring lab01 back", "toggleLab"],
+            ["Send the queued request", "step"],
+            ["The service returns the VM", "final"],
+          ],
+        },
+        {
+          id: "parallel",
+          label: "Parallel work",
+          preset: "coding",
+          title: "The orchestrator decides how much runs at once",
+          description:
+            "Paseo cancels an active turn when prompted, so the router sends only to an idle session. Once the orchestrator hands a task to its subagents and ends its turn, the next task can go, while the first is still open.",
+          steps: [
+            ["The orchestrator is busy with your own prompt", "toggleBusy"],
+            ["Submit coding work", "submit"],
+            ["Jev selects the orchestrator", "step"],
+            ["Try to send", "step"],
+            ["The orchestrator becomes idle", "toggleBusy"],
+            ["Send", "step"],
+            ["Paseo accepts; the turn starts", "accepted"],
+            ["Submit a status request", () => submit("directed", "M2")],
+            ["Try to send it mid-turn", "step"],
+            [
+              "Orchestrator delegates to subagents and goes idle",
+              () => {
+                world.viewTask = "T1";
+                actions.progress();
+                actions.idle();
+              },
+            ],
+            [
+              "Send the status request",
+              () => {
+                world.viewTask = "T2";
+                routerStep();
+              },
+            ],
+            ["Paseo accepts", "accepted"],
+            ["Status answered first", "final"],
+            [
+              "The coding result follows",
+              () => {
+                world.viewTask = "T1";
+                actions.final();
+              },
+            ],
+          ],
+        },
+        {
+          id: "uncertain",
+          label: "Uncertain delivery",
+          preset: "directed",
+          title: "A restart keeps the uncertainty; the same key resolves it",
+          description:
+            "The router crashes mid-send. Repeating the request returns the same receipt. Paseo deduplicates by message ID, so the router retries with the same key: if the first send arrived, the retry is a no-op. Wrong replies change nothing.",
+          steps: [
+            ["Submit a status request", "submit"],
+            ["Record the attempt, then send", "step"],
+            ["Restart before the adapter answers", "restart"],
+            ["Repeat the same request", "duplicate"],
+            ["Try the next router step", "step"],
+            ["Paseo reports the session idle", "idle"],
+            ["Retry with the same message ID", "step"],
+            ["Paseo: already delivered, accepted", "accepted"],
+            ["Reply to another message", "wrongMessage"],
+            ["Reply from another session", "wrongSession"],
+            ["The matching reply arrives", "final"],
+          ],
+        },
+        {
+          id: "stuck",
+          label: "Stuck delivery",
+          preset: "directed",
+          title: "When even the retry cannot tell, an operator decides",
+          description:
+            "If the Paseo daemon crashed mid-send, its receipt stays pending and every retry answers unknown. The send keeps holding the session, even past the deadline, until an operator checks and reconciles it.",
+          steps: [
+            ["Submit a status request", "submit"],
+            ["Send", "step"],
+            ["The adapter's response is lost", "unknown"],
+            ["Paseo reports the session idle", "idle"],
+            ["Retry with the same message ID", "step"],
+            ["Paseo: outcome still unknown", "unknown"],
+            [
+              "Later, submit coding work",
+              () => {
+                event({ type: "tick", now: 50 });
+                submit("coding", "M2");
+              },
+            ],
+            ["Jev selects the orchestrator", "step"],
+            [
+              "Try to send it",
+              () => {
+                actions.idle();
+                routerStep();
+              },
+            ],
+            [
+              "Pass the first request's deadline",
+              () => {
+                world.viewTask = "T1";
+                actions.deadline();
+              },
+            ],
+            [
+              "Operator checks and reconciles",
+              () => {
+                world.viewTask = "T1";
+                reconcile();
+              },
+            ],
+            [
+              "The queued request is sent",
+              () => {
+                world.viewTask = "T2";
+                routerStep();
+              },
+            ],
+          ],
+        },
+        {
+          id: "vague",
+          label: "Unclear request",
+          preset: "vague",
+          title: "Ask the sender instead of guessing",
+          description:
+            "When Jev abstains or is not confident, no participant is involved. The sender names the recipient on the same task.",
+          steps: [
+            ["Submit a vague request", "submit"],
+            ["Jev abstains", "step"],
+            ["Try to continue", "step"],
+            [
+              "Choose the knowledge assistant",
+              () =>
+                event({
+                  type: "choose",
+                  by: "you",
+                  taskId: current().id,
+                  to: "knowledge",
+                }),
+            ],
+            ["Send", "step"],
+          ],
+        },
+      ];
+
+      function startScenario(index) {
+        scenarioIndex = index;
+        stepIndex = 0;
+        guided = true;
+        reset(scenarios[index].preset);
+        render();
+      }
+
+      // ---- Rendering ----
+
+      function renderCurrent() {
+        const task = current();
+        $("task-picker").innerHTML = state.tasks.length
+          ? state.tasks
+              .map(
+                (t) =>
+                  `<option value="${t.id}" ${t === task ? "selected" : ""}>${t.id} · ${escape(t.source)}/${escape(t.messageId)} · ${escape(pretty(t.status))}</option>`,
+              )
+              .join("")
+          : "<option>No requests yet</option>";
+        if (!task) {
+          $("current-state").innerHTML =
+            '<p class="block muted">No request yet. Start a walkthrough or submit one in free play.</p>';
+          return;
+        }
+        const attempts = task.deliveries.reduce(
+          (sum, d) =>
+            sum +
+            d.sends.reduce(
+              (n, s) => n + s.trail.filter((x) => x === "attempting").length,
+              0,
+            ),
+          0,
+        );
+        const question = task.deliveries.find((d) => d.question)?.question;
+        const choose =
+          task.routing?.state === "needs_recipient"
+            ? `<div class="note warn spaced"><strong>Choose a recipient</strong> (${escape(pretty(task.routing.reason))})<div class="toolbar spaced">${state.config.permissions[
+                task.source
+              ]
+                .map(
+                  (id) =>
+                    `<button type="button" data-choose="${id}">${escape(name(id))}${task.routing.suggestions.includes(id) ? " · suggested" : ""}</button>`,
+                )
+                .join("")}</div></div>`
+            : "";
+        $("current-state").innerHTML = `
+          <div class="summary">
+            <div><span class="label">Status</span><span class="value">${escape(pretty(task.status))}</span></div>
+            <div><span class="label">A2A state</span><span class="value">${escape(Core.A2A_STATE[task.status].replace("TASK_STATE_", ""))}</span></div>
+            <div><span class="label">Jev judgments</span><span class="value">${task.judgments.length}</span></div>
+            <div><span class="label">Attempts</span><span class="value">${attempts}</span></div>
+          </div>
+          <div class="block"><p><strong>${escape(task.text)}</strong></p><dl class="facts">
+            ${fact("Receipt", `${task.id} · ${task.source}/${task.messageId}`)}
+            ${fact("Submitted via", task.via || "Unspecified")}
+            ${fact("Recipient", task.recipient ? `${name(task.recipient)} (${task.chosenBy === "address" ? "addressed" : task.chosenBy === "judgment" ? "Jev" : "sender chose"})` : "Not chosen")}
+            ${fact("Deadline", `t=${task.deadline} (now t=${state.now})`)}
+            ${fact("Your view last saw", world.viewer.saw)}
+          </dl></div>
+          ${choose}
+          ${question ? `<div class="note warn spaced"><strong>Question ${escape(question.id)}:</strong> ${escape(question.text)}</div>` : ""}
+          ${
+            task.deliveries.length
+              ? `<div class="scroll spaced"><table><caption>Deliveries</caption><thead><tr><th>Device</th><th>Session</th><th>Message</th><th>Outcome</th><th>Result</th></tr></thead><tbody>${task.deliveries
+                  .map((d) => {
+                    const send = Core.currentSend(d);
+                    const end = d.end
+                      ? `${pretty(d.end.reason)}${d.end.text ? `: ${d.end.text}` : ""}`
+                      : Core.inFlight(d)
+                        ? "Open · unconfirmed, holds session"
+                        : "Open";
+                    return `<tr><td>${escape(d.host)}</td><td>${escape(d.session || "not pinned")}</td><td>${escape(send.messageId)}</td><td>${escape(pretty(send.outcome))}</td><td>${escape(end)}</td></tr>`;
+                  })
+                  .join("")}</tbody></table></div>`
+              : ""
+          }
+          ${task.late.length ? `<p class="hint spaced">Late evidence: ${escape(task.late.map((l) => `${l.deliveryId} ${l.kind}`).join(", "))}</p>` : ""}`;
+      }
+
+      function renderFleet() {
+        const deliveries = Core.allDeliveries(state);
+        $("fleet").innerHTML = devices
+          .map((device) => {
+            const placements = Object.entries(state.placements).filter(
+              ([, p]) => p.host === device.id,
+            );
+            return `<article class="panel"><div class="peer-head"><h3>${device.id}</h3></div><p class="hint">${escape(device.role)}</p>${placements
+              .map(([key, p]) => {
+                const holder = deliveries.find(
+                  (d) => d.placement === key && Core.inFlight(d),
+                );
+                const queued = deliveries.filter(
+                  (d) =>
+                    d.placement === key && Core.isOpen(d) && d.session === null,
+                ).length;
+                return `<div class="peer"><div class="peer-head"><strong>${escape(name(p.participant))}</strong><span class="tag ${p.ready && !p.hold ? "on" : ""}">${p.hold ? "Held by you" : p.ready ? "Ready" : "Not ready"}</span></div><p class="hint">${escape(p.session)}</p><p>${holder ? `In flight: ${holder.taskId}` : "Free"}${queued ? ` · ${queued} queued` : ""}</p></div>`;
+              })
+              .join(
+                "",
+              )}${device.dotfiles ? `<dl class="facts spaced">${fact("Dotfiles expects", world.config[device.id])}${fact("Last observed", world.observed[device.id] ? `${world.observed[device.id]}${world.observed[device.id] === world.config[device.id] ? " · matches" : " · drift"}` : "Not inspected")}</dl>` : ""}</article>`;
+          })
+          .join("");
+        $("directory").innerHTML = state.config.participants
+          .map(
+            (p) =>
+              `<div class="peer"><div class="peer-head"><strong>${escape(p.name)}</strong><span class="tag">${p.kind}</span><span class="tag">${p.hosts.join(" / ")}</span></div><p>${escape(p.responsibility)}</p><p class="hint">May address: ${escape((state.config.permissions[p.id] || []).map(name).join(", ") || "nobody")}${p.id === "orchestrator" ? " · Workflows: coding, dotfiles change" : ""}</p></div>`,
+          )
+          .join("");
+      }
+
+      function renderEvidence() {
+        const task = current();
+        const threshold = state.config.policy.threshold;
+        $("decisions").innerHTML = task?.judgments.length
+          ? task.judgments
+              .map((j) =>
+                j.valid
+                  ? `<div class="judgment">${Object.entries(j.probabilities)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(
+                        ([id, p]) =>
+                          `<div class="bar-row"><span>${escape(name(id))}</span><div class="track"><div class="bar" style="width:${p * 100}%"></div><div class="threshold" style="left:${threshold * 100}%" title="threshold"></div></div><span>${Math.round(p * 100)}%</span></div>`,
+                      )
+                      .join(
+                        "",
+                      )}<p class="hint">Choice: ${escape(name(j.choice))} · threshold ${threshold} · ${task.chosenBy === "judgment" ? "dispatched" : "sender asked to choose"}</p></div>`
+                  : `<p class="muted">Invalid Jev output; the sender was asked to choose.</p>`,
+              )
+              .join("") +
+            `<details><summary>What Jev was asked</summary><pre>${escape(JSON.stringify(Core.judgmentQuestion(state, task), null, 2))}</pre></details>`
+          : `<p class="muted">${task?.to ? "Addressed request: no judgment." : "Unaddressed requests show their judgment here."}</p>`;
+        const NEEDS = {
+          choose: (item) =>
+            `${item.taskId}: choose a recipient (${pretty(item.reason)}${item.suggestions.length ? `; Jev suggests ${item.suggestions.map(name).join(", ")}` : ""})`,
+          answer: (item) => `${item.taskId}: answer "${item.text}"`,
+          resolve: (item) =>
+            `${item.deliveryId}: reconcile ${item.messageId} (${pretty(item.reason)})`,
+        };
+        $("needs-you").innerHTML =
+          [
+            ["You", Core.needsYou(state, "you")],
+            ["Operator", Core.needsYou(state, "operator")],
+          ]
+            .filter(([, items]) => items.length)
+            .map(
+              ([who, items]) =>
+                `<div class="peer"><strong>${who}</strong>${items.map((item) => `<p>${escape(NEEDS[item.kind](item))}</p>`).join("")}</div>`,
+            )
+            .join("") || '<p class="muted">Nothing waits on a person.</p>';
+        $("journal").innerHTML = state.tasks.length
+          ? state.tasks
+              .map(
+                (t) =>
+                  `<div class="peer"><strong>${t.id} · ${escape(t.source)}/${escape(t.messageId)}</strong><p>${escape(pretty(t.status))} · ${escape(name(t.recipient))}</p><p class="hint">${t.final && t.final.status !== "canceled" ? `${t.final.completed} of ${t.final.of} deliveries completed${t.final.reason ? ` · ${escape(pretty(t.final.reason))}` : ""}` : `${t.deliveries.filter((d) => d.end).length}/${t.deliveries.length} deliveries closed`}</p></div>`,
+              )
+              .join("")
+          : '<p class="muted">Recorded requests appear here.</p>';
+        $("trace").innerHTML = state.log.length
+          ? state.log
+              .map(
+                (entry) =>
+                  `<li><small>${entry.n} · ${escape(entry.actor)}</small>${escape(entry.text)}</li>`,
+              )
+              .join("")
+          : '<li class="muted">Events appear here.</li>';
+        $("raw-state").textContent = JSON.stringify(state, null, 2);
+      }
+
+      function renderWalkthrough() {
+        $("scenario-tabs").innerHTML = scenarios
+          .map(
+            (s, i) =>
+              `<button type="button" role="tab" id="tab-${s.id}" aria-controls="walkthrough" aria-selected="${i === scenarioIndex}" tabindex="${i === scenarioIndex ? 0 : -1}" data-scenario="${i}">${escape(s.label)}</button>`,
+          )
+          .join("");
+        const scenario = scenarios[scenarioIndex];
+        const task = current();
+        $("walkthrough").setAttribute("aria-labelledby", `tab-${scenario.id}`);
+        const progress = !guided
+          ? "Free play changed the setup. Restart the walkthrough to follow its steps."
+          : stepIndex === scenario.steps.length
+            ? "Walkthrough complete. Inspect the request, placements and log, or try another."
+            : `Step ${stepIndex + 1} of ${scenario.steps.length}.`;
+        $("walkthrough").innerHTML =
+          `<div class="walk-header"><div><h3>${escape(scenario.title)}</h3><p>${escape(scenario.description)}</p></div><button type="button" id="restart-walkthrough">Restart walkthrough</button></div>
+          <p class="hint">${progress}</p>
+          <div class="note ${world.notice && !world.notice.ok ? "warn" : ""}"><strong>${task ? `${task.id} · ${escape(pretty(task.status))} · ${escape(name(task.recipient))}` : "No request yet"}</strong><p>${escape(world.notice?.message || "Press the highlighted step.")}</p></div>
+          <ol class="steps">${scenario.steps
+            .map(
+              ([label], i) =>
+                `<li><button type="button" data-step="${i}" ${!guided || i !== stepIndex ? "disabled" : 'class="primary"'}><span class="step-number">${i < stepIndex && guided ? "✓" : `${i + 1}.`}</span>${escape(label)}</button></li>`,
+            )
+            .join("")}</ol>`;
+      }
+
+      function render() {
+        const task = current();
+        if (world.viewer.connected)
+          world.viewer.saw = task
+            ? `${task.id}: ${pretty(task.status)}`
+            : "No request";
+        $("request-preset").innerHTML = Object.entries(presets)
+          .map(
+            ([id, p]) =>
+              `<option value="${id}" ${id === world.preset ? "selected" : ""}>${escape(p.label)}</option>`,
+          )
+          .join("");
+        $("view-device").innerHTML = devices
+          .map(
+            (d) =>
+              `<option ${d.id === world.viewer.device ? "selected" : ""}>${d.id}</option>`,
+          )
+          .join("");
+        $("view-surface").value = world.viewer.surface;
+        $("viewer-state").textContent =
+          `${world.viewer.connected ? "Connected" : "Closed"} · last saw ${world.viewer.saw}`;
+        $("notice").textContent =
+          world.notice?.message || "Submit a request, or follow a walkthrough.";
+        $("notice").classList.toggle(
+          "warn",
+          Boolean(world.notice && !world.notice.ok),
+        );
+        renderCurrent();
+        renderFleet();
+        renderEvidence();
+        renderWalkthrough();
+      }
+
+      document.addEventListener("click", (e) => {
+        const button = e.target.closest("button");
+        if (!button || button.disabled) return;
+        if (button.dataset.action) {
+          dispatch(button.dataset.action);
+          render();
+        } else if (button.dataset.choose) {
+          event({
+            type: "choose",
+            by:
+              current().source === "you" ? "you" : sessionOf(current().source),
+            taskId: current().id,
+            to: button.dataset.choose,
+          });
+          guided = false;
+          render();
+        } else if (button.dataset.scenario !== undefined) {
+          startScenario(Number(button.dataset.scenario));
+          $(`tab-${scenarios[scenarioIndex].id}`).focus();
+        } else if (button.dataset.step !== undefined) {
+          dispatch(scenarios[scenarioIndex].steps[stepIndex][1], true);
+          stepIndex++;
+          render();
+          (
+            document.querySelector(`[data-step="${stepIndex}"]`) ||
+            $("restart-walkthrough")
+          ).focus({ preventScroll: true });
+        } else if (button.id === "restart-walkthrough")
+          startScenario(scenarioIndex);
+        else if (button.id === "reset-all") startScenario(0);
+        else if (button.id === "new-message-id") {
+          let n = 1;
+          while (
+            Object.keys(state.receipts).some((key) => key.endsWith(`/M${n}`))
+          )
+            n++;
+          $("message-id").value = `M${n}`;
+        }
+      });
+      $("request-preset").addEventListener("change", (e) => {
+        world.preset = e.target.value;
+        guided = false;
+        render();
+      });
+      $("task-picker").addEventListener("change", (e) => {
+        world.viewTask = e.target.value;
+        render();
+      });
+      for (const id of ["view-device", "view-surface"])
+        $(id).addEventListener("change", () => {
+          dispatch(view($("view-device").value, $("view-surface").value));
+          render();
+        });
+      $("scenario-tabs").addEventListener("keydown", (e) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        const n = scenarios.length;
+        const next =
+          e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? n - 1
+              : (scenarioIndex + (e.key === "ArrowRight" ? 1 : -1) + n) % n;
+        startScenario(next);
+        $(`tab-${scenarios[next].id}`).focus();
+      });
+      window.routerPrototype = {
+        snapshot: () => structuredClone({ state, world }),
+      };
+      startScenario(0);
+    </script>
+  </body>
+</html>
