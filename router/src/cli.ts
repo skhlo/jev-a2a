@@ -8,7 +8,13 @@ import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
 import { describeNeed, newMessageId } from "./board.ts";
-import { bind, boardListener, eventsListener, type Run } from "./server.ts";
+import {
+  bind,
+  BindError,
+  boardListener,
+  eventsListener,
+  type Run,
+} from "./server.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
 import { openShell, type Shell } from "./shell.ts";
@@ -142,11 +148,15 @@ async function serve(config: RouterConfig): Promise<void> {
   const deps = { config, handle, log: (line: string) => console.log(line) };
   const events = createServer(eventsListener(deps, token));
   const board = createServer(boardListener(deps));
+  // A permanent failure exits 2 and the service unit does not restart it; an
+  // address that has not appeared yet exits 75 (EX_TEMPFAIL) and it does.
   try {
-    await bind(events, config.serve.listen, "events", { log: console.log });
-    await bind(board, config.serve.board, "board", { log: console.log });
+    await bind(events, config.serve.listen, "events", deps);
+    await bind(board, config.serve.board, "board", deps);
   } catch (error: unknown) {
-    fail(error instanceof Error ? error.message : String(error));
+    if (!(error instanceof BindError)) throw error;
+    console.error(error.message);
+    process.exit(error.transient ? 75 : 2);
   }
   console.log(`router serve listening on http://${config.serve.listen}`);
   console.log(`router board on http://${config.serve.board}`);

@@ -1,5 +1,6 @@
 // The two HTTP surfaces of `router serve`, as request listeners that take
-// their dependencies, so the guards can be tested without a process.
+// their dependencies, so the guards can be tested without a process; and
+// `bind`, which puts a listener on its address or says why it cannot.
 //
 // Events: replies and answers from other hosts, behind the bearer token.
 // Board: the page and its actions, on loopback behind Tailscale Serve,
@@ -205,10 +206,11 @@ export function boardListener(deps: ServerDeps): RequestListener {
 }
 
 // What `bind` needs of a server: enough to be faked in a test.
+type BindEvent = "error" | "listening";
 export type Bindable = {
-  listen(port: number, host: string, ready: () => void): unknown;
-  once(event: "error", handler: (error: Error) => void): unknown;
-  removeListener(event: "error", handler: (error: Error) => void): unknown;
+  listen(port: number, host: string): unknown;
+  once(event: BindEvent, handler: (error?: Error) => void): unknown;
+  removeListener(event: BindEvent, handler: (error?: Error) => void): unknown;
 };
 
 export type BindOptions = {
@@ -221,16 +223,27 @@ export type BindOptions = {
   sleep?: (ms: number) => Promise<void>;
 };
 
+// Why a bind failed, in a plain message. `transient` means trying again
+// later can succeed: the address may still appear.
+export class BindError extends Error {
+  override name = "BindError";
+  readonly transient: boolean;
+  constructor(message: string, transient: boolean) {
+    super(message);
+    this.transient = transient;
+  }
+}
+
 const errorCode = (error: unknown): string | undefined =>
   error instanceof Error && "code" in error && typeof error.code === "string"
     ? error.code
     : undefined;
 
-// Listens on `host:port`, or throws one plain sentence saying why not.
+// Listens on `host:port`, or throws a BindError saying why not.
 export async function bind(
   server: Bindable,
   address: string,
-  what: string,
+  what: "events" | "board",
   options: BindOptions = {},
 ): Promise<void> {
   const {
@@ -245,11 +258,15 @@ export async function bind(
   const port = Number(address.slice(at + 1));
   const attempt = (): Promise<void> =>
     new Promise((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(port, host, () => {
-        server.removeListener("error", reject);
-        resolve();
-      });
+      const done = (error?: Error): void => {
+        server.removeListener("error", done);
+        server.removeListener("listening", done);
+        if (error) reject(error);
+        else resolve();
+      };
+      server.once("error", done);
+      server.once("listening", done);
+      server.listen(port, host);
     });
   const deadline = now() + waitMs;
   let waited = false;
@@ -259,10 +276,16 @@ export async function bind(
     } catch (error: unknown) {
       const code = errorCode(error);
       if (code === "EADDRINUSE")
-        throw new Error(
-          `The ${what} address ${address} is in use. Is router serve already running? (systemctl --user status jev-router)`,
+        throw new BindError(
+          `The ${what} address ${address} is in use. Is router serve already running?`,
+          false,
         );
-      if (code === "EADDRNOTAVAIL" && now() < deadline) {
+      if (code === "EADDRNOTAVAIL") {
+        if (now() >= deadline)
+          throw new BindError(
+            `The ${what} address ${address} did not appear within ${Math.round(waitMs / 1000)}s.`,
+            true,
+          );
         if (!waited)
           log(
             `The ${what} address ${address} is not on this host yet; waiting.`,
@@ -272,7 +295,10 @@ export async function bind(
         continue;
       }
       const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(`The ${what} cannot listen on ${address}: ${reason}`);
+      throw new BindError(
+        `Cannot listen for ${what} on ${address}: ${reason}`,
+        false,
+      );
     }
   }
 }
