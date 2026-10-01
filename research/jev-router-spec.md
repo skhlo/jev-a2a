@@ -112,11 +112,12 @@ The same steps each time an agent joins the roster; the vault was the first
 2. Add labeled requests for the participant to `router/eval/requests.jsonl`,
    phrased differently from the examples in the text, with some that should
    go elsewhere or to `none`.
-3. Run `router eval`: no wrong dispatch at the configured threshold on the
-   whole set, since a new text shifts every other participant's
-   probabilities too.
-4. Then grant permissions. Nobody can address the participant before that,
-   and Jev never sees it.
+3. Run `router eval --config` on a candidate config that carries the new
+   text and the grant, since eval judges the participants the requester may
+   address: no wrong dispatch at the configured threshold on the whole set,
+   since a new text shifts every other participant's probabilities too.
+4. Then make the candidate the live config. Until the grant is live nobody
+   can address the participant, and Jev never sees it.
 
 Not configuration, by design: message identity, the delivery state machine,
 the eligibility rule, reply correlation, and what each event may do.
@@ -170,7 +171,7 @@ unpinned, no older unpinned delivery waits for the same placement.
 | Send only to an idle, unheld session; never while another router send to it is unconfirmed. An attempt marks the session busy until a newer observation; a replaced session is busy until observed. | A Paseo send to a running agent cancels its turn, and Paseo has no inbox. A stale "idle" would let the next send interrupt a turn.                                                            |
 | Open tasks do not block new ones. The participant decides serial or parallel.                                                                                                                       | An agent can hand work to subagents, end its turn, take the next task and reply per task. Correlation by task and message ID keeps interleaved replies apart.                                 |
 | One recipient per request; an addressed request may name several hosts of that recipient, one delivery each. Never fan out on ambiguity.                                                            | Lets one service be asked on several machines while keeping "never send to multiple suggestions".                                                                                             |
-| Jev: one Choice over the sender's permitted participants plus `none`, full responsibility text; dispatch only if the chosen probability meets the threshold (0.9, provisional).                     | TypeSafe's Choice docs advise the full list over a shortlist for small rosters; staged context is for hundreds of options. Addressed requests use zero judgments.                             |
+| Jev: one Choice over the sender's permitted participants plus `none`, full responsibility text; dispatch only if the chosen probability meets the threshold (0.75; decision 1).                     | TypeSafe's Choice docs advise the full list over a shortlist for small rosters; staged context is for hundreds of options. Addressed requests use zero judgments.                             |
 | The sender is the authenticated caller, never a field. Only the pinned session can reply, and only to a message sent on that delivery.                                                              | Anything else lets a stray or replayed message steer a task.                                                                                                                                  |
 | One outstanding question per delivery.                                                                                                                                                              | Keeps "what needs me" a single item per task.                                                                                                                                                 |
 | `unknown` is retried only through a deduplicating adapter, on the same session, when idle, before the deadline. Otherwise a matching reply or an operator `resolve` closes it.                      | With Paseo receipts a same-key retry confirms or makes the first send; it cannot run twice. A receipt stuck `pending` after a daemon crash stays unknown forever, so the operator path stays. |
@@ -314,12 +315,13 @@ actually used.
 texts of the configuration it is given, and prints each verdict and, per
 threshold, how many requests would be dispatched, how many of those wrongly,
 and how many handed back. A confident `none` is a hand-back, not a dispatch.
+A request Jev gave no usable answer for is reported and fails the run.
 Nothing is recorded; the set is the evidence a text or a threshold changes on.
 
 ## Open decisions
 
 1. Threshold and model: decided 2026-10-01 at 0.75 on `jev-1.13.0`, from
-   `router eval` on 40 labeled requests (Korean-heavy, 16 of them written to
+   `router eval` on 40 labeled requests (Korean-heavy, 13 of them written to
    be mis-routed) against the vault's own responsibility text: 36 correct,
    22 dispatched at 0.60 and 20 at 0.75 with no wrong dispatch, the worst
    wrong participant choice at 0.51. Rule: the most dispatches with zero

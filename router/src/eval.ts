@@ -1,8 +1,8 @@
 // `router eval`: the configured roster judged against labeled requests, so a
 // responsibility text or a threshold is changed on evidence. Pure except for
-// the judge it is handed; nothing here touches the journal.
+// the judge it is handed and reading the set; nothing here touches the journal.
 import { readFileSync } from "node:fs";
-import { routingQuestion } from "./core.ts";
+import { routingQuestion, validJudgment } from "./core.ts";
 import type { JudgeResult } from "./jev.ts";
 import type { JudgmentQuestion } from "./types.ts";
 
@@ -74,20 +74,40 @@ export async function evaluate(
 ): Promise<Verdict[]> {
   const verdicts: Verdict[] = [];
   for (const item of set) {
-    const result = await judge(routingQuestion(responsibilities, item.text));
+    const question = routingQuestion(responsibilities, item.text);
+    const result = await judge(question);
+    // An answer the router would hand back as invalid is not a dispatch here.
+    const usable =
+      result.ok &&
+      validJudgment(
+        Object.keys(question.criteria),
+        result.choice,
+        result.probabilities,
+      );
     verdicts.push(
-      result.ok
+      result.ok && usable
         ? {
             ...item,
             choice: result.choice,
             p: result.probabilities[result.choice] ?? 0,
             model: result.model,
           }
-        : { ...item, choice: null, p: 0, model: null, reason: result.reason },
+        : {
+            ...item,
+            choice: null,
+            p: 0,
+            model: null,
+            reason: result.ok ? "invalid judgment" : result.reason,
+          },
     );
   }
   return verdicts;
 }
+
+// Requests Jev gave no usable answer for. The curve counts them as handed
+// back, so a run with any of them is not evidence for a text or a threshold.
+export const unanswered = (verdicts: Verdict[]): number =>
+  verdicts.filter((v) => v.choice === null).length;
 
 export const correct = (v: Verdict): boolean => v.choice === v.expect;
 
@@ -135,6 +155,11 @@ export function renderEval(
       ? ` (answered by ${answered.join(", ")})`
       : "";
   lines.push("");
+  const missing = unanswered(verdicts);
+  if (missing)
+    lines.push(
+      `${missing} of ${verdicts.length} requests got no usable answer.`,
+    );
   lines.push(
     `${right}/${verdicts.length} correct on ${verdicts.length} requests, model ${model}${version}`,
   );

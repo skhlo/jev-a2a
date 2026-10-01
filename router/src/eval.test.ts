@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { curve, evaluate, parseSet, renderEval } from "./eval.ts";
-import { routingQuestion } from "./core.ts";
+import { responsibilityTexts, routingQuestion } from "./core.ts";
 import type { JudgeResult } from "./jev.ts";
 import base from "./example-config.ts";
 
@@ -93,12 +93,52 @@ test("evaluate asks the router's question; the curve counts dispatches and wrong
   const lines = renderEval(verdicts, curve(verdicts, [0.9]), "jev-test");
   assert.match(lines[1] ?? "", /^NO  ko scratch\s+knowledge 0\.70/);
   assert.match(lines[3] ?? "", /no answer \(429 after retry\)/);
+  assert.ok(lines.includes("1 of 4 requests got no usable answer."));
   assert.ok(
     lines.includes(
       "2/4 correct on 4 requests, model jev-test (answered by jev-9.9.9)",
     ),
   );
   assert.match(lines.at(-1) ?? "", /^0\.90\s+1\s+0\s+3$/);
+});
+
+test("an answer the router would refuse is no answer, not a dispatch", async () => {
+  const set = parseSet(
+    '{"text":"pong","expect":"scratch","lang":"ko"}',
+    options,
+  );
+  const verdicts = await evaluate(
+    set,
+    { knowledge: "Vault.", scratch: "Test." },
+    () =>
+      Promise.resolve({
+        ok: true,
+        choice: "knowledge",
+        // No probability for scratch: the router hands this back as invalid.
+        probabilities: { knowledge: 0.95, none: 0.05 },
+        confidence: null,
+        model: "jev-9.9.9",
+        usage: null,
+        ms: 1,
+      }),
+  );
+  assert.deepEqual(
+    verdicts.map((v) => [v.choice, v.reason]),
+    [[null, "invalid judgment"]],
+  );
+  assert.deepEqual(curve(verdicts, [0.6]), [
+    { threshold: 0.6, dispatched: 0, wrong: 0, handedBack: 1 },
+  ]);
+});
+
+test("the texts Jev sees follow the sender's permissions, in that order", () => {
+  const participants = base.participants.map((p) => ({ ...p }));
+  const [first, second] = participants.map((p) => p.id);
+  assert.ok(first && second);
+  assert.deepEqual(
+    Object.keys(responsibilityTexts(participants, [second, first])),
+    [second, first],
+  );
 });
 
 function answer(choice: string, p: number): JudgeResult {

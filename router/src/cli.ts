@@ -6,7 +6,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
-import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
+import {
+  A2A_STATE,
+  currentSend,
+  findTask,
+  needsYou,
+  responsibilityTexts,
+} from "./core.ts";
 import { describeNeed, newMessageId } from "./board.ts";
 import {
   bind,
@@ -17,7 +23,14 @@ import {
 } from "./server.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
-import { curve, evaluate, readSet, renderEval } from "./eval.ts";
+import {
+  curve,
+  evaluate,
+  readSet,
+  renderEval,
+  unanswered,
+  type Labeled,
+} from "./eval.ts";
 import { openShell, type Shell } from "./shell.ts";
 import type { Event, Role, State, Task } from "./types.ts";
 
@@ -184,19 +197,24 @@ async function evaluateSet(config: RouterConfig): Promise<void> {
   const sender = requester();
   const permitted = config.permissions?.[sender] ?? [];
   if (!permitted.length) fail(`${sender} may address nobody.`);
-  const responsibilities: Record<string, string> = {};
-  for (const participant of config.participants)
-    if (permitted.includes(participant.id))
-      responsibilities[participant.id] = participant.responsibility;
+  const responsibilities = responsibilityTexts(config.participants, permitted);
   const path =
     values.set ?? join(import.meta.dirname, "..", "eval", "requests.jsonl");
-  const set = readSet(path, [...Object.keys(responsibilities), "none"]);
+  let set: Labeled[];
+  try {
+    set = readSet(path, [...permitted, "none"]);
+  } catch (error: unknown) {
+    fail(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
   const model = values.model ?? config.jev.model;
   const verdicts = await evaluate(set, responsibilities, (question) =>
     judge(question, { ...config.jev, model, apiKey }),
   );
   for (const line of renderEval(verdicts, curve(verdicts), model))
     console.log(line);
+  // Unanswered requests read as hand-backs in the curve; do not pass for a
+  // clean run.
+  if (unanswered(verdicts)) process.exit(1);
 }
 
 async function main(shell: Shell, config: RouterConfig): Promise<number> {

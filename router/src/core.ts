@@ -299,10 +299,42 @@ export function commands(state: State): Command[] {
 // One Choice over the participants the sender could address when it asked,
 // plus an abstention.
 export function judgmentQuestion(state: State, task: Task): JudgmentQuestion {
-  const responsibilities: Record<string, string> = {};
-  for (const id of task.permitted)
-    responsibilities[id] = participant(state, id)?.responsibility ?? "";
-  return routingQuestion(responsibilities, task.text);
+  return routingQuestion(
+    responsibilityTexts(state.config.participants, task.permitted),
+    task.text,
+  );
+}
+
+// The texts Jev chooses among, in the order the sender's permissions list
+// them; `router eval` builds its question from the same.
+export function responsibilityTexts(
+  participants: Participant[],
+  permitted: string[],
+): Record<string, string> {
+  const texts: Record<string, string> = {};
+  for (const id of permitted)
+    texts[id] =
+      participants.find((entry) => entry.id === id)?.responsibility ?? "";
+  return texts;
+}
+
+// Whether a Choice answer is usable: the choice is an option, and the
+// probabilities cover exactly the options and sum to 1.
+export function validJudgment(
+  options: string[],
+  choice: string,
+  probabilities: unknown,
+): boolean {
+  if (!isRecord(probabilities)) return false;
+  const values = Object.values(probabilities);
+  return (
+    options.includes(choice) &&
+    Object.keys(probabilities).length === options.length &&
+    options.every((id) => id in probabilities) &&
+    values.every((p) => typeof p === "number" && p >= 0 && p <= 1) &&
+    Math.abs(values.reduce<number>((sum, p) => sum + (p as number), 0) - 1) <
+      0.01
+  );
 }
 
 // The question as Jev sees it, from the texts alone; `router eval` asks the
@@ -598,15 +630,7 @@ const handlers: Handlers = {
     if (!task || task.routing?.state !== "judging")
       return reject("not_routing", "No judgment is pending for this request.");
     const options = Object.keys(judgmentQuestion(state, task).criteria);
-    const values = isRecord(probabilities) ? Object.values(probabilities) : [];
-    const valid =
-      options.includes(choice) &&
-      isRecord(probabilities) &&
-      Object.keys(probabilities).length === options.length &&
-      options.every((id) => id in probabilities) &&
-      values.every((p) => typeof p === "number" && p >= 0 && p <= 1) &&
-      Math.abs(values.reduce<number>((sum, p) => sum + (p as number), 0) - 1) <
-        0.01;
+    const valid = validJudgment(options, choice, probabilities);
     const threshold = state.config.policy.threshold;
     task.judgments.push({
       choice,
