@@ -19,7 +19,7 @@ test("the committed set parses and names only known recipients", () => {
     ),
     options,
   );
-  assert.ok(set.length >= 24);
+  assert.ok(set.length >= 40);
   assert.ok(set.every((item) => ["ko", "en"].includes(item.lang)));
 });
 
@@ -91,7 +91,11 @@ test("evaluate asks the router's question; the curve counts dispatches and wrong
   const lines = renderEval(verdicts, curve(verdicts, [0.9]), "jev-test");
   assert.match(lines[1] ?? "", /^NO  ko scratch\s+knowledge 0\.70/);
   assert.match(lines[3] ?? "", /no answer \(429 after retry\)/);
-  assert.ok(lines.includes("2/4 correct on 4 requests, model jev-test"));
+  assert.ok(
+    lines.includes(
+      "2/4 correct on 4 requests, model jev-test (answered by jev-9.9.9)",
+    ),
+  );
   assert.match(lines.at(-1) ?? "", /^0\.90\s+1\s+0\s+3$/);
 });
 
@@ -108,7 +112,7 @@ function answer(choice: string, p: number): JudgeResult {
     choice,
     probabilities,
     confidence: null,
-    model: "jev-test",
+    model: "jev-9.9.9",
     usage: null,
     ms: 1,
   };

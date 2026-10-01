@@ -318,10 +318,14 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
 
 ## Open decisions
 
-1. Threshold: 0.9 provisional. A 24-request Korean-heavy sample showed that responsibility text
-   in the request's language moves probabilities more than the threshold
-   does; a labeled request set is still to be collected before pinning the
-   value and the Jev model version.
+1. Threshold and model: decided 2026-10-01 at 0.75 on `jev-1.13.0`, from
+   `router eval` on 40 labeled requests (Korean-heavy, 16 of them written to
+   be mis-routed) against the vault's own responsibility text: 36 correct,
+   22 dispatched at 0.60 and 20 at 0.75 with no wrong dispatch, the worst
+   wrong participant choice at 0.51. Rule: the most dispatches with zero
+   wrong ones, at the top of a plateau and with a margin of about 0.2 over
+   the worst wrong choice seen. Re-run when the roster or a text changes,
+   and before moving the pin.
 2. Authentication of participant replies: a local reply is trusted on
    `PASEO_AGENT_ID`; a reply over HTTP is trusted on the shared
    `ROUTER_TOKEN`, so any holder of the token can reply as any participant.
@@ -343,7 +347,11 @@ deployment can raise the threshold or add a participant without making its
 own record unreadable. Each task keeps the participants its sender could
 address when it asked, each judgment the threshold it was held to, and each
 delivery whether its participant deduplicated at the time. Placements are
-only ever added: a removed participant's open deliveries stay readable.
+only ever added: a removed participant's open deliveries stay readable. A
+record older than its first `configured` line was written under that first
+configuration, so the replay starts from it, not from today's (found
+2026-10-01, when lowering the threshold made a September hand-back into a
+dispatch and the choice that followed it unreadable).
 
 ## Verified live, and not
 

@@ -25,3 +25,21 @@
 {"text": "'미확인'은 언제 쓰는 거야?", "expect": "knowledge", "lang": "ko"}
 {"text": "이 문장 영어로 번역해줘", "expect": "none", "lang": "ko"}
 {"text": "Where should this filing's original go, and what collection status does it get?", "expect": "knowledge", "lang": "en"}
+# Added 2026-10-01 (008b). From the journal:
+{"text": "Delivery test only. Do NOT run any router command for this task. Just say ok.", "expect": "scratch", "lang": "en"}
+{"text": "Read-only question, do not change any file: in one or two sentences, what are the stages of the vault's status pipeline, in order?", "expect": "knowledge", "lang": "en"}
+{"text": "T25 답장의 두 초안을 그대로 승인한다. AGENTS.md에 상태 규칙 단락을 추가하고 responsibility.md를 만들어 볼트의 로컬 Git에 한 커밋으로 남겨줘.", "expect": "knowledge", "lang": "ko"}
+# Written to be mis-routed: the rubric says responsibility, not technology names.
+{"text": "라우터 설계 메모를 볼트에 노트로 정리해줘", "expect": "knowledge", "lang": "ko"}
+{"text": "타입스크립트 테스트 작성법에 대한 참고 노트 있는지 찾아줘", "expect": "knowledge", "lang": "ko"}
+{"text": "pong 테스트 결과를 산출물로 기록해줘", "expect": "knowledge", "lang": "ko"}
+{"text": "Draft a vault note on how the scratch participant was tested.", "expect": "knowledge", "lang": "en"}
+{"text": "이 산출물 검토 상태를 전문 검토 대기로 올려줘", "expect": "knowledge", "lang": "ko"}
+{"text": "테스트: '볼트'라는 단어 하나로 답해줘", "expect": "scratch", "lang": "ko"}
+{"text": "Ping test for the router, just reply pong.", "expect": "scratch", "lang": "en"}
+{"text": "지금 몇 시야? 짧게 답해", "expect": "scratch", "lang": "ko"}
+{"text": "볼트 스크립트의 파이썬 오류 고쳐줘", "expect": "none", "lang": "ko"}
+{"text": "mini에 node 버전 올려줘", "expect": "none", "lang": "ko"}
+{"text": "Change the router's threshold to 0.8 in the config.", "expect": "none", "lang": "en"}
+{"text": "미니 서버 재부팅해줘", "expect": "none", "lang": "ko"}
+{"text": "검토 파이프라인 설명하는 블로그 글 써서 발행해줘", "expect": "none", "lang": "ko"}

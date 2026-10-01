@@ -12,6 +12,7 @@ export type Labeled = { text: string; expect: string; lang: string };
 export type Verdict = Labeled & {
   choice: string | null; // null when Jev gave no usable answer
   p: number; // probability of the choice; 0 without an answer
+  model: string | null; // the version that answered, for the pin
   reason?: string;
 };
 
@@ -80,8 +81,9 @@ export async function evaluate(
             ...item,
             choice: result.choice,
             p: result.probabilities[result.choice] ?? 0,
+            model: result.model,
           }
-        : { ...item, choice: null, p: 0, reason: result.reason },
+        : { ...item, choice: null, p: 0, model: null, reason: result.reason },
     );
   }
   return verdicts;
@@ -125,9 +127,16 @@ export function renderEval(
     );
   }
   const right = verdicts.filter(correct).length;
+  const answered = [
+    ...new Set(verdicts.map((v) => v.model).filter((m) => m !== null)),
+  ];
+  const version =
+    answered.length && answered.join(",") !== model
+      ? ` (answered by ${answered.join(", ")})`
+      : "";
   lines.push("");
   lines.push(
-    `${right}/${verdicts.length} correct on ${verdicts.length} requests, model ${model}`,
+    `${right}/${verdicts.length} correct on ${verdicts.length} requests, model ${model}${version}`,
   );
   lines.push("threshold  dispatched  wrong  handed back");
   for (const point of points)

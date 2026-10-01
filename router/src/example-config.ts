@@ -9,7 +9,7 @@ import type { Config } from "./types.ts";
 
 const config: Config = {
   policy: {
-    threshold: 0.9, // provisional; tune on labeled routing examples
+    threshold: 0.9, // a deployment picks this with `router eval` on its own labeled set
     deadline: 100, // model ticks in the prototype; a real deployment uses time
     maxText: 4000,
     maxOpenTasks: 20,
