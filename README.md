@@ -33,8 +33,9 @@ router submit "Is this machine current with merged main of the dotfiles baseline
 1. The router records the request as a task.
 2. Jev chooses a participant among those the sender may address.
 3. The router sends the prompt to that participant's session on each of its
-   hosts, if the session is idle. A busy session gets it on a later
-   `router run` or when the next reply arrives; nothing runs on a schedule.
+   hosts, if the session is idle. A busy session gets it the next time the
+   router handles something and finds it idle (a request, a reply, an answer,
+   or `router run`); nothing runs on a schedule.
 4. The agent does the work and replies with the command from the envelope:
    `router reply --task T27 --in-reply-to <message> --kind completed --text "..."`.
 5. `router status T27` shows the result: here, `2 of 2 completed`, one reply
@@ -53,7 +54,7 @@ participant that runs on several hosts.
 | `router choose --task T --to P`                    | Name the recipient when the router handed the choice back      |
 | `router answer --task T --question Q --text ...`   | Answer a question an agent asked                               |
 | `router reply --task T --in-reply-to M --kind ...` | An agent's reply: `working`, `question`, `completed`, `failed` |
-| `router run`                                       | Observe the sessions and deliver what is waiting               |
+| `router run`                                       | Observe the sessions and deliver what is eligible              |
 | `router serve`                                     | Accept replies from other hosts over HTTP; serve the board     |
 | `router eval`                                      | Judge a labeled request set with the configured texts          |
 | `router cancel <task>`                             | Cancel a task                                                  |
@@ -68,13 +69,14 @@ participant that runs on several hosts.
 - what is waiting on you, with the action that clears it (choose a recipient,
   answer a question, cancel);
 - each agent session the router serves, as the router last observed it:
-  ready, busy or away, or held (a person holds a session with
+  `ready`, `busy or away`, or `held` (a person holds a session with
   `router observe <participant@host> --hold` while typing in it, so the
   router does not send there);
 - the tasks in progress and the last finished ones, each opening into the
   exchange with the agent.
 
-The board listens on loopback only, and opened directly it is read-only. Put
+The board listens on loopback only, and a browser that opens it directly gets
+a read-only page. Put
 it behind Tailscale Serve to reach it from another device and to act: the
 board takes the tailnet login Serve reports, and a login listed in
 `serve.identities` may act. `board.json` on the same address returns the
@@ -90,8 +92,8 @@ router's config copies it.
 
 Before a text or the threshold changes, `router eval` judges a labeled set of
 requests (`router/eval/requests.jsonl`) and prints how many would be
-dispatched, how many of those wrongly, and how many handed back. The rule a
-person applies to that output: a change goes live only with no wrong dispatch
+dispatched, how many of those wrongly, and how many handed back. Nothing
+enforces it, but the rule is: a change goes live only with no wrong dispatch
 at the configured threshold.
 
 ## Setup
@@ -125,7 +127,7 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
   `home` in the config points.
 - **Service:** `router/jev-router.service` runs `router serve` as a systemd
   user service; the install steps are at the top of that file. Its `PATH`
-  line assumes Node comes from mise; edit it otherwise.
+  line assumes Node comes from mise or `/usr/bin`; edit it otherwise.
 
 On a host that only replies, install `router/client/router.mjs` as `router` on
 the PATH. In the same secrets file give it `ROUTER_URL`, the router host's
