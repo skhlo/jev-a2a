@@ -2,10 +2,10 @@
 // misbehaves, and that the record survives a configuration change.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openShell, type ShellOptions } from "./shell.ts";
+import { coreConfig, openShell, type ShellOptions } from "./shell.ts";
 import { readJournal } from "./journal.ts";
 import {
   RouterBug,
@@ -213,6 +213,50 @@ test("a configuration change is recorded, and earlier events still replay", asyn
   // And the whole record still folds under the new configuration.
   shell = await openShell(configFor(home, strict), judged);
   assert.equal(shell.state.tasks.length, 2);
+  await shell.close();
+});
+
+test("a record older than its first configured line replays under that configuration", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  // Written on a day the threshold was 0.9 and nothing recorded it yet: the
+  // judgment at 0.85 handed back, and the person chose. Then the first
+  // configured line arrived.
+  const judged = {
+    type: "judged",
+    taskId: "T1",
+    choice: "orchestrator",
+    probabilities: {
+      orchestrator: 0.85,
+      knowledge: 0.05,
+      environment: 0.05,
+      incus: 0.05,
+      none: 0,
+    },
+  };
+  const old = coreConfig(configFor(home));
+  const lines = [
+    { type: "submit", by: "you", messageId: "M1", text: "Fix it" },
+    judged,
+    { type: "choose", by: "you", taskId: "T1", to: "orchestrator" },
+    { type: "configured", config: old },
+  ].map((event) => `${JSON.stringify({ at: "t", event })}\n`);
+  writeFileSync(join(home, "journal.jsonl"), lines.join(""));
+  // Today the threshold is 0.75: 0.85 would dispatch, and the choose would
+  // be refused, were the record folded under today's rules.
+  const today: Config = structuredClone(base);
+  today.policy.threshold = 0.75;
+  const shell = await openShell(configFor(home, today), scripted({}));
+  assert.equal(
+    shell.state.tasks[0]?.deliveries[0]?.participant,
+    "orchestrator",
+  );
+  assert.equal(shell.state.tasks[0]?.judgments[0]?.threshold, 0.9);
+  assert.equal(shell.state.config.policy.threshold, 0.75, "today's rules now");
+  assert.equal(
+    readJournal(home).filter((e) => e.event.type === "configured").length,
+    2,
+    "the change is recorded",
+  );
   await shell.close();
 });
 

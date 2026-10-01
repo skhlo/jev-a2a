@@ -1,12 +1,15 @@
 // One example deployment for the Jev router. The router core carries no
 // deployment of its own; the tests use this one.
 // Change participants, hosts, principals and permissions freely: the core
-// validates the shape, not the names.
+// validates the shape, not the names. Each responsibility text ends with
+// example requests in the languages its users write; they are what Jev
+// matches against, so a live text carries real ones, written by the agent's
+// owner next to its AGENTS.md. Spec: "Connecting a participant".
 import type { Config } from "./types.ts";
 
 const config: Config = {
   policy: {
-    threshold: 0.9, // provisional; tune on labeled routing examples
+    threshold: 0.9, // a deployment picks this with `router eval` on its own labeled set
     deadline: 100, // model ticks in the prototype; a real deployment uses time
     maxText: 4000,
     maxOpenTasks: 20,
@@ -24,7 +27,7 @@ const config: Config = {
       hosts: ["mbp"],
       idempotent: true, // Paseo SDK send with a router message ID
       responsibility:
-        "Coding across every repository, including changes to dotfiles source and harness settings, using its configured workflows. Not for inspecting what is applied on a device.",
+        "Coding across every repository, including changes to dotfiles source and harness settings, using its configured workflows. Not for inspecting what is applied on a device. Examples: 'Fix the failing TypeScript build in the router repo', '라우터 저장소에 테스트 케이스 추가해줘', 'Add a pre-commit hook to the dotfiles'.",
     },
     {
       id: "knowledge",
@@ -33,7 +36,7 @@ const config: Config = {
       hosts: ["mini"],
       idempotent: true,
       responsibility:
-        "Notes, research and synthesis, including notes about Incus or any other technology. Not for live machine operations.",
+        "Notes, research and synthesis, including notes about Incus or any other technology. Not for live machine operations. 예시: '볼트에 있는 노트 구조 설명해줘', '이 주제로 노트 초안 작성해줘', 'What are the stages of the review pipeline?'.",
     },
     {
       id: "environment",
@@ -42,7 +45,7 @@ const config: Config = {
       hosts: ["mba", "mbp", "mini"],
       idempotent: true, // router-owned service; must deduplicate by message key
       responsibility:
-        "Inspects the harness and environment configuration applied on mba, mbp and mini. Never changes dotfiles source.",
+        "Inspects the harness and environment configuration applied on mba, mbp and mini. Never changes dotfiles source. Examples: 'Which shell config is active on mini?', 'mbp에 적용된 git 설정 보여줘'.",
     },
     {
       id: "incus",
@@ -51,7 +54,7 @@ const config: Config = {
       hosts: ["lab01"],
       idempotent: true,
       responsibility:
-        "Performs configured micro VM operations on lab01. Not for questions or notes about Incus.",
+        "Performs configured micro VM operations on lab01. Not for questions or notes about Incus. Examples: 'Start the ci-runner VM', 'lab01의 VM 목록 보여줘'.",
     },
   ],
   // Who may address whom. Absent means nobody.

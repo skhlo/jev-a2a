@@ -11,6 +11,7 @@ import {
   findTask,
   initial,
   reduce,
+  validateConfig,
 } from "./core.ts";
 import type { RouterConfig } from "./config.ts";
 import { openJournal, type Entry } from "./journal.ts";
@@ -69,8 +70,14 @@ const canonical = (value: unknown): string =>
       : v,
   );
 
+// A record that predates its first `configured` line was written under that
+// configuration, not under today's: start from it, so the rules of the time
+// hold for the whole record.
 export function fold(config: RouterConfig, entries: Entry[]): State {
-  let state = initial(coreConfig(config));
+  const first = entries.find((e) => e.event.type === "configured")?.event;
+  let state = initial(
+    first ? validateConfig(first.config) : coreConfig(config),
+  );
   for (const { event } of entries) {
     // The journal holds events the core accepted; the core re-validates on
     // replay and the throw below catches anything that no longer fits.
