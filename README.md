@@ -33,26 +33,27 @@ router submit "Is this machine current with merged main of the dotfiles baseline
 1. The router records the request as a task.
 2. Jev chooses a participant among those the sender may address.
 3. The router sends the prompt to that participant's session on each of its
-   hosts, once the session is idle.
+   hosts, if the session is idle. A busy session gets it on a later
+   `router run` or when the next reply arrives; nothing runs on a schedule.
 4. The agent does the work and replies with the command from the envelope:
    `router reply --task T27 --in-reply-to <message> --kind completed --text "..."`.
 5. `router status T27` shows the result: here, `2 of 2 completed`, one reply
    per host.
 
-Use `--to <participant>` to skip Jev, and `--hosts a,b` to narrow a participant
-that runs on several hosts.
+Use `--to <participant>` to skip Jev. With `--to`, `--hosts a,b` narrows a
+participant that runs on several hosts.
 
 ## Commands
 
 | Command                                            | What it does                                                   |
 | -------------------------------------------------- | -------------------------------------------------------------- |
-| `router submit [--to P] [--hosts a,b] <text>`      | Record a request and deliver it                                |
+| `router submit [--to P [--hosts a,b]] <text>`      | Record a request and deliver it                                |
 | `router status [<task>]`                           | Show the record                                                |
 | `router needs-you`                                 | List decisions waiting on a person                             |
 | `router choose --task T --to P`                    | Name the recipient when the router handed the choice back      |
 | `router answer --task T --question Q --text ...`   | Answer a question an agent asked                               |
 | `router reply --task T --in-reply-to M --kind ...` | An agent's reply: `working`, `question`, `completed`, `failed` |
-| `router run`                                       | Observe the sessions and deliver what is eligible              |
+| `router run`                                       | Observe the sessions and deliver what is waiting               |
 | `router serve`                                     | Accept replies from other hosts over HTTP; serve the board     |
 | `router eval`                                      | Judge a labeled request set with the configured texts          |
 | `router cancel <task>`                             | Cancel a task                                                  |
@@ -65,17 +66,19 @@ that runs on several hosts.
 (`serve.board`). It reads the same record as the CLI and shows:
 
 - what is waiting on you, with the action that clears it (choose a recipient,
-  answer a question);
-- each agent session the router serves, and whether it is ready or held
-  (a person holds a session with `router observe <participant@host> --hold`
-  while typing in it, so the router does not send there);
+  answer a question, cancel);
+- each agent session the router serves, as the router last observed it:
+  ready, busy or away, or held (a person holds a session with
+  `router observe <participant@host> --hold` while typing in it, so the
+  router does not send there);
 - the tasks in progress and the last finished ones, each opening into the
   exchange with the agent.
 
-The board listens on loopback only. To reach it from another device, put it
-behind Tailscale Serve; the board then knows who is looking from the tailnet
-login, and only a login listed in `serve.identities` may act. `board.json` on
-the same address returns the page's data.
+The board listens on loopback only, and opened directly it is read-only. Put
+it behind Tailscale Serve to reach it from another device and to act: the
+board takes the tailnet login Serve reports, and a login listed in
+`serve.identities` may act. `board.json` on the same address returns the
+page's data.
 
 ## Participants and responsibility texts
 
@@ -87,8 +90,9 @@ router's config copies it.
 
 Before a text or the threshold changes, `router eval` judges a labeled set of
 requests (`router/eval/requests.jsonl`) and prints how many would be
-dispatched, how many of those wrongly, and how many handed back. A change goes
-live only with no wrong dispatch at the configured threshold.
+dispatched, how many of those wrongly, and how many handed back. The rule a
+person applies to that output: a change goes live only with no wrong dispatch
+at the configured threshold.
 
 ## Setup
 
@@ -120,7 +124,8 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
 - **Record:** the journal lives in `~/.local/state/jev-router/`, or wherever
   `home` in the config points.
 - **Service:** `router/jev-router.service` runs `router serve` as a systemd
-  user service; the install steps are at the top of that file.
+  user service; the install steps are at the top of that file. Its `PATH`
+  line assumes Node comes from mise; edit it otherwise.
 
 On a host that only replies, install `router/client/router.mjs` as `router` on
 the PATH. In the same secrets file give it `ROUTER_URL`, the router host's
@@ -154,9 +159,12 @@ CI runs these plus `node --test router-core.test.js` in `research/`.
 - A session is only sent to when the router has just seen it idle. A turn a
   person starts in between is the one race left; holding the session closes
   it.
+- The board trusts the login header Tailscale Serve sets, so anything that
+  can reach its loopback port can claim a login.
+- A participant on another host cannot submit work: the reply client only
+  replies.
 - Not exercised live: a host that is down for a whole run, token rotation,
-  a participant on another host submitting work, and throughput. The spec
-  keeps the full list.
+  and throughput. The spec keeps the full list.
 
 ## License
 
