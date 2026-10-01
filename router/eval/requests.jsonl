@@ -1,16 +1,18 @@
 # Labeled routing requests: the 24 of 003 round 3 (2026-09-30), against the
 # live roster of that day (knowledge on mini, the scratch test participant).
+# The scratch participant left the roster on 2026-10-02; its seven requests
+# now expect none, since no one owns a test ping.
 # One JSON object per line: text, expect (participant id or none), lang.
 {"text": "볼트의 검토 파이프라인 단계가 뭐야?", "expect": "knowledge", "lang": "ko"}
 {"text": "전문 검토 대기 상태인 항목이 몇 개인지 알려줘", "expect": "knowledge", "lang": "ko"}
 {"text": "라우터 설계 요약을 볼트 노트로 써줘", "expect": "knowledge", "lang": "ko"}
 {"text": "vault의 source collection 상태 종류를 알려줘", "expect": "knowledge", "lang": "ko"}
-{"text": "테스트 참가자: pong이라고 답해줘", "expect": "scratch", "lang": "ko"}
-{"text": "짧은 테스트야, 오늘 날짜만 답해", "expect": "scratch", "lang": "ko"}
+{"text": "테스트 참가자: pong이라고 답해줘", "expect": "none", "lang": "ko"}
+{"text": "짧은 테스트야, 오늘 날짜만 답해", "expect": "none", "lang": "ko"}
 {"text": "금요일 저녁 네 명 자리 예약해줘", "expect": "none", "lang": "ko"}
 {"text": "라우터 코어의 타입스크립트 버그를 고쳐줘", "expect": "none", "lang": "ko"}
 {"text": "What are the stages of the vault's review pipeline?", "expect": "knowledge", "lang": "en"}
-{"text": "Test participant: reply with the word pong.", "expect": "scratch", "lang": "en"}
+{"text": "Test participant: reply with the word pong.", "expect": "none", "lang": "en"}
 {"text": "Fix the failing TypeScript build in the router repo.", "expect": "none", "lang": "en"}
 {"text": "수신함 정리 좀 해줘", "expect": "knowledge", "lang": "ko"}
 {"text": "이 공시 원문 어디에 두는 게 맞아?", "expect": "knowledge", "lang": "ko"}
@@ -26,7 +28,7 @@
 {"text": "이 문장 영어로 번역해줘", "expect": "none", "lang": "ko"}
 {"text": "Where should this filing's original go, and what collection status does it get?", "expect": "knowledge", "lang": "en"}
 # Added 2026-10-01 (008b). From the journal:
-{"text": "Delivery test only. Do NOT run any router command for this task. Just say ok.", "expect": "scratch", "lang": "en"}
+{"text": "Delivery test only. Do NOT run any router command for this task. Just say ok.", "expect": "none", "lang": "en"}
 {"text": "Read-only question, do not change any file: in one or two sentences, what are the stages of the vault's status pipeline, in order?", "expect": "knowledge", "lang": "en"}
 {"text": "T25 답장의 두 초안을 그대로 승인한다. AGENTS.md에 상태 규칙 단락을 추가하고 responsibility.md를 만들어 볼트의 로컬 Git에 한 커밋으로 남겨줘.", "expect": "knowledge", "lang": "ko"}
 # Written to be mis-routed: the rubric says responsibility, not technology names.
@@ -35,9 +37,9 @@
 {"text": "pong 테스트 결과를 산출물로 기록해줘", "expect": "knowledge", "lang": "ko"}
 {"text": "Draft a vault note on how the scratch participant was tested.", "expect": "knowledge", "lang": "en"}
 {"text": "이 산출물 검토 상태를 전문 검토 대기로 올려줘", "expect": "knowledge", "lang": "ko"}
-{"text": "테스트: '볼트'라는 단어 하나로 답해줘", "expect": "scratch", "lang": "ko"}
-{"text": "Ping test for the router, just reply pong.", "expect": "scratch", "lang": "en"}
-{"text": "지금 몇 시야? 짧게 답해", "expect": "scratch", "lang": "ko"}
+{"text": "테스트: '볼트'라는 단어 하나로 답해줘", "expect": "none", "lang": "ko"}
+{"text": "Ping test for the router, just reply pong.", "expect": "none", "lang": "en"}
+{"text": "지금 몇 시야? 짧게 답해", "expect": "none", "lang": "ko"}
 {"text": "볼트 스크립트의 파이썬 오류 고쳐줘", "expect": "none", "lang": "ko"}
 {"text": "mini에 node 버전 올려줘", "expect": "none", "lang": "ko"}
 {"text": "Change the router's threshold to 0.8 in the config.", "expect": "none", "lang": "en"}

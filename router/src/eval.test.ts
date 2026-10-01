@@ -11,7 +11,7 @@ import base from "./example-config.ts";
 
 const options = ["knowledge", "scratch", "none"];
 // The live roster the committed set is labeled against.
-const roster = ["knowledge", "scratch", "dotfiles", "dotfiles-host", "none"];
+const roster = ["knowledge", "dotfiles", "dotfiles-host", "none"];
 
 test("the committed set parses and names only known recipients", () => {
   const set = parseSet(
