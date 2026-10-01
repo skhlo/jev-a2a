@@ -359,6 +359,13 @@ Deployment decisions taken on 2026-09-30, outside the contract:
   moves 검토 완료 → 확정/폐기. A view shows items in those two states next to
   the router's "needs you" list; the router itself knows nothing of them. The
   rule lives in the vault's own `AGENTS.md`.
+- `router serve` runs as a systemd user service on the router host
+  (`router/jev-router.service`, decided 2026-10-01): restarts on failure,
+  logs to journald, starts at boot under linger. It binds the tailnet
+  address, which at boot arrives after the service; `serve` waits for it
+  instead of failing. One instance per host: the second finds the port taken
+  and says so. Deliveries still happen only on events and runs; the service
+  adds no schedule.
 - The vault participant's responsibility text is authored next to the vault's
   `AGENTS.md`, from its role section and the `CONTEXT.md` glossary, with
   example requests in Korean, and is refreshed when those change. The router

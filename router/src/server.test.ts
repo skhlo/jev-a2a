@@ -5,7 +5,16 @@ import { createServer, type Server } from "node:http";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { boardListener, eventsListener, sameSite, type Run } from "./server.ts";
+import {
+  bind,
+  BindError,
+  boardListener,
+  eventsListener,
+  sameSite,
+  type Bindable,
+  type BindOptions,
+  type Run,
+} from "./server.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
@@ -241,3 +250,109 @@ test("board: a record the code cannot replay is a 500, not a crash", async () =>
     server.close();
   }
 });
+
+test(
+  "bind: a taken port is permanent; an absent address is waited for, then given up as transient",
+  { timeout: 10_000 },
+  async () => {
+    const first = createServer();
+    const url = await serve(first);
+    const port = new URL(url).port;
+    const second = createServer();
+    const third = createServer();
+    try {
+      await assert.rejects(
+        bind(second, `127.0.0.1:${port}`, "board"),
+        (error: unknown) =>
+          error instanceof BindError &&
+          !error.transient &&
+          /^The board address 127\.0\.0\.1:\d+ is in use\. Is router serve already running\?$/.test(
+            error.message,
+          ),
+      );
+      // 192.0.2.1 is documentation space and on no interface here.
+      await assert.rejects(
+        bind(third, "192.0.2.1:0", "events", { waitMs: 0 }),
+        (error: unknown) =>
+          error instanceof BindError &&
+          error.transient &&
+          error.message ===
+            "The events address 192.0.2.1:0 did not appear within 0s.",
+      );
+    } finally {
+      first.close();
+      second.close();
+      third.close();
+    }
+    // A fake server that models Node: listeners stay attached after a
+    // failed listen unless removed. It fails `failures` times, then binds.
+    const fake = (
+      failures: number,
+    ): Bindable & { attempts: number; attached: () => number } => {
+      const handlers = new Map<string, Set<(error?: Error) => void>>();
+      const emit = (event: string, error?: Error): void => {
+        for (const handler of handlers.get(event) ?? []) handler(error);
+      };
+      const server = {
+        attempts: 0,
+        attached: () =>
+          [...handlers.values()].reduce((n, set) => n + set.size, 0),
+        listen: () => {
+          server.attempts += 1;
+          const error = Object.assign(new Error("listen EADDRNOTAVAIL"), {
+            code: "EADDRNOTAVAIL",
+          });
+          setImmediate(() =>
+            server.attempts <= failures
+              ? emit("error", error)
+              : emit("listening"),
+          );
+        },
+        once: (event: string, handler: (error?: Error) => void) => {
+          handlers.set(event, (handlers.get(event) ?? new Set()).add(handler));
+        },
+        removeListener: (event: string, handler: (error?: Error) => void) => {
+          handlers.get(event)?.delete(handler);
+        },
+      };
+      return server;
+    };
+    const clock = (): BindOptions & { lines: string[]; slept: number[] } => {
+      let t = 0;
+      const o = {
+        lines: [] as string[],
+        slept: [] as number[],
+        waitMs: 5_000,
+        pollMs: 2_000,
+        log: (line: string) => o.lines.push(line),
+        now: () => t,
+        sleep: (ms: number) => {
+          o.slept.push(ms);
+          t += ms;
+          return Promise.resolve();
+        },
+      };
+      return o;
+    };
+    // Two failures, then the address is there: reported once.
+    const late = fake(2);
+    const a = clock();
+    await bind(late, "[::1]:7677", "events", a);
+    assert.equal(late.attempts, 3);
+    assert.deepEqual(a.slept, [2_000, 2_000]);
+    assert.deepEqual(a.lines, [
+      "The events address [::1]:7677 is not on this host yet; waiting.",
+    ]);
+    assert.equal(late.attached(), 0, "no listener left behind");
+    // Never there: retried until the deadline, then given up as transient.
+    const never = fake(Infinity);
+    const b = clock();
+    await assert.rejects(
+      bind(never, "[::1]:7677", "events", b),
+      (error: unknown) => error instanceof BindError && error.transient,
+    );
+    assert.equal(never.attempts, 4, "0s, 2s, 4s, and once past 5s");
+    assert.equal(b.lines.length, 1);
+    assert.equal(never.attached(), 0);
+  },
+);

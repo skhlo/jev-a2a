@@ -8,7 +8,13 @@ import { createServer } from "node:http";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import { A2A_STATE, currentSend, findTask, needsYou } from "./core.ts";
 import { describeNeed, newMessageId } from "./board.ts";
-import { boardListener, eventsListener, type Run } from "./server.ts";
+import {
+  bind,
+  BindError,
+  boardListener,
+  eventsListener,
+  type Run,
+} from "./server.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
 import { openShell, type Shell } from "./shell.ts";
@@ -142,14 +148,16 @@ async function serve(config: RouterConfig): Promise<void> {
   const deps = { config, handle, log: (line: string) => console.log(line) };
   const events = createServer(eventsListener(deps, token));
   const board = createServer(boardListener(deps));
-  const listen = (s: typeof events, address: string): Promise<void> => {
-    const [host, port] = address.split(":");
-    return new Promise((resolve) =>
-      s.listen(Number(port), host, () => resolve()),
-    );
-  };
-  await listen(events, config.serve.listen);
-  await listen(board, config.serve.board);
+  // A permanent failure exits 2 and the service unit does not restart it; an
+  // address that has not appeared yet exits 75 (EX_TEMPFAIL) and it does.
+  try {
+    await bind(events, config.serve.listen, "events", deps);
+    await bind(board, config.serve.board, "board", deps);
+  } catch (error: unknown) {
+    if (!(error instanceof BindError)) throw error;
+    console.error(error.message);
+    process.exit(error.transient ? 75 : 2);
+  }
   console.log(`router serve listening on http://${config.serve.listen}`);
   console.log(`router board on http://${config.serve.board}`);
   await new Promise<void>((resolve) => {
