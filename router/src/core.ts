@@ -299,16 +299,26 @@ export function commands(state: State): Command[] {
 // One Choice over the participants the sender could address when it asked,
 // plus an abstention.
 export function judgmentQuestion(state: State, task: Task): JudgmentQuestion {
-  const criteria: Record<string, string> = {};
+  const responsibilities: Record<string, string> = {};
   for (const id of task.permitted)
-    criteria[id] = participant(state, id)?.responsibility ?? "";
-  criteria.none =
-    "No listed responsibility clearly owns this request, or it lacks context.";
+    responsibilities[id] = participant(state, id)?.responsibility ?? "";
+  return routingQuestion(responsibilities, task.text);
+}
+
+// The question as Jev sees it, from the texts alone; `router eval` asks the
+// same one, so what it measures is what the router sends.
+export function routingQuestion(
+  responsibilities: Record<string, string>,
+  text: string,
+): JudgmentQuestion {
   return {
-    state: { request: task.text },
+    state: { request: text },
     instructions:
       "Which participant owns this request? Choose by responsibility, not by technology names mentioned. Choose none when no owner is clear.",
-    criteria,
+    criteria: {
+      ...responsibilities,
+      none: "No listed responsibility clearly owns this request, or it lacks context.",
+    },
   };
 }
 

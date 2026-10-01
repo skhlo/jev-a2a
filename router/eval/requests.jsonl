@@ -1,0 +1,27 @@
+# Labeled routing requests: the 24 of 003 round 3 (2026-09-30), against the
+# live roster of that day (knowledge on mini, the scratch test participant).
+# One JSON object per line: text, expect (participant id or none), lang.
+{"text": "볼트의 검토 파이프라인 단계가 뭐야?", "expect": "knowledge", "lang": "ko"}
+{"text": "전문 검토 대기 상태인 항목이 몇 개인지 알려줘", "expect": "knowledge", "lang": "ko"}
+{"text": "라우터 설계 요약을 볼트 노트로 써줘", "expect": "knowledge", "lang": "ko"}
+{"text": "vault의 source collection 상태 종류를 알려줘", "expect": "knowledge", "lang": "ko"}
+{"text": "테스트 참가자: pong이라고 답해줘", "expect": "scratch", "lang": "ko"}
+{"text": "짧은 테스트야, 오늘 날짜만 답해", "expect": "scratch", "lang": "ko"}
+{"text": "금요일 저녁 네 명 자리 예약해줘", "expect": "none", "lang": "ko"}
+{"text": "라우터 코어의 타입스크립트 버그를 고쳐줘", "expect": "none", "lang": "ko"}
+{"text": "What are the stages of the vault's review pipeline?", "expect": "knowledge", "lang": "en"}
+{"text": "Test participant: reply with the word pong.", "expect": "scratch", "lang": "en"}
+{"text": "Fix the failing TypeScript build in the router repo.", "expect": "none", "lang": "en"}
+{"text": "수신함 정리 좀 해줘", "expect": "knowledge", "lang": "ko"}
+{"text": "이 공시 원문 어디에 두는 게 맞아?", "expect": "knowledge", "lang": "ko"}
+{"text": "검토 상태가 초안인 산출물 몇 개야?", "expect": "knowledge", "lang": "ko"}
+{"text": "산업 기준 자료 조사해서 보고 초안 잡아줘", "expect": "knowledge", "lang": "ko"}
+{"text": "지난주 수집 실패한 원문 다시 확인해줘", "expect": "knowledge", "lang": "ko"}
+{"text": "기준일 표기 규칙이 뭐였지?", "expect": "knowledge", "lang": "ko"}
+{"text": "이메일로 회의 일정 보내줘", "expect": "none", "lang": "ko"}
+{"text": "노트북 와이파이가 자꾸 끊겨", "expect": "none", "lang": "ko"}
+{"text": "라우터 저장소에 테스트 케이스 추가해줘", "expect": "none", "lang": "ko"}
+{"text": "산출물이랑 원문 차이가 뭐야?", "expect": "knowledge", "lang": "ko"}
+{"text": "'미확인'은 언제 쓰는 거야?", "expect": "knowledge", "lang": "ko"}
+{"text": "이 문장 영어로 번역해줘", "expect": "none", "lang": "ko"}
+{"text": "Where should this filing's original go, and what collection status does it get?", "expect": "knowledge", "lang": "en"}

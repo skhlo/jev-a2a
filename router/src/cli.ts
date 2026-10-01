@@ -17,6 +17,7 @@ import {
 } from "./server.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
+import { curve, evaluate, readSet, renderEval } from "./eval.ts";
 import { openShell, type Shell } from "./shell.ts";
 import type { Event, Role, State, Task } from "./types.ts";
 
@@ -27,6 +28,8 @@ const USAGE = `router: a prompt with an envelope and a record
   router choose --task <T> --to <participant>  answer a needs_recipient
   router run                                   observe placements, deliver what is eligible
   router serve                                 accept replies from other hosts over HTTP; serve the board
+  router eval [--set <file>] [--model <id>] [--as <principal>]
+                                               judge the labeled set with this config's texts; nothing recorded
   router status [<task>]                       the record
   router needs-you [--as <principal>]          decisions waiting on a person
   router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ...] [--message <id>]
@@ -44,6 +47,8 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     config: { type: "string" },
+    set: { type: "string" },
+    model: { type: "string" },
     to: { type: "string" },
     hosts: { type: "string" },
     message: { type: "string" },
@@ -113,6 +118,8 @@ const open = (): Promise<Shell> =>
 
 if (command === "serve") {
   await serve(config);
+} else if (command === "eval") {
+  await evaluateSet(config);
 } else {
   const shell = await open();
   let exitCode = 0;
@@ -168,6 +175,28 @@ async function serve(config: RouterConfig): Promise<void> {
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   });
+}
+
+// `router eval`: the labeled set against this config's responsibility texts,
+// as the requester would be routed. Jev is asked; the journal is not opened.
+async function evaluateSet(config: RouterConfig): Promise<void> {
+  if (!apiKey) fail("TYPESAFE_API_KEY is not set; add it to secrets.env.");
+  const sender = requester();
+  const permitted = config.permissions?.[sender] ?? [];
+  if (!permitted.length) fail(`${sender} may address nobody.`);
+  const responsibilities: Record<string, string> = {};
+  for (const participant of config.participants)
+    if (permitted.includes(participant.id))
+      responsibilities[participant.id] = participant.responsibility;
+  const path =
+    values.set ?? join(import.meta.dirname, "..", "eval", "requests.jsonl");
+  const set = readSet(path, [...Object.keys(responsibilities), "none"]);
+  const model = values.model ?? config.jev.model;
+  const verdicts = await evaluate(set, responsibilities, (question) =>
+    judge(question, { ...config.jev, model, apiKey }),
+  );
+  for (const line of renderEval(verdicts, curve(verdicts), model))
+    console.log(line);
 }
 
 async function main(shell: Shell, config: RouterConfig): Promise<number> {

@@ -289,6 +289,13 @@ than a second call. Not added now: no evidence yet. TypeSafe handles non-English
 input "not equally well", so tune the threshold on requests in the languages
 actually used.
 
+`router eval` asks the same question for each line of a labeled set
+(`router/eval/requests.jsonl`: text, expected recipient, language) with the
+texts of the configuration it is given, and prints each verdict and, per
+threshold, how many requests would be dispatched, how many of those wrongly,
+and how many handed back. A confident `none` is a hand-back, not a dispatch.
+Nothing is recorded; the set is the evidence a text or a threshold changes on.
+
 ## Open decisions
 
 1. Threshold: 0.9 provisional. A 24-request Korean-heavy sample showed that responsibility text
