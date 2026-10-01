@@ -98,6 +98,26 @@ shell what to do next (`judge` or `deliver`); the core performs no I/O.
 | `participants` | `id`, `name`, `kind` (`agent` or `service`), `hosts`, `idempotent`, `responsibility`. The responsibility text is what Jev sees, so write it as an ownership rule with what it is not for, followed by a few example requests in every language requests arrive in (measured: three Korean examples raised Korean probabilities by 0.17 on average; a note saying "requests may be Korean" did nothing). |
 | `permissions`  | For each principal or participant, which participants it may address. Absent means nobody. Jev only ever chooses among a sender's permitted participants.                                                                                                                                                                                                                                               |
 
+### Connecting a participant
+
+The same steps each time an agent joins the roster; the vault was the first
+(decided 2026-09-30, generalized 2026-10-01):
+
+1. The participant's owner writes the responsibility text, next to the
+   agent's own `AGENTS.md`, from its role section and its glossary: an
+   ownership rule, what it is not for, then a few example requests in the
+   languages its users write. Names that identify companies, clients or
+   business areas stay out; the text goes to an external API. The owner
+   refreshes it when `AGENTS.md` changes. The router config copies it.
+2. Add labeled requests for the participant to `router/eval/requests.jsonl`,
+   phrased differently from the examples in the text, with some that should
+   go elsewhere or to `none`.
+3. Run `router eval`: no wrong dispatch at the configured threshold on the
+   whole set, since a new text shifts every other participant's
+   probabilities too.
+4. Then grant permissions. Nobody can address the participant before that,
+   and Jev never sees it.
+
 Not configuration, by design: message identity, the delivery state machine,
 the eligibility rule, reply correlation, and what each event may do.
 

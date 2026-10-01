@@ -3,7 +3,8 @@
 // Change participants, hosts, principals and permissions freely: the core
 // validates the shape, not the names. Each responsibility text ends with
 // example requests in the languages its users write; they are what Jev
-// matches against (003), so a live text carries real ones.
+// matches against, so a live text carries real ones, written by the agent's
+// owner next to its AGENTS.md. Spec: "Connecting a participant".
 import type { Config } from "./types.ts";
 
 const config: Config = {
