@@ -43,3 +43,26 @@
 {"text": "Change the router's threshold to 0.8 in the config.", "expect": "none", "lang": "en"}
 {"text": "미니 서버 재부팅해줘", "expect": "none", "lang": "ko"}
 {"text": "검토 파이프라인 설명하는 블로그 글 써서 발행해줘", "expect": "none", "lang": "ko"}
+# Added 2026-10-01 (012): dotfiles and dotfiles-host boundaries, English,
+# phrased unlike the examples in the texts.
+{"text": "Add a zsh alias for lazygit to the shared shell config and send me a PR.", "expect": "dotfiles", "lang": "en"}
+{"text": "The tmux status bar is too busy - trim it and try it on my Air before anything else.", "expect": "dotfiles", "lang": "en"}
+{"text": "Update the Codex CLI pin in the baseline to the newest release.", "expect": "dotfiles", "lang": "en"}
+{"text": "The format check is red on the main branch of my config repo; find out why and fix it.", "expect": "dotfiles", "lang": "en"}
+{"text": "Give the mini's host profile the Claude Code capability.", "expect": "dotfiles", "lang": "en"}
+{"text": "Write a guide page explaining how rollout transactions and rollback work.", "expect": "dotfiles", "lang": "en"}
+{"text": "Ghostty's font size should be 14 in the baseline.", "expect": "dotfiles", "lang": "en"}
+{"text": "Once I merge it, apply the new baseline on the MacBook Air and confirm nothing is left to change.", "expect": "dotfiles", "lang": "en"}
+{"text": "Bring every machine up to date with what was merged today.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Which commit of the baseline is the MBP actually running?", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Has the mini picked up the blackhole 0.5.8 pin yet?", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Show me what a rollout would change on MBP right now, without applying anything.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Undo this morning's apply on the mini.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Apply merged main on the mini and tell me the transaction path.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Are MBP and the mini both in sync with main?", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Something on MBP keeps drifting from the baseline - just tell me which files, don't touch anything.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Summarize my notes on how other people structure their dotfiles repositories.", "expect": "knowledge", "lang": "en"}
+{"text": "Find the memo where I wrote down why the mini became the always-on host.", "expect": "knowledge", "lang": "en"}
+{"text": "Fix the flaky test in the jev router repository and open a PR.", "expect": "none", "lang": "en"}
+{"text": "Review the open pull request in the pi-live repository.", "expect": "none", "lang": "en"}
+{"text": "Buy more Claude credits for my account.", "expect": "none", "lang": "en"}
