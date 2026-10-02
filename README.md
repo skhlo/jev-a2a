@@ -152,7 +152,8 @@ pnpm typecheck
 pnpm fmt:check
 ```
 
-CI runs these plus `node --test router-core.test.js` in `research/`.
+CI runs these plus `node --test router-core.test.js` in `research/`, and
+fails if the run changed `package.json` or the lockfile.
 
 ## Limits
 
