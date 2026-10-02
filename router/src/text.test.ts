@@ -7,7 +7,6 @@ import { createServer } from "node:http";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AddressInfo } from "node:net";
 import { textOption } from "./text.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "text-"));
@@ -62,8 +61,10 @@ test("client: --text-file posts the file as the reply text", async () => {
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  const url = `http://127.0.0.1:${port}`;
+  const address = server.address();
+  if (address === null || typeof address === "string")
+    throw new Error("no port");
+  const url = `http://127.0.0.1:${address.port}`;
   const reply = ["reply", "--task", "T1", "--in-reply-to", "M1", "--kind"];
   try {
     const sent = await run(url, [...reply, "completed", "--text-file", file]);

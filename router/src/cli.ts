@@ -47,7 +47,7 @@ const USAGE = `router: a prompt with an envelope and a record
   router status [<task>]                       the record
   router needs-you [--as <principal>]          decisions waiting on a person
   router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ... | --text-file <path>] [--message <id>]
-  router answer --task <T> --question <Q> --text ... | --text-file <path> [--message <id>] [--as <principal>]
+  router answer --task <T> --question <Q> (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
   router observe <participant@host> --hold | --release
   router resolve --delivery <D> --message <M> --outcome finished|not_sent --evidence ... [--as <operator>]
   router cancel <task> [--as <principal>]
@@ -282,18 +282,15 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
         text: textArg(),
       });
     }
-    case "answer": {
-      const answer = textArg();
-      if (!answer) fail("--text or --text-file is required.");
+    case "answer":
       return applyAndDeliver({
         type: "answer",
         by: requester(),
         taskId: need("task"),
         messageId: values.message ?? newMessageId(),
         questionId: need("question"),
-        text: answer,
+        text: textArg() || fail("An answer needs text that is not empty."),
       });
-    }
     case "observe": {
       const placement = rest[0];
       if (!placement) fail("Name the placement, for example scratch@mbp.");

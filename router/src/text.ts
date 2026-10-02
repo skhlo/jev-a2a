@@ -1,6 +1,7 @@
 // The text of a reply or an answer: --text, or --text-file for text that a
-// shell cannot quote in one argument. The client repeats this rule, since it
-// is installed alone on other hosts.
+// shell cannot quote in one argument. A file's trailing newline is not part
+// of the text. The client repeats this rule, since it is installed alone on
+// other hosts.
 import { readFileSync } from "node:fs";
 
 export function textOption(
