@@ -30,6 +30,7 @@ const { values, positionals } = parseArgs({
     "in-reply-to": { type: "string" },
     kind: { type: "string" },
     text: { type: "string" },
+    "text-file": { type: "string" },
     message: { type: "string" },
   },
 });
@@ -46,13 +47,24 @@ if (!url || !token)
 const [command] = positionals;
 if (command !== "reply")
   fail(
-    "This host's router client supports: router reply --task T --in-reply-to M --kind K [--text ...]",
+    "This host's router client supports: router reply --task T --in-reply-to M --kind K [--text ... | --text-file <path>]",
   );
 const by = process.env.PASEO_AGENT_ID;
 if (!by)
   fail("Replies come from a participant session: $PASEO_AGENT_ID is unset.");
 for (const key of ["task", "in-reply-to", "kind"])
   if (!values[key]) fail(`--${key} is required.`);
+
+// --text-file carries text that a shell cannot quote in one argument.
+let text = values.text ?? "";
+if (values["text-file"] !== undefined) {
+  if (values.text !== undefined) fail("Pass --text or --text-file, not both.");
+  try {
+    text = readFileSync(values["text-file"], "utf8").trimEnd();
+  } catch (error) {
+    fail(`--text-file: ${error instanceof Error ? error.message : error}`);
+  }
+}
 
 const event = {
   type: "update",
@@ -63,7 +75,7 @@ const event = {
     `m-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`,
   inReplyTo: values["in-reply-to"],
   kind: values.kind,
-  text: values.text ?? "",
+  text,
 };
 
 const response = await fetch(new URL("/events", url), {

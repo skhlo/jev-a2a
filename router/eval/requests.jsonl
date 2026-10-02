@@ -68,3 +68,21 @@
 {"text": "Fix the flaky test in the jev router repository and open a PR.", "expect": "none", "lang": "en"}
 {"text": "Review the open pull request in the pi-live repository.", "expect": "none", "lang": "en"}
 {"text": "Buy more Claude credits for my account.", "expect": "none", "lang": "en"}
+# The design participant (2026-10-03): nine requests it owns and seven on its
+# borders with code, the vault and the baseline.
+{"text": "I need a mockup of the router board's task list as a dark dashboard, 1440 wide.", "expect": "design", "lang": "en"}
+{"text": "Draw up a pricing table with three tiers in Paper and give me the JSX.", "expect": "design", "lang": "en"}
+{"text": "Sketch a mobile onboarding flow, three screens, and send me screenshots.", "expect": "design", "lang": "en"}
+{"text": "Take the hero artboard in my Paper file 'jev landing' and hand me its Tailwind JSX.", "expect": "design", "lang": "en"}
+{"text": "Come up with a colour palette and type scale for the router's web board and export them as tokens.", "expect": "design", "lang": "en"}
+{"text": "Redo the look of the voice widget: a compact pill with a waveform and a mute button.", "expect": "design", "lang": "en"}
+{"text": "What would an empty inbox screen look like for the vault app? Show me two options.", "expect": "design", "lang": "en"}
+{"text": "라우터 보드 화면 시안을 Paper로 만들어줘", "expect": "design", "lang": "ko"}
+{"text": "로그인 화면 디자인하고 스크린샷이랑 JSX 보내줘", "expect": "design", "lang": "ko"}
+{"text": "Implement the status card from the designs repo as a React component in pi-live.", "expect": "none", "lang": "en"}
+{"text": "Fix the CSS bug that makes the board's header overlap on mobile.", "expect": "none", "lang": "en"}
+{"text": "Fix the proofs check workflow in the designs repository.", "expect": "none", "lang": "en"}
+{"text": "Summarize my notes on dashboard design principles.", "expect": "knowledge", "lang": "en"}
+{"text": "디자인 시스템 사례를 조사해서 보고서 초안 써줘", "expect": "knowledge", "lang": "ko"}
+{"text": "Switch the terminal colour scheme in the baseline to a lighter theme.", "expect": "dotfiles", "lang": "en"}
+{"text": "Is the new Ghostty theme live on the mini yet?", "expect": "dotfiles-host", "lang": "en"}

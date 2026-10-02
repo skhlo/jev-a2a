@@ -32,6 +32,7 @@ import {
   type Labeled,
 } from "./eval.ts";
 import { openShell, type Shell } from "./shell.ts";
+import { textOption } from "./text.ts";
 import type { Event, Role, State, Task } from "./types.ts";
 
 const USAGE = `router: a prompt with an envelope and a record
@@ -45,8 +46,8 @@ const USAGE = `router: a prompt with an envelope and a record
                                                judge the labeled set with this config's texts; nothing recorded
   router status [<task>]                       the record
   router needs-you [--as <principal>]          decisions waiting on a person
-  router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ...] [--message <id>]
-  router answer --task <T> --question <Q> --text ... [--message <id>] [--as <principal>]
+  router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ... | --text-file <path>] [--message <id>]
+  router answer --task <T> --question <Q> (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
   router observe <participant@host> --hold | --release
   router resolve --delivery <D> --message <M> --outcome finished|not_sent --evidence ... [--as <operator>]
   router cancel <task> [--as <principal>]
@@ -70,6 +71,7 @@ const { values, positionals } = parseArgs({
     "in-reply-to": { type: "string" },
     kind: { type: "string" },
     text: { type: "string" },
+    "text-file": { type: "string" },
     question: { type: "string" },
     delivery: { type: "string" },
     outcome: { type: "string" },
@@ -110,6 +112,13 @@ const need = (name: keyof typeof values): string => {
   const value = values[name];
   if (typeof value !== "string" || !value) fail(`--${name} is required.`);
   return value;
+};
+const textArg = (): string => {
+  try {
+    return textOption(values.text, values["text-file"]);
+  } catch (error: unknown) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
 };
 
 function fail(message: string): never {
@@ -270,7 +279,7 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
         messageId: values.message ?? newMessageId(),
         inReplyTo: need("in-reply-to"),
         kind: kind as "working" | "question" | "completed" | "failed",
-        text: values.text ?? "",
+        text: textArg(),
       });
     }
     case "answer":
@@ -280,7 +289,7 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
         taskId: need("task"),
         messageId: values.message ?? newMessageId(),
         questionId: need("question"),
-        text: need("text"),
+        text: textArg() || fail("An answer needs text that is not empty."),
       });
     case "observe": {
       const placement = rest[0];
