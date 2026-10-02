@@ -59,7 +59,9 @@ participant that runs on several hosts.
 | `router eval`                                      | Judge a labeled request set with the configured texts          |
 | `router cancel <task>`                             | Cancel a task                                                  |
 
-`router` with no arguments prints the full usage.
+`reply` and `answer` also take `--text-file <path>` in place of `--text`, for
+text that a shell cannot quote in one argument. `router` with no arguments
+prints the full usage.
 
 ## The board
 
