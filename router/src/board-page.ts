@@ -367,12 +367,7 @@ export function renderBoard(
 
   const dotOf = (p: PlacementView): Dot => {
     const d = p.delivery;
-    if (d)
-      return d.latest?.kind === "question"
-        ? asksViewer(d.id)
-          ? "ask"
-          : "wait"
-        : "work";
+    if (d) return d.question ? (asksViewer(d.id) ? "ask" : "wait") : "work";
     return p.hold ? "held" : p.ready ? "ready" : "off";
   };
   const rank = (p: PlacementView): number => RANK[dotOf(p)];
@@ -438,12 +433,20 @@ ${lever(holdLever ? [holdLever] : [])}`,
     // its own outcome field; the design's sample never held such a send.
     const accepted = d.outcome === "accepted";
     const outcomePath = `${path}.delivery.outcome`;
-    const what = latest
-      ? `${latest.kind === "question" ? "asks" : esc(latest.kind)} on ${task}`
-      : accepted
-        ? `delivered on ${task}`
-        : `${slot(outcomePath, esc(d.outcome))} on ${task}`;
-    const excerpt = ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`;
+    // A question stays the latest update after its answer; the open question
+    // tells asking from answered, and the answered card works again.
+    const answered = latest?.kind === "question" && !d.question;
+    const what = d.question
+      ? `asks on ${task}`
+      : latest
+        ? `${answered ? "working" : esc(latest.kind)} on ${task}`
+        : accepted
+          ? `delivered on ${task}`
+          : `${slot(outcomePath, esc(d.outcome))} on ${task}`;
+    // While a question is open the card shows it in place of the request.
+    const excerpt = d.question
+      ? ` · ${slot(`${path}.delivery.question.text`, esc(d.question.text))}`
+      : ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`;
     const rig =
       slot(`${path}.host`, esc(p.host), "tag") +
       slot(
@@ -456,11 +459,13 @@ ${lever(holdLever ? [holdLever] : [])}`,
       slot(`${path}.ready`, p.ready ? "ready" : "not ready", "tag") +
       (p.hold ? slot(`${path}.hold`, "held", "tag") : "");
     const latestAt = `${path}.delivery.latest.at`;
-    const stats = latest
-      ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
-      : accepted
-        ? slot(`${path}.delivery.latest`, "delivered, no reply yet", "k")
-        : slot(outcomePath, `${esc(d.outcome)}, no reply yet`, "k");
+    const stats = answered
+      ? `<span class="k">answered</span>${clock(`time(times[${path}.delivery.messageId])`, times[d.messageId])}${slot(`${path}.delivery.question`, "· no reply yet", "k")}`
+      : latest
+        ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
+        : accepted
+          ? slot(`${path}.delivery.latest`, "delivered, no reply yet", "k")
+          : slot(outcomePath, `${esc(d.outcome)}, no reply yet`, "k");
     const corner = latest?.at
       ? ago(`age(${latestAt}, at)`, latest.at, "age num")
       : "";
@@ -539,6 +544,11 @@ ${model.placements
     const d = t.deliveries[i];
     const dp = `${path}.deliveries[${i}]`;
     if (!d) return countdown;
+    // An answered question is still the latest update: the row says when
+    // the answer went and how it starts, not the question again.
+    const answer = d.sends.at(-1);
+    if (d.latest?.kind === "question" && !d.question && answer)
+      return `answered ${clock(`time(times[${dp}.sends[${d.sends.length - 1}].messageId])`, times[answer.messageId], "")} ${slot(`${dp}.sends[${d.sends.length - 1}].text`, esc(answer.text))} · ${countdown}`;
     if (d.latest)
       return `${slot(`${dp}.latest.text`, esc(d.latest.text))} · ${countdown}`;
     if (d.waits)

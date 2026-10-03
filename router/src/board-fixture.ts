@@ -231,12 +231,25 @@ export const journal: Entry[] = [
   }),
 ];
 
+// The journal up to a run's clock (HH:MM), exclusive: the record as it stood
+// before that run.
+const before = (clock: string): Entry[] =>
+  journal.slice(
+    0,
+    journal.findIndex(
+      (entry) =>
+        entry.event.type === "tick" &&
+        entry.at === new Date(`2026-09-30T${clock}:00Z`).toISOString(),
+    ),
+  );
+
+// The journal after T2's first question was answered and before the
+// session replied: the question is still its latest update.
+export const answeredJournal = before("09:20");
+
 // The journal before its last run: T4's delivery is accepted and the
 // session has not replied yet.
-export const deliveredJournal = journal.slice(
-  0,
-  journal.findLastIndex((entry) => entry.event.type === "tick"),
-);
+export const deliveredJournal = before("09:44");
 
 // The journal with one more shell run at the time of its last one, so the
 // board still reads it at NOW.

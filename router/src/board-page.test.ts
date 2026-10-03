@@ -23,6 +23,7 @@ import {
   type RenderOptions,
 } from "./board-page.ts";
 import {
+  answeredJournal,
   config,
   deliveredJournal,
   extend,
@@ -615,6 +616,38 @@ test("a delivery without a reply reads as delivered once its send was accepted, 
     strip(renderBoard(unlisted)),
     /environment@mbp\s*attempting on T5 · Rebuild/,
   );
+});
+
+test("an answered question reads as working on the card and as the answer in the row", () => {
+  // While T2's question is open the card shows the question, not the
+  // request.
+  const asking = page(ME, { task: "T2" });
+  assert.equal(
+    textOf(asking, "placements[0].delivery.question.text"),
+    "Force push?",
+  );
+  assert.ok(!asking.includes('data-path="placements[0].delivery.excerpt"'));
+  // After the answer the question is still the latest update, but the
+  // session works again: the card and its dot say so, the stats line names
+  // the answer's time, and the row quotes the answer instead of the
+  // question. Nothing waits on the viewer.
+  const html = page(ME, { task: "T2" }, answeredJournal);
+  assert.match(
+    html,
+    /<div class="card" tabindex="0" data-path="placements\[0\]">\s*<span class="dot work"/,
+  );
+  assert.match(
+    strip(html),
+    /orchestrator@mbp\s*31m\s*working on T2 · Ask me something/,
+  );
+  assert.match(strip(html), /answered\s*09:16Z\s*· no reply yet/);
+  assert.ok(
+    html.includes('data-path="time(times[placements[0].delivery.messageId])"'),
+  );
+  assert.equal(textOf(html, "open[1].sends[0].text"), undefined);
+  assert.match(strip(html), /working\s*answered 09:16Z main · 25m left/);
+  assert.equal(textOf(html, "open[1].deliveries[0].sends[1].text"), "main");
+  assert.deepEqual(groups(html)["needs-you"], ["T1"]);
 });
 
 test("a runner-up that rounds to 0.00 is not named", () => {
