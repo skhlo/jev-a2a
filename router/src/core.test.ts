@@ -1383,6 +1383,48 @@ test("a placement's queue follows delivery creation, not task order", () => {
   assert.deepEqual(commands(s).map(deliveryIdOf), ["D2"]);
 });
 
+test("a placement's queue head is its oldest open, unpinned delivery", () => {
+  const head = (state: State, placement = "knowledge@mini") =>
+    Core.queueHead(state, placement)?.id ?? null;
+  let s = expectOk(initial(config), {
+    type: "observe",
+    placement: "knowledge@mini",
+    ready: false,
+  });
+  assert.equal(head(s), null);
+  s = submit(s, { messageId: "M1", text: "Handle this." });
+  s = judge(s, "T1", "none", 0.9);
+  s = submit(s, { messageId: "M2", text: "Summarize.", to: "knowledge" });
+  s = submit(s, { messageId: "M3", text: "Outline.", to: "knowledge" });
+  s = expectOk(s, { type: "choose", by: "you", taskId: "T1", to: "knowledge" });
+  // Task order lists T1's D3 first; the queue goes by creation.
+  assert.equal(head(s), "D1");
+  assert.equal(head(s, "orchestrator@mbp"), null);
+  // A canceled task's delivery leaves the queue.
+  s = expectOk(s, { type: "cancel", by: "you", taskId: "T2" });
+  assert.equal(head(s), "D2");
+  // A hold stops the queue without reordering it.
+  s = expectOk(s, { type: "observe", placement: "knowledge@mini", hold: true });
+  assert.equal(head(s), "D2");
+  assert.equal(Core.blockedReason(s, must(Core.findDelivery(s, "D3"))), "held");
+  s = expectOk(s, {
+    type: "observe",
+    placement: "knowledge@mini",
+    hold: false,
+    ready: true,
+  });
+  assert.equal(
+    Core.blockedReason(s, must(Core.findDelivery(s, "D3"))),
+    "queued_behind",
+  );
+  // Once sent, a delivery is pinned to its session and no longer queued.
+  s = deliver(s, "D2");
+  assert.equal(head(s), "D3");
+  s = idle(s, "knowledge@mini");
+  s = deliver(s, "D3");
+  assert.equal(head(s), null);
+});
+
 test("deadline fails the task; an unconfirmed send still blocks its session until reconciled", () => {
   let s = submit(initial(config), {
     messageId: "M1",
