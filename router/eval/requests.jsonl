@@ -86,17 +86,21 @@
 {"text": "디자인 시스템 사례를 조사해서 보고서 초안 써줘", "expect": "knowledge", "lang": "ko"}
 {"text": "Switch the terminal colour scheme in the baseline to a lighter theme.", "expect": "dotfiles", "lang": "en"}
 {"text": "Is the new Ghostty theme live on the mini yet?", "expect": "dotfiles-host", "lang": "en"}
-# 2026-10-04: the orchestrator joins (this repository's own agent on mbp); the
-# router-repo rows above now expect it, and these twelve test the boundary.
-{"text": "Port the design's v0.8 board rules into the live page.", "expect": "orchestrator", "lang": "en"}
-{"text": "Add the knowledge agent's new session on the mini to the router config and restart the service.", "expect": "orchestrator", "lang": "en"}
-{"text": "Why did T39 go to the design agent instead of knowledge?", "expect": "orchestrator", "lang": "en"}
-{"text": "Write the spec issue for the telemetry round and send the design agent its part.", "expect": "orchestrator", "lang": "en"}
+# 2026-10-04: the orchestrator joins, the agent that maintains this repository and
+# the router's config on mbp. Six rows above that expected none because nobody
+# owned the router's code, config or board now expect it (the TypeScript build
+# and bug rows, the test-case row, the threshold row, the flaky-test row and the
+# board CSS row). Below: eight requests it owns and four on its borders, phrased
+# unlike its examples.
+{"text": "The agents column still shows the old card layout after the designs merge; make the served page match.", "expect": "orchestrator", "lang": "en"}
+{"text": "knowledge@mini keeps reading not ready although the vault agent is idle; find out why the router thinks so.", "expect": "orchestrator", "lang": "en"}
+{"text": "Show me Jev's probability table for the task I just submitted.", "expect": "orchestrator", "lang": "en"}
+{"text": "We agreed on context-use and liveness fields for the board; plan how the record gets them and what each agent side does.", "expect": "orchestrator", "lang": "en"}
 {"text": "라우터 보드가 질문에 답한 뒤에도 '질문 중'으로 보여. 고쳐줘.", "expect": "orchestrator", "lang": "ko"}
-{"text": "라우터 설정에 새 참가자 추가하고 eval 돌려줘.", "expect": "orchestrator", "lang": "ko"}
+{"text": "미니의 새 에이전트도 라우팅 대상에 넣고 오배정 없는지 확인해줘.", "expect": "orchestrator", "lang": "ko"}
 {"text": "The router's eval set needs rows for the new participant; add them and run it.", "expect": "orchestrator", "lang": "en"}
 {"text": "라우터가 어떤 기준으로 수신자를 고르는지 설명해줘.", "expect": "orchestrator", "lang": "ko"}
 {"text": "Design the agent health sheet for the board at 1440 width.", "expect": "design", "lang": "en"}
-{"text": "Roll out the merged dotfiles PR on the mini and tell me if it is current.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "After the baseline merge, is the mini's checkout on it, and did the apply leave anything pending?", "expect": "dotfiles-host", "lang": "en"}
 {"text": "라우터 설계 결정들을 볼트에 정리해서 보고서 초안 써줘.", "expect": "knowledge", "lang": "ko"}
 {"text": "Reply pong, this is only a delivery test for the router.", "expect": "none", "lang": "en"}
