@@ -13,7 +13,7 @@ import {
   needsYou,
   responsibilityTexts,
 } from "./core.ts";
-import { describeNeed, newMessageId } from "./board.ts";
+import { describeNeed, newMessageId, taskLog } from "./board.ts";
 import {
   bind,
   BindError,
@@ -367,8 +367,7 @@ function describe(task: Task, state: State): string[] {
     for (const u of d.updates)
       lines.push(`    ${u.kind} ${u.messageId} ↩ ${u.inReplyTo}: ${u.text}`);
   }
-  const recent = state.log.filter((entry) => entry.text.includes(task.id));
-  for (const entry of recent.slice(-8))
+  for (const entry of taskLog(state.log, task.id))
     lines.push(`  ${entry.n}. ${entry.actor}: ${entry.text}`);
   return lines;
 }

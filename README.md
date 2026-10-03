@@ -81,8 +81,78 @@ The board listens on loopback only, and a browser that opens it directly gets
 a read-only page. Put
 it behind Tailscale Serve to reach it from another device and to act: the
 board takes the tailnet login Serve reports, and a login listed in
-`serve.identities` may act. `board.json` on the same address returns the
-page's data.
+`serve.identities` may act.
+
+### The board's view model
+
+The page is one rendering of a view model, and the model is published so
+that a design can bind its template to the router's own field names. The
+board returns it as JSON to a client that asks for JSON: one whose Accept
+header ranks `application/json` above `text/html`, or ranks them equal and
+names JSON more exactly (`application/json, */*`). A browser gets the page.
+
+```sh
+curl -H 'Accept: application/json' http://127.0.0.1:7678/
+```
+
+`board.json` on the same address returns the same model. The JSON follows the
+page's identity rules: through Tailscale Serve it names the viewer, and
+without a known login it has no actor.
+
+The contract is the `BoardModel` type in `router/src/board.ts`, the sample
+in `router/src/board.sample.json`, and this section. The sample is the model
+built from the board's test fixture (`router/src/board-fixture.ts`), so it
+holds no live request text. After changing the model or the fixture, run
+`pnpm exec node src/board-sample.ts` in `router/`; a test fails until the
+committed sample matches.
+
+- `version`: the contract and its major version, `jev-router-board/1`.
+  Removing or renaming a field raises it; adding one does not.
+- `at`: when the model was built. Every time in the model is an ISO string.
+- `actor`: the viewer's `login`, and its `principals`, each a `principal`
+  with its `role`. `null` when the request is not identified.
+- `needsYou`: for each principal, its `role` and the `items` that wait on
+  it. Each item has a `kind` and the `taskId` it belongs to:
+  - `choose`: the task needs a recipient. `reason` is `no_owner`,
+    `low_confidence`, `invalid_judgment` or `routing_unavailable`, and
+    `suggestions` lists the participants in Jev's order.
+  - `answer`: an agent asks the sender. `deliveryId`, `questionId` and the
+    question's `text`.
+  - `resolve`, for an operator: the router cannot confirm a send.
+    `deliveryId`, the send's `messageId`, and `reason`: `task_ended`,
+    `session_replaced` or `unknown_send`. The sample has none.
+- `placements`: each placement the router serves, with its `key`
+  (`participant@host`), `participant`, `host`, `session`, `ready` and
+  `hold`, and `delivery`: the newest open delivery pinned to the current
+  session (`id`, `taskId`, an `excerpt` of the task text, and the `latest`
+  update's `kind` and `at`), or `null`.
+- `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
+  Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
+  `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
+  `deadline`, and:
+  - `routing`: while the router is finding a recipient, its `state`
+    (`judging` or `needs_recipient`), `suggestions` and `reason`; otherwise
+    `null`.
+  - `judgments`: each with its `choice`, the full `probabilities` table
+    (`null` when the judgment was not `valid`), the `model` version, whether
+    it was `valid`, and the `threshold` it was held to.
+  - `final`: `null` while the task is open; then its `status`, `reason`,
+    and `completed` of `of` deliveries.
+  - `deliveries`: each with its `id`, `placement`, `session`, the current
+    `send` (`kind`, `messageId`, `outcome`), every send in `sends` (with
+    its `text`), the open `question` (`id`, `text`) or `null`, the agent's
+    `updates` and the `latest` one (`messageId`, `inReplyTo`, `kind`,
+    `text`), and `end`: `null` while open, then its `reason` and, when
+    recorded, `text`, `messageId` and `by`.
+  - `log`: the task's own log lines, as `router status <task>` shows them.
+- `times`: when each message was recorded, by message ID.
+- `log`: the router's last twenty log lines, each with its number `n`, its
+  `actor` and its `text`.
+
+The record does not hold adapter status, the number of permission requests
+pending in a session, or session telemetry (context use, turns, tool calls,
+cost, process, worktree, subagents, activity), so the model does not carry
+them. These are the gaps a later telemetry round fills.
 
 ## Participants and responsibility texts
 

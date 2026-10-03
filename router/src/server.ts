@@ -3,9 +3,9 @@
 // `bind`, which puts a listener on its address or says why it cannot.
 //
 // Events: replies and answers from other hosts, behind the bearer token.
-// Board: the page and its actions, on loopback behind Tailscale Serve,
-// which stamps the viewer's login on each request. Serve strips its mount
-// path, so board routes match by suffix.
+// Board: the page, its view model as JSON, and its actions, on loopback
+// behind Tailscale Serve, which stamps the viewer's login on each request.
+// Serve strips its mount path, so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
 import type {
   IncomingMessage,
@@ -19,6 +19,7 @@ import {
   identify,
   messageTimes,
   renderBoard,
+  type Actor,
 } from "./board.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
@@ -31,6 +32,8 @@ export type ServerDeps = {
   // Applies one event as one shell run; callers serialize.
   handle(event: Event): Promise<Run>;
   log?: (line: string) => void;
+  // The board's clock; a test fixes it to read a fixture's record.
+  now?: () => number;
 };
 
 const EVENT_TYPES = ["update", "answer"];
@@ -113,16 +116,48 @@ export function sameSite(
   }
 }
 
+// Whether a request asks for the view model rather than the page: its Accept
+// header ranks JSON above HTML, or ranks them equal and names JSON more
+// exactly (`application/json, */*`). A browser ranks HTML first, and a
+// client that names neither, or both alike, gets the page.
+function wantsJson(accept: string | undefined): boolean {
+  const ranges = (accept ?? "").split(",").map((range) => {
+    const [type = "", ...params] = range
+      .split(";")
+      .map((part) => part.trim().toLowerCase());
+    const q = params.find((param) => param.startsWith("q="));
+    return { type, q: q ? Number(q.slice(2)) : 1 };
+  });
+  // The most specific range that matches decides a type's rank, and how
+  // specific it was: 2 for the type itself, 1 for `type/*`, 0 for `*/*`.
+  const rank = (type: string): { q: number; exact: number } => {
+    const ladder = [type, `${type.split("/")[0]}/*`, "*/*"];
+    for (const [i, name] of ladder.entries()) {
+      const range = ranges.find((r) => r.type === name);
+      if (range) return { q: range.q, exact: 2 - i };
+    }
+    return { q: 0, exact: 0 };
+  };
+  const json = rank("application/json");
+  const html = rank("text/html");
+  return (
+    json.q > html.q ||
+    (json.q > 0 && json.q === html.q && json.exact > html.exact)
+  );
+}
+
 export function boardListener(deps: ServerDeps): RequestListener {
   const { config } = deps;
   const log = deps.log ?? ((): void => undefined);
-  const model = (now: number) => {
+  const now = deps.now ?? Date.now;
+  const model = (at: number, actor: Actor | null) => {
     const entries = readJournal(config.home);
     return boardModel(
-      boardState(config, entries, now),
+      boardState(config, entries, at),
       config,
-      now,
+      at,
       messageTimes(entries),
+      actor,
     );
   };
   return (req, res) => {
@@ -187,20 +222,19 @@ export function boardListener(deps: ServerDeps): RequestListener {
     // listener in the same process must stay up.
     let view: ReturnType<typeof model>;
     try {
-      view = model(Date.now());
+      view = model(now(), actor);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       log(`board: cannot read the record: ${message}`);
       return plain(500, `The record cannot be read: ${message}`);
     }
-    if (path.endsWith("/board.json")) {
+    // One model, as JSON or as the page, under the same identity.
+    if (path.endsWith("/board.json") || wantsJson(req.headers.accept)) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(view));
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(
-        renderBoard(view, { actor, notice: url.searchParams.get("notice") }),
-      );
+      res.end(renderBoard(view, { notice: url.searchParams.get("notice") }));
     }
   };
 }
