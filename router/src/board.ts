@@ -94,13 +94,19 @@ export type PlacementView = {
   hold: boolean;
   // The open delivery pinned to the current session, the latest one when
   // there are several; null when the session has none. A delivery is pinned
-  // at the attempt, so `outcome` says whether its current send reached the
-  // session (accepted) or is still attempting, unknown or pending.
+  // at the attempt, so `outcome` says whether its current send (the request
+  // or the latest answer, message `messageId`) reached the session
+  // (accepted) or is still attempting, unknown or pending. `question` is the question
+  // the session is waiting on, null once answered: the latest update stays
+  // a question after the answer, so the two together tell asking from
+  // answered.
   delivery: {
     id: string;
     taskId: string;
     excerpt: string;
+    messageId: string;
     outcome: SendOutcome;
+    question: { id: string; text: string; at: string | null } | null;
     latest: { kind: UpdateKind; at: string | null } | null;
   } | null;
 };
@@ -198,6 +204,7 @@ export function boardModel(
             isOpen(delivery),
         );
         const latest = pinned?.delivery.updates.at(-1);
+        const question = pinned?.delivery.question ?? null;
         return {
           key,
           participant: p.participant,
@@ -210,7 +217,11 @@ export function boardModel(
                 id: pinned.delivery.id,
                 taskId: pinned.task.id,
                 excerpt: excerpt(pinned.task.text),
+                messageId: currentSend(pinned.delivery).messageId,
                 outcome: currentSend(pinned.delivery).outcome,
+                question: question
+                  ? { ...question, at: times[question.id] ?? null }
+                  : null,
                 latest: latest
                   ? { kind: latest.kind, at: times[latest.messageId] ?? null }
                   : null,

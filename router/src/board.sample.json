@@ -57,7 +57,13 @@
         "id": "D1",
         "taskId": "T2",
         "excerpt": "Ask me something",
+        "messageId": "A1m",
         "outcome": "accepted",
+        "question": {
+          "id": "Q2",
+          "text": "Force push?",
+          "at": "2026-09-30T09:31:00.000Z"
+        },
         "latest": {
           "kind": "question",
           "at": "2026-09-30T09:31:00.000Z"
@@ -75,7 +81,9 @@
         "id": "D3",
         "taskId": "T4",
         "excerpt": "Summarize the review pipeline notes",
+        "messageId": "M4",
         "outcome": "accepted",
+        "question": null,
         "latest": {
           "kind": "working",
           "at": "2026-09-30T09:44:00.000Z"

@@ -71,16 +71,19 @@ console of the board design (`skhlo/designs`, tag `jev-a2a-v0.7`), drawn on
 the server from the view model below, in three columns:
 
 - **Agents**: a card per placement the router serves, saying what its
-  session is doing (asks on a task, works on one, delivered and not yet
-  replied, held, ready, not ready) and when it last updated, over the
-  router's last log lines. Cards come in that order, asking first; a card
-  with no open delivery collapses to its name and state.
+  session is doing (asks on a task, with the question; works on one,
+  including after a question was answered, with the answer's time;
+  delivered and not yet replied; held; ready; not ready) and when it last
+  updated, over the router's last log lines. Cards come in that order,
+  asking first; a card with no open delivery collapses to its name and
+  state.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
   send; In flight holds the other open tasks, and Done the last finished
   ones. A row says what its task waits for: the open question, the recipient
   Jev was unsure of, the delivery it is queued behind or the session it is
-  held on, a delivery that has no reply yet, or who canceled it.
+  held on, a delivery that has no reply yet, the answer it was just given,
+  or who canceled it.
 - **The selected task**: how its recipient was chosen, its deadline with a
   countdown while it is open, the exchange in time order, the form that
   clears what waits on you, and its deliveries, Jev's judgments and log.
@@ -145,7 +148,10 @@ a session id of any shape that is a UUID is shortened (the design shortens
 any id over twelve characters), and a delivery reads as delivered only once
 its send was accepted: a delivery is pinned to a session at the attempt, so
 until the outcome arrives the page says what the send is (attempting,
-unknown, pending), a state the design's sample does not hold. What remains
+unknown, pending), a state the design's sample does not hold; and an asking
+card shows the question in place of the request excerpt, and once the
+question is answered the card works again and names the answer's time
+(the design's sample has no answered question yet). What remains
 open: the design's session telemetry and health sheet, which the record does
 not hold (see below); the hold lever shows for operators, as the design has
 it, although the router accepts a hold from any known login; a post does not
@@ -196,9 +202,13 @@ committed sample matches.
 - `placements`: each placement the router serves, with its `key`
   (`participant@host`), `participant`, `host`, `session`, `ready` and
   `hold`, and `delivery`: the newest open delivery pinned to the current
-  session (`id`, `taskId`, an `excerpt` of the task text, the `outcome` of
-  its current send, since a delivery is pinned at the attempt, and the
-  `latest` update's `kind` and `at`), or `null`.
+  session, or `null`. A delivery carries its `id`, `taskId`, an `excerpt`
+  of the task text, the `messageId` and `outcome` of its current send (the
+  request, or the latest answer once one was sent; a delivery is pinned at
+  the attempt, so the outcome may still be `attempting`), the `question`
+  the session waits on with its `id`, `text` and `at` (`null` while no
+  question is open: answered, or never asked), and the `latest` update's
+  `kind` and `at`.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,

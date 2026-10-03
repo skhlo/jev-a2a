@@ -38,10 +38,13 @@ export const config: RouterConfig = {
 // When the board is read: after the last event and before any deadline.
 export const NOW = Date.parse("2026-09-30T09:45:00Z");
 
+const stamp = (clock: string): string =>
+  new Date(`2026-09-30T${clock}:00Z`).toISOString();
+
 // One shell run as the shell records it: the clock moves to the run's time,
 // then its events follow, each stamped with that time.
 const run = (clock: string, ...events: Event[]): Entry[] => {
-  const at = new Date(`2026-09-30T${clock}:00Z`).toISOString();
+  const at = stamp(clock);
   return [
     { at, event: { type: "tick", now: Date.parse(at) } },
     ...events.map((event) => ({ at, event })),
@@ -231,12 +234,24 @@ export const journal: Entry[] = [
   }),
 ];
 
+// The journal up to a run's clock (HH:MM), exclusive: the record as it stood
+// before that run.
+const before = (clock: string): Entry[] => {
+  const at = stamp(clock);
+  const start = journal.findIndex(
+    (entry) => entry.event.type === "tick" && entry.at === at,
+  );
+  if (start < 0) throw new Error(`no run at ${clock} in the fixture`);
+  return journal.slice(0, start);
+};
+
+// The journal after T2's first question was answered and before the
+// session replied: the question is still its latest update.
+export const answeredJournal = before("09:20");
+
 // The journal before its last run: T4's delivery is accepted and the
 // session has not replied yet.
-export const deliveredJournal = journal.slice(
-  0,
-  journal.findLastIndex((entry) => entry.event.type === "tick"),
-);
+export const deliveredJournal = before("09:44");
 
 // The journal with one more shell run at the time of its last one, so the
 // board still reads it at NOW.
