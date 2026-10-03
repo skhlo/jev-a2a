@@ -117,8 +117,9 @@ export function sameSite(
 }
 
 // Whether a request asks for the view model rather than the page: its Accept
-// header ranks JSON above HTML. A browser ranks HTML first, and a client
-// that names neither or ranks them equal gets the page.
+// header ranks JSON above HTML, or ranks them equal and names JSON more
+// exactly (`application/json, */*`). A browser ranks HTML first, and a
+// client that names neither, or both alike, gets the page.
 function wantsJson(accept: string | undefined): boolean {
   const ranges = (accept ?? "").split(",").map((range) => {
     const [type = "", ...params] = range
@@ -127,14 +128,22 @@ function wantsJson(accept: string | undefined): boolean {
     const q = params.find((param) => param.startsWith("q="));
     return { type, q: q ? Number(q.slice(2)) : 1 };
   });
-  // The most specific range that matches decides a type's rank.
-  const rank = (type: string): number =>
-    (
-      ranges.find((r) => r.type === type) ??
-      ranges.find((r) => r.type === `${type.split("/")[0]}/*`) ??
-      ranges.find((r) => r.type === "*/*")
-    )?.q ?? 0;
-  return rank("application/json") > rank("text/html");
+  // The most specific range that matches decides a type's rank, and how
+  // specific it was: 2 for the type itself, 1 for `type/*`, 0 for `*/*`.
+  const rank = (type: string): { q: number; exact: number } => {
+    const ladder = [type, `${type.split("/")[0]}/*`, "*/*"];
+    for (const [i, name] of ladder.entries()) {
+      const range = ranges.find((r) => r.type === name);
+      if (range) return { q: range.q, exact: 2 - i };
+    }
+    return { q: 0, exact: 0 };
+  };
+  const json = rank("application/json");
+  const html = rank("text/html");
+  return (
+    json.q > html.q ||
+    (json.q > 0 && json.q === html.q && json.exact > html.exact)
+  );
 }
 
 export function boardListener(deps: ServerDeps): RequestListener {

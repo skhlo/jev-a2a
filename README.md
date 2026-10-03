@@ -87,7 +87,9 @@ board takes the tailnet login Serve reports, and a login listed in
 
 The page is one rendering of a view model, and the model is published so
 that a design can bind its template to the router's own field names. The
-board returns it as JSON to a client that asks for JSON:
+board returns it as JSON to a client that asks for JSON: one whose Accept
+header ranks `application/json` above `text/html`, or ranks them equal and
+names JSON more exactly (`application/json, */*`). A browser gets the page.
 
 ```sh
 curl -H 'Accept: application/json' http://127.0.0.1:7678/

@@ -305,7 +305,8 @@ test("board: asked for JSON, the board serves its model, identified as the page 
         .sort(),
       [...taskIds(mine.open), ...taskIds(mine.finished)].sort(),
     );
-    // JSON only when it is ranked above HTML; a browser gets the page.
+    // JSON when it is ranked above HTML, or ranked equal and named more
+    // exactly; a browser gets the page.
     const served = async (accept: string): Promise<string | null> => {
       const res = await fetch(`${url}/`, { headers: { accept } });
       await res.arrayBuffer();
@@ -325,6 +326,16 @@ test("board: asked for JSON, the board serves its model, identified as the page 
     assert.equal(
       await served("text/html;q=0.5, application/json"),
       "application/json",
+    );
+    // A client that names JSON and accepts anything else, as axios does.
+    assert.equal(
+      await served("application/json, text/plain, */*"),
+      "application/json",
+    );
+    assert.equal(await served("text/*, application/json"), "application/json");
+    assert.equal(
+      await served("application/*, text/html"),
+      "text/html; charset=utf-8",
     );
   } finally {
     server.close();
