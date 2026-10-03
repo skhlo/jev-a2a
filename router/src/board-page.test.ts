@@ -3,6 +3,8 @@
 // reads: text, data-paths, and the forms with their fields.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   boardModel,
   boardState,
@@ -26,6 +28,7 @@ import {
   NOW,
   replacedJournal,
 } from "./board-fixture.ts";
+import { dataPaths } from "./design-paths.ts";
 import type { Entry } from "./journal.ts";
 
 // Past every deadline in the fixture.
@@ -185,6 +188,40 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
     ),
     ["needs recipient", "low confidence", "routing unavailable", "working"],
   );
+});
+
+test("every data-path of the v0.6 design is rendered for the fixture or dropped with a reason", () => {
+  const lines = (name: string): string[] =>
+    readFileSync(join(import.meta.dirname, "..", "design", name), "utf8")
+      .split("\n")
+      .filter((line) => line && !line.startsWith("#"));
+  const design = lines("v0.6-paths.txt");
+  // The committed list is the extraction's output: distinct and sorted.
+  assert.ok(design.length > 100);
+  assert.deepEqual(design, [...new Set(design)].sort());
+  const dropped = new Map(
+    lines("v0.6-dropped.txt").map((line): [string, string] => {
+      const at = line.lastIndexOf(" | ");
+      return at < 0 ? [line, ""] : [line.slice(0, at), line.slice(at + 3)];
+    }),
+  );
+  // The design's three pages select T2, T4 and T1; render each task.
+  const me = model(ME);
+  const rendered = new Set(
+    ["T1", "T2", "T3", "T4"].flatMap((task) =>
+      dataPaths(renderBoard(me, { task })),
+    ),
+  );
+  assert.deepEqual(
+    design.filter((path) => !rendered.has(path) && !dropped.has(path)),
+    [],
+    "v0.6 paths neither rendered nor in design/v0.6-dropped.txt",
+  );
+  for (const [path, reason] of dropped) {
+    assert.ok(reason.trim(), `${path} is dropped without a reason`);
+    assert.ok(design.includes(path), `${path} is not a v0.6 path`);
+    assert.ok(!rendered.has(path), `${path} is rendered after all`);
+  }
 });
 
 test("the fixture's board: what needs you, what is in flight, what is done", () => {
