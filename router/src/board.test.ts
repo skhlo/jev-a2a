@@ -19,6 +19,7 @@ import {
 import { config, journal, NOW } from "./board-fixture.ts";
 import { boardSample, SAMPLE_PATH } from "./board-sample.ts";
 import { readJournal, type Entry } from "./journal.ts";
+import type { Event } from "./types.ts";
 
 // Past every deadline in the fixture.
 const LATER = NOW + 3 * 60 * 60_000;
@@ -246,6 +247,77 @@ test("a placement shows its newest open delivery, even for an older task", () =>
       latest: null,
     },
   );
+});
+
+// The fixture's journal with one more shell run after its last event and
+// before the board is read.
+const extended = (...events: Event[]): Entry[] => {
+  const at = "2026-09-30T09:44:30.000Z";
+  return [
+    ...journal,
+    { at, event: { type: "tick", now: Date.parse(at) } },
+    ...events.map((event) => ({ at, event })),
+  ];
+};
+const submitted = (messageId: string, to: string, hosts?: string[]): Event => ({
+  type: "submit",
+  by: "you",
+  messageId,
+  text: `Job ${messageId}`,
+  to,
+  ...(hosts ? { hosts } : {}),
+});
+
+test("a waiting delivery says why; a queued one names the head of its queue", () => {
+  const entries = extended(
+    // environment@mbp is held; knowledge@mini is busy with T4.
+    submitted("M5", "environment", ["mbp"]),
+    submitted("M6", "knowledge"),
+    // orchestrator@mbp is idle: D6 goes next, D7 and D8 queue behind it.
+    submitted("M7", "orchestrator"),
+    submitted("M8", "orchestrator"),
+    submitted("M9", "orchestrator"),
+  );
+  const model = boardModel(boardState(config, entries, NOW), config, NOW);
+  const waits = (taskId: string) =>
+    model.open.find((t) => t.id === taskId)?.deliveries[0]?.waits;
+  assert.deepEqual(
+    ["T5", "T6", "T7", "T8", "T9"].map((id) => [id, waits(id)]),
+    [
+      ["T5", { reason: "held", behind: null }],
+      ["T6", { reason: "not_ready", behind: null }],
+      ["T7", null],
+      ["T8", { reason: "queued_behind", behind: "D6" }],
+      // Behind the head of the queue, not the delivery just before it.
+      ["T9", { reason: "queued_behind", behind: "D6" }],
+    ],
+  );
+  // Sent, answered or ended deliveries do not wait.
+  assert.deepEqual(
+    [...model.open, ...model.finished]
+      .filter((t) => ["T2", "T3", "T4"].includes(t.id))
+      .map((t) => t.deliveries[0]?.waits),
+    [null, null, null],
+  );
+});
+
+test("a canceled task names who canceled it; other ends name nobody", () => {
+  const entries = extended(submitted("M5", "environment", ["mbp"]), {
+    type: "cancel",
+    by: "you",
+    taskId: "T5",
+  });
+  const model = boardModel(boardState(config, entries, NOW), config, NOW);
+  assert.deepEqual(model.finished.find((t) => t.id === "T5")?.final, {
+    status: "canceled",
+    reason: "sender",
+    completed: 0,
+    of: 1,
+    by: "you",
+  });
+  assert.equal(model.finished.find((t) => t.id === "T3")?.final?.by, null);
+  const later = boardModel(boardState(config, journal, LATER), config, LATER);
+  assert.equal(later.finished.find((t) => t.id === "T1")?.final?.by, null);
 });
 
 test("a task's log holds its own id, not a longer one that starts the same", () => {

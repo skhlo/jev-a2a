@@ -4,13 +4,23 @@
 // the strips that clear it, a status rail, then the record as a session
 // transcript. Nothing here writes.
 import { randomBytes } from "node:crypto";
-import { A2A_STATE, currentSend, isOpen, needsYou, reduce } from "./core.ts";
+import {
+  A2A_STATE,
+  blockedReason,
+  currentSend,
+  isOpen,
+  needsYou,
+  queueHead,
+  reduce,
+} from "./core.ts";
 import { fold } from "./shell.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Entry } from "./journal.ts";
 import type {
+  BlockedReason,
   Delivery,
   Event,
+  Final,
   NeedsYouItem,
   Role,
   RoutingReason,
@@ -33,6 +43,10 @@ export const BOARD_VERSION = "jev-router-board/1";
 // An agent's reply, without the digest the core keeps to recognise a repeat.
 export type UpdateView = Omit<Update, "digest">;
 
+// Why an open delivery's send waits: the core's blocked reasons, without the
+// two that mean it is not waiting (it ended, or its send already left).
+export type WaitReason = Exclude<BlockedReason, "closed" | "not_pending">;
+
 export type DeliveryView = {
   id: string;
   placement: string;
@@ -43,6 +57,9 @@ export type DeliveryView = {
   updates: UpdateView[];
   latest: UpdateView | null;
   end: Delivery["end"];
+  // Why the send waits, and for `queued_behind` the delivery at the head of
+  // the placement's queue, which goes next. Null when nothing holds it back.
+  waits: { reason: WaitReason; behind: string | null } | null;
 };
 
 export type TaskView = {
@@ -60,7 +77,9 @@ export type TaskView = {
   routing: Task["routing"];
   // Every judgment with its full probability table and model version.
   judgments: Task["judgments"];
-  final: Task["final"];
+  // `by` names the principal who canceled the task; null when the router
+  // ended it.
+  final: (Final & { by: string | null }) | null;
   deliveries: DeliveryView[];
   // This task's lines in the router's log, as `router status <task>` shows
   // them, so a template never matches log text itself.
@@ -141,7 +160,7 @@ export function boardModel(
   times: Record<string, string> = {},
   actor: Actor | null = null,
 ): BoardModel {
-  const tasks = state.tasks.map((task) => taskView(task, state.log)).reverse();
+  const tasks = state.tasks.map((task) => taskView(task, state)).reverse();
   // Oldest first. Tasks list in submission order, which is not creation
   // order for deliveries: a task that waited for a recipient gets its
   // delivery after newer tasks got theirs.
@@ -218,7 +237,22 @@ const updateView = ({
   text,
 }: Update): UpdateView => ({ messageId, inReplyTo, kind, text });
 
-function taskView(task: Task, log: State["log"]): TaskView {
+// Why a delivery waits, as the core decides it. Ended deliveries and sends
+// that already left do not wait; the shell's run report skips the same two.
+function waits(state: State, delivery: Delivery): DeliveryView["waits"] {
+  const reason = blockedReason(state, delivery);
+  if (reason === null || reason === "closed" || reason === "not_pending")
+    return null;
+  return {
+    reason,
+    behind:
+      reason === "queued_behind"
+        ? (queueHead(state, delivery.placement)?.id ?? null)
+        : null,
+  };
+}
+
+function taskView(task: Task, state: State): TaskView {
   return {
     id: task.id,
     status: task.status,
@@ -231,7 +265,12 @@ function taskView(task: Task, log: State["log"]): TaskView {
     deadline: new Date(task.deadline).toISOString(),
     routing: task.routing,
     judgments: task.judgments,
-    final: task.final,
+    // Only the sender may cancel a task, so a canceled task was canceled by
+    // its source; every other end is the router's.
+    final: task.final && {
+      ...task.final,
+      by: task.final.status === "canceled" ? task.source : null,
+    },
     deliveries: task.deliveries.map((d) => {
       const send = currentSend(d);
       const last = d.updates.at(-1);
@@ -254,9 +293,10 @@ function taskView(task: Task, log: State["log"]): TaskView {
         updates: d.updates.map(updateView),
         latest: last ? updateView(last) : null,
         end: d.end,
+        waits: waits(state, d),
       };
     }),
-    log: taskLog(log, task.id),
+    log: taskLog(state.log, task.id),
   };
 }
 

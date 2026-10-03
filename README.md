@@ -137,13 +137,21 @@ committed sample matches.
     (`null` when the judgment was not `valid`), the `model` version, whether
     it was `valid`, and the `threshold` it was held to.
   - `final`: `null` while the task is open; then its `status`, `reason`,
-    and `completed` of `of` deliveries.
+    `completed` of `of` deliveries, and `by`: the principal who canceled
+    it (only the sender may cancel), or `null` when the router ended it.
   - `deliveries`: each with its `id`, `placement`, `session`, the current
     `send` (`kind`, `messageId`, `outcome`), every send in `sends` (with
     its `text`), the open `question` (`id`, `text`) or `null`, the agent's
     `updates` and the `latest` one (`messageId`, `inReplyTo`, `kind`,
-    `text`), and `end`: `null` while open, then its `reason` and, when
-    recorded, `text`, `messageId` and `by`.
+    `text`), `end`: `null` while open, then its `reason` and, when
+    recorded, `text`, `messageId` and `by` (the session that replied, or
+    the operator who resolved it), and `waits`: why the send has not gone
+    out, or `null` when nothing holds it back (it has gone, it ended, or
+    it goes on the router's next run). `reason` is `session_replaced`,
+    `in_flight` (another send to the placement is unconfirmed), `held`,
+    `not_ready` or `queued_behind`; for `queued_behind`, `behind` is the
+    id of the delivery at the head of the placement's queue, the one that
+    goes next, and otherwise `null`.
   - `log`: the task's own log lines, as `router status <task>` shows them.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its
