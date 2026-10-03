@@ -1,4 +1,4 @@
-// The board page: the v0.6 design drawn from the view model and the viewer,
+// The board page: the v0.7 design drawn from the view model and the viewer,
 // a pure function of both. The tests read what a viewer or the design agent
 // reads: text, data-paths, and the forms with their fields.
 import test from "node:test";
@@ -24,6 +24,7 @@ import {
 } from "./board-page.ts";
 import {
   config,
+  deliveredJournal,
   extend,
   journal,
   NOW,
@@ -192,36 +193,46 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
   );
 });
 
-test("every data-path of the v0.6 design is rendered for the fixture or dropped with a reason", () => {
+test("every data-path of the v0.7 design is rendered for the fixture or dropped with a reason", () => {
   const lines = (name: string): string[] =>
     readFileSync(join(import.meta.dirname, "..", "design", name), "utf8")
       .split("\n")
       .filter((line) => line && !line.startsWith("#"));
-  const design = lines("v0.6-paths.txt");
+  const listed = lines("v0.7-paths.txt");
   // The committed list is the extraction's output: distinct and sorted.
-  assert.ok(design.length > 100);
-  assert.deepEqual(design, [...new Set(design)].sort());
+  assert.ok(listed.length > 100);
+  assert.deepEqual(listed, [...new Set(listed)].sort());
+  // The design's sample is synthetic and larger than the fixture, so paths
+  // compare without their indexes: open[].deliveries[].latest.
+  const shape = (path: string): string => path.replaceAll(/\[\d+\]/g, "[]");
+  const design = [...new Set(listed.map(shape))].sort();
   const dropped = new Map(
-    lines("v0.6-dropped.txt").map((line): [string, string] => {
+    lines("v0.7-dropped.txt").map((line): [string, string] => {
       const at = line.lastIndexOf(" | ");
       return at < 0 ? [line, ""] : [line.slice(0, at), line.slice(at + 3)];
     }),
   );
-  // The design's three pages select T2, T4 and T1; render each task.
-  const me = model(ME);
+  // The design's pages select an answer, a long working task, a choice and
+  // a resolve; render each task of the fixture, the record with the replaced
+  // session for the resolve form, and the record before T4's first reply.
+  const records = [journal, replacedJournal, deliveredJournal].map((entries) =>
+    model(ME, entries),
+  );
   const rendered = new Set(
-    ["T1", "T2", "T3", "T4"].flatMap((task) =>
-      dataPaths(renderBoard(me, { task })),
-    ),
+    ["T1", "T2", "T3", "T4"]
+      .flatMap((task) =>
+        records.flatMap((m) => dataPaths(renderBoard(m, { task }))),
+      )
+      .map(shape),
   );
   assert.deepEqual(
     design.filter((path) => !rendered.has(path) && !dropped.has(path)),
     [],
-    "v0.6 paths neither rendered nor in design/v0.6-dropped.txt",
+    "v0.7 paths neither rendered nor in design/v0.7-dropped.txt",
   );
   for (const [path, reason] of dropped) {
     assert.ok(reason.trim(), `${path} is dropped without a reason`);
-    assert.ok(design.includes(path), `${path} is not a v0.6 path`);
+    assert.ok(design.includes(path), `${path} is not a v0.7 path`);
     assert.ok(!rendered.has(path), `${path} is rendered after all`);
   }
 });
@@ -252,10 +263,13 @@ test("the fixture's board: what needs you, what is in flight, what is done", () 
   );
   assert.ok(html.includes("working on <a"));
   assert.equal(textOf(html, "age(placements[1].delivery.latest.at, at)"), "1m");
-  assert.equal(
-    textOf(html, "placements[2].delivery"),
-    "no delivery pinned to this session",
+  // The held placement has no delivery: its card is idle and says so.
+  assert.match(
+    html,
+    /<div class="card idle" tabindex="0" data-path="placements\[2\]">/,
   );
+  assert.match(strip(html), /environment@mbp\s*held · no open delivery/);
+  assert.ok(!html.includes('data-path="placements[2].session"'));
   // The rows read as the design wrote them.
   assert.equal(textOf(html, "open[2].routing.reason"), "low confidence");
   assert.equal(
@@ -365,18 +379,24 @@ test("forms and levers follow the viewer's principals and roles", () => {
     message: "M4",
   });
   assert.deepEqual(resolve?.inputs, ["evidence"]);
-  assert.deepEqual(resolve?.buttons, [
-    ["outcome", "finished"],
-    ["outcome", "not_sent"],
-  ]);
+  // The send was accepted, so the router takes only finished; the form says
+  // why, and names the reason the delivery is stuck.
+  assert.deepEqual(resolve?.buttons, [["outcome", "finished"]]);
+  assert.match(
+    strip(me),
+    /The session that took this send is gone, so the router cannot confirm it\. The adapter reported it accepted, so it counts as sent and cannot be marked not sent\./,
+  );
+  assert.ok(me.includes('data-path="open[0].deliveries[0].send.outcome"'));
   assert.deepEqual(
     formsIn(me)
       .filter((f) => f.fields.action === "hold")
       .map((f) => [f.fields.placement, f.fields.hold]),
+    // The rail orders by state: the asking card, the held one, then the
+    // idle one with the replaced session.
     [
       ["orchestrator@mbp", "1"],
-      ["knowledge@mini", "1"],
       ["environment@mbp", "0"],
+      ["knowledge@mini", "1"],
     ],
   );
   // Every form posts to the actions endpoint, and none nests in another.
@@ -503,6 +523,95 @@ test("a valid record never breaks the page: Jev still judging, or a judgment wit
   assert.equal(textOf(shown, "open[0].judgments[0].valid"), "invalid");
   // With nothing suggested, the sender names the recipient.
   assert.deepEqual(formFor(shown, "choose")?.inputs, ["to"]);
+});
+
+test("v0.7: the rail orders by state, a delivery without a reply reads as delivered, and the small rules", () => {
+  // Cards come asking, working, held, ready, not ready, whatever the
+  // model's order; the fixture's order reversed still renders ask, work, held.
+  const me = model(ME);
+  const reversed = renderBoard(
+    { ...me, placements: [...me.placements].reverse() },
+    { task: "T2" },
+  );
+  assert.deepEqual(
+    [
+      ...reversed.matchAll(
+        /<div class="card[^"]*" tabindex="0" data-path="placements\[(\d)\]">/g,
+      ),
+    ].map((m) => m[1]),
+    ["2", "1", "0"],
+  );
+  // The nav names a role only when it differs from its principal.
+  assert.equal(
+    textOf(reversed, "actor.principals[]"),
+    "you (requester), operator",
+  );
+
+  // Before T4's first reply its delivery is accepted: the card, the row and
+  // the table say delivered.
+  const quiet = page(ME, { task: "T4" }, deliveredJournal);
+  assert.match(
+    strip(quiet),
+    /knowledge@mini\s*delivered on T4 · Summarize the review pipeline notes/,
+  );
+  assert.equal(
+    textOf(quiet, "placements[1].delivery.latest"),
+    "delivered, no reply yet",
+  );
+  assert.equal(
+    textOf(quiet, "open[0].deliveries[0].latest"),
+    "delivered, no reply yet",
+  );
+  assert.equal(textsOf(quiet, "open[0].deliveries[0].latest")[1], "delivered");
+  assert.ok(!quiet.includes("none yet"));
+
+  // While a send is still attempting the delivery is pinned but not
+  // delivered: the page says what the send is instead. The environment
+  // participant has several placements; D5 is the one on mbp.
+  const attempting = extend(
+    { type: "observe", placement: "environment@mbp", hold: false, ready: true },
+    {
+      type: "submit",
+      by: "you",
+      messageId: "M5",
+      text: "Rebuild",
+      to: "environment",
+    },
+    { type: "attempt", deliveryId: "D5" },
+  );
+  const inFlight = page(ME, { task: "T5" }, attempting);
+  assert.match(strip(inFlight), /environment@mbp\s*attempting on T5 · Rebuild/);
+  assert.equal(
+    textOf(inFlight, "placements[2].delivery.latest"),
+    "attempting, no reply yet",
+  );
+  assert.deepEqual(textsOf(inFlight, "open[0].deliveries[1].send"), [
+    "request M5 · attempting",
+    "request attempting",
+  ]);
+  assert.ok(!inFlight.includes("delivered"));
+
+  // A runner-up that rounds to 0.00 is not named.
+  const sure = extend(
+    { type: "submit", by: "you", messageId: "M5", text: "Plan the week" },
+    {
+      type: "judged",
+      taskId: "T5",
+      choice: "orchestrator",
+      probabilities: {
+        orchestrator: 0.996,
+        knowledge: 0.001,
+        environment: 0.001,
+        incus: 0.001,
+        none: 0.001,
+      },
+      model: "jev-1.13.0",
+    },
+  );
+  assert.equal(
+    textOf(page(ME, { task: "T5" }, sure), "open[0].judgments[0]", "div"),
+    "Jev picked orchestrator at 1.00 · jev-1.13.0",
+  );
 });
 
 test("a finished task shows its verdict, not a countdown", () => {
@@ -685,23 +794,17 @@ test("a real record: a long request keeps a short title and session ids are shor
   // The title is the first line, trimmed; the whole text is its tooltip and
   // the transcript still carries it in full.
   assert.equal(
-    textOf(detail, "open[0].text"),
+    textOf(detail, "first_line(open[0].text)"),
     "Round 3b: visual review of the live board against v0.6.",
   );
-  const tooltip = detail.match(/data-path="open\[0\]\.text" title="([^"]*)"/);
+  const tooltip = detail.match(/<h2 title="([^"]*)">/);
   assert.equal(tooltip?.[1]?.length, text.length);
   assert.ok(detail.includes(`${"x".repeat(2000)}</`));
-  // Eight characters of a UUID on the card, in the deliveries table and in
-  // an end line, each with the full id as the tooltip; the fixture's short
-  // ids stay as they are.
-  assert.ok(
-    html.includes(
-      `<span class="tag" data-path="placements[1].session" title="${session}">session cef0c5d5</span>`,
-    ),
-  );
+  // The fixture's short ids stay as they are.
   assert.equal(textOf(html, "placements[0].session"), "session A1");
-  // A delivery sent to that session, and ended by it: the table and the end
-  // line show the short id with the same tooltip.
+  // A delivery sent to that session shows eight characters of the UUID on
+  // the card; once the session ends it, the table and the end line show the
+  // short id with the same tooltip.
   const sent = extend(
     { type: "observe", placement: "knowledge@mini", session, ready: true },
     {
@@ -728,6 +831,12 @@ test("a real record: a long request keeps a short title and session ids are shor
       text: "done",
     },
   );
+  const sentHtml = page(ME, { task: "T5" }, sent.slice(0, -1));
+  assert.ok(
+    sentHtml.includes(
+      `<span class="tag" data-path="placements[1].session" title="${session}">session cef0c5d5</span>`,
+    ),
+  );
   const table = page(ME, { task: "T5" }, sent);
   const detailT5 = detailOf(table);
   assert.ok(
@@ -737,7 +846,7 @@ test("a real record: a long request keeps a short title and session ids are shor
   );
   assert.ok(
     detailT5.includes(
-      `D4 ended · completed · by <span title="${session}">cef0c5d5</span>`,
+      `D4 ended · completed · by <span data-path="finished[0].deliveries[0].end.by" title="${session}">cef0c5d5</span>`,
     ),
   );
 });

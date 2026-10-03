@@ -1,5 +1,5 @@
-// The board's page: the v0.6 console of the board design (skhlo/designs, tag
-// jev-a2a-v0.6, scripts/gen-jev-a2a-board.py), drawn on the server from the
+// The board's page: the v0.7 console of the board design (skhlo/designs, tag
+// jev-a2a-v0.7, scripts/gen-jev-a2a-board.py), drawn on the server from the
 // view model and the viewer. The template translates the generator's HTML
 // functions and carries its CSS: every slot keeps the data-path the design
 // gives it, rows keep data-task and groups data-group, so the live page can
@@ -13,7 +13,7 @@ import type {
   PlacementView,
   TaskView,
 } from "./board.ts";
-import type { Judgment, NeedsYouItem, Role } from "./types.ts";
+import type { Judgment, NeedsYouItem, Role, StuckReason } from "./types.ts";
 
 // ---- Formats: the generator's helpers over the same fields ----
 
@@ -159,13 +159,26 @@ const jevLine = (j: Judgment): string => {
       : p >= j.threshold
         ? `Jev picked ${esc(j.choice)} at ${p.toFixed(2)}`
         : `Jev: ${esc(j.choice)} at ${p.toFixed(2)} is under the threshold ${j.threshold}`;
-  return `${verdict}${runnerUp ? `, runner-up ${esc(runnerUp[0])} ${runnerUp[1].toFixed(2)}` : ""}${j.model ? ` · ${esc(j.model)}` : ""}`;
+  // A runner-up that rounds to 0.00 says nothing.
+  const second =
+    runnerUp && runnerUp[1].toFixed(2) !== "0.00"
+      ? `, runner-up ${esc(runnerUp[0])} ${runnerUp[1].toFixed(2)}`
+      : "";
+  return `${verdict}${second}${j.model ? ` · ${esc(j.model)}` : ""}`;
 };
 
 const CHOSEN_BY: Record<NonNullable<TaskView["chosenBy"]>, string> = {
   judgment: "chosen by Jev",
   address: "named on the request",
   sender: "chosen by the sender",
+};
+
+// Why a delivery needs an operator, as the resolve form says it.
+const RESOLVE_WHY: Record<StuckReason, string> = {
+  task_ended: "The task ended before the router could confirm this send.",
+  session_replaced:
+    "The session that took this send is gone, so the router cannot confirm it.",
+  unknown_send: "The router has no record of this send reaching the session.",
 };
 
 const ASKING: TaskView["status"][] = [
@@ -326,7 +339,7 @@ export function renderBoard(
   <span class="brand">Router</span>
   <span class="who">${
     actor
-      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", actor.principals.map((p) => `${esc(p.principal)} (${esc(p.role)})`).join(", "))}`
+      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", actor.principals.map((p) => `${esc(p.principal)}${p.role === p.principal ? "" : ` (${esc(p.role)})`}`).join(", "))}`
       : slot("actor", "reading only · not identified")
   }</span>
   <span class="counts">${pill("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${pill("count(open[] not in needsYou)", flight.length, "in flight")}${pill("count(placements[].hold)", held, "held")}${pill("count(placements)", agentCount, noun(agentCount, "agent"))}</span>
@@ -338,32 +351,81 @@ export function renderBoard(
 
   // ---- Agents ----
 
+  // A card's dot: the session's state. A question for another principal
+  // waits like a question for the viewer, in grey.
+  const dotOf = (p: PlacementView): string => {
+    const d = p.delivery;
+    if (d)
+      return d.latest?.kind === "question"
+        ? asksViewer(d.id)
+          ? "ask"
+          : "wait"
+        : "work";
+    return p.hold ? "held" : p.ready ? "ready" : "off";
+  };
+  // The rail's order: asking, working or delivered, held, ready, not ready;
+  // the model's order within a state.
+  const RANK: Record<string, number> = {
+    ask: 0,
+    wait: 0,
+    work: 1,
+    held: 2,
+    ready: 3,
+    off: 4,
+  };
+  const rank = (p: PlacementView): number => RANK[dotOf(p)] ?? 5;
+
   const card = (p: PlacementView, i: number): string => {
     const path = `placements[${i}]`;
     const d = p.delivery;
     const latest = d?.latest ?? null;
-    const asks = d !== null && latest?.kind === "question" && asksViewer(d.id);
-    const task = d
-      ? slot(
-          `${path}.delivery.taskId`,
-          esc(d.taskId),
-          "id",
-          "a",
-          ` href="${href(d.taskId)}"`,
+    const dot = dotOf(p);
+    const asks = dot === "ask";
+    const dotPath = `data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"`;
+    const hold = operator
+      ? form(
+          { action: "hold", placement: p.key, hold: p.hold ? "0" : "1" },
+          slot(`${path}.hold`, p.hold ? "Release" : "Hold", "btn sm", "button"),
         )
       : "";
-    const [dot, what] = d
-      ? latest?.kind === "question"
-        ? [asks ? "ask" : "wait", `asks on ${task}`]
-        : ["work", `${esc(latest?.kind ?? "sent")} on ${task}`]
-      : p.hold
-        ? ["held", `${slot(`${path}.hold`, "held")} · no open delivery`]
-        : p.ready
-          ? ["ready", `${slot(`${path}.ready`, "ready")} · no open delivery`]
-          : ["off", slot(`${path}.ready`, "not ready")];
-    const excerpt = d
-      ? ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`
-      : "";
+    if (!d) {
+      // Idle: no delivery pinned to the session. The card collapses to its
+      // name, dot, state and lever.
+      const what =
+        dot === "held"
+          ? `${slot(`${path}.hold`, "held")} · no open delivery`
+          : dot === "ready"
+            ? `${slot(`${path}.ready`, "ready")} · no open delivery`
+            : slot(`${path}.ready`, "not ready");
+      return `    <div class="card idle${dot === "off" ? " off" : ""}" tabindex="0" data-path="${path}">
+      <span class="dot ${dot}" ${dotPath}></span>
+      <div class="body">
+        <div class="name">${slot(`${path}.key`, esc(p.key))}</div>
+        <div class="what">${what}</div>
+        ${hold ? `<div class="lever">${hold}</div>` : ""}
+      </div>
+    </div>`;
+    }
+    const task = slot(
+      `${path}.delivery.taskId`,
+      esc(d.taskId),
+      "id",
+      "a",
+      ` href="${href(d.taskId)}"`,
+    );
+    // Without an update the delivery reads as delivered once the session
+    // accepted it. A delivery is pinned at the attempt, so until then it
+    // says what its send is (attempting, unknown); the design's sample never
+    // held such a send. A task the model no longer lists reads as delivered.
+    const outcome =
+      tasks.get(d.taskId)?.task.deliveries.find((x) => x.id === d.id)?.send
+        .outcome ?? "accepted";
+    const what = latest
+      ? `${latest.kind === "question" ? "asks" : esc(latest.kind)} on ${task}`
+      : outcome === "accepted"
+        ? `delivered on ${task}`
+        : `${esc(outcome)} on ${task}`;
+    const excerpt = ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`;
     const rig =
       slot(`${path}.host`, esc(p.host), "tag") +
       slot(
@@ -378,14 +440,18 @@ export function renderBoard(
     const latestAt = `${path}.delivery.latest.at`;
     const stats = latest
       ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
-      : d
-        ? `<span class="k">last update</span>${slot(`${path}.delivery.latest`, "none yet")}`
-        : slot(`${path}.delivery`, "no delivery pinned to this session", "k");
+      : slot(
+          `${path}.delivery.latest`,
+          outcome === "accepted"
+            ? "delivered, no reply yet"
+            : `${esc(outcome)}, no reply yet`,
+          "k",
+        );
     const corner = latest?.at
       ? ago(`age(${latestAt}, at)`, latest.at, "age num")
       : "";
     const levers = [
-      ...(d ? answers(d.id) : [])
+      ...answers(d.id)
         .filter((it) => it.act)
         .map((it) =>
           slot(
@@ -396,22 +462,10 @@ export function renderBoard(
             ` href="${href(it.item.taskId, `#answer-${it.item.deliveryId}`)}"`,
           ),
         ),
-      ...(operator
-        ? [
-            form(
-              { action: "hold", placement: p.key, hold: p.hold ? "0" : "1" },
-              slot(
-                `${path}.hold`,
-                p.hold ? "Release" : "Hold",
-                "btn sm",
-                "button",
-              ),
-            ),
-          ]
-        : []),
-    ];
-    return `    <div class="card${dot === "ask" ? " warm" : ""}${dot === "off" ? " off" : ""}" tabindex="0" data-path="${path}">
-      <span class="dot ${dot}" data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"></span>
+      hold,
+    ].filter(Boolean);
+    return `    <div class="card${asks ? " warm" : ""}" tabindex="0" data-path="${path}">
+      <span class="dot ${dot}" ${dotPath}></span>
       <div class="body">
         <div class="name">${slot(`${path}.key`, esc(p.key))}${corner}</div>
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
@@ -427,12 +481,23 @@ export function renderBoard(
   const agents = `<aside class="panel agents" aria-label="Agents">
   <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}</h2>
   <div class="scroll"><div class="cards">
-${model.placements.map(card).join("\n")}
+${model.placements
+  .map((p, i): [PlacementView, number] => [p, i])
+  .sort(([a], [b]) => rank(a) - rank(b))
+  .map(([p, i]) => card(p, i))
+  .join("\n")}
   </div></div>
   <div class="foot"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)}</div>${tail.map((e, i) => `<div data-path="log[${start + i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div>
 </aside>`;
 
   // ---- Tasks ----
+
+  // A delivery with no update yet: delivered once its send was accepted;
+  // before that, what the send is (attempting, unknown).
+  const delivered = (dp: string, d: DeliveryView, words: string): string =>
+    d.send.outcome === "accepted"
+      ? slot(`${dp}.latest`, words)
+      : slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.outcome)}`);
 
   // The second line of a row: what the task waits on or last said.
   const sub = (path: string, t: TaskView): string => {
@@ -464,7 +529,7 @@ ${model.placements.map(card).join("\n")}
       return `${slot(`${dp}.latest.text`, esc(d.latest.text))} · ${countdown}`;
     if (d.waits)
       return `${slot(`${dp}.waits`, waitText(d.placement, d.waits))} · ${countdown}`;
-    return `${slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.outcome)}`)} · ${countdown}`;
+    return `${delivered(dp, d, "delivered, no reply yet")} · ${countdown}`;
   };
 
   // The peek: the task's open question with a reply box, rendered in its row
@@ -600,7 +665,7 @@ ${group(
         lines.push({
           key: iso ?? "9",
           order: 2,
-          html: `<div class="sys" data-path="${dp}.end">${esc(d.id)} ended · ${esc(d.end.reason)}${d.end.by ? ` · by <span${fullId(d.end.by)}>${esc(shortId(d.end.by))}</span>` : ""}${iso ? ` · ${when(iso)}` : ""}</div>`,
+          html: `<div class="sys" data-path="${dp}.end">${esc(d.id)} ended · ${esc(d.end.reason)}${d.end.by ? ` · by ${slot(`${dp}.end.by`, esc(shortId(d.end.by)), "", "span", fullId(d.end.by))}` : ""}${iso ? ` · ${when(iso)}` : ""}</div>`,
         });
       }
     });
@@ -690,8 +755,17 @@ ${group(
         )}`;
       }
       case "resolve": {
-        const to = `Resolve <b>${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}</b> · send ${slot(`${it.path}.messageId`, esc(item.messageId), "mono")} · ${slot(`${it.path}.reason`, esc(label(item.reason)))}`;
-        if (!it.act) return readOnly(`${to}${as}`);
+        const to = `Resolve <b>${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}</b> · send ${slot(`${it.path}.messageId`, esc(item.messageId), "mono")} · ${slot(`${it.path}.reason`, esc(label(item.reason)))}${as}`;
+        if (!it.act) return readOnly(to);
+        // Only the outcomes the router accepts are offered, and a sentence
+        // says why: an accepted send counts as sent, so it can only end as
+        // finished.
+        const di =
+          t?.deliveries.findIndex((d) => d.id === item.deliveryId) ?? -1;
+        const accepted = t?.deliveries[di]?.send.outcome === "accepted";
+        const finished = `<button class="btn" type="submit" name="outcome" value="finished">Mark finished</button>`;
+        const notSent = `<button class="btn danger" type="submit" name="outcome" value="not_sent">Mark not sent</button>`;
+        const why = `${RESOLVE_WHY[item.reason]}${accepted ? ` ${slot(`${path}.deliveries[${di}].send.outcome`, "The adapter reported it accepted, so it counts as sent and cannot be marked not sent.")}` : ""}`;
         return `  ${form(
           {
             action: "resolve",
@@ -701,7 +775,7 @@ ${group(
           `
     <div class="to">${to}</div>
     <textarea name="evidence" required placeholder="What you saw in the session" aria-label="Evidence for ${esc(item.deliveryId)}"></textarea>
-    <div class="row"><span class="hint">The router could not confirm this send.</span><span class="spacer"></span><button class="btn" type="submit" name="outcome" value="finished">Mark finished</button><button class="btn danger" type="submit" name="outcome" value="not_sent">Mark not sent</button></div>
+    <div class="row"><span class="hint">${why}</span><span class="spacer"></span>${finished}${accepted ? "" : notSent}</div>
   `,
           shell,
         )}`;
@@ -747,7 +821,7 @@ ${forms}
             )
           : d.waits
             ? slot(`${dp}.waits`, waitText(d.placement, d.waits))
-            : slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.outcome)}`);
+            : delivered(dp, d, "delivered");
       const last = d.latest
         ? clock(
             `time(times[${dp}.latest.messageId])`,
@@ -770,7 +844,7 @@ ${forms}
       .join("\n");
     return `<section class="panel detail" aria-label="Task ${esc(t.id)}" data-path="${path}" data-task="${esc(t.id)}">
   <div class="head">
-    <div class="title"><h2>${slot(`${path}.id`, esc(t.id), "id")}${slot(`${path}.text`, esc(headline(t.text)), "", "span", ` title="${esc(t.text)}"`)}</h2>${slot(`${path}.status`, esc(label(t.status)), `badge${cls === "ask" ? " ask" : ""}`)}${cancel}</div>
+    <div class="title"><h2 title="${esc(t.text)}">${slot(`${path}.id`, esc(t.id), "id")}${slot(`first_line(${path}.text)`, esc(headline(t.text)))}</h2>${slot(`${path}.status`, esc(label(t.status)), `badge${cls === "ask" ? " ask" : ""}`)}${cancel}</div>
     <div class="meta">
       <span>to ${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : DASH, "mono")} · ${slot(`${path}.chosenBy`, t.chosenBy ? CHOSEN_BY[t.chosenBy] : "no recipient yet")}</span>
       <span>from ${slot(`${path}.source`, esc(t.source), "mono")} at ${clock(`time(times[${path}.messageId])`, times[t.messageId])}</span>
@@ -813,7 +887,7 @@ ${
 <style>${STYLE}</style></head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
-     what it reads, as in the board design v0.6: a plain path indexes the
+     what it reads, as in the board design v0.7: a plain path indexes the
      model, and time(), age(), left() and count() are formats over it. -->
 ${notice}
 <div id="app" data-refresh="${refreshSeconds}">
@@ -956,6 +1030,9 @@ h1, h2, h3, p { margin: 0; }
 .card:hover { background: var(--wash); border-color: var(--hair-strong); }
 .card.warm { background: var(--accent-soft); border-color: var(--accent-line); }
 .card.off { opacity: .7; }
+.card.idle { padding: 9px var(--pad); }
+.card.idle .body { grid-template-columns: 1fr auto; align-items: center; }
+.card.idle .lever { margin-top: 0; }
 .card.focused { outline: 2px solid var(--text); outline-offset: 2px; }
 .card .body { flex: 1; min-width: 0; display: grid; gap: 3px; }
 .card .name { font-weight: 500; font-size: var(--fs); letter-spacing: -.1px; display: flex; align-items: baseline; gap: 8px; }

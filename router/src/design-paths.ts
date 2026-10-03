@@ -1,15 +1,17 @@
 // The data-path values of a board page, distinct and sorted. Run as a
-// script, it lists the paths of the board design's v0.6 pages, the coverage
-// set the board page is held to (design/v0.6-paths.txt); the board page test
-// reads the rendered page with the same function. The pages are
-// jev-a2a/html/board-1440.html, board-peek.html and board-choose.html in
-// skhlo/designs at tag jev-a2a-v0.6. To list them again, in router/:
+// script, it lists the paths of the board design's v0.7 pages, the coverage
+// set the board page is held to (design/v0.7-paths.txt); the board page test
+// reads the rendered page with the same function and compares the paths
+// with their indexes blanked, as the design's sample is larger than the
+// fixture. The pages are jev-a2a/html/board-1440.html, board-peek.html,
+// board-choose.html and board-resolve.html in skhlo/designs at tag
+// jev-a2a-v0.7. To list them again, in router/:
 //
-//   for page in board-1440 board-peek board-choose; do
-//     gh api "repos/skhlo/designs/contents/jev-a2a/html/$page.html?ref=a2af1919f6724c201bdf029131d8c4db985ce3b3" \
+//   for page in board-1440 board-peek board-choose board-resolve; do
+//     gh api "repos/skhlo/designs/contents/jev-a2a/html/$page.html?ref=bc2da281faddbf6046ebc827fb7e8348ae9c80d4" \
 //       -H 'Accept: application/vnd.github.raw' > "/tmp/$page.html"
 //   done
-//   pnpm exec node src/design-paths.ts /tmp/board-*.html > design/v0.6-paths.txt
+//   pnpm exec node src/design-paths.ts /tmp/board-*.html > design/v0.7-paths.txt
 import { readFileSync } from "node:fs";
 
 const unescape = (value: string): string =>
