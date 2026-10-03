@@ -234,6 +234,12 @@ export function renderBoard(
     );
   const asksViewer = (deliveryId: string): boolean =>
     answers(deliveryId).some((it) => it.mine);
+  // The open questions that wait on the viewer, by id.
+  const asking = new Set(
+    items.flatMap((it) =>
+      it.mine && it.item.kind === "answer" ? [it.item.questionId] : [],
+    ),
+  );
 
   // One group per task. Needs you holds each task with an item of the
   // viewer's, finished or not; In flight and Done hold the rest.
@@ -462,7 +468,7 @@ ${model.placements.map(card).join("\n")}
     return `
       <div class="peek" role="dialog" aria-label="Peek ${esc(item.taskId)}" data-path="${it.path}" hidden>
         <div class="top"><span class="badge${it.mine ? " ask" : ""}">question</span><span class="id">${slot(`${it.path}.taskId`, esc(item.taskId))} · ${slot(`${it.path}.deliveryId`, esc(item.deliveryId))} · ${placement}</span><span class="spacer"></span>${ago(`age(times[${it.path}.questionId], at)`, asked, "hint", `waiting ${age(asked, at)}`)}</div>
-        <div class="q">${slot(`${it.path}.text`, esc(item.text))}</div>
+        <div class="q${it.mine ? "" : " wait"}">${slot(`${it.path}.text`, esc(item.text))}</div>
         ${reply}
       </div>`;
   };
@@ -555,12 +561,14 @@ ${group(
           html: `<div class="msg you" data-path="${dp}.sends[${si}]"><span class="who">${sender} · ${esc(s.kind)} · ${when(iso)} · ${esc(s.outcome)}</span>${esc(s.text)}</div>`,
         });
       });
+      // A question is blue while it waits on the viewer. The design coloured
+      // every question, answered or another principal's.
       d.updates.forEach((u, ui) => {
         const iso = times[u.messageId];
         lines.push({
           key: iso ?? "",
           order: 1,
-          html: `<div class="msg agent${u.kind === "question" ? " question" : ""}" data-path="${dp}.updates[${ui}]"><span class="who">${esc(d.placement)} · ${esc(u.kind)} · ${when(iso)}</span>${esc(u.text)}</div>`,
+          html: `<div class="msg agent${asking.has(u.messageId) ? " question" : ""}" data-path="${dp}.updates[${ui}]"><span class="who">${esc(d.placement)} · ${esc(u.kind)} · ${when(iso)}</span>${esc(u.text)}</div>`,
         });
       });
       if (d.end) {
@@ -1025,7 +1033,11 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 a.btn, .card a.id { text-decoration: none; }
 .card a.id:hover { text-decoration: underline; }
 .lever form, .actions form, .peek form { display: contents; }
+/* Blue is the viewer's: an item that waits on someone else, or that the
+   viewer cannot act on here, drops it. */
 .form.ro { border-color: var(--hair); }
+.form.ro .to b { color: var(--text); }
+.peek .q.wait { background: transparent; border-color: var(--hair-strong); }
 .choices input { flex: 1; min-width: 10rem; padding: 6px 12px; border: 1px solid var(--hair); border-radius: 100px; background: var(--canvas); color: var(--text); }
 .notice { position: fixed; z-index: 70; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: baseline; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
 .help { position: fixed; z-index: 60; right: 20px; bottom: 48px; padding: 12px 16px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }

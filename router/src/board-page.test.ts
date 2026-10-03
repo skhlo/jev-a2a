@@ -403,6 +403,31 @@ const modelFor = (
   );
 };
 
+test("blue marks only what waits on the viewer", () => {
+  const questions = (html: string): string[] =>
+    [
+      ...detailOf(html).matchAll(
+        /<div class="msg agent question"[^>]*>([^]*?)<\/div>/g,
+      ),
+    ].map((m) => strip(m[1] ?? ""));
+  // The open question, not the one answered at 09:16.
+  const me = page(ME, { task: "T2" });
+  assert.deepEqual(questions(me), [
+    "orchestrator@mbp · question · 09:31ZForce push?",
+  ]);
+  assert.ok(me.includes('<div class="q">'));
+  assert.ok(!me.includes('<div class="q wait">'));
+  // Nobody identified: every item counts, as in the Needs you group.
+  assert.deepEqual(questions(page(null, { task: "T2" })), questions(me));
+  // An operator: the requester's question waits on the requester.
+  const operator = renderBoard(modelFor(["operator"]), { task: "T2" });
+  assert.match(operator, /<div class="task held[^"]*" data-path="open\[1\]"/);
+  assert.deepEqual(questions(operator), []);
+  assert.ok(operator.includes('<div class="q wait">'));
+  assert.ok(!operator.includes('<div class="q">'));
+  assert.match(strip(detailOf(operator)), /question Q2 · waits on you/);
+});
+
 test("a login with two principals in one role gets forms for the one its posts are signed as", () => {
   const roles: Record<string, Role> = {
     ...config.principals,

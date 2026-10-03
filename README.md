@@ -83,9 +83,10 @@ the server from the view model below, in three columns:
   countdown while it is open, the exchange in time order, the form that
   clears what waits on you, and its deliveries, Jev's judgments and log.
 
-Blue marks what needs you and nothing else. The selected task is in the URL
-(`?task=T2`), so a reload or a shared link opens it; without one the page
-opens the first task that needs you, else the newest open one, else the
+Blue marks what needs you and nothing else: a question already answered, or
+one that waits on another principal, is not blue. The selected task is in
+the URL (`?task=T2`), so a reload or a shared link opens it; without one the
+page opens the first task that needs you, else the newest open one, else the
 newest finished one.
 
 The board listens on loopback only, and a browser that opens it directly gets
@@ -129,14 +130,15 @@ reason in `router/design/v0.6-dropped.txt`.
 The page differs from v0.6 on purpose where the design was wrong for live
 data: counted nouns agree with their number, each clock carries its full
 date as a tooltip, the needs-you count counts tasks the same way in the nav
-and in the group, a finished task shows its verdict instead of a countdown,
-the forms post the router's own fields (resolving takes evidence), and a
-narrow screen gets one scrolling column. What remains open: the design's
-session telemetry and health sheet, which the record does not hold (see
-below); the hold lever shows for operators, as the design has it, although
-the router accepts a hold from any known login; a post does not name its
-principal, so a login that holds two principals in one role acts as the
-first one `serve.identities` lists, and the other's items show without a
+and in the group, blue follows the viewer (the design colours every question
+and its badge, whoever it waits on), a finished task shows its verdict
+instead of a countdown, the forms post the router's own fields (resolving
+takes evidence), and a narrow screen gets one scrolling column. What remains
+open: the design's session telemetry and health sheet, which the record does
+not hold (see below); the hold lever shows for operators, as the design has
+it, although the router accepts a hold from any known login; a post does not
+name its principal, so a login that holds two principals in one role acts as
+the first one `serve.identities` lists, and the other's items show without a
 form; a draft is keyed by its form's `data-path`, which shifts when an
 earlier item goes, and such a draft stays in storage instead of filling the
 moved form; and the script's behaviour has no test in CI.
