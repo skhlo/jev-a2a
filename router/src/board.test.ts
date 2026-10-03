@@ -16,7 +16,13 @@ import {
   messageTimes,
   taskLog,
 } from "./board.ts";
-import { config, extend, journal, NOW } from "./board-fixture.ts";
+import {
+  answeredJournal,
+  config,
+  extend,
+  journal,
+  NOW,
+} from "./board-fixture.ts";
 import { boardSample, SAMPLE_PATH } from "./board-sample.ts";
 import { readJournal, type Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
@@ -217,6 +223,31 @@ test("the model names its contract and carries what a template binds to", () => 
     ],
   );
   assert.equal(model.times.Q2, "2026-09-30T09:31:00.000Z");
+});
+
+test("a placement's delivery tells an open question from an answered one", () => {
+  // After T2's first answer the question is still the latest update, the
+  // current send is the answer, and no question is open.
+  const times = messageTimes(answeredJournal);
+  const model = boardModel(
+    boardState(config, answeredJournal, NOW),
+    config,
+    NOW,
+    times,
+  );
+  assert.deepEqual(
+    model.placements.find((p) => p.key === "orchestrator@mbp")?.delivery,
+    {
+      id: "D1",
+      taskId: "T2",
+      excerpt: "Ask me something",
+      messageId: "A1m",
+      outcome: "accepted",
+      question: null,
+      latest: { kind: "question", at: "2026-09-30T09:14:00.000Z" },
+    },
+  );
+  assert.equal(model.needsYou.flatMap((g) => g.items).length, 1);
 });
 
 test("a placement shows its newest open delivery, even for an older task", () => {

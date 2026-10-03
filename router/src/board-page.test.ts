@@ -644,10 +644,22 @@ test("an answered question reads as working on the card and as the answer in the
   assert.ok(
     html.includes('data-path="time(times[placements[0].delivery.messageId])"'),
   );
-  assert.equal(textOf(html, "open[1].sends[0].text"), undefined);
+  assert.equal(textOf(html, "open[1].deliveries[0].latest.text"), undefined);
   assert.match(strip(html), /working\s*answered 09:16Z main · 25m left/);
   assert.equal(textOf(html, "open[1].deliveries[0].sends[1].text"), "main");
   assert.deepEqual(groups(html)["needs-you"], ["T1"]);
+  // A resolve clears the question too; with no answer sent, the row keeps
+  // the question's text rather than quoting the request as an answer.
+  const resolved = model(ME, answeredJournal);
+  const d1 = resolved.open.find((t) => t.id === "T2")?.deliveries[0];
+  assert.ok(d1);
+  d1.send = { ...d1.send, messageId: "M2" };
+  const row = renderBoard(resolved, { task: "T2" });
+  assert.ok(!strip(row).includes("answered 09:16Z"));
+  assert.equal(
+    textOf(row, "open[1].deliveries[0].latest.text"),
+    "Which branch?",
+  );
 });
 
 test("a runner-up that rounds to 0.00 is not named", () => {

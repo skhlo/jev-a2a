@@ -148,7 +148,10 @@ a session id of any shape that is a UUID is shortened (the design shortens
 any id over twelve characters), and a delivery reads as delivered only once
 its send was accepted: a delivery is pinned to a session at the attempt, so
 until the outcome arrives the page says what the send is (attempting,
-unknown, pending), a state the design's sample does not hold. What remains
+unknown, pending), a state the design's sample does not hold; and an asking
+card shows the question in place of the request excerpt, and once the
+question is answered the card works again and names the answer's time
+(the design's sample has no answered question yet). What remains
 open: the design's session telemetry and health sheet, which the record does
 not hold (see below); the hold lever shows for operators, as the design has
 it, although the router accepts a hold from any known login; a post does not
@@ -199,11 +202,13 @@ committed sample matches.
 - `placements`: each placement the router serves, with its `key`
   (`participant@host`), `participant`, `host`, `session`, `ready` and
   `hold`, and `delivery`: the newest open delivery pinned to the current
-  session (`id`, `taskId`, an `excerpt` of the task text, the `messageId`
-  and `outcome` of its current send, the request or the latest answer,
-  since a delivery is pinned at the attempt, the open `question` with its
-  `id`, `text` and `at` or `null` once answered, and the `latest` update's
-  `kind` and `at`), or `null`.
+  session, or `null`. A delivery carries its `id`, `taskId`, an `excerpt`
+  of the task text, the `messageId` and `outcome` of its current send (the
+  request, or the latest answer once one was sent; a delivery is pinned at
+  the attempt, so the outcome may still be `attempting`), the `question`
+  the session waits on with its `id`, `text` and `at` (`null` while no
+  question is open: answered, or never asked), and the `latest` update's
+  `kind` and `at`.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,

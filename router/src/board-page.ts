@@ -13,7 +13,13 @@ import type {
   PlacementView,
   TaskView,
 } from "./board.ts";
-import type { Judgment, NeedsYouItem, Role, StuckReason } from "./types.ts";
+import type {
+  Judgment,
+  NeedsYouItem,
+  Role,
+  StuckReason,
+  UpdateKind,
+} from "./types.ts";
 
 // ---- Formats: the generator's helpers over the same fields ----
 
@@ -186,6 +192,13 @@ const RANK: Record<Dot, number> = {
   ready: 3,
   off: 4,
 };
+
+// A question stays a delivery's latest update after its answer; the open
+// question tells asking from answered.
+const answeredQuestion = (d: {
+  question: unknown;
+  latest: { kind: UpdateKind } | null;
+}): boolean => d.latest?.kind === "question" && !d.question;
 
 // Why a delivery needs an operator, as the resolve form says it.
 const RESOLVE_WHY: Record<StuckReason, string> = {
@@ -433,9 +446,9 @@ ${lever(holdLever ? [holdLever] : [])}`,
     // its own outcome field; the design's sample never held such a send.
     const accepted = d.outcome === "accepted";
     const outcomePath = `${path}.delivery.outcome`;
-    // A question stays the latest update after its answer; the open question
-    // tells asking from answered, and the answered card works again.
-    const answered = latest?.kind === "question" && !d.question;
+    // Once its question is answered the session works again; the stats line
+    // names the answer's time, or its send's outcome while it has not landed.
+    const answered = answeredQuestion(d);
     const what = d.question
       ? `asks on ${task}`
       : latest
@@ -460,7 +473,7 @@ ${lever(holdLever ? [holdLever] : [])}`,
       (p.hold ? slot(`${path}.hold`, "held", "tag") : "");
     const latestAt = `${path}.delivery.latest.at`;
     const stats = answered
-      ? `<span class="k">answered</span>${clock(`time(times[${path}.delivery.messageId])`, times[d.messageId])}${slot(`${path}.delivery.question`, "· no reply yet", "k")}`
+      ? `<span class="k">answered</span>${clock(`time(times[${path}.delivery.messageId])`, times[d.messageId])}${accepted ? slot(`${path}.delivery.question`, "· no reply yet", "k") : slot(outcomePath, `· ${esc(d.outcome)}`, "k")}`
       : latest
         ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
         : accepted
@@ -545,10 +558,12 @@ ${model.placements
     const dp = `${path}.deliveries[${i}]`;
     if (!d) return countdown;
     // An answered question is still the latest update: the row says when
-    // the answer went and how it starts, not the question again.
-    const answer = d.sends.at(-1);
-    if (d.latest?.kind === "question" && !d.question && answer)
-      return `answered ${clock(`time(times[${dp}.sends[${d.sends.length - 1}].messageId])`, times[answer.messageId], "")} ${slot(`${dp}.sends[${d.sends.length - 1}].text`, esc(answer.text))} · ${countdown}`;
+    // the answer went and how it starts, not the question again. A resolve
+    // also clears the question, so the current send must be an answer.
+    const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);
+    const answer = d.sends[k];
+    if (answeredQuestion(d) && answer?.kind === "answer")
+      return `answered ${clock(`time(times[${dp}.sends[${k}].messageId])`, times[answer.messageId], "")} ${slot(`${dp}.sends[${k}].text`, esc(answer.text))} · ${countdown}`;
     if (d.latest)
       return `${slot(`${dp}.latest.text`, esc(d.latest.text))} · ${countdown}`;
     if (d.waits)
