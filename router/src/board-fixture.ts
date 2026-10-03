@@ -1,8 +1,8 @@
 // The board's fixture: a small deployment and a journal with one task of
 // each kind a requester needs to see. No delivery is stuck, so the operator
-// has nothing to resolve. The board tests, the server tests and the
-// sample generator all read it, so the committed sample shows what the tests
-// check. Its times are fixed and realistic, and nothing in it comes from a
+// has nothing to resolve; `replacedJournal` adds one. The board tests, the
+// server tests and the sample generator all read it, so the committed
+// sample shows what the tests check. Its times are fixed and realistic, and nothing in it comes from a
 // live record, which holds private request text.
 import type { RouterConfig } from "./config.ts";
 import type { Entry } from "./journal.ts";
@@ -230,3 +230,19 @@ export const journal: Entry[] = [
     text: "Reading the notes",
   }),
 ];
+
+// The journal with one more shell run at the time of its last one, so the
+// board still reads it at NOW.
+export const extend = (...events: Event[]): Entry[] => [
+  ...journal,
+  ...run("09:44", ...events),
+];
+
+// The record after knowledge@mini's session was replaced while T4's
+// delivery was pinned to it: the operator has that delivery to resolve, and
+// the requester's items are unchanged.
+export const replacedJournal = extend({
+  type: "observe",
+  placement: "knowledge@mini",
+  session: "K2",
+});
