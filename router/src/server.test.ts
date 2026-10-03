@@ -478,12 +478,13 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
       [answer.by, answer.questionId, answer.text],
       ["you", "Q2", "seen in the session"],
     );
-    assert.deepEqual(find("resolve", "outcome", "not_sent"), {
+    // D3's send was accepted, so the form offers finished alone.
+    assert.deepEqual(find("resolve", "deliveryId", "D3"), {
       type: "resolve",
       by: "operator",
       deliveryId: "D3",
       messageId: "M4",
-      outcome: "not_sent",
+      outcome: "finished",
       evidence: "seen in the session",
     });
     assert.deepEqual(find("observe", "placement", "environment@mbp"), {

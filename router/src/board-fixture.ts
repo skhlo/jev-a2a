@@ -231,6 +231,13 @@ export const journal: Entry[] = [
   }),
 ];
 
+// The journal before its last run: T4's delivery is accepted and the
+// session has not replied yet.
+export const deliveredJournal = journal.slice(
+  0,
+  journal.findLastIndex((entry) => entry.event.type === "tick"),
+);
+
 // The journal with one more shell run at the time of its last one, so the
 // board still reads it at NOW.
 export const extend = (...events: Event[]): Entry[] => [

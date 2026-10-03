@@ -23,6 +23,7 @@ import type {
   NeedsYouItem,
   Role,
   Send,
+  SendOutcome,
   State,
   Task,
   Update,
@@ -92,11 +93,14 @@ export type PlacementView = {
   ready: boolean;
   hold: boolean;
   // The open delivery pinned to the current session, the latest one when
-  // there are several; null when the session has none.
+  // there are several; null when the session has none. A delivery is pinned
+  // at the attempt, so `outcome` says whether its current send reached the
+  // session (accepted) or is still attempting, unknown or pending.
   delivery: {
     id: string;
     taskId: string;
     excerpt: string;
+    outcome: SendOutcome;
     latest: { kind: UpdateKind; at: string | null } | null;
   } | null;
 };
@@ -206,6 +210,7 @@ export function boardModel(
                 id: pinned.delivery.id,
                 taskId: pinned.task.id,
                 excerpt: excerpt(pinned.task.text),
+                outcome: currentSend(pinned.delivery).outcome,
                 latest: latest
                   ? { kind: latest.kind, at: times[latest.messageId] ?? null }
                   : null,
