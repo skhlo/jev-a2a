@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  actionEvent,
   boardModel,
   boardState,
   identify,
@@ -30,6 +31,7 @@ import {
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
 import type { Entry } from "./journal.ts";
+import type { Role } from "./types.ts";
 
 // Past every deadline in the fixture.
 const LATER = NOW + 3 * 60 * 60_000;
@@ -383,6 +385,61 @@ test("forms and levers follow the viewer's principals and roles", () => {
       assert.match(m[1] ?? "", /method="post" action="actions"/);
       assert.ok(!m[2]?.includes("<form"));
     }
+});
+
+// The fixture's model as a login holding `principals` sees it, with these
+// roles for the principals.
+const modelFor = (
+  principals: string[],
+  roles: Record<string, Role> = config.principals ?? {},
+): BoardModel => {
+  const configured = { ...config, principals: roles };
+  return boardModel(
+    boardState(configured, journal, NOW),
+    configured,
+    NOW,
+    messageTimes(journal),
+    { login: "x@example.com", principals },
+  );
+};
+
+test("a login with two principals in one role gets forms for the one its posts are signed as", () => {
+  const roles: Record<string, Role> = {
+    ...config.principals,
+    team: "requester",
+  };
+  // A post names no principal: it is signed as the first requester listed.
+  const signed = actionEvent(
+    new URLSearchParams({
+      action: "answer",
+      task: "T2",
+      question: "Q2",
+      text: "no",
+    }),
+    { login: "x@example.com", principals: ["team", "you"] },
+    roles,
+  );
+  assert.equal(
+    signed.ok && "by" in signed.event ? signed.event.by : null,
+    "team",
+  );
+  // So the items of `you` read as waiting on it, with no form to refuse.
+  const teamFirst = renderBoard(modelFor(["team", "you"], roles), {
+    task: "T2",
+  });
+  assert.deepEqual(groups(teamFirst)["needs-you"], ["T1", "T2"]);
+  assert.ok(!teamFirst.includes("<form"));
+  assert.match(strip(detailOf(teamFirst)), /question Q2 · waits on you/);
+  const youFirst = renderBoard(modelFor(["you", "team"], roles), {
+    task: "T2",
+  });
+  assert.deepEqual(formFor(youFirst, "answer")?.fields, {
+    action: "answer",
+    task: "T2",
+    question: "Q2",
+  });
+  assert.ok(formFor(youFirst, "cancel"));
+  assert.match(strip(detailOf(youFirst)), /question Q2 · as you/);
 });
 
 test("a valid record never breaks the page: Jev still judging, or a judgment without probabilities", () => {

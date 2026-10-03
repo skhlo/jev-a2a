@@ -134,10 +134,12 @@ the forms post the router's own fields (resolving takes evidence), and a
 narrow screen gets one scrolling column. What remains open: the design's
 session telemetry and health sheet, which the record does not hold (see
 below); the hold lever shows for operators, as the design has it, although
-the router accepts a hold from any known login; a draft is keyed by its
-form's `data-path`, which shifts when an earlier item goes, and such a draft
-stays in storage instead of filling the moved form; and the script's
-behaviour has no test in CI.
+the router accepts a hold from any known login; a post does not name its
+principal, so a login that holds two principals in one role acts as the
+first one `serve.identities` lists, and the other's items show without a
+form; a draft is keyed by its form's `data-path`, which shifts when an
+earlier item goes, and such a draft stays in storage instead of filling the
+moved form; and the script's behaviour has no test in CI.
 
 ### The board's view model
 

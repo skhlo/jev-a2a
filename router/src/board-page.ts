@@ -182,7 +182,8 @@ type Item = {
   // It counts for the viewer: the viewer holds its principal. Without a
   // viewer the page shows every principal's items, read only.
   mine: boolean;
-  // The viewer holds its principal in the role its action needs.
+  // The viewer's post for it is signed as its principal, so the actions
+  // endpoint accepts it.
   act: boolean;
 };
 
@@ -198,6 +199,11 @@ export function renderBoard(
   const roleOf = (principal: string): Role | undefined =>
     actor?.principals.find((p) => p.principal === principal)?.role;
   const operator = actor?.principals.some((p) => p.role === "operator");
+  // The principal a post is signed as. A post does not name one: the
+  // actions endpoint takes the viewer's first principal in the role the
+  // action needs, so the page offers forms for that principal's items only.
+  const signer = (role: Role): string | undefined =>
+    actor?.principals.find((p) => p.role === role)?.principal;
 
   const tasks = new Map<string, { path: string; task: TaskView }>();
   model.open.forEach((task, i) =>
@@ -214,8 +220,8 @@ export function renderBoard(
       item,
       mine: actor === null || roleOf(entry.principal) !== undefined,
       act:
-        roleOf(entry.principal) ===
-        (item.kind === "resolve" ? "operator" : "requester"),
+        entry.principal ===
+        signer(item.kind === "resolve" ? "operator" : "requester"),
     })),
   );
   const itemsFor = (taskId: string): Item[] =>
@@ -254,7 +260,7 @@ export function renderBoard(
   // Only the sender may cancel, and only while the task is open. The core
   // refuses a task whose work may have reached a participant, and says so.
   const mayCancel = (t: TaskView): boolean =>
-    !t.final && roleOf(source(t)) === "requester";
+    !t.final && source(t) === signer("requester");
   // A row's class and dot. Blue means the viewer is needed: a task that
   // waits on someone else's decision waits like a queued one.
   const taskClass = (t: TaskView): [string, string] =>
