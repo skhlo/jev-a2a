@@ -133,7 +133,11 @@ date as a tooltip, the needs-you count counts tasks the same way in the nav
 and in the group, blue follows the viewer (the design colours every question
 and its badge, whoever it waits on), a finished task shows its verdict
 instead of a countdown, the forms post the router's own fields (resolving
-takes evidence), and a narrow screen gets one scrolling column. What remains
+takes evidence), a narrow screen gets one scrolling column, the detail
+title shows a request's first line (the full text is its tooltip and is in
+the transcript), a session id that is a UUID shows its first eight
+characters with the full id as its tooltip, and the Needs you header is blue
+only while something waits on the viewer. What remains
 open: the design's session telemetry and health sheet, which the record does
 not hold (see below); the hold lever shows for operators, as the design has
 it, although the router accepts a hold from any known login; a post does not

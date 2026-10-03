@@ -84,15 +84,19 @@ const dated = (iso: string | null | undefined): string => {
 // the sample's short texts, and a real request runs to pages. The full text
 // is in the transcript, and in the title attribute.
 const headline = (text: string): string =>
-  text.split("\n").find((line) => line.trim()) ?? text;
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line) ?? text;
 
-// A session id is a UUID; eight characters tell sessions apart on a card and
-// in a table, and the full id sits in the title attribute.
+// Paseo session ids are UUIDs, which wrap a card and widen a table. An id
+// that is one shows its first eight characters, and `fullId` puts the whole
+// id in the title attribute of the element that shows it. Other ids (the
+// fixture's A1, an operator's login in an end line) are unchanged.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const shortId = (id: string): string =>
-  UUID.test(id)
-    ? `<span title="${esc(id)}">${esc(id.slice(0, 8))}</span>`
-    : esc(id);
+const shortId = (id: string): string => (UUID.test(id) ? id.slice(0, 8) : id);
+const fullId = (id: string): string =>
+  UUID.test(id) ? ` title="${esc(id)}"` : "";
 
 // An element that names the model path it reads.
 const slot = (
@@ -362,7 +366,13 @@ export function renderBoard(
       : "";
     const rig =
       slot(`${path}.host`, esc(p.host), "tag") +
-      slot(`${path}.session`, `session ${shortId(p.session)}`, "tag") +
+      slot(
+        `${path}.session`,
+        `session ${esc(shortId(p.session))}`,
+        "tag",
+        "span",
+        fullId(p.session),
+      ) +
       slot(`${path}.ready`, p.ready ? "ready" : "not ready", "tag") +
       (p.hold ? slot(`${path}.hold`, "held", "tag") : "");
     const latestAt = `${path}.delivery.latest.at`;
@@ -590,7 +600,7 @@ ${group(
         lines.push({
           key: iso ?? "9",
           order: 2,
-          html: `<div class="sys" data-path="${dp}.end">${esc(d.id)} ended · ${esc(d.end.reason)}${d.end.by ? ` · by ${shortId(d.end.by)}` : ""}${iso ? ` · ${when(iso)}` : ""}</div>`,
+          html: `<div class="sys" data-path="${dp}.end">${esc(d.id)} ended · ${esc(d.end.reason)}${d.end.by ? ` · by <span${fullId(d.end.by)}>${esc(shortId(d.end.by))}</span>` : ""}${iso ? ` · ${when(iso)}` : ""}</div>`,
         });
       }
     });
@@ -744,7 +754,7 @@ ${forms}
             times[d.latest.messageId],
           )
         : DASH;
-      return `<tr data-path="${dp}"><td>${slot(`${dp}.id`, esc(d.id), "mono")}</td><td>${slot(`${dp}.placement`, esc(d.placement), "mono")}</td><td>${slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.messageId)} · ${esc(d.send.outcome)}`, "mono")}</td><td>${state}</td><td>${last}</td><td>${slot(`${dp}.session`, d.session ? shortId(d.session) : DASH, "mono")}</td></tr>`;
+      return `<tr data-path="${dp}"><td>${slot(`${dp}.id`, esc(d.id), "mono")}</td><td>${slot(`${dp}.placement`, esc(d.placement), "mono")}</td><td>${slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.messageId)} · ${esc(d.send.outcome)}`, "mono")}</td><td>${state}</td><td>${last}</td><td>${slot(`${dp}.session`, d.session ? esc(shortId(d.session)) : DASH, "mono", "span", d.session ? fullId(d.session) : "")}</td></tr>`;
     });
     const judgments = t.judgments.map((j, ji) => {
       const jp = `${path}.judgments[${ji}]`;
@@ -992,8 +1002,7 @@ textarea::placeholder, .filter input::placeholder { color: var(--text-3); }
 /* Detail: head, transcript, the one form the viewer can act with, then the facts. */
 .detail .head { padding: 14px 18px 12px; border-bottom: 1px solid var(--hair); }
 .detail .head .title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.detail .head h2 { flex: 1 1 320px; min-width: 0; font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
-.detail .head h2 [data-path$=".text"] { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.detail .head h2 { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
 .detail .head h2 .id { color: var(--text-3); margin-right: 6px; }
 .detail .head .meta { margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--fs-small); color: var(--text-2); }
 .detail .head .actions { display: flex; gap: 6px; margin-left: auto; }
