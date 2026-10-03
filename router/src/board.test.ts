@@ -18,7 +18,7 @@ import {
 } from "./board.ts";
 import { config, journal, NOW } from "./board-fixture.ts";
 import { boardSample, SAMPLE_PATH } from "./board-sample.ts";
-import { readJournal } from "./journal.ts";
+import { readJournal, type Entry } from "./journal.ts";
 
 // Past every deadline in the fixture.
 const LATER = NOW + 3 * 60 * 60_000;
@@ -206,6 +206,46 @@ test("the model names its contract and carries what a template binds to", () => 
     ],
   );
   assert.equal(model.times.Q2, "2026-09-30T09:31:00.000Z");
+});
+
+test("a placement shows its newest open delivery, even for an older task", () => {
+  // T1 waited for a recipient. Sent to orchestrator now, its D4 is the
+  // newest delivery on session A1, where T2's D1 is still open.
+  const at = "2026-09-30T09:44:30.000Z";
+  const late: Entry[] = [
+    { at, event: { type: "tick", now: Date.parse(at) } },
+    {
+      at,
+      event: { type: "choose", by: "you", taskId: "T1", to: "orchestrator" },
+    },
+    { at, event: { type: "attempt", deliveryId: "D4" } },
+    {
+      at,
+      event: {
+        type: "adapterResult",
+        deliveryId: "D4",
+        messageId: "M1",
+        outcome: "accepted",
+      },
+    },
+  ];
+  const model = boardModel(
+    boardState(config, [...journal, ...late], NOW),
+    config,
+    NOW,
+    times,
+  );
+  const t2 = model.open.find((t) => t.id === "T2");
+  assert.equal(t2?.deliveries[0]?.end, null);
+  assert.deepEqual(
+    model.placements.find((p) => p.key === "orchestrator@mbp")?.delivery,
+    {
+      id: "D4",
+      taskId: "T1",
+      excerpt: "Fix <b>the</b> build",
+      latest: null,
+    },
+  );
 });
 
 test("a task's log holds its own id, not a longer one that starts the same", () => {

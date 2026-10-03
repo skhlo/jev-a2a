@@ -142,9 +142,12 @@ export function boardModel(
   actor: Actor | null = null,
 ): BoardModel {
   const tasks = state.tasks.map((task) => taskView(task, state.log)).reverse();
-  const deliveries = state.tasks.flatMap((task) =>
-    task.deliveries.map((delivery) => ({ task, delivery })),
-  );
+  // Oldest first. Tasks list in submission order, which is not creation
+  // order for deliveries: a task that waited for a recipient gets its
+  // delivery after newer tasks got theirs.
+  const deliveries = state.tasks
+    .flatMap((task) => task.deliveries.map((delivery) => ({ task, delivery })))
+    .sort((a, b) => created(a.delivery) - created(b.delivery));
   return {
     version: BOARD_VERSION,
     at: new Date(now).toISOString(),
@@ -167,7 +170,7 @@ export function boardModel(
     placements: Object.entries(state.placements)
       .filter(([key]) => key in config.agents)
       .map(([key, p]) => {
-        // Deliveries are created in order, so the last match is the newest.
+        // The newest open delivery on the current session.
         const pinned = deliveries.findLast(
           ({ delivery }) =>
             delivery.placement === key &&
@@ -200,6 +203,10 @@ export function boardModel(
     log: state.log.slice(-LOG_SHOWN),
   };
 }
+
+// A delivery's place in creation order: the core numbers deliveries from
+// one counter (D1, D2, ...).
+const created = (delivery: Delivery): number => Number(delivery.id.slice(1));
 
 const excerpt = (text: string): string =>
   text.length > EXCERPT_LENGTH ? `${text.slice(0, EXCERPT_LENGTH)}…` : text;
