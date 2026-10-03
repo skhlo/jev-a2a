@@ -661,3 +661,49 @@ test("the page escapes what it shows, takes only a known palette, and dates its 
   assert.ok(forged.includes('<html lang="en" data-theme="flexoki">'));
   assert.ok(!forged.includes("alert(1)"));
 });
+
+test("a real record: a long request keeps a short title, session ids are short, an empty Needs you is not blue", () => {
+  // The live record's requests run to pages and its sessions are UUIDs; the
+  // design was sized for the sample's short text and two-letter sessions.
+  const session = "cef0c5d5-3548-40dd-aba4-2c2397bd47f2";
+  const text =
+    "Round 3b: visual review of the live board against v0.6.\n\nWhere: the tailnet.\n" +
+    "x".repeat(2000);
+  const real = extend(
+    { type: "observe", placement: "knowledge@mini", session },
+    { type: "submit", by: "you", messageId: "M5", text },
+  );
+  const html = page(ME, { task: "T5" }, real);
+  // The title is the first line; the whole text is its tooltip and the
+  // transcript still carries it in full.
+  const title = html.match(
+    /<h2>.*?<span data-path="open\[0\]\.text" title="([^"]*)">([^<]*)<\/span>/,
+  );
+  assert.ok(title);
+  const [, tooltip, shown] = title;
+  assert.equal(
+    shown,
+    "Round 3b: visual review of the live board against v0.6.",
+  );
+  assert.equal(tooltip?.length, text.length);
+  assert.ok(html.includes(`${"x".repeat(2000)}</`));
+  // Eight characters of a UUID on the card and in the table, the full id in
+  // the tooltip; the fixture's short ids stay as they are.
+  assert.ok(
+    html.includes(
+      `<span class="tag" data-path="placements[1].session">session <span title="${session}">cef0c5d5</span></span>`,
+    ),
+  );
+  assert.equal(textOf(html, "placements[0].session"), "session A1");
+  // Needs you is blue only when something waits on the viewer.
+  assert.ok(html.includes('<span class="kicker attn">Needs you</span>'));
+  const nobodyWaiting = renderBoard({
+    ...model(ME, real),
+    actor: {
+      login: "t@example.com",
+      principals: [{ principal: "team", role: "requester" }],
+    },
+  });
+  assert.ok(nobodyWaiting.includes('<span class="kicker">Needs you</span>'));
+  assert.ok(!nobodyWaiting.includes("kicker attn"));
+});
