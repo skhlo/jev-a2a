@@ -1,0 +1,487 @@
+{
+  "version": "jev-router-board/1",
+  "at": "2026-09-30T09:45:00.000Z",
+  "actor": {
+    "login": "me@example.com",
+    "principals": [
+      {
+        "principal": "you",
+        "role": "requester"
+      },
+      {
+        "principal": "operator",
+        "role": "operator"
+      }
+    ]
+  },
+  "needsYou": [
+    {
+      "principal": "you",
+      "role": "requester",
+      "items": [
+        {
+          "kind": "choose",
+          "taskId": "T1",
+          "reason": "low_confidence",
+          "suggestions": [
+            "orchestrator",
+            "knowledge",
+            "environment",
+            "incus"
+          ]
+        },
+        {
+          "kind": "answer",
+          "taskId": "T2",
+          "deliveryId": "D1",
+          "questionId": "Q2",
+          "text": "Force push?"
+        }
+      ]
+    },
+    {
+      "principal": "operator",
+      "role": "operator",
+      "items": []
+    }
+  ],
+  "placements": [
+    {
+      "key": "orchestrator@mbp",
+      "participant": "orchestrator",
+      "host": "mbp",
+      "session": "A1",
+      "ready": true,
+      "hold": false,
+      "delivery": {
+        "id": "D1",
+        "taskId": "T2",
+        "excerpt": "Ask me something",
+        "latest": {
+          "kind": "question",
+          "at": "2026-09-30T09:31:00.000Z"
+        }
+      }
+    },
+    {
+      "key": "knowledge@mini",
+      "participant": "knowledge",
+      "host": "mini",
+      "session": "K1",
+      "ready": false,
+      "hold": false,
+      "delivery": {
+        "id": "D3",
+        "taskId": "T4",
+        "excerpt": "Summarize the review pipeline notes",
+        "latest": {
+          "kind": "working",
+          "at": "2026-09-30T09:44:00.000Z"
+        }
+      }
+    },
+    {
+      "key": "environment@mbp",
+      "participant": "environment",
+      "host": "mbp",
+      "session": "E1",
+      "ready": true,
+      "hold": true,
+      "delivery": null
+    }
+  ],
+  "open": [
+    {
+      "id": "T4",
+      "status": "working",
+      "a2a": "TASK_STATE_WORKING",
+      "source": "you/M4",
+      "messageId": "M4",
+      "recipient": "knowledge",
+      "chosenBy": "judgment",
+      "text": "Summarize the review pipeline notes",
+      "deadline": "2026-09-30T10:40:00.000Z",
+      "routing": null,
+      "judgments": [
+        {
+          "choice": "knowledge",
+          "probabilities": {
+            "orchestrator": 0.03,
+            "knowledge": 0.94,
+            "environment": 0.01,
+            "incus": 0.01,
+            "none": 0.01
+          },
+          "model": "jev-1.13.0",
+          "valid": true,
+          "threshold": 0.9
+        }
+      ],
+      "final": null,
+      "deliveries": [
+        {
+          "id": "D3",
+          "placement": "knowledge@mini",
+          "session": "K1",
+          "send": {
+            "kind": "request",
+            "messageId": "M4",
+            "outcome": "accepted"
+          },
+          "sends": [
+            {
+              "messageId": "M4",
+              "kind": "request",
+              "text": "Summarize the review pipeline notes",
+              "outcome": "accepted"
+            }
+          ],
+          "question": null,
+          "updates": [
+            {
+              "messageId": "W2",
+              "inReplyTo": "M4",
+              "kind": "working",
+              "text": "Reading the notes"
+            }
+          ],
+          "latest": {
+            "messageId": "W2",
+            "inReplyTo": "M4",
+            "kind": "working",
+            "text": "Reading the notes"
+          },
+          "end": null
+        }
+      ],
+      "log": [
+        {
+          "n": 33,
+          "actor": "Router",
+          "text": "T4 recorded for you/M4. The caller may disconnect."
+        },
+        {
+          "n": 34,
+          "actor": "Jev",
+          "text": "T4: Jev selected knowledge at 0.94."
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "status": "needs_answer",
+      "a2a": "TASK_STATE_INPUT_REQUIRED",
+      "source": "you/M2",
+      "messageId": "M2",
+      "recipient": "orchestrator",
+      "chosenBy": "address",
+      "text": "Ask me something",
+      "deadline": "2026-09-30T10:10:00.000Z",
+      "routing": null,
+      "judgments": [],
+      "final": null,
+      "deliveries": [
+        {
+          "id": "D1",
+          "placement": "orchestrator@mbp",
+          "session": "A1",
+          "send": {
+            "kind": "answer",
+            "messageId": "A1m",
+            "outcome": "accepted"
+          },
+          "sends": [
+            {
+              "messageId": "M2",
+              "kind": "request",
+              "text": "Ask me something",
+              "outcome": "accepted"
+            },
+            {
+              "messageId": "A1m",
+              "kind": "answer",
+              "text": "main",
+              "outcome": "accepted"
+            }
+          ],
+          "question": {
+            "id": "Q2",
+            "text": "Force push?"
+          },
+          "updates": [
+            {
+              "messageId": "Q1",
+              "inReplyTo": "M2",
+              "kind": "question",
+              "text": "Which branch?"
+            },
+            {
+              "messageId": "W1",
+              "inReplyTo": "A1m",
+              "kind": "working",
+              "text": "on it"
+            },
+            {
+              "messageId": "Q2",
+              "inReplyTo": "A1m",
+              "kind": "question",
+              "text": "Force push?"
+            }
+          ],
+          "latest": {
+            "messageId": "Q2",
+            "inReplyTo": "A1m",
+            "kind": "question",
+            "text": "Force push?"
+          },
+          "end": null
+        }
+      ],
+      "log": [
+        {
+          "n": 8,
+          "actor": "Router",
+          "text": "T2 recorded for you/M2. The caller may disconnect."
+        },
+        {
+          "n": 16,
+          "actor": "Router",
+          "text": "T2: answer A1m queued for the pinned session A1."
+        }
+      ]
+    },
+    {
+      "id": "T1",
+      "status": "needs_recipient",
+      "a2a": "TASK_STATE_INPUT_REQUIRED",
+      "source": "you/M1",
+      "messageId": "M1",
+      "recipient": null,
+      "chosenBy": null,
+      "text": "Fix <b>the</b> build",
+      "deadline": "2026-09-30T10:02:00.000Z",
+      "routing": {
+        "state": "needs_recipient",
+        "reason": "low_confidence",
+        "suggestions": [
+          "orchestrator",
+          "knowledge",
+          "environment",
+          "incus"
+        ]
+      },
+      "judgments": [
+        {
+          "choice": "orchestrator",
+          "probabilities": {
+            "orchestrator": 0.6,
+            "knowledge": 0.2,
+            "environment": 0.1,
+            "incus": 0.1,
+            "none": 0
+          },
+          "model": "jev-1.13.0",
+          "valid": true,
+          "threshold": 0.9
+        }
+      ],
+      "final": null,
+      "deliveries": [],
+      "log": [
+        {
+          "n": 5,
+          "actor": "Router",
+          "text": "T1 recorded for you/M1. The caller may disconnect."
+        },
+        {
+          "n": 6,
+          "actor": "Jev",
+          "text": "T1: no confident owner (orchestrator 0.6). The sender must choose."
+        }
+      ]
+    }
+  ],
+  "finished": [
+    {
+      "id": "T3",
+      "status": "completed",
+      "a2a": "TASK_STATE_COMPLETED",
+      "source": "you/M3",
+      "messageId": "M3",
+      "recipient": "orchestrator",
+      "chosenBy": "address",
+      "text": "Done quickly",
+      "deadline": "2026-09-30T10:15:00.000Z",
+      "routing": null,
+      "judgments": [],
+      "final": {
+        "status": "completed",
+        "reason": null,
+        "completed": 1,
+        "of": 1
+      },
+      "deliveries": [
+        {
+          "id": "D2",
+          "placement": "orchestrator@mbp",
+          "session": "A1",
+          "send": {
+            "kind": "request",
+            "messageId": "M3",
+            "outcome": "accepted"
+          },
+          "sends": [
+            {
+              "messageId": "M3",
+              "kind": "request",
+              "text": "Done quickly",
+              "outcome": "accepted"
+            }
+          ],
+          "question": null,
+          "updates": [
+            {
+              "messageId": "C1",
+              "inReplyTo": "M3",
+              "kind": "completed",
+              "text": "all green"
+            }
+          ],
+          "latest": {
+            "messageId": "C1",
+            "inReplyTo": "M3",
+            "kind": "completed",
+            "text": "all green"
+          },
+          "end": {
+            "reason": "completed",
+            "text": "all green",
+            "messageId": "C1",
+            "by": "A1"
+          }
+        }
+      ],
+      "log": [
+        {
+          "n": 14,
+          "actor": "Router",
+          "text": "T3 recorded for you/M3. The caller may disconnect."
+        }
+      ]
+    }
+  ],
+  "times": {
+    "M1": "2026-09-30T09:02:00.000Z",
+    "M2": "2026-09-30T09:10:00.000Z",
+    "Q1": "2026-09-30T09:14:00.000Z",
+    "M3": "2026-09-30T09:15:00.000Z",
+    "A1m": "2026-09-30T09:16:00.000Z",
+    "W1": "2026-09-30T09:20:00.000Z",
+    "Q2": "2026-09-30T09:31:00.000Z",
+    "C1": "2026-09-30T09:38:00.000Z",
+    "M4": "2026-09-30T09:40:00.000Z",
+    "W2": "2026-09-30T09:44:00.000Z"
+  },
+  "log": [
+    {
+      "n": 20,
+      "actor": "Router",
+      "text": "Clock at 1790760000000."
+    },
+    {
+      "n": 21,
+      "actor": "Participant",
+      "text": "D1: on it."
+    },
+    {
+      "n": 22,
+      "actor": "Router",
+      "text": "Clock at 1790760300000."
+    },
+    {
+      "n": 23,
+      "actor": "Adapter",
+      "text": "environment@mbp: ready, held, session E1."
+    },
+    {
+      "n": 24,
+      "actor": "Router",
+      "text": "Clock at 1790760660000."
+    },
+    {
+      "n": 25,
+      "actor": "Participant",
+      "text": "D1 asks: Force push?"
+    },
+    {
+      "n": 26,
+      "actor": "Adapter",
+      "text": "orchestrator@mbp: ready, session A1."
+    },
+    {
+      "n": 27,
+      "actor": "Router",
+      "text": "Recorded D2/M3 as attempting to A1 before calling the adapter."
+    },
+    {
+      "n": 28,
+      "actor": "Adapter",
+      "text": "D2/M3: adapter reported accepted."
+    },
+    {
+      "n": 29,
+      "actor": "Router",
+      "text": "Clock at 1790761080000."
+    },
+    {
+      "n": 30,
+      "actor": "Participant",
+      "text": "D2: completed result stored."
+    },
+    {
+      "n": 31,
+      "actor": "Adapter",
+      "text": "orchestrator@mbp: ready, session A1."
+    },
+    {
+      "n": 32,
+      "actor": "Router",
+      "text": "Clock at 1790761200000."
+    },
+    {
+      "n": 33,
+      "actor": "Router",
+      "text": "T4 recorded for you/M4. The caller may disconnect."
+    },
+    {
+      "n": 34,
+      "actor": "Jev",
+      "text": "T4: Jev selected knowledge at 0.94."
+    },
+    {
+      "n": 35,
+      "actor": "Router",
+      "text": "Recorded D3/M4 as attempting to K1 before calling the adapter."
+    },
+    {
+      "n": 36,
+      "actor": "Adapter",
+      "text": "D3/M4: adapter reported accepted."
+    },
+    {
+      "n": 37,
+      "actor": "Router",
+      "text": "Clock at 1790761440000."
+    },
+    {
+      "n": 38,
+      "actor": "Participant",
+      "text": "D3: Reading the notes."
+    },
+    {
+      "n": 39,
+      "actor": "Router",
+      "text": "Clock at 1790761500000."
+    }
+  ]
+}

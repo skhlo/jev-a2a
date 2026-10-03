@@ -15,6 +15,8 @@ import {
   type BindOptions,
   type Run,
 } from "./server.ts";
+import { BOARD_VERSION } from "./board.ts";
+import { config as fixture, journal, NOW } from "./board-fixture.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
@@ -51,6 +53,21 @@ async function serve(server: Server): Promise<string> {
     throw new Error("no port");
   return `http://127.0.0.1:${address.port}`;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+// A JSON body as the object a consumer reads fields from.
+async function jsonObject(res: Response): Promise<Record<string, unknown>> {
+  const body: unknown = await res.json();
+  assert.ok(isRecord(body), "a JSON object");
+  return body;
+}
+
+const taskIds = (list: unknown): unknown[] => {
+  assert.ok(Array.isArray(list));
+  return list.map((task: unknown) => (isRecord(task) ? task.id : undefined));
+};
 
 test("events: health is open, everything else needs the exact token", async () => {
   const server = createServer(eventsListener({ config, handle }, "secret"));
@@ -225,6 +242,90 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
     assert.equal(moved.status, 302);
     assert.equal(moved.headers.get("location"), "/router/");
     assert.equal((await fetch(`${url}/`, { method: "PUT" })).status, 405);
+  } finally {
+    server.close();
+  }
+});
+
+test("board: asked for JSON, the board serves its model, identified as the page is", async () => {
+  const record = mkdtempSync(join(tmpdir(), "server-model-"));
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const server = createServer(
+    boardListener({
+      config: { ...fixture, home: record },
+      handle,
+      now: () => NOW,
+    }),
+  );
+  const url = await serve(server);
+  const json = { accept: "application/json" };
+  const me = { "tailscale-user-login": "me@example.com" };
+  try {
+    // Nobody identified: the model, with no actor.
+    const anonymous = await fetch(`${url}/`, { headers: json });
+    assert.equal(anonymous.status, 200);
+    assert.equal(anonymous.headers.get("content-type"), "application/json");
+    const nobody = await jsonObject(anonymous);
+    assert.equal(nobody.version, BOARD_VERSION);
+    assert.equal(nobody.actor, null);
+    const stranger = await fetch(`${url}/`, {
+      headers: { ...json, "tailscale-user-login": "x@example.com" },
+    });
+    assert.equal((await jsonObject(stranger)).actor, null);
+    // A known login: who it is and the role of each of its principals.
+    const mine = await jsonObject(
+      await fetch(`${url}/`, { headers: { ...json, ...me } }),
+    );
+    assert.deepEqual(mine.actor, {
+      login: "me@example.com",
+      principals: [
+        { principal: "you", role: "requester" },
+        { principal: "operator", role: "operator" },
+      ],
+    });
+    // board.json is the same model under the same identity.
+    assert.deepEqual(
+      await jsonObject(await fetch(`${url}/board.json`, { headers: me })),
+      mine,
+    );
+    // The page and the JSON for the same request: one time, one task list.
+    const page = await fetch(`${url}/`, { headers: me });
+    assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
+    const html = await page.text();
+    const at = mine.at;
+    assert.ok(typeof at === "string");
+    assert.equal(at, new Date(NOW).toISOString());
+    assert.ok(html.includes(`Updated ${at.slice(11, 16)}Z`));
+    assert.deepEqual(
+      [...html.matchAll(/<details class="thread" id="t-(T\d+)"/g)]
+        .map((m) => m[1])
+        .sort(),
+      [...taskIds(mine.open), ...taskIds(mine.finished)].sort(),
+    );
+    // JSON only when it is ranked above HTML; a browser gets the page.
+    const served = async (accept: string): Promise<string | null> => {
+      const res = await fetch(`${url}/`, { headers: { accept } });
+      await res.arrayBuffer();
+      return res.headers.get("content-type");
+    };
+    assert.equal(
+      await served(
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      ),
+      "text/html; charset=utf-8",
+    );
+    assert.equal(await served("*/*"), "text/html; charset=utf-8");
+    assert.equal(
+      await served("application/json, text/html"),
+      "text/html; charset=utf-8",
+    );
+    assert.equal(
+      await served("text/html;q=0.5, application/json"),
+      "application/json",
+    );
   } finally {
     server.close();
   }

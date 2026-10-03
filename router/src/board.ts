@@ -1,10 +1,10 @@
 // The board: what waits on a person and what the router is doing, read from
-// the record. `boardModel` is pure and is what `GET board.json` returns; the
-// HTML is one rendering of it: a sentence about what waits on you with the
-// strips that clear it, a status rail, then the record as a session
+// the record. `boardModel` is pure and is what the board returns as JSON;
+// the HTML is one rendering of it: a sentence about what waits on you with
+// the strips that clear it, a status rail, then the record as a session
 // transcript. Nothing here writes.
 import { randomBytes } from "node:crypto";
-import { A2A_STATE, currentSend, needsYou, reduce } from "./core.ts";
+import { A2A_STATE, currentSend, isOpen, needsYou, reduce } from "./core.ts";
 import { fold } from "./shell.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Entry } from "./journal.ts";
@@ -19,7 +19,19 @@ import type {
   StuckReason,
   Task,
   Update,
+  UpdateKind,
 } from "./types.ts";
+
+// The view model is a published contract: the BoardModel type below, the
+// sample generated from the board fixture (board.sample.json), and the
+// README's section on it. A design binds its template to these names. A
+// change that removes or renames a field raises the major version here;
+// adding a field does not. Times are ISO strings, as the journal records
+// them.
+export const BOARD_VERSION = "jev-router-board/1";
+
+// An agent's reply, without the digest the core keeps to recognise a repeat.
+export type UpdateView = Omit<Update, "digest">;
 
 export type DeliveryView = {
   id: string;
@@ -28,8 +40,8 @@ export type DeliveryView = {
   send: { kind: string; messageId: string; outcome: string };
   sends: Pick<Send, "messageId" | "kind" | "text" | "outcome">[];
   question: { id: string; text: string } | null;
-  updates: Update[];
-  latest: Update | null;
+  updates: UpdateView[];
+  latest: UpdateView | null;
   end: Delivery["end"];
 };
 
@@ -40,21 +52,55 @@ export type TaskView = {
   source: string;
   messageId: string;
   recipient: string | null;
+  // How the recipient was named: on the request, by Jev, or by the sender
+  // after Jev handed the choice back.
+  chosenBy: Task["chosenBy"];
   text: string;
+  deadline: string;
   routing: Task["routing"];
+  // Every judgment with its full probability table and model version.
   judgments: Task["judgments"];
   final: Task["final"];
   deliveries: DeliveryView[];
+  // This task's lines in the router's log, as `router status <task>` shows
+  // them, so a template never matches log text itself.
+  log: State["log"];
+};
+
+// A placement this router serves, as `router status` lists it.
+export type PlacementView = {
+  key: string;
+  participant: string;
+  host: string;
+  session: string;
+  ready: boolean;
+  hold: boolean;
+  // The open delivery pinned to the current session, the latest one when
+  // there are several; null when the session has none.
+  delivery: {
+    id: string;
+    taskId: string;
+    excerpt: string;
+    latest: { kind: UpdateKind; at: string | null } | null;
+  } | null;
+};
+
+// Who is viewing, with the role of each principal the login may act as.
+export type ActorView = {
+  login: string;
+  principals: { principal: string; role: Role }[];
 };
 
 export type BoardModel = {
+  version: typeof BOARD_VERSION;
   at: string;
+  // Null when the request is not identified: the page then only reads.
+  actor: ActorView | null;
   needsYou: { principal: string; role: string; items: NeedsYouItem[] }[];
-  // Placements this router serves, as `router status` lists them.
-  placements: { key: string; ready: boolean; hold: boolean; session: string }[];
+  placements: PlacementView[];
   open: TaskView[];
   finished: TaskView[];
-  // When each message was recorded, by message id; display only.
+  // When each message was recorded, by message id.
   times: Record<string, string>;
   log: State["log"];
 };
@@ -62,6 +108,7 @@ export type BoardModel = {
 const FINISHED_SHOWN = 10;
 const LOG_SHOWN = 20;
 const TASK_LOG_SHOWN = 8;
+const EXCERPT_LENGTH = 90;
 
 // The record as of `now`, folded in memory: deadlines that passed since the
 // last run show as passed, and the journal is untouched.
@@ -84,15 +131,32 @@ export function messageTimes(entries: Entry[]): Record<string, string> {
   return times;
 }
 
+// The model as `actor` sees it at `now`. A pure function of the record, the
+// configuration and the time, so the JSON and the page built from one call
+// agree, and a fixture reproduces it.
 export function boardModel(
   state: State,
   config: RouterConfig,
   now: number,
   times: Record<string, string> = {},
+  actor: Actor | null = null,
 ): BoardModel {
-  const tasks = state.tasks.map(taskView).reverse();
+  const tasks = state.tasks.map((task) => taskView(task, state.log)).reverse();
+  const deliveries = state.tasks.flatMap((task) =>
+    task.deliveries.map((delivery) => ({ task, delivery })),
+  );
   return {
+    version: BOARD_VERSION,
     at: new Date(now).toISOString(),
+    // Roles come from the configuration the actions are checked against, so
+    // a template offers only the forms that will be accepted.
+    actor: actor && {
+      login: actor.login,
+      principals: actor.principals.flatMap((principal) => {
+        const role = config.principals?.[principal];
+        return role ? [{ principal, role }] : [];
+      }),
+    },
     needsYou: Object.entries(state.config.principals).map(
       ([principal, role]) => ({
         principal,
@@ -102,12 +166,34 @@ export function boardModel(
     ),
     placements: Object.entries(state.placements)
       .filter(([key]) => key in config.agents)
-      .map(([key, p]) => ({
-        key,
-        ready: p.ready,
-        hold: p.hold,
-        session: p.session,
-      })),
+      .map(([key, p]) => {
+        // Deliveries are created in order, so the last match is the newest.
+        const pinned = deliveries.findLast(
+          ({ delivery }) =>
+            delivery.placement === key &&
+            delivery.session === p.session &&
+            isOpen(delivery),
+        );
+        const latest = pinned?.delivery.updates.at(-1);
+        return {
+          key,
+          participant: p.participant,
+          host: p.host,
+          session: p.session,
+          ready: p.ready,
+          hold: p.hold,
+          delivery: pinned
+            ? {
+                id: pinned.delivery.id,
+                taskId: pinned.task.id,
+                excerpt: excerpt(pinned.task.text),
+                latest: latest
+                  ? { kind: latest.kind, at: times[latest.messageId] ?? null }
+                  : null,
+              }
+            : null,
+        };
+      }),
     open: tasks.filter((t) => !t.final),
     finished: tasks.filter((t) => t.final).slice(0, FINISHED_SHOWN),
     times,
@@ -115,7 +201,17 @@ export function boardModel(
   };
 }
 
-function taskView(task: Task): TaskView {
+const excerpt = (text: string): string =>
+  text.length > EXCERPT_LENGTH ? `${text.slice(0, EXCERPT_LENGTH)}…` : text;
+
+const updateView = ({
+  messageId,
+  inReplyTo,
+  kind,
+  text,
+}: Update): UpdateView => ({ messageId, inReplyTo, kind, text });
+
+function taskView(task: Task, log: State["log"]): TaskView {
   return {
     id: task.id,
     status: task.status,
@@ -123,12 +219,15 @@ function taskView(task: Task): TaskView {
     source: `${task.source}/${task.messageId}`,
     messageId: task.messageId,
     recipient: task.recipient,
+    chosenBy: task.chosenBy,
     text: task.text,
+    deadline: new Date(task.deadline).toISOString(),
     routing: task.routing,
     judgments: task.judgments,
     final: task.final,
     deliveries: task.deliveries.map((d) => {
       const send = currentSend(d);
+      const last = d.updates.at(-1);
       return {
         id: d.id,
         placement: d.placement,
@@ -145,11 +244,12 @@ function taskView(task: Task): TaskView {
           outcome,
         })),
         question: d.question,
-        updates: d.updates,
-        latest: d.updates.at(-1) ?? null,
+        updates: d.updates.map(updateView),
+        latest: last ? updateView(last) : null,
         end: d.end,
       };
     }),
+    log: taskLog(log, task.id),
   };
 }
 
@@ -491,21 +591,19 @@ const STUCK_WHY: Record<StuckReason, string> = {
 
 export type RenderOptions = {
   refreshSeconds?: number;
-  // Controls are rendered only for a recognised viewer.
-  actor?: Actor | null;
   // Outcome of the last action, shown until dismissed.
   notice?: string | null;
 };
 
+// Controls are rendered only for the model's actor, in the roles it holds.
 export function renderBoard(
   model: BoardModel,
   options: RenderOptions = {},
 ): string {
   const refreshSeconds = options.refreshSeconds ?? 10;
-  const actor = options.actor ?? null;
-  const roles = new Map(model.needsYou.map((n) => [n.principal, n.role]));
-  const can = (role: string): boolean =>
-    actor !== null && actor.principals.some((p) => roles.get(p) === role);
+  const { actor } = model;
+  const can = (role: Role): boolean =>
+    actor?.principals.some((p) => p.role === role) ?? false;
   const hidden = (fields: Record<string, string>): string =>
     Object.entries(fields)
       .map(

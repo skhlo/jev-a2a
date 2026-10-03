@@ -81,8 +81,55 @@ The board listens on loopback only, and a browser that opens it directly gets
 a read-only page. Put
 it behind Tailscale Serve to reach it from another device and to act: the
 board takes the tailnet login Serve reports, and a login listed in
-`serve.identities` may act. `board.json` on the same address returns the
-page's data.
+`serve.identities` may act.
+
+### The board's view model
+
+The page is one rendering of a view model, and the model is published so
+that a design can bind its template to the router's own field names. The
+board returns it as JSON to a client that asks for JSON:
+
+```sh
+curl -H 'Accept: application/json' http://127.0.0.1:7678/
+```
+
+`board.json` on the same address returns the same model. The JSON follows the
+page's identity rules: through Tailscale Serve it names the viewer, and
+without a known login it has no actor.
+
+The contract is the `BoardModel` type in `router/src/board.ts`, the sample
+in `router/src/board.sample.json`, and this section. The sample is the model
+built from the board's test fixture (`router/src/board-fixture.ts`), so it
+holds no live request text. After changing the model or the fixture, run
+`pnpm exec node src/board-sample.ts` in `router/`; a test fails until the
+committed sample matches.
+
+- `version`: the contract and its major version, `jev-router-board/1`.
+  Removing or renaming a field raises it; adding one does not.
+- `at`: when the model was built. Every time in the model is an ISO string.
+- `actor`: the viewer's `login`, and its `principals`, each a `principal`
+  with its `role`. `null` when the request is not identified.
+- `needsYou`: for each principal, its `role` and the `items` that wait on
+  it, each of `kind` `choose`, `answer` or `resolve`.
+- `placements`: each placement the router serves, with its `key`
+  (`participant@host`), `participant`, `host`, `session`, `ready` and
+  `hold`, and `delivery`: the open delivery pinned to the current session
+  (`id`, `taskId`, an `excerpt` of the task text, and the `latest` update's
+  `kind` and `at`), or `null`.
+- `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
+  Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
+  `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
+  `deadline`, `routing`, `judgments` (each with its full probability table,
+  model version and threshold), `final` (`status`, `completed` of `of`,
+  `reason`), `deliveries` with their sends, updates and open question, and
+  `log`: the task's own log lines, as `router status <task>` shows them.
+- `times`: when each message was recorded, by message ID.
+- `log`: the router's last twenty log lines.
+
+The record does not hold adapter status, the number of permission requests
+pending in a session, or session telemetry (context use, turns, tool calls,
+cost, process, worktree, subagents, activity), so the model does not carry
+them. These are the gaps a later telemetry round fills.
 
 ## Participants and responsibility texts
 

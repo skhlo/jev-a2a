@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   actionEvent,
+  BOARD_VERSION,
   boardModel,
   boardState,
   describeNeed,
@@ -15,142 +16,31 @@ import {
   renderBoard,
   taskLog,
 } from "./board.ts";
-import { readJournal, type Entry } from "./journal.ts";
-import type { RouterConfig } from "./config.ts";
-import type { Event } from "./types.ts";
-import base from "./example-config.ts";
+import { config, journal, NOW } from "./board-fixture.ts";
+import { boardSample, SAMPLE_PATH } from "./board-sample.ts";
+import { readJournal } from "./journal.ts";
 
-const config: RouterConfig = {
-  ...base,
-  home: "/nowhere",
-  hosts: { mbp: { paseo: "ws://x", replyCommand: "router" } },
-  agents: { "orchestrator@mbp": "A1" },
-  serve: { listen: "127.0.0.1:0", board: "127.0.0.1:0", identities: {} },
-  jev: { model: "jev-latest" },
-};
-
-const entries = (events: Event[]): Entry[] =>
-  events.map((event) => ({ at: "2026-09-30T00:00:00Z", event }));
-
-// One task of each kind a person needs to see: waiting for a recipient,
-// asking a question, and finished with a result.
-const journal = entries([
-  { type: "tick", now: 1 },
-  {
-    type: "observe",
-    placement: "orchestrator@mbp",
-    ready: true,
-    session: "A1",
-  },
-  { type: "submit", by: "you", messageId: "M1", text: "Fix <b>the</b> build" },
-  {
-    type: "judged",
-    taskId: "T1",
-    choice: "orchestrator",
-    probabilities: {
-      orchestrator: 0.6,
-      knowledge: 0.2,
-      environment: 0.1,
-      incus: 0.1,
-      none: 0,
-    },
-  },
-  {
-    type: "submit",
-    by: "you",
-    messageId: "M2",
-    text: "Ask me something",
-    to: "orchestrator",
-  },
-  { type: "attempt", deliveryId: "D1" },
-  {
-    type: "adapterResult",
-    deliveryId: "D1",
-    messageId: "M2",
-    outcome: "accepted",
-  },
-  {
-    type: "update",
-    by: "A1",
-    taskId: "T2",
-    messageId: "Q1",
-    inReplyTo: "M2",
-    kind: "question",
-    text: "Which branch?",
-  },
-  {
-    type: "submit",
-    by: "you",
-    messageId: "M3",
-    text: "Done quickly",
-    to: "orchestrator",
-  },
-  {
-    type: "answer",
-    by: "you",
-    taskId: "T2",
-    messageId: "A1m",
-    questionId: "Q1",
-    text: "main",
-  },
-  { type: "observe", placement: "orchestrator@mbp", ready: true },
-  { type: "attempt", deliveryId: "D1" },
-  {
-    type: "adapterResult",
-    deliveryId: "D1",
-    messageId: "A1m",
-    outcome: "accepted",
-  },
-  {
-    type: "update",
-    by: "A1",
-    taskId: "T2",
-    messageId: "W1",
-    inReplyTo: "A1m",
-    kind: "working",
-    text: "on it",
-  },
-  {
-    type: "update",
-    by: "A1",
-    taskId: "T2",
-    messageId: "Q2",
-    inReplyTo: "A1m",
-    kind: "question",
-    text: "Force push?",
-  },
-  { type: "observe", placement: "orchestrator@mbp", ready: true },
-  { type: "attempt", deliveryId: "D2" },
-  {
-    type: "adapterResult",
-    deliveryId: "D2",
-    messageId: "M3",
-    outcome: "accepted",
-  },
-  {
-    type: "update",
-    by: "A1",
-    taskId: "T3",
-    messageId: "C1",
-    inReplyTo: "M3",
-    kind: "completed",
-    text: "all green",
-  },
-]);
+// Past every deadline in the fixture.
+const LATER = NOW + 3 * 60 * 60_000;
+const times = messageTimes(journal);
+const identities = config.serve.identities;
+const viewer = (login: string) =>
+  identify({ "tailscale-user-login": login }, identities);
 
 test("the fixture is a journal: every event was accepted", () => {
-  assert.doesNotThrow(() => boardState(config, journal, 50));
+  assert.doesNotThrow(() => boardState(config, journal, NOW));
   assert.throws(
     () =>
       boardState(
         config,
         [
           ...journal,
-          ...entries([
-            { type: "choose", by: "you", taskId: "T9", to: "knowledge" },
-          ]),
+          {
+            at: "2026-09-30T09:45:00.000Z",
+            event: { type: "choose", by: "you", taskId: "T9", to: "knowledge" },
+          },
         ],
-        50,
+        NOW,
       ),
     /Journal replay rejected/,
   );
@@ -169,9 +59,9 @@ test("readJournal skips a line still being written", () => {
 });
 
 test("the model lists what waits on a person and the open and finished tasks", () => {
-  const state = boardState(config, journal, 50);
-  const model = boardModel(state, config, 50);
-  assert.equal(model.at, new Date(50).toISOString());
+  const state = boardState(config, journal, NOW);
+  const model = boardModel(state, config, NOW);
+  assert.equal(model.at, new Date(NOW).toISOString());
   const you = model.needsYou.find((n) => n.principal === "you");
   assert.ok(you);
   assert.deepEqual(you.items.map(describeNeed), [
@@ -182,12 +72,18 @@ test("the model lists what waits on a person and the open and finished tasks", (
     model.needsYou.find((n) => n.principal === "operator")?.items,
     [],
   );
-  assert.deepEqual(model.placements, [
-    { key: "orchestrator@mbp", ready: false, hold: false, session: "A1" },
-  ]);
+  assert.deepEqual(
+    model.placements.map((p) => [p.key, p.ready, p.hold, p.session]),
+    [
+      ["orchestrator@mbp", true, false, "A1"],
+      ["knowledge@mini", false, false, "K1"],
+      ["environment@mbp", true, true, "E1"],
+    ],
+  );
   assert.deepEqual(
     model.open.map((t) => [t.id, t.status]),
     [
+      ["T4", "working"],
       ["T2", "needs_answer"],
       ["T1", "needs_recipient"],
     ],
@@ -196,11 +92,120 @@ test("the model lists what waits on a person and the open and finished tasks", (
     model.finished.map((t) => [t.id, t.status]),
     [["T3", "completed"]],
   );
-  const t2 = model.open[0];
+  const t2 = model.open.find((t) => t.id === "T2");
   assert.ok(t2);
   assert.equal(t2.deliveries[0]?.latest?.text, "Force push?");
   assert.equal(t2.deliveries[0]?.question?.id, "Q2");
   assert.equal(model.log.length, Math.min(20, state.log.length));
+});
+
+test("the model names its contract and carries what a template binds to", () => {
+  const state = boardState(config, journal, NOW);
+  const anonymous = boardModel(state, config, NOW, times);
+  assert.equal(anonymous.version, BOARD_VERSION);
+  assert.equal(BOARD_VERSION, "jev-router-board/1");
+  assert.equal(anonymous.actor, null);
+  // The viewer: its login and the role of each principal it may act as.
+  const model = boardModel(state, config, NOW, times, viewer("me@example.com"));
+  assert.deepEqual(model.actor, {
+    login: "me@example.com",
+    principals: [
+      { principal: "you", role: "requester" },
+      { principal: "operator", role: "operator" },
+    ],
+  });
+  // Each placement with the open delivery pinned to its session and the
+  // latest update on it. D2, newer on orchestrator@mbp, has ended.
+  assert.deepEqual(model.placements, [
+    {
+      key: "orchestrator@mbp",
+      participant: "orchestrator",
+      host: "mbp",
+      session: "A1",
+      ready: true,
+      hold: false,
+      delivery: {
+        id: "D1",
+        taskId: "T2",
+        excerpt: "Ask me something",
+        latest: { kind: "question", at: "2026-09-30T09:31:00.000Z" },
+      },
+    },
+    {
+      key: "knowledge@mini",
+      participant: "knowledge",
+      host: "mini",
+      session: "K1",
+      ready: false,
+      hold: false,
+      delivery: {
+        id: "D3",
+        taskId: "T4",
+        excerpt: "Summarize the review pipeline notes",
+        latest: { kind: "working", at: "2026-09-30T09:44:00.000Z" },
+      },
+    },
+    {
+      key: "environment@mbp",
+      participant: "environment",
+      host: "mbp",
+      session: "E1",
+      ready: true,
+      hold: true,
+      delivery: null,
+    },
+  ]);
+  const task = (id: string) => {
+    const found = [...model.open, ...model.finished].find((t) => t.id === id);
+    assert.ok(found, id);
+    return found;
+  };
+  // The deadline, and how the recipient was named.
+  assert.deepEqual(
+    ["T1", "T2", "T3", "T4"].map((id) => [
+      id,
+      task(id).chosenBy,
+      task(id).deadline,
+    ]),
+    [
+      ["T1", null, "2026-09-30T10:02:00.000Z"],
+      ["T2", "address", "2026-09-30T10:10:00.000Z"],
+      ["T3", "address", "2026-09-30T10:15:00.000Z"],
+      ["T4", "judgment", "2026-09-30T10:40:00.000Z"],
+    ],
+  );
+  // The judgment as recorded: the whole table and the model that decided.
+  assert.deepEqual(task("T4").judgments, [
+    {
+      choice: "knowledge",
+      probabilities: {
+        orchestrator: 0.03,
+        knowledge: 0.94,
+        environment: 0.01,
+        incus: 0.01,
+        none: 0.01,
+      },
+      model: "jev-1.13.0",
+      valid: true,
+      threshold: 0.9,
+    },
+  ]);
+  // Each task's own lines in the log, and the time of each message.
+  assert.deepEqual(
+    task("T4").log.map((entry) => entry.text),
+    [
+      "T4 recorded for you/M4. The caller may disconnect.",
+      "T4: Jev selected knowledge at 0.94.",
+    ],
+  );
+  assert.deepEqual(
+    task("T2").log.map((entry) => entry.text),
+    [
+      "T2 recorded for you/M2. The caller may disconnect.",
+      "T2: answer A1m queued for the pinned session A1.",
+    ],
+  );
+  assert.equal(model.times.Q2, "2026-09-30T09:31:00.000Z");
 });
 
 test("a task's log holds its own id, not a longer one that starts the same", () => {
@@ -216,7 +221,7 @@ test("a task's log holds its own id, not a longer one that starts the same", () 
 });
 
 test("a deadline that passed shows as passed without any write", () => {
-  const model = boardModel(boardState(config, journal, 500), config, 500);
+  const model = boardModel(boardState(config, journal, LATER), config, LATER);
   assert.deepEqual(model.open, []);
   assert.equal(
     model.finished.find((t) => t.id === "T1")?.final?.reason,
@@ -224,10 +229,21 @@ test("a deadline that passed shows as passed without any write", () => {
   );
 });
 
+test("the committed sample is what the generator writes from the fixture", () => {
+  assert.equal(
+    readFileSync(SAMPLE_PATH, "utf8"),
+    boardSample(),
+    "src/board.sample.json is stale: run `pnpm exec node src/board-sample.ts` in router/.",
+  );
+});
+
 test("the page escapes task text and leads with what waits on you", () => {
-  const model = boardModel(boardState(config, journal, 50), config, 50, {
-    M1: "1970-01-01T09:15:00.000Z",
-  });
+  const model = boardModel(
+    boardState(config, journal, NOW),
+    config,
+    NOW,
+    times,
+  );
   const html = renderBoard(model, { refreshSeconds: 7 });
   assert.ok(html.includes("Fix &lt;b&gt;the&lt;/b&gt; build"));
   assert.ok(!html.includes("<b>the</b>"));
@@ -244,19 +260,28 @@ test("the page escapes task text and leads with what waits on you", () => {
   // The rail and the transcript.
   assert.ok(
     html.includes(
-      '<span class="dot busy"></span>orchestrator@mbp <span class="muted">busy or away</span>',
+      '<span class="dot busy"></span>knowledge@mini <span class="muted">busy or away</span>',
     ),
   );
   assert.ok(
     html.includes(
-      'title="message M1"><span class="who">you, 09:15</span>Fix &lt;b&gt;the&lt;/b&gt; build',
+      '<span class="dot held"></span>environment@mbp <span class="muted">held</span>',
+    ),
+  );
+  assert.ok(
+    html.includes(
+      'title="message M1"><span class="who">you, 09:02</span>Fix &lt;b&gt;the&lt;/b&gt; build',
     ),
   );
   // A single delivery is named by its placement alone; ids stay in tooltips.
   assert.ok(!html.includes("(D1)"));
-  assert.ok(html.includes("orchestrator@mbp, question</span>Force push?"));
-  assert.ok(html.includes("orchestrator@mbp, completed</span>all green"));
-  assert.ok(html.includes('<span class="time">09:15</span>'));
+  assert.ok(
+    html.includes("orchestrator@mbp, question, 09:31</span>Force push?"),
+  );
+  assert.ok(
+    html.includes("orchestrator@mbp, completed, 09:38</span>all green"),
+  );
+  assert.ok(html.includes('<span class="time">09:02</span>'));
   // Jev's pick sits on the strip, and in full inside the thread.
   assert.ok(
     html.includes(
@@ -270,12 +295,12 @@ test("the page escapes task text and leads with what waits on you", () => {
   // Open threads are expanded, and so is the latest one even if finished;
   // an older finished thread is collapsed to its strip.
   assert.match(html, /id="t-T2" open/);
-  assert.match(html, /id="t-T3" open/);
+  assert.match(html, /id="t-T3"(?! open)/);
   const older = renderBoard(
-    boardModel(boardState(config, journal, 500), config, 500),
+    boardModel(boardState(config, journal, LATER), config, LATER),
   );
   assert.match(older, /id="t-T1"(?! open)/);
-  assert.match(older, /id="t-T3" open/);
+  assert.match(older, /id="t-T4" open/);
   assert.ok(older.includes('<h1 class="">Nothing waits on you.</h1>'));
 });
 
@@ -283,18 +308,22 @@ test("messageTimes maps submit, update and answer ids to their journal time", ()
   assert.deepEqual(
     messageTimes(journal),
     Object.fromEntries(
-      ["M1", "M2", "Q1", "M3", "A1m", "W1", "Q2", "C1"].map((id) => [
-        id,
-        "2026-09-30T00:00:00Z",
-      ]),
+      [
+        ["M1", "09:02"],
+        ["M2", "09:10"],
+        ["Q1", "09:14"],
+        ["M3", "09:15"],
+        ["A1m", "09:16"],
+        ["W1", "09:20"],
+        ["Q2", "09:31"],
+        ["C1", "09:38"],
+        ["M4", "09:40"],
+        ["W2", "09:44"],
+      ].map(([id, clock]) => [id, `2026-09-30T${clock}:00.000Z`]),
     ),
   );
 });
 
-const identities = {
-  "me@example.com": ["you", "operator"],
-  "guest@example.com": ["you"],
-};
 const roles = { you: "requester", operator: "operator" } as const;
 
 test("identify: Serve's login header, mapped to principals, or nothing", () => {
@@ -393,12 +422,13 @@ test("actionEvent: each form becomes its event, signed by the principal the role
 });
 
 test("controls appear only for a recognised viewer; the notice is escaped", () => {
-  const model = boardModel(boardState(config, journal, 50), config, 50);
-  const anonymous = renderBoard(model);
+  const state = boardState(config, journal, NOW);
+  const model = (login: string | null) =>
+    boardModel(state, config, NOW, times, login ? viewer(login) : null);
+  const anonymous = renderBoard(model(null));
   assert.ok(!anonymous.includes("<form"));
   assert.ok(anonymous.includes("Read only"));
-  const mine = renderBoard(model, {
-    actor: { login: "me@example.com", principals: ["you", "operator"] },
+  const mine = renderBoard(model("me@example.com"), {
     notice: "<script>x</script> done",
   });
   assert.ok(mine.includes("Acting as me@example.com"));
@@ -426,9 +456,7 @@ test("controls appear only for a recognised viewer; the notice is escaped", () =
   for (const m of mine.matchAll(/<summary>([^]*?)<\/summary>/g))
     assert.ok(!m[1]?.includes("<form"), m[1] ?? "");
   // A requester-only viewer gets no resolve controls.
-  const guest = renderBoard(model, {
-    actor: { login: "guest@example.com", principals: ["you"] },
-  });
+  const guest = renderBoard(model("guest@example.com"));
   assert.ok(guest.includes('value="choose"'));
   assert.ok(!guest.includes('value="resolve"'));
 });
