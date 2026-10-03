@@ -16,7 +16,12 @@ import {
   type Run,
 } from "./server.ts";
 import { BOARD_VERSION } from "./board.ts";
-import { config as fixture, journal, NOW } from "./board-fixture.ts";
+import {
+  config as fixture,
+  journal,
+  NOW,
+  replacedJournal,
+} from "./board-fixture.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
@@ -226,9 +231,13 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
     // Reads: the page, the JSON, whoami, and the redirect to the slash form.
     const page = await fetch(`${url}/`, { headers: me });
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /Acting as me@example.com/);
+    assert.ok(
+      (await page.text()).includes(
+        '<span data-path="actor.login">me@example.com</span>',
+      ),
+    );
     const anonymous = await (await fetch(`${url}/`)).text();
-    assert.match(anonymous, /Read only/);
+    assert.ok(anonymous.includes("reading only · not identified"));
     assert.ok(!anonymous.includes("<form"));
     const json = (await (await fetch(`${url}/board.json`)).json()) as {
       open: unknown[];
@@ -298,9 +307,9 @@ test("board: asked for JSON, the board serves its model, identified as the page 
     const at = mine.at;
     assert.ok(typeof at === "string");
     assert.equal(at, new Date(NOW).toISOString());
-    assert.ok(html.includes(`Updated ${at.slice(11, 16)}Z`));
+    assert.ok(html.includes(`>${at.slice(11, 16)}Z</span>`));
     assert.deepEqual(
-      [...html.matchAll(/<details class="thread" id="t-(T\d+)"/g)]
+      [...html.matchAll(/<div class="task [^"]*"[^>]* data-task="(T\d+)"/g)]
         .map((m) => m[1])
         .sort(),
       [...taskIds(mine.open), ...taskIds(mine.finished)].sort(),
@@ -337,6 +346,151 @@ test("board: asked for JSON, the board serves its model, identified as the page 
       await served("application/*, text/html"),
       "text/html; charset=utf-8",
     );
+  } finally {
+    server.close();
+  }
+});
+
+// The forms of a page as a browser submits them: the hidden fields, the text
+// fields, and the name and value of each button that submits the form.
+const formsIn = (html: string) =>
+  [...html.matchAll(/<form([^>]*)>([^]*?)<\/form>/g)].map((m) => {
+    const body = m[2] ?? "";
+    return {
+      action: m[1]?.match(/action="([^"]+)"/)?.[1] ?? "",
+      fields: [
+        ...body.matchAll(
+          /<input type="hidden" name="([^"]+)" value="([^"]*)">/g,
+        ),
+      ].map((f): [string, string] => [f[1] ?? "", f[2] ?? ""]),
+      texts: [...body.matchAll(/<textarea[^>]*name="([^"]+)"/g)].map(
+        (f) => f[1] ?? "",
+      ),
+      // A button with a form attribute submits another form.
+      buttons: [...body.matchAll(/<button(?![^>]*\sform=)[^>]*>/g)].map(
+        (b): [string, string] => [
+          b[0].match(/name="([^"]+)"/)?.[1] ?? "",
+          b[0].match(/value="([^"]*)"/)?.[1] ?? "",
+        ],
+      ),
+    };
+  });
+
+test("board: the page opens the task in its URL, paints a known palette, and every form posts as before", async () => {
+  const record = mkdtempSync(join(tmpdir(), "server-page-"));
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const server = createServer(
+    boardListener({
+      config: { ...fixture, home: record },
+      handle,
+      now: () => NOW,
+    }),
+  );
+  const url = await serve(server);
+  const me = { "tailscale-user-login": "me@example.com" };
+  const get = async (path: string, headers: Record<string, string> = {}) =>
+    (await fetch(url + path, { headers })).text();
+  const selected = (html: string) =>
+    html
+      .slice(html.indexOf('class="panel detail"'))
+      .match(/data-task="([^"]+)"/)?.[1];
+  try {
+    // The first task that needs the viewer, unless the URL names a task.
+    assert.equal(selected(await get("/", me)), "T1");
+    assert.equal(selected(await get("/?task=T4", me)), "T4");
+    assert.equal(selected(await get("/?task=T99", me)), "T1");
+    const anonymous = await get("/?task=T4");
+    assert.equal(selected(anonymous), "T4");
+    assert.ok(!anonymous.includes("<form"));
+    // The palette is the cookie's only when the cookie names one.
+    const theme = async (cookie?: string) =>
+      (await get("/", cookie ? { cookie } : {})).match(
+        /<html lang="en" data-theme="([^"]*)">/,
+      )?.[1];
+    assert.equal(await theme(), "flexoki");
+    assert.equal(await theme("router-theme=one-dark"), "one-dark");
+    assert.equal(await theme("a=1; router-theme=one-dark; b=2"), "one-dark");
+    assert.equal(await theme("router-theme=solarized"), "flexoki");
+    assert.equal(
+      await theme('router-theme="><script>alert(1)</script>'),
+      "flexoki",
+    );
+    // Every form on the page, submitted by each of its buttons, runs its
+    // action and returns to the page with the outcome.
+    const before = handled.length;
+    const posted = new Set<string>();
+    for (const task of ["T1", "T2", "T3", "T4"]) {
+      const at = `${url}/?task=${task}`;
+      for (const form of formsIn(await get(`/?task=${task}`, me)))
+        for (const [name, value] of form.buttons) {
+          const body = new URLSearchParams(form.fields);
+          for (const text of form.texts) body.set(text, "seen in the session");
+          if (name) body.set(name, value);
+          if (posted.has(body.toString())) continue;
+          posted.add(body.toString());
+          const res = await fetch(new URL(form.action, at), {
+            method: "POST",
+            headers: {
+              ...me,
+              "content-type": "application/x-www-form-urlencoded",
+              "sec-fetch-site": "same-origin",
+            },
+            body,
+            redirect: "manual",
+          });
+          assert.equal(res.status, 303, body.toString());
+          assert.equal(
+            res.headers.get("location"),
+            `./?notice=handled%20${handled.at(-1)?.type}`,
+          );
+        }
+    }
+    const events = handled.slice(before);
+    assert.deepEqual([...new Set(events.map((e) => e.type))].sort(), [
+      "answer",
+      "cancel",
+      "choose",
+      "observe",
+      "resolve",
+    ]);
+    const find = (type: string, field: string, value: unknown) =>
+      events.find(
+        (e) =>
+          e.type === type && (e as Record<string, unknown>)[field] === value,
+      );
+    assert.deepEqual(find("choose", "to", "knowledge"), {
+      type: "choose",
+      by: "you",
+      taskId: "T1",
+      to: "knowledge",
+    });
+    assert.deepEqual(find("cancel", "taskId", "T1"), {
+      type: "cancel",
+      by: "you",
+      taskId: "T1",
+    });
+    const answer = find("answer", "taskId", "T2");
+    assert.ok(answer?.type === "answer");
+    assert.deepEqual(
+      [answer.by, answer.questionId, answer.text],
+      ["you", "Q2", "seen in the session"],
+    );
+    assert.deepEqual(find("resolve", "outcome", "not_sent"), {
+      type: "resolve",
+      by: "operator",
+      deliveryId: "D3",
+      messageId: "M4",
+      outcome: "not_sent",
+      evidence: "seen in the session",
+    });
+    assert.deepEqual(find("observe", "placement", "environment@mbp"), {
+      type: "observe",
+      placement: "environment@mbp",
+      hold: false,
+    });
   } finally {
     server.close();
   }

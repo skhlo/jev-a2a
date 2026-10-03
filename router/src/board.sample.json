@@ -151,7 +151,8 @@
             "kind": "working",
             "text": "Reading the notes"
           },
-          "end": null
+          "end": null,
+          "waits": null
         }
       ],
       "log": [
@@ -234,7 +235,8 @@
             "kind": "question",
             "text": "Force push?"
           },
-          "end": null
+          "end": null,
+          "waits": null
         }
       ],
       "log": [
@@ -318,7 +320,8 @@
         "status": "completed",
         "reason": null,
         "completed": 1,
-        "of": 1
+        "of": 1,
+        "by": null
       },
       "deliveries": [
         {
@@ -358,7 +361,8 @@
             "text": "all green",
             "messageId": "C1",
             "by": "A1"
-          }
+          },
+          "waits": null
         }
       ],
       "log": [

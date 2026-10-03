@@ -1,0 +1,5 @@
+# The data-paths of v0.6-paths.txt that the board page does not render,
+# one per line as "<path> | <reason>". The board page test accepts a v0.6
+# path only when the page renders it for the board fixture or this list
+# names it with a reason, and it fails on an entry the page renders after
+# all.

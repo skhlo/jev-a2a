@@ -18,9 +18,9 @@ import {
   boardState,
   identify,
   messageTimes,
-  renderBoard,
   type Actor,
 } from "./board.ts";
+import { renderBoard } from "./board-page.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
 import type { Event, Outcome } from "./types.ts";
@@ -114,6 +114,16 @@ export function sameSite(
   } catch {
     return false;
   }
+}
+
+// One cookie's value from a Cookie header, or null.
+function cookie(header: string | undefined, name: string): string | null {
+  for (const pair of (header ?? "").split(";")) {
+    const at = pair.indexOf("=");
+    if (at > 0 && pair.slice(0, at).trim() === name)
+      return pair.slice(at + 1).trim();
+  }
+  return null;
 }
 
 // Whether a request asks for the view model rather than the page: its Accept
@@ -234,7 +244,15 @@ export function boardListener(deps: ServerDeps): RequestListener {
       res.end(JSON.stringify(view));
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(renderBoard(view, { notice: url.searchParams.get("notice") }));
+      // The selected task is in the URL so a reload and a shared link open
+      // it; the palette is the page's cookie, which renderBoard checks.
+      res.end(
+        renderBoard(view, {
+          notice: url.searchParams.get("notice"),
+          task: url.searchParams.get("task"),
+          theme: cookie(req.headers.cookie, "router-theme"),
+        }),
+      );
     }
   };
 }

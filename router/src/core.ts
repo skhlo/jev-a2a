@@ -266,16 +266,28 @@ export function blockedReason(
   if (placement.hold) return "held";
   if (!placement.ready) return "not_ready";
   if (delivery.session !== null) return null;
-  // A placement's unpinned deliveries go in the order they were created.
-  const earlier = allDeliveries(state).find(
-    (other) =>
-      created(other) < created(delivery) &&
-      other.placement === delivery.placement &&
-      other.session === null &&
-      isOpen(other) &&
-      !isTerminal(mustTask(state, other.taskId)),
-  );
-  return earlier ? "queued_behind" : null;
+  // This delivery is open, unpinned and its task is open, so the queue has a
+  // head: this delivery, or one created before it.
+  return queueHead(state, delivery.placement)?.id === delivery.id
+    ? null
+    : "queued_behind";
+}
+
+// The delivery that goes next on a placement's queue: of its open, unpinned
+// deliveries whose task is still open, the one created first. Null when the
+// queue is empty. Pinned deliveries are not queued; they follow their session.
+export function queueHead(state: State, placement: string): Delivery | null {
+  let head: Delivery | null = null;
+  for (const delivery of allDeliveries(state))
+    if (
+      delivery.placement === placement &&
+      delivery.session === null &&
+      isOpen(delivery) &&
+      !isTerminal(mustTask(state, delivery.taskId)) &&
+      (head === null || created(delivery) < created(head))
+    )
+      head = delivery;
+  return head;
 }
 
 // Work the shell should perform next. The core never performs it itself.

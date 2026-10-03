@@ -66,22 +66,82 @@ prints the full usage.
 ## The board
 
 `router serve` also serves a page, the board, on `127.0.0.1:7678` by default
-(`serve.board`). It reads the same record as the CLI and shows:
+(`serve.board`). It reads the same record as the CLI. The page is the v0.6
+console of the board design (`skhlo/designs`, tag `jev-a2a-v0.6`), drawn on
+the server from the view model below, in three columns:
 
-- what is waiting on you, with the action that clears it (choose a recipient,
-  answer a question, cancel);
-- each agent session the router serves, as the router last observed it:
-  `ready`, `busy or away`, or `held` (a person holds a session with
-  `router observe <participant@host> --hold` while typing in it, so the
-  router does not send there);
-- the tasks in progress and the last finished ones, each opening into the
-  exchange with the agent.
+- **Agents**: a card per placement the router serves, saying what its
+  session is doing (asks on a task, works on one, ready, held, not ready) and
+  when it last updated, over the router's last log lines.
+- **Tasks**, in three groups. Needs you holds the tasks that wait on one of
+  your principals, a finished task too when an operator must resolve its
+  send; In flight holds the other open tasks, and Done the last finished
+  ones. A row says what its task waits for: the open question, the recipient
+  Jev was unsure of, the delivery it is queued behind or the session it is
+  held on, or who canceled it.
+- **The selected task**: how its recipient was chosen, its deadline with a
+  countdown while it is open, the exchange in time order, the form that
+  clears what waits on you, and its deliveries, Jev's judgments and log.
+
+Blue marks what needs you and nothing else: a question already answered, or
+one that waits on another principal, is not blue. The selected task is in
+the URL (`?task=T2`), so a reload or a shared link opens it; without one the
+page opens the first task that needs you, else the newest open one, else the
+newest finished one.
 
 The board listens on loopback only, and a browser that opens it directly gets
-a read-only page. Put
-it behind Tailscale Serve to reach it from another device and to act: the
-board takes the tailnet login Serve reports, and a login listed in
-`serve.identities` may act.
+a read-only page: every principal's waiting items, and no forms. Put it
+behind Tailscale Serve to reach it from another device and to act: the board
+takes the tailnet login Serve reports, and a login listed in
+`serve.identities` acts as its principals. A requester answers, chooses a
+recipient and cancels; an operator resolves a delivery the router cannot
+confirm, and holds or releases a session (a person holds a session while
+typing in it, so the router does not send there). Each form posts to the
+board's `actions` endpoint and comes back to the page with the outcome.
+Cancel shows on each of your open tasks; the router refuses one whose work
+may have reached a participant, and the outcome says so.
+
+The page reads and acts without a script. Its script adds:
+
+- a refresh every ten seconds: the page fetches itself for the selected task
+  and swaps the nav counts and the three columns. It keeps the selected
+  task, the collapsed groups (in `localStorage`), typed drafts (in
+  `sessionStorage`, by their form's `data-path`), the open peek and the
+  filter, and it leaves alone a column you are typing in.
+- the palettes: Flexoki, light or dark with the system, and One Dark. The
+  choice is kept in `localStorage` and in a `router-theme` cookie, so the
+  server paints it before the script runs.
+- the keys the footer names: `j` and `k` move between task rows; space opens
+  the peek, the row's open question with a reply box beside the row; `↵`
+  opens the task, or in the peek sends the reply (`⇧↵` breaks the line); `→`
+  opens the peeked task; `a` goes to the answer box; `c` cancels the
+  selected task; `h` holds or releases the focused agent, or the selected
+  task's; `/` filters the rows by text, id, recipient or state; `?` lists
+  the keys; `esc` closes; `⌘↩` or `Ctrl ↩` sends the form you are typing
+  in.
+
+Each element the design binds keeps the `data-path` the design gives it, and
+rows and groups keep `data-task` and `data-group`, so the page can be
+compared with the design mechanically. `router/design/v0.6-paths.txt` lists
+the design's paths, as `router/src/design-paths.ts` extracts them, and a test
+fails when one is neither rendered for the board fixture nor named with a
+reason in `router/design/v0.6-dropped.txt`.
+
+The page differs from v0.6 on purpose where the design was wrong for live
+data: counted nouns agree with their number, each clock carries its full
+date as a tooltip, the needs-you count counts tasks the same way in the nav
+and in the group, blue follows the viewer (the design colours every question
+and its badge, whoever it waits on), a finished task shows its verdict
+instead of a countdown, the forms post the router's own fields (resolving
+takes evidence), and a narrow screen gets one scrolling column. What remains
+open: the design's session telemetry and health sheet, which the record does
+not hold (see below); the hold lever shows for operators, as the design has
+it, although the router accepts a hold from any known login; a post does not
+name its principal, so a login that holds two principals in one role acts as
+the first one `serve.identities` lists, and the other's items show without a
+form; a draft is keyed by its form's `data-path`, which shifts when an
+earlier item goes, and such a draft stays in storage instead of filling the
+moved form; and the script's behaviour has no test in CI.
 
 ### The board's view model
 
@@ -137,13 +197,21 @@ committed sample matches.
     (`null` when the judgment was not `valid`), the `model` version, whether
     it was `valid`, and the `threshold` it was held to.
   - `final`: `null` while the task is open; then its `status`, `reason`,
-    and `completed` of `of` deliveries.
+    `completed` of `of` deliveries, and `by`: the principal who canceled
+    it (only the sender may cancel), or `null` when the router ended it.
   - `deliveries`: each with its `id`, `placement`, `session`, the current
     `send` (`kind`, `messageId`, `outcome`), every send in `sends` (with
     its `text`), the open `question` (`id`, `text`) or `null`, the agent's
     `updates` and the `latest` one (`messageId`, `inReplyTo`, `kind`,
-    `text`), and `end`: `null` while open, then its `reason` and, when
-    recorded, `text`, `messageId` and `by`.
+    `text`), `end`: `null` while open, then its `reason` and, when
+    recorded, `text`, `messageId` and `by` (the session that replied, or
+    the operator who resolved it), and `waits`: why the send has not gone
+    out, or `null` when nothing holds it back (it has gone, it ended, or
+    it goes on the router's next run). `reason` is `session_replaced`,
+    `in_flight` (another send to the placement is unconfirmed), `held`,
+    `not_ready` or `queued_behind`; for `queued_behind`, `behind` is the
+    id of the delivery at the head of the placement's queue, the one that
+    goes next, and otherwise `null`.
   - `log`: the task's own log lines, as `router status <task>` shows them.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its
@@ -212,6 +280,7 @@ the PATH. In the same secrets file give it `ROUTER_URL`, the router host's
 | `router/src/`                 | The router: a pure core (`core.ts`) and the shell around it     |
 | `router/client/`              | The reply client for hosts that do not run the router           |
 | `router/eval/`                | The labeled request set                                         |
+| `router/design/`              | The board design's data-paths, and the ones the page drops      |
 | `research/jev-router-spec.md` | The design and the contract. Start here for the reasoning       |
 | `research/`                   | The executable model the design was verified on, and background |
 
