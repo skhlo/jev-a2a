@@ -551,11 +551,14 @@ test("the rail orders cards by state and keeps the model's order within one", ()
     { task: "T2" },
   );
   assert.deepEqual(order(twoHeld), ["1", "2", "0", "3"]);
-  // The nav names a role only when it differs from its principal.
+});
+
+test("the nav names a role only when it differs from its principal", () => {
   assert.equal(
-    textOf(reversed, "actor.principals[]"),
+    textOf(page(ME), "actor.principals[]"),
     "you (requester), operator",
   );
+  assert.equal(textOf(page(GUEST), "actor.principals[]"), "you (requester)");
 });
 
 test("a delivery without a reply reads as delivered once its send was accepted, else as the send", () => {

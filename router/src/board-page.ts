@@ -13,13 +13,7 @@ import type {
   PlacementView,
   TaskView,
 } from "./board.ts";
-import type {
-  Judgment,
-  NeedsYouItem,
-  Role,
-  SendOutcome,
-  StuckReason,
-} from "./types.ts";
+import type { Judgment, NeedsYouItem, Role, StuckReason } from "./types.ts";
 
 // ---- Formats: the generator's helpers over the same fields ----
 
@@ -192,13 +186,6 @@ const RANK: Record<Dot, number> = {
   ready: 3,
   off: 4,
 };
-
-// A delivery with no update yet is delivered once the session accepted its
-// send. It is pinned at the attempt, so before the outcome arrives the page
-// says what the send is (attempting, unknown, pending); the design's sample
-// never held such a send.
-const sentWords = (outcome: SendOutcome, delivered: string): string =>
-  outcome === "accepted" ? delivered : `${esc(outcome)}, no reply yet`;
 
 // Why a delivery needs an operator, as the resolve form says it.
 const RESOLVE_WHY: Record<StuckReason, string> = {
@@ -445,9 +432,17 @@ ${lever(holdLever ? [holdLever] : [])}`,
       "a",
       ` href="${href(d.taskId)}"`,
     );
+    // Without an update the delivery is delivered once the session accepted
+    // its send. It is pinned at the attempt, so before the outcome arrives
+    // the card says what the send is (attempting, unknown, pending), from
+    // its own outcome field; the design's sample never held such a send.
+    const accepted = d.outcome === "accepted";
+    const outcomePath = `${path}.delivery.outcome`;
     const what = latest
       ? `${latest.kind === "question" ? "asks" : esc(latest.kind)} on ${task}`
-      : `${slot(`${path}.delivery.outcome`, d.outcome === "accepted" ? "delivered" : esc(d.outcome))} on ${task}`;
+      : accepted
+        ? `delivered on ${task}`
+        : `${slot(outcomePath, esc(d.outcome))} on ${task}`;
     const excerpt = ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`;
     const rig =
       slot(`${path}.host`, esc(p.host), "tag") +
@@ -463,13 +458,9 @@ ${lever(holdLever ? [holdLever] : [])}`,
     const latestAt = `${path}.delivery.latest.at`;
     const stats = latest
       ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
-      : slot(
-          d.outcome === "accepted"
-            ? `${path}.delivery.latest`
-            : `${path}.delivery.outcome`,
-          sentWords(d.outcome, "delivered, no reply yet"),
-          "k",
-        );
+      : accepted
+        ? slot(`${path}.delivery.latest`, "delivered, no reply yet", "k")
+        : slot(outcomePath, `${esc(d.outcome)}, no reply yet`, "k");
     const corner = latest?.at
       ? ago(`age(${latestAt}, at)`, latest.at, "age num")
       : "";

@@ -250,6 +250,19 @@ test("a placement shows its newest open delivery, even for an older task", () =>
       latest: null,
     },
   );
+  // Before the adapter answers, the pinned delivery carries the send as it
+  // stands.
+  const attempting = boardModel(
+    boardState(config, [...journal, ...late.slice(0, -1)], NOW),
+    config,
+    NOW,
+    times,
+  );
+  assert.equal(
+    attempting.placements.find((p) => p.key === "orchestrator@mbp")?.delivery
+      ?.outcome,
+    "attempting",
+  );
 });
 
 const submitted = (messageId: string, to: string, hosts?: string[]): Event => ({
