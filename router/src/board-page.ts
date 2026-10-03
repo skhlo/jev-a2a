@@ -1018,7 +1018,7 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .task:has(a.id:focus-visible) { outline: 2px solid var(--text); outline-offset: 1px; }
 a.btn, .card a.id { text-decoration: none; }
 .card a.id:hover { text-decoration: underline; }
-.lever form, .actions form { display: contents; }
+.lever form, .actions form, .peek form { display: contents; }
 .form.ro { border-color: var(--hair); }
 .choices input { flex: 1; min-width: 10rem; padding: 6px 12px; border: 1px solid var(--hair); border-radius: 100px; background: var(--canvas); color: var(--text); }
 .notice { position: fixed; z-index: 70; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: baseline; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
