@@ -10,10 +10,10 @@
 {"text": "테스트 참가자: pong이라고 답해줘", "expect": "none", "lang": "ko"}
 {"text": "짧은 테스트야, 오늘 날짜만 답해", "expect": "none", "lang": "ko"}
 {"text": "금요일 저녁 네 명 자리 예약해줘", "expect": "none", "lang": "ko"}
-{"text": "라우터 코어의 타입스크립트 버그를 고쳐줘", "expect": "none", "lang": "ko"}
+{"text": "라우터 코어의 타입스크립트 버그를 고쳐줘", "expect": "orchestrator", "lang": "ko"}
 {"text": "What are the stages of the vault's review pipeline?", "expect": "knowledge", "lang": "en"}
 {"text": "Test participant: reply with the word pong.", "expect": "none", "lang": "en"}
-{"text": "Fix the failing TypeScript build in the router repo.", "expect": "none", "lang": "en"}
+{"text": "Fix the failing TypeScript build in the router repo.", "expect": "orchestrator", "lang": "en"}
 {"text": "수신함 정리 좀 해줘", "expect": "knowledge", "lang": "ko"}
 {"text": "이 공시 원문 어디에 두는 게 맞아?", "expect": "knowledge", "lang": "ko"}
 {"text": "검토 상태가 초안인 산출물 몇 개야?", "expect": "knowledge", "lang": "ko"}
@@ -22,7 +22,7 @@
 {"text": "기준일 표기 규칙이 뭐였지?", "expect": "knowledge", "lang": "ko"}
 {"text": "이메일로 회의 일정 보내줘", "expect": "none", "lang": "ko"}
 {"text": "노트북 와이파이가 자꾸 끊겨", "expect": "none", "lang": "ko"}
-{"text": "라우터 저장소에 테스트 케이스 추가해줘", "expect": "none", "lang": "ko"}
+{"text": "라우터 저장소에 테스트 케이스 추가해줘", "expect": "orchestrator", "lang": "ko"}
 {"text": "산출물이랑 원문 차이가 뭐야?", "expect": "knowledge", "lang": "ko"}
 {"text": "'미확인'은 언제 쓰는 거야?", "expect": "knowledge", "lang": "ko"}
 {"text": "이 문장 영어로 번역해줘", "expect": "none", "lang": "ko"}
@@ -42,7 +42,7 @@
 {"text": "지금 몇 시야? 짧게 답해", "expect": "none", "lang": "ko"}
 {"text": "볼트 스크립트의 파이썬 오류 고쳐줘", "expect": "none", "lang": "ko"}
 {"text": "mini에 node 버전 올려줘", "expect": "none", "lang": "ko"}
-{"text": "Change the router's threshold to 0.8 in the config.", "expect": "none", "lang": "en"}
+{"text": "Change the router's threshold to 0.8 in the config.", "expect": "orchestrator", "lang": "en"}
 {"text": "미니 서버 재부팅해줘", "expect": "none", "lang": "ko"}
 {"text": "검토 파이프라인 설명하는 블로그 글 써서 발행해줘", "expect": "none", "lang": "ko"}
 # Added 2026-10-01 (012): dotfiles and dotfiles-host boundaries, English,
@@ -65,7 +65,7 @@
 {"text": "Something on MBP keeps drifting from the baseline - just tell me which files, don't touch anything.", "expect": "dotfiles-host", "lang": "en"}
 {"text": "Summarize my notes on how other people structure their dotfiles repositories.", "expect": "knowledge", "lang": "en"}
 {"text": "Find the memo where I wrote down why the mini became the always-on host.", "expect": "knowledge", "lang": "en"}
-{"text": "Fix the flaky test in the jev router repository and open a PR.", "expect": "none", "lang": "en"}
+{"text": "Fix the flaky test in the jev router repository and open a PR.", "expect": "orchestrator", "lang": "en"}
 {"text": "Review the open pull request in the pi-live repository.", "expect": "none", "lang": "en"}
 {"text": "Buy more Claude credits for my account.", "expect": "none", "lang": "en"}
 # The design participant (2026-10-03): nine requests it owns and seven on its
@@ -80,9 +80,23 @@
 {"text": "라우터 보드 화면 시안을 Paper로 만들어줘", "expect": "design", "lang": "ko"}
 {"text": "로그인 화면 디자인하고 스크린샷이랑 JSX 보내줘", "expect": "design", "lang": "ko"}
 {"text": "Implement the status card from the designs repo as a React component in pi-live.", "expect": "none", "lang": "en"}
-{"text": "Fix the CSS bug that makes the board's header overlap on mobile.", "expect": "none", "lang": "en"}
+{"text": "Fix the CSS bug that makes the board's header overlap on mobile.", "expect": "orchestrator", "lang": "en"}
 {"text": "Fix the proofs check workflow in the designs repository.", "expect": "none", "lang": "en"}
 {"text": "Summarize my notes on dashboard design principles.", "expect": "knowledge", "lang": "en"}
 {"text": "디자인 시스템 사례를 조사해서 보고서 초안 써줘", "expect": "knowledge", "lang": "ko"}
 {"text": "Switch the terminal colour scheme in the baseline to a lighter theme.", "expect": "dotfiles", "lang": "en"}
 {"text": "Is the new Ghostty theme live on the mini yet?", "expect": "dotfiles-host", "lang": "en"}
+# 2026-10-04: the orchestrator joins (this repository's own agent on mbp); the
+# router-repo rows above now expect it, and these twelve test the boundary.
+{"text": "Port the design's v0.8 board rules into the live page.", "expect": "orchestrator", "lang": "en"}
+{"text": "Add the knowledge agent's new session on the mini to the router config and restart the service.", "expect": "orchestrator", "lang": "en"}
+{"text": "Why did T39 go to the design agent instead of knowledge?", "expect": "orchestrator", "lang": "en"}
+{"text": "Write the spec issue for the telemetry round and send the design agent its part.", "expect": "orchestrator", "lang": "en"}
+{"text": "라우터 보드가 질문에 답한 뒤에도 '질문 중'으로 보여. 고쳐줘.", "expect": "orchestrator", "lang": "ko"}
+{"text": "라우터 설정에 새 참가자 추가하고 eval 돌려줘.", "expect": "orchestrator", "lang": "ko"}
+{"text": "The router's eval set needs rows for the new participant; add them and run it.", "expect": "orchestrator", "lang": "en"}
+{"text": "라우터가 어떤 기준으로 수신자를 고르는지 설명해줘.", "expect": "orchestrator", "lang": "ko"}
+{"text": "Design the agent health sheet for the board at 1440 width.", "expect": "design", "lang": "en"}
+{"text": "Roll out the merged dotfiles PR on the mini and tell me if it is current.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "라우터 설계 결정들을 볼트에 정리해서 보고서 초안 써줘.", "expect": "knowledge", "lang": "ko"}
+{"text": "Reply pong, this is only a delivery test for the router.", "expect": "none", "lang": "en"}
