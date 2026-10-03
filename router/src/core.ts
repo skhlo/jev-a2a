@@ -143,8 +143,14 @@ export function initial(config: Config): State {
 
 export const findTask = (state: State, id: string): Task | undefined =>
   state.tasks.find((task) => task.id === id);
+// In task order, the order the needs-you lists keep. It is not creation
+// order: a task that waited for a recipient gets its deliveries after newer
+// tasks got theirs, so a placement's queue orders by `created` instead.
 export const allDeliveries = (state: State): Delivery[] =>
   state.tasks.flatMap((task) => task.deliveries);
+// A delivery's place in creation order: deliveries are numbered from one
+// counter (D1, D2, ...).
+const created = (delivery: Delivery): number => Number(delivery.id.slice(1));
 export const findDelivery = (state: State, id: string): Delivery | undefined =>
   allDeliveries(state).find((d) => d.id === id);
 const participant = (state: State, id: string): Participant | undefined =>
@@ -260,17 +266,15 @@ export function blockedReason(
   if (placement.hold) return "held";
   if (!placement.ready) return "not_ready";
   if (delivery.session !== null) return null;
-  // Deliveries are created in order, so position is arrival order.
-  const all = allDeliveries(state);
-  const earlier = all
-    .slice(0, all.indexOf(delivery))
-    .find(
-      (other) =>
-        other.placement === delivery.placement &&
-        other.session === null &&
-        isOpen(other) &&
-        !isTerminal(mustTask(state, other.taskId)),
-    );
+  // A placement's unpinned deliveries go in the order they were created.
+  const earlier = allDeliveries(state).find(
+    (other) =>
+      created(other) < created(delivery) &&
+      other.placement === delivery.placement &&
+      other.session === null &&
+      isOpen(other) &&
+      !isTerminal(mustTask(state, other.taskId)),
+  );
   return earlier ? "queued_behind" : null;
 }
 
@@ -1026,6 +1030,8 @@ function select(
   task.recipient = participantId;
   task.chosenBy = chosenBy;
   task.deliveries = (task.hosts ?? entry.hosts).map((host) => ({
+    // The number is the delivery's place in creation order; a placement
+    // queues by it.
     id: `D${state.nextDelivery++}`,
     taskId: task.id,
     participant: participantId,

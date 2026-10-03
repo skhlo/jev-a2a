@@ -72,6 +72,10 @@ const unconfirmed = (d: Delivery): boolean =>
 const isIdempotent = (_state: State, d: Delivery): boolean => d.idempotent;
 const deliveriesOf = (state: State): Delivery[] =>
   state.tasks.flatMap((t) => t.deliveries);
+// Older means created earlier. Deliveries are numbered from one counter;
+// task order differs once a task gets its recipient after a newer one.
+const createdBefore = (a: Delivery, b: Delivery): boolean =>
+  Number(a.id.slice(1)) < Number(b.id.slice(1));
 
 function oracleEligible(state: State, d: Delivery): boolean {
   const task = must(state.tasks.find((t) => t.id === d.taskId));
@@ -86,10 +90,10 @@ function oracleEligible(state: State, d: Delivery): boolean {
   if (all.some((o) => o !== d && o.placement === d.placement && unconfirmed(o)))
     return false;
   if (d.session === null) {
-    const older = all.slice(0, all.indexOf(d));
     if (
-      older.some(
+      all.some(
         (o) =>
+          createdBefore(o, d) &&
           o.placement === d.placement &&
           o.session === null &&
           open(o) &&
@@ -1348,6 +1352,35 @@ test("sends only to an idle session, in arrival order; open tasks do not block n
     ["completed", "completed"],
   );
   assert.deepEqual(commands(s).map(deliveryIdOf), ["D3"]);
+});
+
+test("a placement's queue follows delivery creation, not task order", () => {
+  let s = expectOk(initial(config), {
+    type: "observe",
+    placement: "knowledge@mini",
+    ready: false,
+  });
+  s = submit(s, { messageId: "M1", text: "Handle this." });
+  s = judge(s, "T1", "none", 0.9);
+  s = submit(s, { messageId: "M2", text: "Summarize.", to: "knowledge" });
+  // T1 waited for a recipient, so its delivery comes after T2's.
+  s = expectOk(s, { type: "choose", by: "you", taskId: "T1", to: "knowledge" });
+  assert.deepEqual(
+    [task(s, "T1").deliveries, task(s, "T2").deliveries].map((list) =>
+      list.map((d) => d.id),
+    ),
+    [["D2"], ["D1"]],
+  );
+  s = idle(s, "knowledge@mini");
+  assert.deepEqual(commands(s).map(deliveryIdOf), ["D1"]);
+  assert.equal(
+    Core.blockedReason(s, must(Core.findDelivery(s, "D2"))),
+    "queued_behind",
+  );
+  s = expectReject(s, { type: "attempt", deliveryId: "D2" }, "not_eligible");
+  s = deliver(s, "D1");
+  s = idle(s, "knowledge@mini");
+  assert.deepEqual(commands(s).map(deliveryIdOf), ["D2"]);
 });
 
 test("deadline fails the task; an unconfirmed send still blocks its session until reconciled", () => {
