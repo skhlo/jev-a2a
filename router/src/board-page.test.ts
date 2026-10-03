@@ -1,4 +1,4 @@
-// The board page: the v0.7 design drawn from the view model and the viewer,
+// The board page: the v0.8 design drawn from the view model and the viewer,
 // a pure function of both. The tests read what a viewer or the design agent
 // reads: text, data-paths, and the forms with their fields.
 import test from "node:test";
@@ -24,6 +24,7 @@ import {
 } from "./board-page.ts";
 import {
   answeredJournal,
+  attemptingJournal,
   config,
   deliveredJournal,
   extend,
@@ -194,12 +195,12 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
   );
 });
 
-test("every data-path of the v0.7 design is rendered for the fixture or dropped with a reason", () => {
+test("every data-path of the v0.8 design is rendered for the fixture or dropped with a reason", () => {
   const lines = (name: string): string[] =>
     readFileSync(join(import.meta.dirname, "..", "design", name), "utf8")
       .split("\n")
       .filter((line) => line && !line.startsWith("#"));
-  const listed = lines("v0.7-paths.txt");
+  const listed = lines("v0.8-paths.txt");
   // The committed list is the extraction's output: distinct and sorted.
   assert.ok(listed.length > 100);
   assert.deepEqual(listed, [...new Set(listed)].sort());
@@ -208,7 +209,7 @@ test("every data-path of the v0.7 design is rendered for the fixture or dropped 
   const shape = (path: string): string => path.replaceAll(/\[\d+\]/g, "[]");
   const design = [...new Set(listed.map(shape))].sort();
   const dropped = new Map(
-    lines("v0.7-dropped.txt").map((line): [string, string] => {
+    lines("v0.8-dropped.txt").map((line): [string, string] => {
       const at = line.lastIndexOf(" | ");
       return at < 0 ? [line, ""] : [line.slice(0, at), line.slice(at + 3)];
     }),
@@ -216,9 +217,13 @@ test("every data-path of the v0.7 design is rendered for the fixture or dropped 
   // The design's pages select an answer, a long working task, a choice and
   // a resolve; render each task of the fixture, the record with the replaced
   // session for the resolve form, and the record before T4's first reply.
-  const records = [journal, replacedJournal, deliveredJournal].map((entries) =>
-    model(ME, entries),
-  );
+  const records = [
+    journal,
+    replacedJournal,
+    deliveredJournal,
+    answeredJournal,
+    attemptingJournal,
+  ].map((entries) => model(ME, entries));
   const rendered = new Set(
     ["T1", "T2", "T3", "T4"]
       .flatMap((task) =>
@@ -229,11 +234,11 @@ test("every data-path of the v0.7 design is rendered for the fixture or dropped 
   assert.deepEqual(
     design.filter((path) => !rendered.has(path) && !dropped.has(path)),
     [],
-    "v0.7 paths neither rendered nor in design/v0.7-dropped.txt",
+    "v0.8 paths neither rendered nor in design/v0.8-dropped.txt",
   );
   for (const [path, reason] of dropped) {
     assert.ok(reason.trim(), `${path} is dropped without a reason`);
-    assert.ok(design.includes(path), `${path} is not a v0.7 path`);
+    assert.ok(design.includes(path), `${path} is not a v0.8 path`);
     assert.ok(!rendered.has(path), `${path} is rendered after all`);
   }
 });
@@ -294,9 +299,15 @@ test("the fixture's board: what needs you, what is in flight, what is done", () 
       "orchestrator@mbp · question · 09:31ZForce push?",
     ],
   );
+  // v0.8: the viewer's form comes before the transcript, under the head.
+  const detailHtml = detailOf(html);
   assert.ok(
-    detailOf(html).indexOf("Force push?") <
-      detailOf(html).indexOf('<form class="form"'),
+    detailHtml.indexOf('<form class="form"') <
+      detailHtml.indexOf('<div class="thread">'),
+  );
+  assert.ok(
+    detailHtml.indexOf('<div class="head">') <
+      detailHtml.indexOf('<form class="form"'),
   );
   assert.equal(textOf(html, "time(open[1].deadline)"), "10:10Z");
   assert.equal(textOf(html, "left(open[1].deadline, at)"), "25m left");
@@ -385,7 +396,7 @@ test("forms and levers follow the viewer's principals and roles", () => {
   assert.deepEqual(resolve?.buttons, [["outcome", "finished"]]);
   assert.match(
     strip(me),
-    /The session that took this send is gone, so the router cannot confirm it\. The adapter reported it accepted, so it counts as sent and cannot be marked not sent\./,
+    /The session that took this send is gone, so the router cannot confirm it\. The adapter reported it accepted, so it counts as sent and cannot be marked not sent; resolving finishes the delivery\./,
   );
   assert.ok(me.includes('data-path="open[0].deliveries[0].send.outcome"'));
   assert.deepEqual(
@@ -585,18 +596,7 @@ test("a delivery without a reply reads as delivered once its send was accepted, 
   // delivered: the page says what the send is, from the placement's own
   // outcome field. The environment participant has several placements; D5
   // is the one on mbp.
-  const attempting = extend(
-    { type: "observe", placement: "environment@mbp", hold: false, ready: true },
-    {
-      type: "submit",
-      by: "you",
-      messageId: "M5",
-      text: "Rebuild",
-      to: "environment",
-    },
-    { type: "attempt", deliveryId: "D5" },
-  );
-  const inFlight = page(ME, { task: "T5" }, attempting);
+  const inFlight = page(ME, { task: "T5" }, attemptingJournal);
   assert.match(strip(inFlight), /environment@mbp\s*attempting on T5 · Rebuild/);
   assert.deepEqual(textsOf(inFlight, "placements[2].delivery.outcome"), [
     "attempting",
@@ -610,7 +610,7 @@ test("a delivery without a reply reads as delivered once its send was accepted, 
   assert.ok(!inFlight.includes("delivered"));
   // The card does not need the task: a delivery whose task is older than
   // the finished tasks the model keeps still reads from its own outcome.
-  const unlisted = model(ME, attempting);
+  const unlisted = model(ME, attemptingJournal);
   unlisted.open = unlisted.open.filter((t) => t.id !== "T5");
   assert.match(
     strip(renderBoard(unlisted)),
@@ -636,9 +636,15 @@ test("an answered question reads as working on the card and as the answer in the
     html,
     /<div class="card" tabindex="0" data-path="placements\[0\]">\s*<span class="dot work"/,
   );
+  // The corner age is the answer's, not the question's.
   assert.match(
     strip(html),
-    /orchestrator@mbp\s*31m\s*working on T2 · Ask me something/,
+    /orchestrator@mbp\s*29m\s*working on T2 · Ask me something/,
+  );
+  assert.ok(
+    html.includes(
+      'data-path="age(times[placements[0].delivery.messageId], at)"',
+    ),
   );
   assert.match(strip(html), /answered\s*09:16Z\s*· no reply yet/);
   assert.ok(
@@ -660,6 +666,61 @@ test("an answered question reads as working on the card and as the answer in the
     textOf(row, "open[1].deliveries[0].latest.text"),
     "Which branch?",
   );
+});
+
+test("v0.8 layout: the form precedes the transcript, the rail log holds every line, the table says answered", () => {
+  const html = page(ME, { task: "T2" }, answeredJournal);
+  // Every log line the model carries is in the rail's bottom-anchored block.
+  const m = model(ME, answeredJournal);
+  const block = html.slice(
+    html.indexOf('<div class="lines"><div class="tail">'),
+    html.indexOf("</aside>"),
+  );
+  assert.equal(
+    [...block.matchAll(/data-path="log\[(\d+)\]"/g)].length,
+    m.log.length,
+  );
+  assert.ok(block.includes('data-path="log[0]"'));
+  assert.equal(textOf(html, "count(log)"), `last ${m.log.length}`);
+  // The deliveries table reads answered for the answered question.
+  const table = detailOf(html).slice(detailOf(html).indexOf("<table>"));
+  assert.deepEqual(textsOf(table, "open[1].deliveries[0].send"), [
+    "answer A1m · accepted",
+    "answered",
+  ]);
+  // An answer whose send has not landed reads as its outcome, on the card
+  // and in the row and table, before anything says answered.
+  const pending = model(ME, answeredJournal);
+  const card = pending.placements[0]?.delivery;
+  const d1 = pending.open.find((t) => t.id === "T2")?.deliveries[0];
+  assert.ok(card && d1);
+  card.outcome = "pending";
+  d1.send = { ...d1.send, outcome: "pending" };
+  const unlanded = renderBoard(pending, { task: "T2" });
+  assert.match(
+    strip(unlanded),
+    /orchestrator@mbp\s*pending on T2 · Ask me something/,
+  );
+  assert.equal(
+    textsOf(unlanded, "placements[0].delivery.outcome")[1],
+    "pending, no reply yet",
+  );
+  assert.ok(!strip(unlanded).includes("answered 09:16Z"));
+  // The row's sub-line and the table's State cell both read the send.
+  assert.deepEqual(textsOf(unlanded, "open[1].deliveries[0].send"), [
+    "answer pending",
+    "answer A1m · pending",
+    "answer pending",
+  ]);
+  // The table's badge is blue only while the question is open and asks the
+  // viewer; after the answer there is no badge at all.
+  const open = page(ME, { task: "T2" });
+  assert.ok(
+    open.includes(
+      '<span class="badge ask" data-path="open[1].deliveries[0].latest.kind">question</span>',
+    ),
+  );
+  assert.ok(!html.includes('data-path="open[1].deliveries[0].latest.kind"'));
 });
 
 test("a runner-up that rounds to 0.00 is not named", () => {

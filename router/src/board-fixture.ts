@@ -260,6 +260,21 @@ export const extend = (...events: Event[]): Entry[] => [
   ...run("09:44", ...events),
 ];
 
+// The record with a fifth task sent to the released environment@mbp and
+// still attempting: the delivery is pinned, its send not yet accepted. The
+// environment participant has several placements; D5 is the one on mbp.
+export const attemptingJournal = extend(
+  { type: "observe", placement: "environment@mbp", hold: false, ready: true },
+  {
+    type: "submit",
+    by: "you",
+    messageId: "M5",
+    text: "Rebuild",
+    to: "environment",
+  },
+  { type: "attempt", deliveryId: "D5" },
+);
+
 // The record after knowledge@mini's session was replaced while T4's
 // delivery was pinned to it: the operator has that delivery to resolve, and
 // the requester's items are unchanged.
