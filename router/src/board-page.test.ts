@@ -706,10 +706,21 @@ test("v0.8 layout: the form precedes the transcript, the rail log holds every li
     "pending, no reply yet",
   );
   assert.ok(!strip(unlanded).includes("answered 09:16Z"));
-  assert.equal(
-    textsOf(unlanded, "open[1].deliveries[0].send")[0],
+  // The row's sub-line and the table's State cell both read the send.
+  assert.deepEqual(textsOf(unlanded, "open[1].deliveries[0].send"), [
     "answer pending",
+    "answer A1m · pending",
+    "answer pending",
+  ]);
+  // The table's badge is blue only while the question is open and asks the
+  // viewer; after the answer there is no badge at all.
+  const open = page(ME, { task: "T2" });
+  assert.ok(
+    open.includes(
+      '<span class="badge ask" data-path="open[1].deliveries[0].latest.kind">question</span>',
+    ),
   );
+  assert.ok(!html.includes('data-path="open[1].deliveries[0].latest.kind"'));
 });
 
 test("a runner-up that rounds to 0.00 is not named", () => {

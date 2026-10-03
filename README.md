@@ -73,8 +73,8 @@ the server from the view model below, in three columns:
 - **Agents**: a card per placement the router serves, saying what its
   session is doing (asks on a task, with the question; works on one,
   including after a question was answered, with the answer's time;
-  delivered and not yet replied; held; ready; not ready) and when it last
-  updated. Cards come in that order, asking first; a card with no open
+  delivered and not yet replied; a send still attempting, unknown or
+  pending; held; ready; not ready) and when it last updated. Cards come in that order, asking first; a card with no open
   delivery collapses to its name and state. The router's last twenty log
   lines fill the rest of the column, newest at the bottom.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
@@ -82,8 +82,8 @@ the server from the view model below, in three columns:
   send; In flight holds the other open tasks, and Done the last finished
   ones. A row says what its task waits for: the open question, the recipient
   Jev was unsure of, the delivery it is queued behind or the session it is
-  held on, a delivery that has no reply yet, the answer it was just given,
-  or who canceled it.
+  held on, a send not yet accepted, a delivery that has no reply yet, the
+  answer it was just given, or who canceled it.
 - **The selected task**: how its recipient was chosen, its deadline with a
   countdown while it is open, the form that clears what waits on you, the
   exchange in time order, and its deliveries, Jev's judgments and log.
@@ -144,8 +144,9 @@ and its badge, whoever it waits on), a finished task shows its verdict
 instead of a countdown, the forms post the router's own fields (resolving
 takes evidence), a narrow screen gets one scrolling column, a session id of
 any shape that is a UUID is shortened (the design shortens any id over
-twelve characters), and a queued or held delivery says what it waits for
-where the design shows only the send's outcome. What remains
+twelve characters), and a delivery that waits (queued, held, on a session
+not ready, behind an unconfirmed send, or on a replaced session) says what
+it waits for where the design shows only the send's outcome. What remains
 open: the design's session telemetry and health sheet, which the record does
 not hold (see below); the hold lever shows for operators, as the design has
 it, although the router accepts a hold from any known login; a post does not
