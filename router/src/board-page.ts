@@ -1221,6 +1221,9 @@ const KEYS = {
   "?": () => { $(".help").hidden = !$(".help").hidden; return true; },
 };
 document.addEventListener("keydown", (e) => {
+  // A key that ends an IME composition (a Hangul syllable, a kana
+  // conversion) belongs to the text; Safari marks it only by keyCode 229.
+  if (e.isComposing || e.keyCode === 229) return;
   const el = document.activeElement;
   if (e.key === "Escape") {
     if (!$(".help").hidden) $(".help").hidden = true;
