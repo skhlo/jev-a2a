@@ -13,7 +13,13 @@ import type {
   PlacementView,
   TaskView,
 } from "./board.ts";
-import type { Judgment, NeedsYouItem, Role, StuckReason } from "./types.ts";
+import type {
+  Judgment,
+  NeedsYouItem,
+  Role,
+  SendOutcome,
+  StuckReason,
+} from "./types.ts";
 
 // ---- Formats: the generator's helpers over the same fields ----
 
@@ -172,6 +178,27 @@ const CHOSEN_BY: Record<NonNullable<TaskView["chosenBy"]>, string> = {
   address: "named on the request",
   sender: "chosen by the sender",
 };
+
+// A card's dot: the session's state. `wait` is a question for another
+// principal, which waits like one for the viewer, in grey.
+type Dot = "ask" | "wait" | "work" | "held" | "ready" | "off";
+// The rail's order: asking, working or delivered, held, ready, not ready;
+// the model's order within a state.
+const RANK: Record<Dot, number> = {
+  ask: 0,
+  wait: 0,
+  work: 1,
+  held: 2,
+  ready: 3,
+  off: 4,
+};
+
+// A delivery with no update yet is delivered once the session accepted its
+// send. It is pinned at the attempt, so before the outcome arrives the page
+// says what the send is (attempting, unknown, pending); the design's sample
+// never held such a send.
+const sentWords = (outcome: SendOutcome, delivered: string): string =>
+  outcome === "accepted" ? delivered : `${esc(outcome)}, no reply yet`;
 
 // Why a delivery needs an operator, as the resolve form says it.
 const RESOLVE_WHY: Record<StuckReason, string> = {
@@ -351,9 +378,7 @@ export function renderBoard(
 
   // ---- Agents ----
 
-  // A card's dot: the session's state. A question for another principal
-  // waits like a question for the viewer, in grey.
-  const dotOf = (p: PlacementView): string => {
+  const dotOf = (p: PlacementView): Dot => {
     const d = p.delivery;
     if (d)
       return d.latest?.kind === "question"
@@ -363,17 +388,24 @@ export function renderBoard(
         : "work";
     return p.hold ? "held" : p.ready ? "ready" : "off";
   };
-  // The rail's order: asking, working or delivered, held, ready, not ready;
-  // the model's order within a state.
-  const RANK: Record<string, number> = {
-    ask: 0,
-    wait: 0,
-    work: 1,
-    held: 2,
-    ready: 3,
-    off: 4,
-  };
-  const rank = (p: PlacementView): number => RANK[dotOf(p)] ?? 5;
+  const rank = (p: PlacementView): number => RANK[dotOf(p)];
+
+  // A card: its dot, then the body's lines; `idle` is the collapsed card of
+  // a session with no delivery.
+  const cardShell = (
+    path: string,
+    cls: string,
+    dot: Dot,
+    body: string,
+  ): string =>
+    `    <div class="card${cls}" tabindex="0" data-path="${path}">
+      <span class="dot ${dot}" data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"></span>
+      <div class="body">
+${body}
+      </div>
+    </div>`;
+  const lever = (levers: string[]): string =>
+    levers.length ? `        <div class="lever">${levers.join("")}</div>` : "";
 
   const card = (p: PlacementView, i: number): string => {
     const path = `placements[${i}]`;
@@ -381,13 +413,13 @@ export function renderBoard(
     const latest = d?.latest ?? null;
     const dot = dotOf(p);
     const asks = dot === "ask";
-    const dotPath = `data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"`;
-    const hold = operator
+    const holdLever = operator
       ? form(
           { action: "hold", placement: p.key, hold: p.hold ? "0" : "1" },
           slot(`${path}.hold`, p.hold ? "Release" : "Hold", "btn sm", "button"),
         )
       : "";
+    const name = slot(`${path}.key`, esc(p.key));
     if (!d) {
       // Idle: no delivery pinned to the session. The card collapses to its
       // name, dot, state and lever.
@@ -397,14 +429,14 @@ export function renderBoard(
           : dot === "ready"
             ? `${slot(`${path}.ready`, "ready")} · no open delivery`
             : slot(`${path}.ready`, "not ready");
-      return `    <div class="card idle${dot === "off" ? " off" : ""}" tabindex="0" data-path="${path}">
-      <span class="dot ${dot}" ${dotPath}></span>
-      <div class="body">
-        <div class="name">${slot(`${path}.key`, esc(p.key))}</div>
+      return cardShell(
+        path,
+        ` idle${dot === "off" ? " off" : ""}`,
+        dot,
+        `        <div class="name">${name}</div>
         <div class="what">${what}</div>
-        ${hold ? `<div class="lever">${hold}</div>` : ""}
-      </div>
-    </div>`;
+${lever(holdLever ? [holdLever] : [])}`,
+      );
     }
     const task = slot(
       `${path}.delivery.taskId`,
@@ -413,18 +445,9 @@ export function renderBoard(
       "a",
       ` href="${href(d.taskId)}"`,
     );
-    // Without an update the delivery reads as delivered once the session
-    // accepted it. A delivery is pinned at the attempt, so until then it
-    // says what its send is (attempting, unknown); the design's sample never
-    // held such a send. A task the model no longer lists reads as delivered.
-    const outcome =
-      tasks.get(d.taskId)?.task.deliveries.find((x) => x.id === d.id)?.send
-        .outcome ?? "accepted";
     const what = latest
       ? `${latest.kind === "question" ? "asks" : esc(latest.kind)} on ${task}`
-      : outcome === "accepted"
-        ? `delivered on ${task}`
-        : `${esc(outcome)} on ${task}`;
+      : `${slot(`${path}.delivery.outcome`, d.outcome === "accepted" ? "delivered" : esc(d.outcome))} on ${task}`;
     const excerpt = ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`;
     const rig =
       slot(`${path}.host`, esc(p.host), "tag") +
@@ -441,10 +464,10 @@ export function renderBoard(
     const stats = latest
       ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
       : slot(
-          `${path}.delivery.latest`,
-          outcome === "accepted"
-            ? "delivered, no reply yet"
-            : `${esc(outcome)}, no reply yet`,
+          d.outcome === "accepted"
+            ? `${path}.delivery.latest`
+            : `${path}.delivery.outcome`,
+          sentWords(d.outcome, "delivered, no reply yet"),
           "k",
         );
     const corner = latest?.at
@@ -462,18 +485,18 @@ export function renderBoard(
             ` href="${href(it.item.taskId, `#answer-${it.item.deliveryId}`)}"`,
           ),
         ),
-      hold,
+      holdLever,
     ].filter(Boolean);
-    return `    <div class="card${asks ? " warm" : ""}" tabindex="0" data-path="${path}">
-      <span class="dot ${dot}" ${dotPath}></span>
-      <div class="body">
-        <div class="name">${slot(`${path}.key`, esc(p.key))}${corner}</div>
+    return cardShell(
+      path,
+      asks ? " warm" : "",
+      dot,
+      `        <div class="name">${name}${corner}</div>
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
         <div class="rig">${rig}</div>
         <div class="stats">${stats}</div>
-        ${levers.length ? `<div class="lever">${levers.join("")}</div>` : ""}
-      </div>
-    </div>`;
+${lever(levers)}`,
+    );
   };
 
   const tail = model.log.slice(-4);
@@ -492,11 +515,11 @@ ${model.placements
 
   // ---- Tasks ----
 
-  // A delivery with no update yet: delivered once its send was accepted;
-  // before that, what the send is (attempting, unknown).
-  const delivered = (dp: string, d: DeliveryView, words: string): string =>
+  // A task delivery with no update yet, in the row and the table: delivered
+  // once its send was accepted, else the send as it stands.
+  const sendState = (dp: string, d: DeliveryView, delivered: string): string =>
     d.send.outcome === "accepted"
-      ? slot(`${dp}.latest`, words)
+      ? slot(`${dp}.latest`, delivered)
       : slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.outcome)}`);
 
   // The second line of a row: what the task waits on or last said.
@@ -529,7 +552,7 @@ ${model.placements
       return `${slot(`${dp}.latest.text`, esc(d.latest.text))} · ${countdown}`;
     if (d.waits)
       return `${slot(`${dp}.waits`, waitText(d.placement, d.waits))} · ${countdown}`;
-    return `${delivered(dp, d, "delivered, no reply yet")} · ${countdown}`;
+    return `${sendState(dp, d, "delivered, no reply yet")} · ${countdown}`;
   };
 
   // The peek: the task's open question with a reply box, rendered in its row
@@ -821,7 +844,7 @@ ${forms}
             )
           : d.waits
             ? slot(`${dp}.waits`, waitText(d.placement, d.waits))
-            : delivered(dp, d, "delivered");
+            : sendState(dp, d, "delivered");
       const last = d.latest
         ? clock(
             `time(times[${dp}.latest.messageId])`,

@@ -145,7 +145,7 @@ a session id of any shape that is a UUID is shortened (the design shortens
 any id over twelve characters), and a delivery reads as delivered only once
 its send was accepted: a delivery is pinned to a session at the attempt, so
 until the outcome arrives the page says what the send is (attempting,
-unknown), a state the design's sample does not hold. What remains
+unknown, pending), a state the design's sample does not hold. What remains
 open: the design's session telemetry and health sheet, which the record does
 not hold (see below); the hold lever shows for operators, as the design has
 it, although the router accepts a hold from any known login; a post does not
@@ -196,8 +196,9 @@ committed sample matches.
 - `placements`: each placement the router serves, with its `key`
   (`participant@host`), `participant`, `host`, `session`, `ready` and
   `hold`, and `delivery`: the newest open delivery pinned to the current
-  session (`id`, `taskId`, an `excerpt` of the task text, and the `latest`
-  update's `kind` and `at`), or `null`.
+  session (`id`, `taskId`, an `excerpt` of the task text, the `outcome` of
+  its current send, since a delivery is pinned at the attempt, and the
+  `latest` update's `kind` and `at`), or `null`.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,

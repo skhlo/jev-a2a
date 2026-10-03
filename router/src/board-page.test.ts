@@ -525,28 +525,40 @@ test("a valid record never breaks the page: Jev still judging, or a judgment wit
   assert.deepEqual(formFor(shown, "choose")?.inputs, ["to"]);
 });
 
-test("v0.7: the rail orders by state, a delivery without a reply reads as delivered, and the small rules", () => {
+test("the rail orders cards by state and keeps the model's order within one", () => {
   // Cards come asking, working, held, ready, not ready, whatever the
   // model's order; the fixture's order reversed still renders ask, work, held.
   const me = model(ME);
+  const order = (html: string): string[] =>
+    [
+      ...html.matchAll(
+        /<div class="card[^"]*" tabindex="0" data-path="placements\[(\d)\]">/g,
+      ),
+    ].map((m) => m[1] ?? "");
   const reversed = renderBoard(
     { ...me, placements: [...me.placements].reverse() },
     { task: "T2" },
   );
-  assert.deepEqual(
-    [
-      ...reversed.matchAll(
-        /<div class="card[^"]*" tabindex="0" data-path="placements\[(\d)\]">/g,
-      ),
-    ].map((m) => m[1]),
-    ["2", "1", "0"],
+  assert.deepEqual(order(reversed), ["2", "1", "0"]);
+  // Two held placements keep the model's order between them.
+  const held = me.placements[2];
+  assert.ok(held?.hold);
+  const twoHeld = renderBoard(
+    {
+      ...me,
+      placements: [{ ...held, key: "environment@mini" }, ...me.placements],
+    },
+    { task: "T2" },
   );
+  assert.deepEqual(order(twoHeld), ["1", "2", "0", "3"]);
   // The nav names a role only when it differs from its principal.
   assert.equal(
     textOf(reversed, "actor.principals[]"),
     "you (requester), operator",
   );
+});
 
+test("a delivery without a reply reads as delivered once its send was accepted, else as the send", () => {
   // Before T4's first reply its delivery is accepted: the card, the row and
   // the table say delivered.
   const quiet = page(ME, { task: "T4" }, deliveredJournal);
@@ -566,8 +578,9 @@ test("v0.7: the rail orders by state, a delivery without a reply reads as delive
   assert.ok(!quiet.includes("none yet"));
 
   // While a send is still attempting the delivery is pinned but not
-  // delivered: the page says what the send is instead. The environment
-  // participant has several placements; D5 is the one on mbp.
+  // delivered: the page says what the send is, from the placement's own
+  // outcome field. The environment participant has several placements; D5
+  // is the one on mbp.
   const attempting = extend(
     { type: "observe", placement: "environment@mbp", hold: false, ready: true },
     {
@@ -581,17 +594,27 @@ test("v0.7: the rail orders by state, a delivery without a reply reads as delive
   );
   const inFlight = page(ME, { task: "T5" }, attempting);
   assert.match(strip(inFlight), /environment@mbp\s*attempting on T5 · Rebuild/);
-  assert.equal(
-    textOf(inFlight, "placements[2].delivery.latest"),
+  assert.deepEqual(textsOf(inFlight, "placements[2].delivery.outcome"), [
+    "attempting",
     "attempting, no reply yet",
-  );
+  ]);
+  assert.ok(!inFlight.includes('data-path="placements[2].delivery.latest"'));
   assert.deepEqual(textsOf(inFlight, "open[0].deliveries[1].send"), [
     "request M5 · attempting",
     "request attempting",
   ]);
   assert.ok(!inFlight.includes("delivered"));
+  // The card does not need the task: a delivery whose task is older than
+  // the finished tasks the model keeps still reads from its own outcome.
+  const unlisted = model(ME, attempting);
+  unlisted.open = unlisted.open.filter((t) => t.id !== "T5");
+  assert.match(
+    strip(renderBoard(unlisted)),
+    /environment@mbp\s*attempting on T5 · Rebuild/,
+  );
+});
 
-  // A runner-up that rounds to 0.00 is not named.
+test("a runner-up that rounds to 0.00 is not named", () => {
   const sure = extend(
     { type: "submit", by: "you", messageId: "M5", text: "Plan the week" },
     {
@@ -611,6 +634,59 @@ test("v0.7: the rail orders by state, a delivery without a reply reads as delive
   assert.equal(
     textOf(page(ME, { task: "T5" }, sure), "open[0].judgments[0]", "div"),
     "Jev picked orchestrator at 1.00 · jev-1.13.0",
+  );
+});
+
+test("the resolve form offers both outcomes for a send that was not accepted, and names the reason", () => {
+  // T5's send came back unknown and its deadline passed: the router cannot
+  // confirm it, so the operator may mark it finished or not sent.
+  const stuck = extend(
+    {
+      type: "submit",
+      by: "you",
+      messageId: "M5",
+      text: "Deploy",
+      to: "orchestrator",
+    },
+    { type: "attempt", deliveryId: "D4" },
+    {
+      type: "adapterResult",
+      deliveryId: "D4",
+      messageId: "M5",
+      outcome: "unknown",
+    },
+  );
+  const html = page(ME, { task: "T5" }, stuck, LATER);
+  const resolve = formFor(html, "resolve", "delivery", "D4");
+  assert.deepEqual(resolve?.buttons, [
+    ["outcome", "finished"],
+    ["outcome", "not_sent"],
+  ]);
+  assert.match(
+    strip(html),
+    /task ended · as operator.*The task ended before the router could confirm this send\./s,
+  );
+  assert.ok(!html.includes("cannot be marked not sent"));
+  assert.ok(
+    !html.includes('data-path="finished[0].deliveries[0].send.outcome"'),
+  );
+  // The item alone, when its task is older than the model keeps.
+  const older = model(ME, stuck, LATER);
+  older.finished = older.finished.filter((t) => t.id !== "T5");
+  const orphan = renderBoard(older, { task: "T5" });
+  assert.deepEqual(formFor(orphan, "resolve", "delivery", "D4")?.buttons, [
+    ["outcome", "finished"],
+    ["outcome", "not_sent"],
+  ]);
+  // Each reason has its sentence.
+  const item = older.needsYou
+    .flatMap((g) => g.items)
+    .find((it) => it.kind === "resolve");
+  assert.ok(item?.kind === "resolve");
+  item.reason = "unknown_send";
+  assert.match(
+    strip(renderBoard(older, { task: "T5" })),
+    /The router has no record of this send reaching the session\./,
   );
 });
 

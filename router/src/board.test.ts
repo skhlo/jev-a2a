@@ -129,6 +129,7 @@ test("the model names its contract and carries what a template binds to", () => 
         id: "D1",
         taskId: "T2",
         excerpt: "Ask me something",
+        outcome: "accepted",
         latest: { kind: "question", at: "2026-09-30T09:31:00.000Z" },
       },
     },
@@ -143,6 +144,7 @@ test("the model names its contract and carries what a template binds to", () => 
         id: "D3",
         taskId: "T4",
         excerpt: "Summarize the review pipeline notes",
+        outcome: "accepted",
         latest: { kind: "working", at: "2026-09-30T09:44:00.000Z" },
       },
     },
@@ -244,6 +246,7 @@ test("a placement shows its newest open delivery, even for an older task", () =>
       id: "D4",
       taskId: "T1",
       excerpt: "Fix <b>the</b> build",
+      outcome: "accepted",
       latest: null,
     },
   );
