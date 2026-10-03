@@ -61,6 +61,7 @@ export type BoardModel = {
 
 const FINISHED_SHOWN = 10;
 const LOG_SHOWN = 20;
+const TASK_LOG_SHOWN = 8;
 
 // The record as of `now`, folded in memory: deadlines that passed since the
 // last run show as passed, and the journal is untouched.
@@ -150,6 +151,14 @@ function taskView(task: Task): TaskView {
       };
     }),
   };
+}
+
+// A task's last lines in the router's log, shared with `router status
+// <task>`. The id is matched as a whole word, so T1 does not collect the
+// lines of T12.
+export function taskLog(log: State["log"], taskId: string): State["log"] {
+  const word = new RegExp(`\\b${taskId}\\b`);
+  return log.filter((entry) => word.test(entry.text)).slice(-TASK_LOG_SHOWN);
 }
 
 // The CLI's wording for a needs-you item, shared with `router needs-you`.

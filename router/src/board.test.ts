@@ -13,6 +13,7 @@ import {
   identify,
   messageTimes,
   renderBoard,
+  taskLog,
 } from "./board.ts";
 import { readJournal, type Entry } from "./journal.ts";
 import type { RouterConfig } from "./config.ts";
@@ -200,6 +201,18 @@ test("the model lists what waits on a person and the open and finished tasks", (
   assert.equal(t2.deliveries[0]?.latest?.text, "Force push?");
   assert.equal(t2.deliveries[0]?.question?.id, "Q2");
   assert.equal(model.log.length, Math.min(20, state.log.length));
+});
+
+test("a task's log holds its own id, not a longer one that starts the same", () => {
+  const log = [
+    { n: 1, actor: "Router", text: "T1 recorded for you/M1." },
+    { n: 2, actor: "Router", text: "T12 recorded for you/M12." },
+    { n: 3, actor: "Jev", text: "T1: no confident owner." },
+  ];
+  assert.deepEqual(
+    taskLog(log, "T1").map((entry) => entry.n),
+    [1, 3],
+  );
 });
 
 test("a deadline that passed shows as passed without any write", () => {
