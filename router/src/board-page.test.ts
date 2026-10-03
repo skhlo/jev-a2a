@@ -426,6 +426,13 @@ test("blue marks only what waits on the viewer", () => {
   assert.ok(operator.includes('<div class="q wait">'));
   assert.ok(!operator.includes('<div class="q">'));
   assert.match(strip(detailOf(operator)), /question Q2 · waits on you/);
+  // The Needs you header is blue only while something waits on the viewer.
+  assert.ok(me.includes('<span class="kicker attn">Needs you</span>'));
+  const idle = renderBoard(
+    modelFor(["team"], { ...config.principals, team: "requester" }),
+  );
+  assert.ok(idle.includes('<span class="kicker">Needs you</span>'));
+  assert.ok(!idle.includes("kicker attn"));
 });
 
 test("a login with two principals in one role gets forms for the one its posts are signed as", () => {
@@ -660,4 +667,77 @@ test("the page escapes what it shows, takes only a known palette, and dates its 
   const forged = page(ME, { theme: '"><script>alert(1)</script>' });
   assert.ok(forged.includes('<html lang="en" data-theme="flexoki">'));
   assert.ok(!forged.includes("alert(1)"));
+});
+
+test("a real record: a long request keeps a short title and session ids are short", () => {
+  // The live record's requests run to pages and its sessions are UUIDs; the
+  // design was sized for the sample's short text and two-letter sessions.
+  const session = "cef0c5d5-3548-40dd-aba4-2c2397bd47f2";
+  const text =
+    "  Round 3b: visual review of the live board against v0.6.\r\n\r\nWhere: the tailnet.\n" +
+    "x".repeat(2000);
+  const real = extend(
+    { type: "observe", placement: "knowledge@mini", session },
+    { type: "submit", by: "you", messageId: "M5", text },
+  );
+  const html = page(ME, { task: "T5" }, real);
+  const detail = detailOf(html);
+  // The title is the first line, trimmed; the whole text is its tooltip and
+  // the transcript still carries it in full.
+  assert.equal(
+    textOf(detail, "open[0].text"),
+    "Round 3b: visual review of the live board against v0.6.",
+  );
+  const tooltip = detail.match(/data-path="open\[0\]\.text" title="([^"]*)"/);
+  assert.equal(tooltip?.[1]?.length, text.length);
+  assert.ok(detail.includes(`${"x".repeat(2000)}</`));
+  // Eight characters of a UUID on the card, in the deliveries table and in
+  // an end line, each with the full id as the tooltip; the fixture's short
+  // ids stay as they are.
+  assert.ok(
+    html.includes(
+      `<span class="tag" data-path="placements[1].session" title="${session}">session cef0c5d5</span>`,
+    ),
+  );
+  assert.equal(textOf(html, "placements[0].session"), "session A1");
+  // A delivery sent to that session, and ended by it: the table and the end
+  // line show the short id with the same tooltip.
+  const sent = extend(
+    { type: "observe", placement: "knowledge@mini", session, ready: true },
+    {
+      type: "submit",
+      by: "you",
+      messageId: "M5",
+      text: "Plan",
+      to: "knowledge",
+    },
+    { type: "attempt", deliveryId: "D4" },
+    {
+      type: "adapterResult",
+      deliveryId: "D4",
+      messageId: "M5",
+      outcome: "accepted",
+    },
+    {
+      type: "update",
+      by: session,
+      taskId: "T5",
+      messageId: "R5",
+      inReplyTo: "M5",
+      kind: "completed",
+      text: "done",
+    },
+  );
+  const table = page(ME, { task: "T5" }, sent);
+  const detailT5 = detailOf(table);
+  assert.ok(
+    detailT5.includes(
+      `<span class="mono" data-path="finished[0].deliveries[0].session" title="${session}">cef0c5d5</span>`,
+    ),
+  );
+  assert.ok(
+    detailT5.includes(
+      `D4 ended · completed · by <span title="${session}">cef0c5d5</span>`,
+    ),
+  );
 });
