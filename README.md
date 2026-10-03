@@ -112,21 +112,42 @@ committed sample matches.
 - `actor`: the viewer's `login`, and its `principals`, each a `principal`
   with its `role`. `null` when the request is not identified.
 - `needsYou`: for each principal, its `role` and the `items` that wait on
-  it, each of `kind` `choose`, `answer` or `resolve`.
+  it. Each item has a `kind` and the `taskId` it belongs to:
+  - `choose`: the task needs a recipient. `reason` is `no_owner`,
+    `low_confidence`, `invalid_judgment` or `routing_unavailable`, and
+    `suggestions` lists the participants in Jev's order.
+  - `answer`: an agent asks the sender. `deliveryId`, `questionId` and the
+    question's `text`.
+  - `resolve`, for an operator: the router cannot confirm a send.
+    `deliveryId`, the send's `messageId`, and `reason`: `task_ended`,
+    `session_replaced` or `unknown_send`. The sample has none.
 - `placements`: each placement the router serves, with its `key`
   (`participant@host`), `participant`, `host`, `session`, `ready` and
-  `hold`, and `delivery`: the open delivery pinned to the current session
-  (`id`, `taskId`, an `excerpt` of the task text, and the `latest` update's
-  `kind` and `at`), or `null`.
+  `hold`, and `delivery`: the newest open delivery pinned to the current
+  session (`id`, `taskId`, an `excerpt` of the task text, and the `latest`
+  update's `kind` and `at`), or `null`.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
-  `deadline`, `routing`, `judgments` (each with its full probability table,
-  model version and threshold), `final` (`status`, `completed` of `of`,
-  `reason`), `deliveries` with their sends, updates and open question, and
-  `log`: the task's own log lines, as `router status <task>` shows them.
+  `deadline`, and:
+  - `routing`: while the router is finding a recipient, its `state`
+    (`judging` or `needs_recipient`), `suggestions` and `reason`; otherwise
+    `null`.
+  - `judgments`: each with its `choice`, the full `probabilities` table
+    (`null` when the judgment was not `valid`), the `model` version, whether
+    it was `valid`, and the `threshold` it was held to.
+  - `final`: `null` while the task is open; then its `status`, `reason`,
+    and `completed` of `of` deliveries.
+  - `deliveries`: each with its `id`, `placement`, `session`, the current
+    `send` (`kind`, `messageId`, `outcome`), every send in `sends` (with
+    its `text`), the open `question` (`id`, `text`) or `null`, the agent's
+    `updates` and the `latest` one (`messageId`, `inReplyTo`, `kind`,
+    `text`), and `end`: `null` while open, then its `reason` and, when
+    recorded, `text`, `messageId` and `by`.
+  - `log`: the task's own log lines, as `router status <task>` shows them.
 - `times`: when each message was recorded, by message ID.
-- `log`: the router's last twenty log lines.
+- `log`: the router's last twenty log lines, each with its number `n`, its
+  `actor` and its `text`.
 
 The record does not hold adapter status, the number of permission requests
 pending in a session, or session telemetry (context use, turns, tool calls,

@@ -1,5 +1,6 @@
 // The board's fixture: a small deployment and a journal with one task of
-// each kind a person needs to see. The board tests, the server tests and the
+// each kind a requester needs to see. No delivery is stuck, so the operator
+// has nothing to resolve. The board tests, the server tests and the
 // sample generator all read it, so the committed sample shows what the tests
 // check. Its times are fixed and realistic, and nothing in it comes from a
 // live record, which holds private request text.
