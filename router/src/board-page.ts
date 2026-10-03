@@ -1,5 +1,5 @@
-// The board's page: the v0.7 console of the board design (skhlo/designs, tag
-// jev-a2a-v0.7, scripts/gen-jev-a2a-board.py), drawn on the server from the
+// The board's page: the v0.8 console of the board design (skhlo/designs, tag
+// jev-a2a-v0.8, scripts/gen-jev-a2a-board.py), drawn on the server from the
 // view model and the viewer. The template translates the generator's HTML
 // functions and carries its CSS: every slot keeps the data-path the design
 // gives it, rows keep data-task and groups data-group, so the live page can
@@ -451,11 +451,11 @@ ${lever(holdLever ? [holdLever] : [])}`,
     const answered = answeredQuestion(d);
     const what = d.question
       ? `asks on ${task}`
-      : latest
-        ? `${answered ? "working" : esc(latest.kind)} on ${task}`
-        : accepted
-          ? `delivered on ${task}`
-          : `${slot(outcomePath, esc(d.outcome))} on ${task}`;
+      : !accepted
+        ? `${slot(outcomePath, esc(d.outcome))} on ${task}`
+        : latest
+          ? `${answered ? "working" : esc(latest.kind)} on ${task}`
+          : `delivered on ${task}`;
     // While a question is open the card shows it in place of the request.
     const excerpt = d.question
       ? ` · ${slot(`${path}.delivery.question.text`, esc(d.question.text))}`
@@ -472,16 +472,21 @@ ${lever(holdLever ? [holdLever] : [])}`,
       slot(`${path}.ready`, p.ready ? "ready" : "not ready", "tag") +
       (p.hold ? slot(`${path}.hold`, "held", "tag") : "");
     const latestAt = `${path}.delivery.latest.at`;
-    const stats = answered
-      ? `<span class="k">answered</span>${clock(`time(times[${path}.delivery.messageId])`, times[d.messageId])}${accepted ? slot(`${path}.delivery.question`, "· no reply yet", "k") : slot(outcomePath, `· ${esc(d.outcome)}`, "k")}`
-      : latest
-        ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
-        : accepted
-          ? slot(`${path}.delivery.latest`, "delivered, no reply yet", "k")
-          : slot(outcomePath, `${esc(d.outcome)}, no reply yet`, "k");
-    const corner = latest?.at
-      ? ago(`age(${latestAt}, at)`, latest.at, "age num")
-      : "";
+    const answeredAt = `times[${path}.delivery.messageId]`;
+    const stats = !accepted
+      ? slot(outcomePath, `${esc(d.outcome)}, no reply yet`, "k")
+      : answered
+        ? `<span class="k">answered</span>${clock(`time(${answeredAt})`, times[d.messageId])}<span class="k">· no reply yet</span>`
+        : latest
+          ? `<span class="k">last update</span>${slot(`${path}.delivery.latest.kind`, esc(latest.kind), asks ? "ask" : "")}${clock(`time(${latestAt})`, latest.at)}${latest.at ? ago(`age(${latestAt}, at)`, latest.at, "num", `· ${age(latest.at, at)} ago`) : ""}`
+          : slot(`${path}.delivery.latest`, "delivered, no reply yet", "k");
+    const corner = !accepted
+      ? ""
+      : answered
+        ? ago(`age(${answeredAt}, at)`, times[d.messageId], "age num")
+        : latest?.at
+          ? ago(`age(${latestAt}, at)`, latest.at, "age num")
+          : "";
     const levers = [
       ...answers(d.id)
         .filter((it) => it.act)
@@ -508,8 +513,6 @@ ${lever(levers)}`,
     );
   };
 
-  const tail = model.log.slice(-4);
-  const start = model.log.length - tail.length;
   const agents = `<aside class="panel agents" aria-label="Agents">
   <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}</h2>
   <div class="scroll"><div class="cards">
@@ -519,7 +522,7 @@ ${model.placements
   .map(([p, i]) => card(p, i))
   .join("\n")}
   </div></div>
-  <div class="foot"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)}</div>${tail.map((e, i) => `<div data-path="log[${start + i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div>
+  <div class="foot"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)}</div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
 </aside>`;
 
   // ---- Tasks ----
@@ -530,6 +533,16 @@ ${model.placements
     d.send.outcome === "accepted"
       ? slot(`${dp}.latest`, delivered)
       : slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.outcome)}`);
+  // The answer a delivery's question got, when its current send is one and
+  // no question is open: a question stays the latest update after its
+  // answer, and a resolve clears the question too, so both are checked.
+  const answerOf = (
+    d: DeliveryView,
+  ): { k: number; send: DeliveryView["sends"][number] } | null => {
+    const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);
+    const send = d.sends[k];
+    return answeredQuestion(d) && send?.kind === "answer" ? { k, send } : null;
+  };
 
   // The second line of a row: what the task waits on or last said.
   const sub = (path: string, t: TaskView): string => {
@@ -557,17 +570,17 @@ ${model.placements
     const d = t.deliveries[i];
     const dp = `${path}.deliveries[${i}]`;
     if (!d) return countdown;
-    // An answered question is still the latest update: the row says when
-    // the answer went and how it starts, not the question again. A resolve
-    // also clears the question, so the current send must be an answer.
-    const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);
-    const answer = d.sends[k];
-    if (answeredQuestion(d) && answer?.kind === "answer")
-      return `answered ${clock(`time(times[${dp}.sends[${k}].messageId])`, times[answer.messageId], "")} ${slot(`${dp}.sends[${k}].text`, esc(answer.text))} · ${countdown}`;
-    if (d.latest)
-      return `${slot(`${dp}.latest.text`, esc(d.latest.text))} · ${countdown}`;
+    // What a waiting or unaccepted send is comes first, then the answer the
+    // row quotes instead of the answered question, then the latest update.
     if (d.waits)
       return `${slot(`${dp}.waits`, waitText(d.placement, d.waits))} · ${countdown}`;
+    if (d.send.outcome !== "accepted")
+      return `${sendState(dp, d, "")} · ${countdown}`;
+    const answered = answerOf(d);
+    if (answered)
+      return `answered ${clock(`time(times[${dp}.sends[${answered.k}].messageId])`, times[answered.send.messageId], "")} ${slot(`${dp}.sends[${answered.k}].text`, esc(answered.send.text))} · ${countdown}`;
+    if (d.latest)
+      return `${slot(`${dp}.latest.text`, esc(d.latest.text))} · ${countdown}`;
     return `${sendState(dp, d, "delivered, no reply yet")} · ${countdown}`;
   };
 
@@ -804,7 +817,7 @@ ${group(
         const accepted = t?.deliveries[di]?.send.outcome === "accepted";
         const finished = `<button class="btn" type="submit" name="outcome" value="finished">Mark finished</button>`;
         const notSent = `<button class="btn danger" type="submit" name="outcome" value="not_sent">Mark not sent</button>`;
-        const why = `${RESOLVE_WHY[item.reason]}${accepted ? ` ${slot(`${path}.deliveries[${di}].send.outcome`, "The adapter reported it accepted, so it counts as sent and cannot be marked not sent.")}` : ""}`;
+        const why = `${RESOLVE_WHY[item.reason]}${accepted ? ` ${slot(`${path}.deliveries[${di}].send.outcome`, "The adapter reported it accepted, so it counts as sent and cannot be marked not sent; resolving finishes the delivery.")}` : ""}`;
         return `  ${form(
           {
             action: "resolve",
@@ -852,15 +865,19 @@ ${forms}
       const dp = `${path}.deliveries[${di}]`;
       const state = d.end
         ? slot(`${dp}.end.reason`, esc(d.end.reason))
-        : d.latest
-          ? slot(
-              `${dp}.latest.kind`,
-              esc(d.latest.kind),
-              `badge${d.latest.kind === "question" && asksViewer(d.id) ? " ask" : ""}`,
-            )
-          : d.waits
-            ? slot(`${dp}.waits`, waitText(d.placement, d.waits))
-            : sendState(dp, d, "delivered");
+        : d.waits
+          ? slot(`${dp}.waits`, waitText(d.placement, d.waits))
+          : d.send.outcome !== "accepted"
+            ? sendState(dp, d, "delivered")
+            : answerOf(d)
+              ? slot(`${dp}.send`, "answered")
+              : d.latest
+                ? slot(
+                    `${dp}.latest.kind`,
+                    esc(d.latest.kind),
+                    `badge${d.question && asksViewer(d.id) ? " ask" : ""}`,
+                  )
+                : slot(`${dp}.latest`, "delivered");
       const last = d.latest
         ? clock(
             `time(times[${dp}.latest.messageId])`,
@@ -892,10 +909,10 @@ ${forms}
     </div>
   </div>
   <div class="scroll">
+${forms}
   <div class="thread">
     ${thread(path, t)}
   </div>
-${forms}
   <div class="facts">
 ${
   deliveries.length
@@ -926,7 +943,7 @@ ${
 <style>${STYLE}</style></head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
-     what it reads, as in the board design v0.7: a plain path indexes the
+     what it reads, as in the board design v0.8: a plain path indexes the
      model, and time(), age(), left() and count() are formats over it. -->
 ${notice}
 <div id="app" data-refresh="${refreshSeconds}">
@@ -1084,7 +1101,11 @@ h1, h2, h3, p { margin: 0; }
 .card .stats .k { color: var(--text-3); }
 .card .stats .ask { color: var(--accent); }
 .card .lever { margin-top: 6px; display: flex; gap: 6px; }
-.agents .foot { padding: 10px 16px 12px; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.6; color: var(--text-3); display: grid; gap: 1px; }
+/* The rail's cards take what they need; the router log fills the rest, newest line at the bottom, at least four lines. */
+.agents .scroll { flex: 0 1 auto; }
+.agents .foot { flex: 1 1 0; min-height: calc(4 * 1.6 * var(--fs-mono) + 46px); padding: 10px 16px 12px; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.6; color: var(--text-3); display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.agents .foot .lines { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.agents .foot .lines .tail { position: absolute; left: 0; right: 0; bottom: 0; }
 .agents .foot div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents .foot b { font-weight: 500; color: var(--text-2); }
 
@@ -1131,7 +1152,7 @@ textarea::placeholder, .filter input::placeholder { color: var(--text-3); }
 .msg.question { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
 .msg.question .who { color: var(--accent); }
 .sys { align-self: center; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); text-align: center; }
-.form { margin: 6px 18px 12px; padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: 12px; display: grid; gap: 6px; }
+.form { margin: 12px 18px 6px; padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: 12px; display: grid; gap: 6px; }
 .form .to { font-size: var(--fs-small); color: var(--text-2); }
 .form .to b { color: var(--accent); font-weight: 500; }
 .form textarea, .peek textarea { width: 100%; min-height: 52px; resize: vertical; padding: 8px 10px; border: 1px solid var(--hair); border-radius: 10px; background: var(--canvas); color: var(--text); font-size: var(--fs); }

@@ -66,17 +66,17 @@ prints the full usage.
 ## The board
 
 `router serve` also serves a page, the board, on `127.0.0.1:7678` by default
-(`serve.board`). It reads the same record as the CLI. The page is the v0.7
-console of the board design (`skhlo/designs`, tag `jev-a2a-v0.7`), drawn on
+(`serve.board`). It reads the same record as the CLI. The page is the v0.8
+console of the board design (`skhlo/designs`, tag `jev-a2a-v0.8`), drawn on
 the server from the view model below, in three columns:
 
 - **Agents**: a card per placement the router serves, saying what its
   session is doing (asks on a task, with the question; works on one,
   including after a question was answered, with the answer's time;
   delivered and not yet replied; held; ready; not ready) and when it last
-  updated, over the router's last log lines. Cards come in that order,
-  asking first; a card with no open delivery collapses to its name and
-  state.
+  updated. Cards come in that order, asking first; a card with no open
+  delivery collapses to its name and state. The router's last twenty log
+  lines fill the rest of the column, newest at the bottom.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
   send; In flight holds the other open tasks, and Done the last finished
@@ -85,8 +85,8 @@ the server from the view model below, in three columns:
   held on, a delivery that has no reply yet, the answer it was just given,
   or who canceled it.
 - **The selected task**: how its recipient was chosen, its deadline with a
-  countdown while it is open, the exchange in time order, the form that
-  clears what waits on you, and its deliveries, Jev's judgments and log.
+  countdown while it is open, the form that clears what waits on you, the
+  exchange in time order, and its deliveries, Jev's judgments and log.
 
 Blue marks what needs you and nothing else: a question already answered, or
 one that waits on another principal, is not blue. The selected task is in
@@ -129,29 +129,23 @@ The page reads and acts without a script. Its script adds:
 
 Each element the design binds keeps the `data-path` the design gives it, and
 rows and groups keep `data-task` and `data-group`, so the page can be
-compared with the design mechanically. `router/design/v0.7-paths.txt` lists
+compared with the design mechanically. `router/design/v0.8-paths.txt` lists
 the design's paths, as `router/src/design-paths.ts` extracts them, and a test
 fails when one is neither rendered for the board fixture nor named with a
-reason in `router/design/v0.7-dropped.txt`. The test compares paths with
+reason in `router/design/v0.8-dropped.txt`. The test compares paths with
 their indexes blanked (`open[].deliveries[].latest`), since the design's
 sample is larger than the fixture.
 
-The page differs from v0.7 on purpose where the design was wrong for live
+The page differs from v0.8 on purpose where the design was wrong for live
 data: counted nouns agree with their number, each clock carries its full
 date as a tooltip, the needs-you count counts tasks the same way in the nav
 and in the group, blue follows the viewer (the design colours every question
 and its badge, whoever it waits on), a finished task shows its verdict
 instead of a countdown, the forms post the router's own fields (resolving
-takes evidence, and resolves as finished, which is what the router records,
-where the design says "sent"), a narrow screen gets one scrolling column,
-a session id of any shape that is a UUID is shortened (the design shortens
-any id over twelve characters), and a delivery reads as delivered only once
-its send was accepted: a delivery is pinned to a session at the attempt, so
-until the outcome arrives the page says what the send is (attempting,
-unknown, pending), a state the design's sample does not hold; and an asking
-card shows the question in place of the request excerpt, and once the
-question is answered the card works again and names the answer's time
-(the design's sample has no answered question yet). What remains
+takes evidence), a narrow screen gets one scrolling column, a session id of
+any shape that is a UUID is shortened (the design shortens any id over
+twelve characters), and a queued or held delivery says what it waits for
+where the design shows only the send's outcome. What remains
 open: the design's session telemetry and health sheet, which the record does
 not hold (see below); the hold lever shows for operators, as the design has
 it, although the router accepts a hold from any known login; a post does not

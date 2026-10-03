@@ -1,7 +1,6 @@
 actor.login
 actor.principals[]
 age(placements[0].delivery.latest.at, at)
-age(placements[1].delivery.latest.at, at)
 age(times[finished[0].messageId], at)
 age(times[needsYou[0].items[1].questionId], at)
 age(times[open[0].messageId], at)
@@ -9,6 +8,7 @@ age(times[open[1].messageId], at)
 age(times[open[2].messageId], at)
 age(times[open[3].messageId], at)
 age(times[open[4].messageId], at)
+age(times[placements[1].delivery.messageId], at)
 count(finished)
 count(log)
 count(needsYou[].items)
@@ -31,10 +31,26 @@ left(open[1].deadline, at)
 left(open[2].deadline, at)
 left(open[3].deadline, at)
 left(open[4].deadline, at)
+log[0]
+log[10]
+log[11]
+log[12]
+log[13]
+log[14]
+log[15]
 log[16]
 log[17]
 log[18]
 log[19]
+log[1]
+log[2]
+log[3]
+log[4]
+log[5]
+log[6]
+log[7]
+log[8]
+log[9]
 needsYou[0].items[0]
 needsYou[0].items[0].reason
 needsYou[0].items[0].suggestions[0]
@@ -74,7 +90,6 @@ open[1].a2a
 open[1].chosenBy
 open[1].deliveries[0]
 open[1].deliveries[0].id
-open[1].deliveries[0].latest
 open[1].deliveries[0].placement
 open[1].deliveries[0].send
 open[1].deliveries[0].sends[0]
@@ -92,7 +107,7 @@ open[1].source
 open[1].status
 open[1].text
 open[2]
-open[2].deliveries[0].latest.text
+open[2].deliveries[0].sends[1].text
 open[2].id
 open[2].recipient
 open[2].status
@@ -141,9 +156,9 @@ open[4].source
 open[4].status
 open[4].text
 placements[0]
-placements[0].delivery.excerpt
 placements[0].delivery.latest.kind
 placements[0].delivery.latest.kind, placements[0].ready, placements[0].hold
+placements[0].delivery.question.text
 placements[0].delivery.taskId
 placements[0].hold
 placements[0].host
@@ -152,7 +167,6 @@ placements[0].ready
 placements[0].session
 placements[1]
 placements[1].delivery.excerpt
-placements[1].delivery.latest.kind
 placements[1].delivery.latest.kind, placements[1].ready, placements[1].hold
 placements[1].delivery.taskId
 placements[1].hold
@@ -166,8 +180,8 @@ placements[2].hold
 placements[2].key
 placements[3]
 placements[3].delivery.excerpt
-placements[3].delivery.latest
 placements[3].delivery.latest.kind, placements[3].ready, placements[3].hold
+placements[3].delivery.outcome
 placements[3].delivery.taskId
 placements[3].hold
 placements[3].host
@@ -185,10 +199,11 @@ time(open[1].deadline)
 time(open[3].deadline)
 time(open[4].deadline)
 time(placements[0].delivery.latest.at)
-time(placements[1].delivery.latest.at)
 time(times[open[0].messageId])
 time(times[open[1].messageId])
+time(times[open[2].deliveries[0].sends[1].messageId])
 time(times[open[3].deliveries[0].latest.messageId])
 time(times[open[3].messageId])
 time(times[open[4].messageId])
+time(times[placements[1].delivery.messageId])
 version
