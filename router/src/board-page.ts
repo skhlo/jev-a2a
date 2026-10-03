@@ -5,7 +5,8 @@
 // gives it, rows keep data-task and groups data-group, so the live page can
 // be compared with the design mechanically. Forms post to the board's
 // actions endpoint with its own fields. The page reads and posts without a
-// script.
+// script; the script keeps a person's state across refreshes and adds the
+// theme switch, the filter, the keys and the peek.
 import type {
   BoardModel,
   DeliveryView,
@@ -786,8 +787,23 @@ ${detail()}
 </main>
 <footer class="keys">
   <span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>
+  <span class="spacer"></span>
+  <span>refreshes every ${refreshSeconds}s</span>
 </footer>
 </div>
+<div class="help" role="dialog" aria-label="Keys" hidden><dl>
+  <dt>j / k</dt><dd>Move between task rows</dd>
+  <dt>space</dt><dd>Peek at a row's question and reply beside it</dd>
+  <dt>↵</dt><dd>Open the task; in the peek, send the reply (⇧↵ breaks the line)</dd>
+  <dt>→</dt><dd>Open the task of the open peek</dd>
+  <dt>a</dt><dd>Answer the open question</dd>
+  <dt>c</dt><dd>Cancel the selected task</dd>
+  <dt>h</dt><dd>Hold or release the focused agent, or the selected task's</dd>
+  <dt>/</dt><dd>Filter the task rows</dd>
+  <dt>⌘↩ or Ctrl ↩</dt><dd>Send the form you are typing in</dd>
+  <dt>esc</dt><dd>Close the peek or this list</dd>
+</dl></div>
+<script>${SCRIPT}</script>
 </body></html>
 `;
 }
@@ -995,7 +1011,7 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 /* The live page. A row opens its task through the link on its id, stretched
    over the row, so rows work without a script; the row shows its focus. */
-.peek[hidden] { display: none; }
+.task[hidden], .peek[hidden], .help[hidden] { display: none; }
 .task a.id { text-decoration: none; }
 .task a.id::after { content: ""; position: absolute; inset: 0; border-radius: 8px; }
 .task a.id:focus-visible { outline: none; }
@@ -1006,6 +1022,10 @@ a.btn, .card a.id { text-decoration: none; }
 .form.ro { border-color: var(--hair); }
 .choices input { flex: 1; min-width: 10rem; padding: 6px 12px; border: 1px solid var(--hair); border-radius: 100px; background: var(--canvas); color: var(--text); }
 .notice { position: fixed; z-index: 70; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: baseline; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
+.help { position: fixed; z-index: 60; right: 20px; bottom: 48px; padding: 12px 16px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
+.help dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+.help dt { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text); }
+.help dd { margin: 0; color: var(--text-2); }
 /* The design is drawn for a desktop; a narrow screen gets one column that
    scrolls as a page. */
 @media (max-width: 900px) {
@@ -1015,4 +1035,223 @@ a.btn, .card a.id { text-decoration: none; }
   .bento { grid-template-columns: 1fr; }
   .panel, .scroll { overflow: visible; }
 }
+`;
+
+// ---- Script: reads the rendered page and its data attributes only ----
+
+// The page works without it. It keeps what a person is doing across
+// refreshes and adds the theme switch, the filter, the keys and the peek.
+const SCRIPT = `
+const root = document.documentElement;
+const $ = (selector, from = document) => from.querySelector(selector);
+const $$ = (selector, from = document) => [...from.querySelectorAll(selector)];
+const stored = (store, key, fallback) => {
+  try { return JSON.parse(store.getItem(key)) ?? fallback; } catch { return fallback; }
+};
+const selected = () => $(".detail")?.dataset.task;
+
+// Theme: the server paints the cookie's palette. A palette chosen on this
+// device wins and goes into both stores, so the next page paints it first.
+const THEMES = ["flexoki", "one-dark"];
+const paint = () => $$(".themes button").forEach((b) => {
+  b.classList.toggle("on", b.dataset.theme === root.dataset.theme);
+  b.setAttribute("aria-pressed", String(b.dataset.theme === root.dataset.theme));
+});
+const theme = (name) => {
+  root.dataset.theme = name;
+  localStorage.setItem("router-theme", name);
+  document.cookie = "router-theme=" + name + "; max-age=31536000; samesite=lax";
+  paint();
+};
+const saved = localStorage.getItem("router-theme");
+if (THEMES.includes(saved) && saved !== root.dataset.theme) theme(saved);
+$$(".themes button").forEach((b) => b.addEventListener("click", () => theme(b.dataset.theme)));
+
+// Collapsed groups, by data-group, on this device.
+const fold = () => {
+  const shut = [].concat(stored(localStorage, "router-collapsed", []));
+  $$(".group").forEach((g) => g.classList.toggle("collapsed", shut.includes(g.dataset.group)));
+};
+
+// Drafts, by the data-path of the form or peek they are typed in, kept with
+// the fields that name their item: a draft never fills another item's form
+// when the paths shift.
+const DRAFTED = "form textarea, form input[name=to]";
+const draftKey = (field) => "router-draft " + field.closest("[data-path]").dataset.path + " " + field.name;
+const itemOf = (field) => $$("input[type=hidden]", field.form).map((i) => i.value).join(" ");
+const drafts = () => $$(DRAFTED).forEach((field) => {
+  const draft = stored(sessionStorage, draftKey(field), null);
+  if (draft?.item === itemOf(field) && !field.value && field !== document.activeElement) field.value = draft.text;
+});
+
+// The filter narrows the rows by what they show and by their ids.
+const filter = () => {
+  const words = ($(".filter input")?.value ?? "").trim().toLowerCase();
+  $$(".task").forEach((row) => {
+    const text = [row.dataset.task, row.dataset.path, ...$$(".line1, .line2", row).map((e) => e.textContent)];
+    row.hidden = !text.join(" ").toLowerCase().includes(words);
+  });
+};
+
+// The peek opens beside its row, above the panels.
+const peek = () => $(".peek:not([hidden])");
+const openPeek = (p) => {
+  peek()?.setAttribute("hidden", "");
+  p.hidden = false;
+  const r = p.parentElement.getBoundingClientRect();
+  p.style.left = Math.max(8, Math.min(r.right + 16, innerWidth - p.offsetWidth - 8)) + "px";
+  p.style.top = Math.max(8, Math.min(r.top - 8, innerHeight - p.offsetHeight - 8)) + "px";
+};
+const closePeek = () => {
+  const p = peek();
+  p.hidden = true;
+  $("a.id", p.parentElement)?.focus();
+};
+
+// Every few seconds the page fetches itself for the selected task and swaps
+// the nav counts and the three panels. A panel holding the focus stays as
+// it is, unless the focus is on a row or a card the new panel has too. The
+// notice is outside the swapped parts.
+const PARTS = [".nav .counts", ".nav .tick", ".agents", ".tasks", ".detail"];
+const refresh = async (id = selected()) => {
+  if (document.hidden) return;
+  let doc;
+  try {
+    const r = await fetch(location.pathname + (id ? "?task=" + encodeURIComponent(id) : ""), { cache: "no-store", headers: { accept: "text/html" } });
+    if (!r.ok) return;
+    doc = new DOMParser().parseFromString(await r.text(), "text/html");
+  } catch { return; }
+  const focus = document.activeElement;
+  const row = focus?.matches(".task a.id") ? focus.closest(".task").dataset.task : null;
+  const card = focus?.matches(".card") ? focus.dataset.path : null;
+  const open = peek();
+  const peeked = open && '.task[data-task="' + CSS.escape(open.parentElement.dataset.task) + '"] .peek[data-path="' + CSS.escape(open.dataset.path) + '"]';
+  const words = $(".filter input")?.value ?? "";
+  for (const part of PARTS) {
+    const old = $(part);
+    const next = $(part, doc);
+    if (!old || !next || (old.contains(focus) && !row && !card)) continue;
+    const top = $(".scroll", old)?.scrollTop ?? 0;
+    old.replaceWith(next);
+    const scroll = $(".scroll", next);
+    if (scroll) scroll.scrollTop = top;
+  }
+  if (row) $('.task[data-task="' + CSS.escape(row) + '"] a.id')?.focus();
+  if (card) $('.card[data-path="' + CSS.escape(card) + '"]')?.focus();
+  if (peeked && !peek() && $(peeked)) openPeek($(peeked));
+  const input = $(".filter input");
+  if (input && input !== focus) input.value = words;
+  if (selected() && selected() !== new URLSearchParams(location.search).get("task")) history.replaceState(null, "", "?task=" + encodeURIComponent(selected()));
+  fold();
+  filter();
+  drafts();
+};
+setInterval(refresh, Number($("#app").dataset.refresh) * 1000);
+
+document.addEventListener("input", (e) => {
+  const field = e.target;
+  if (field.matches(".filter input")) return filter();
+  if (!field.matches(DRAFTED)) return;
+  if (field.value) sessionStorage.setItem(draftKey(field), JSON.stringify({ item: itemOf(field), text: field.value }));
+  else sessionStorage.removeItem(draftKey(field));
+});
+
+// A post ends its drafts, and the page it returns to reopens its task.
+document.addEventListener("submit", (e) => {
+  if (e.defaultPrevented) return;
+  $$("textarea, input[name=to]", e.target).forEach((field) => sessionStorage.removeItem(draftKey(field)));
+  sessionStorage.setItem("router-task", selected() ?? "");
+});
+
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".notice a")) {
+    e.preventDefault();
+    $(".notice").remove();
+    history.replaceState(null, "", selected() ? "?task=" + encodeURIComponent(selected()) : location.pathname);
+    return;
+  }
+  const head = e.target.closest(".group > h3");
+  if (!head) return;
+  const name = head.parentElement.dataset.group;
+  const shut = [].concat(stored(localStorage, "router-collapsed", [])).filter((n) => n !== name);
+  if (!head.parentElement.classList.contains("collapsed")) shut.push(name);
+  localStorage.setItem("router-collapsed", JSON.stringify(shut));
+  fold();
+});
+
+// The keys the footer names. Each returns whether it did something.
+const typing = (el) => el?.matches("input, textarea, select");
+const move = (step) => {
+  const links = $$(".group:not(.collapsed) .task:not([hidden]) a.id");
+  const at = links.indexOf(document.activeElement);
+  const next = at < 0 ? $(".task[aria-current] a.id") ?? links[0] : links[Math.min(links.length - 1, Math.max(0, at + step))];
+  next?.focus();
+  return Boolean(next);
+};
+const press = (el) => {
+  el?.click();
+  return Boolean(el);
+};
+const KEYS = {
+  j: () => move(1),
+  k: () => move(-1),
+  " ": (row) => {
+    const p = row && $(".peek", row);
+    if (!p) return false;
+    if (p === peek()) closePeek(); else openPeek(p);
+    return true;
+  },
+  ArrowRight: (row) => {
+    if (!row || !row.contains(peek())) return false;
+    location.assign($("a.id", row).href);
+    return true;
+  },
+  a: () => {
+    const field = peek() ? $("textarea", peek()) : $(".detail form[id^='answer-'] textarea");
+    field?.focus();
+    return Boolean(field);
+  },
+  c: () => press($(".detail .actions button")),
+  // The focused agent, or the one working on the selected task.
+  h: (row, el) => {
+    const card = el?.closest(".card") ?? $$(".card").find((c) => $("a.id", c)?.textContent === selected());
+    return press(card && $("button[data-path$='.hold']", card));
+  },
+  "/": () => { $(".filter input")?.focus(); return true; },
+  "?": () => { $(".help").hidden = !$(".help").hidden; return true; },
+};
+document.addEventListener("keydown", (e) => {
+  const el = document.activeElement;
+  if (e.key === "Escape") {
+    if (!$(".help").hidden) $(".help").hidden = true;
+    else if (peek()) closePeek();
+    else if (typing(el)) el.blur();
+    return;
+  }
+  if (e.key === "Enter" && el?.matches("form textarea")) {
+    // ⌘↩ sends the form; in the peek ↵ alone sends and ⇧↵ breaks the line.
+    if (e.metaKey || e.ctrlKey || (el.closest(".peek") && !e.shiftKey)) {
+      e.preventDefault();
+      el.form.requestSubmit();
+    }
+    return;
+  }
+  if (typing(el) || e.metaKey || e.ctrlKey || e.altKey) return;
+  const row = el?.matches(".task a.id") ? el.closest(".task") : null;
+  if (KEYS[e.key]?.(row, el)) e.preventDefault();
+});
+
+// An action returns to the bare page with its notice; reopen the task it
+// was taken on.
+const back = sessionStorage.getItem("router-task");
+sessionStorage.removeItem("router-task");
+const params = new URLSearchParams(location.search);
+if (back && params.has("notice") && !params.has("task") && back !== selected() && $('.task[data-task="' + CSS.escape(back) + '"]')) {
+  history.replaceState(null, "", "?task=" + encodeURIComponent(back) + "&notice=" + encodeURIComponent(params.get("notice")));
+  refresh(back);
+}
+paint();
+fold();
+filter();
+drafts();
 `;
