@@ -37,6 +37,7 @@ import {
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
 import type { Entry } from "./journal.ts";
+import { emptySnapshot } from "./telemetry.ts";
 import type { Role } from "./types.ts";
 
 // Past every deadline in the fixture.
@@ -1102,11 +1103,11 @@ test("telemetry: each card says what the router last saw of its session; nothing
   );
   assert.deepEqual(cards, [
     // Mid-turn, with the turn's age and the harness tags.
-    "running for 29s·context 31%·claude/claude-opus-5-5·high·auto·$4.18·seen 10s ago",
+    "running for 29s·context 31% 61.4k/200k·claude/claude-opus-5-5·high·auto·$4.18·seen 10s ago",
     // Stopped at a permission prompt: named, in the accent.
-    "running for 4m·permission·waiting on Bash·context 32%·codex/gpt-5.5·medium·default·$11.02·seen 10s ago",
+    "running for 4m·permission·waiting on Bash·context 32% 88.2k/272k·codex/gpt-5.5·medium·default·$11.02·seen 10s ago",
     // Idle; a finished turn is not an alarm.
-    "idle·context 86%·claude/claude-sonnet-5-5·low·acceptEdits·$9.61·seen 9s ago",
+    "idle·context 86% 172k/200k·claude/claude-sonnet-5-5·low·acceptEdits·$9.61·seen 9s ago",
   ]);
   assert.ok(
     seen.includes(
@@ -1115,7 +1116,7 @@ test("telemetry: each card says what the router last saw of its session; nothing
   );
   assert.ok(
     seen.includes(
-      '<span data-path="placements[2].agent.context" title="171500 of 200000 tokens">context 86%</span>',
+      '<span class="pair" data-path="placements[2].agent.context" title="171500 of 200000 tokens">context 86% <span class="k">172k/200k</span></span>',
     ),
   );
   // The column header dates the snapshots.
@@ -1124,29 +1125,30 @@ test("telemetry: each card says what the router last saw of its session; nothing
   const none = page(ME);
   assert.ok(!none.includes('class="agent"'));
   assert.ok(!none.includes("telemetryAt"));
-  // An unreachable host says so, with the failure.
+  // An unreachable host says so, with the failure escaped; a session the
+  // daemon does not know is missing; a placement the file lacks has no line.
   const down = renderBoard(
     boardModel(boardState(config, journal, NOW), config, NOW, {}, null, {
       ...telemetry,
       placements: {
-        "knowledge@mini": {
-          ...telemetry.placements["environment@mbp"]!,
-          status: "unreachable",
-          turnStartedAt: null,
-          context: null,
-          usage: null,
-          provider: null,
-          model: null,
-          thinking: null,
-          mode: null,
-          attention: null,
-          error: "ssh: connect to host mini port 22: timed out",
-        },
+        "knowledge@mini": emptySnapshot(
+          telemetry.at,
+          "unreachable",
+          "ssh: connect to host <mini> port 22: timed out",
+        ),
+        "environment@mbp": emptySnapshot(telemetry.at, "missing"),
       },
     }),
   );
-  assert.match(
-    strip(down).replaceAll(/\s+/g, " "),
-    /unreachable·ssh: connect to host mini port 22: timed out·seen 9s ago/,
+  const states = [...down.matchAll(/<div class="agent">([^]*?)<\/div>/g)].map(
+    (m) =>
+      strip(m[1] ?? "")
+        .replaceAll(/\s+/g, " ")
+        .trim(),
   );
+  assert.deepEqual(states, [
+    "unreachable·ssh: connect to host &lt;mini&gt; port 22: timed out·seen 9s ago",
+    "missing·seen 9s ago",
+  ]);
+  assert.ok(!down.includes('data-path="placements[0].agent'));
 });

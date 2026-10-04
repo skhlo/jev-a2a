@@ -7,7 +7,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { createPaseoClient } from "@getpaseo/client";
-import { snapshotOf, type AgentSnapshot } from "./telemetry.ts";
+import type { PaseoAgent } from "@getpaseo/client";
+import type { AgentSnapshot } from "./telemetry.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
@@ -15,7 +16,8 @@ export type Observation = {
   ready: boolean;
   status: string;
   pendingPermissions: number;
-  // The rest of what the daemon said, for the board's telemetry.
+  // The rest of what the daemon said, for the board's telemetry, stamped
+  // with the caller's clock.
   snapshot: AgentSnapshot;
 };
 
@@ -26,8 +28,9 @@ export class RouterBug extends Error {
 }
 
 export type Adapter = {
-  // null: the daemon does not know this agent.
-  observe(agentId: string): Promise<Observation | null>;
+  // null: the daemon does not know this agent. `seen` is the time the
+  // snapshot is recorded as taken.
+  observe(agentId: string, seen: string): Promise<Observation | null>;
   send(agentId: string, key: string, text: string): Promise<AdapterOutcome>;
   close(): Promise<void>;
 };
@@ -49,6 +52,49 @@ export function sendFailure(
   return "unknown";
 }
 
+// The daemon's agent snapshot (protocol 0.10.1: status, activeTurn,
+// lastUserMessageAt, pendingPermissions, attentionReason, lastUsage with
+// the context window, lastError, model and mode ids) reduced to the
+// board's fields. What the daemon left out reads as null; a context window
+// needs both bounds.
+export function snapshotOf(agent: PaseoAgent, seen: string): AgentSnapshot {
+  const usage = agent.lastUsage;
+  const used = usage?.contextWindowUsedTokens;
+  const max = usage?.contextWindowMaxTokens;
+  return {
+    seen,
+    status: agent.status,
+    attention: agent.attentionReason ?? null,
+    turnStartedAt: agent.activeTurn?.startedAt ?? null,
+    lastUserMessageAt: agent.lastUserMessageAt ?? null,
+    permissions: agent.pendingPermissions.map((p) => ({
+      id: p.id,
+      name: p.name,
+      title: p.title ?? null,
+      kind: p.kind,
+    })),
+    provider: agent.provider,
+    model: agent.model ?? null,
+    thinking: agent.effectiveThinkingOptionId ?? agent.thinkingOptionId ?? null,
+    mode: agent.currentModeId ?? null,
+    context:
+      typeof used === "number" && typeof max === "number" && max > 0
+        ? { used, max }
+        : null,
+    usage: usage
+      ? {
+          input: usage.inputTokens ?? 0,
+          cached: usage.cachedInputTokens ?? 0,
+          output: usage.outputTokens ?? 0,
+          costUsd: usage.totalCostUsd ?? null,
+        }
+      : null,
+    error: agent.lastError ?? null,
+    title: agent.title ?? null,
+    cwd: agent.cwd,
+  };
+}
+
 // endpoint: a websocket URL, or ssh://[user@]host[:port] for a daemon bound to
 // loopback on another machine.
 export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
@@ -67,7 +113,7 @@ export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
       : error;
   }
   return {
-    async observe(agentId) {
+    async observe(agentId, seen) {
       const result = await client.agents.ref(agentId).refresh();
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
@@ -75,7 +121,7 @@ export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
         ready: status === "idle" && pendingPermissions.length === 0,
         status,
         pendingPermissions: pendingPermissions.length,
-        snapshot: snapshotOf(result.agent, new Date().toISOString()),
+        snapshot: snapshotOf(result.agent, seen),
       };
     },
     async send(agentId, key, text) {

@@ -7,12 +7,12 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoAgent } from "@getpaseo/client";
+import { snapshotOf } from "./paseo.ts";
 import {
   agentLine,
   emptySnapshot,
   parseTelemetry,
   readTelemetry,
-  snapshotOf,
   TELEMETRY_VERSION,
   telemetryPath,
   writeTelemetry,
@@ -112,14 +112,15 @@ test("snapshotOf reads every field, and nulls what the daemon left out", () => {
     provider: "claude",
     cwd: "/work",
   });
-  // A window needs both bounds; usage without one has no context.
+  // A window needs both bounds; usage without one has no context, and a
+  // cost the daemon did not report is null, not zero.
   assert.equal(
     snapshotOf({ ...bare, lastUsage: { inputTokens: 5 } }, SEEN).context,
     null,
   );
   assert.deepEqual(
     snapshotOf({ ...bare, lastUsage: { inputTokens: 5 } }, SEEN).usage,
-    { input: 5, cached: 0, output: 0, costUsd: 0 },
+    { input: 5, cached: 0, output: 0, costUsd: null },
   );
 });
 
@@ -156,23 +157,42 @@ test("the file round-trips, is replaced whole, and anything else reads as no tel
     errors.map((message) => message.split(":")[0]),
     ["telemetry.json is not JSON", "telemetry.json is not a telemetry file"],
   );
-  // Partial damage drops the placement, not the file.
+  // Partial damage drops the placement, named, not the file; a window
+  // without a usable max or a cost that is not a number read as null, so
+  // nothing divides by zero.
+  const dropped: string[] = [];
   assert.deepEqual(
-    parseTelemetry({
-      version: TELEMETRY_VERSION,
-      at: SEEN,
-      placements: {
-        good: emptySnapshot(SEEN, "missing"),
-        bad: { seen: SEEN, status: "asleep" },
-        worse: 7,
+    parseTelemetry(
+      {
+        version: TELEMETRY_VERSION,
+        at: SEEN,
+        placements: {
+          good: {
+            ...emptySnapshot(SEEN, "missing"),
+            context: { used: 5, max: 0 },
+            usage: { input: 1, cached: 2, output: 3, costUsd: "free" },
+          },
+          bad: { seen: SEEN, status: "asleep" },
+          worse: 7,
+        },
       },
-    }),
+      (message) => dropped.push(message),
+    ),
     {
       version: TELEMETRY_VERSION,
       at: SEEN,
-      placements: { good: emptySnapshot(SEEN, "missing") },
+      placements: {
+        good: {
+          ...emptySnapshot(SEEN, "missing"),
+          usage: { input: 1, cached: 2, output: 3, costUsd: null },
+        },
+      },
     },
   );
+  assert.deepEqual(dropped, [
+    "telemetry.json: the entry for bad is not a snapshot",
+    "telemetry.json: the entry for worse is not a snapshot",
+  ]);
 });
 
 test("agentLine says what matters in one line", () => {
@@ -183,5 +203,14 @@ test("agentLine says what matters in one line", () => {
   assert.equal(
     agentLine(emptySnapshot(SEEN, "unreachable", "ssh flake")),
     `unreachable · error: ssh flake · seen ${SEEN}`,
+  );
+  // No cost reported: no dollar figure.
+  assert.equal(
+    agentLine({
+      ...emptySnapshot(SEEN, "missing"),
+      status: "idle",
+      usage: { input: 1, cached: 0, output: 0, costUsd: null },
+    }),
+    `idle · seen ${SEEN}`,
   );
 });

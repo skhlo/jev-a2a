@@ -393,10 +393,16 @@ dispatch and the choice that followed it unreadable).
 Beside the record, not in it: `telemetry.json`, what the shell last saw of
 each served session beyond its readiness (status, the turn's start, pending
 permissions, context use, model and mode, usage and cost, the last error),
-taken from the same snapshot the readiness check reads and written whole
-after each run's observations. It changes every run, so journaling it would
-bury the record; it is not folded, not replayed and not locked, and a board
-view or `router status` shows what the file holds with its age, or nothing.
+taken from the same snapshot the readiness check reads (protocol 0.10.1:
+`status`, `activeTurn.startedAt`, `lastUserMessageAt`, `pendingPermissions`,
+`attentionReason`, `lastUsage` with `contextWindowUsedTokens` and
+`contextWindowMaxTokens`, `lastError`, `model`, `effectiveThinkingOptionId`,
+`currentModeId`; read in `router/src/paseo.ts`) and written whole after each
+run's observations, by rename, inside the journal lock. It changes every
+run, so journaling it would bury the record; it is not folded, not replayed
+and not locked on read; a failed write is a line in the run's report, not a
+stopped run; and a board view or `router status` shows what the file holds
+with its time, or nothing.
 
 ## Verified live, and not
 

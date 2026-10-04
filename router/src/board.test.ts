@@ -191,9 +191,11 @@ test("the model names its contract and carries what a template binds to", () => 
     ],
   );
   // A snapshot for a placement the router does not serve is not shown.
+  const environment = telemetry.placements["environment@mbp"];
+  assert.ok(environment);
   const extra = boardModel(state, config, NOW, times, null, {
     ...telemetry,
-    placements: { "scratch@mbp": telemetry.placements["environment@mbp"]! },
+    placements: { "scratch@mbp": environment },
   });
   assert.deepEqual(
     extra.placements.map((p) => p.agent),

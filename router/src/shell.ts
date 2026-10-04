@@ -56,9 +56,8 @@ export type ShellOptions = {
   judge: ((question: JudgmentQuestion) => Promise<JudgeResult>) | null;
   now?: () => number;
   // Where each run's observations go beyond the record: the board's
-  // telemetry file. Null keeps none (tests, and commands that do not
-  // observe).
-  telemetry?: ((telemetry: Telemetry) => void) | null;
+  // telemetry file. Absent, none is kept (tests).
+  telemetry?: (telemetry: Telemetry) => void;
   // Test hook for the crash-recovery acceptance: exit at a chosen point.
   crash?: "after_attempt" | "after_send" | undefined;
 };
@@ -198,7 +197,7 @@ export async function openShell(
       const at = new Date(now()).toISOString();
       let seen: Awaited<ReturnType<Adapter["observe"]>>;
       try {
-        seen = await (await adapterFor(placement.host)).observe(agentId);
+        seen = await (await adapterFor(placement.host)).observe(agentId, at);
       } catch (error: unknown) {
         // Readiness is what this run saw; an earlier run's idle must not
         // carry over a failed look.
@@ -224,11 +223,19 @@ export async function openShell(
       );
       if (!outcome.ok) report.push(`${key}: ${outcome.message}`);
     }
-    options.telemetry?.({
-      version: TELEMETRY_VERSION,
-      at: new Date(now()).toISOString(),
-      placements: snapshots,
-    });
+    // Telemetry is a side file: a failure to write it is reported, and the
+    // run goes on to its sends.
+    try {
+      options.telemetry?.({
+        version: TELEMETRY_VERSION,
+        at: new Date(now()).toISOString(),
+        placements: snapshots,
+      });
+    } catch (error: unknown) {
+      report.push(
+        `telemetry not written: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   function envelope(taskId: string, deliveryId: string): string {

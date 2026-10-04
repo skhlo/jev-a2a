@@ -60,6 +60,14 @@ const span = (ms: number): string => {
 export const age = (iso: string | null | undefined, at: string): string =>
   iso ? span(Date.parse(at) - Date.parse(iso)) : DASH;
 
+// tokens(n): a token count in thousands or millions, as a rail reads it.
+export const tokens = (n: number): string =>
+  n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
+    : n >= 1_000
+      ? `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}k`
+      : String(n);
+
 // left(deadline, at): the countdown to the deadline, or how far past it.
 export const left = (deadline: string, at: string): string => {
   const ms = Date.parse(deadline) - Date.parse(at);
@@ -403,7 +411,7 @@ ${body}
     levers.length ? `        <div class="lever">${levers.join("")}</div>` : "";
   // What the router last saw of the session, from the telemetry file: a
   // plain line until the design binds it. Nothing without telemetry.
-  const agentLine = (path: string, a: PlacementView["agent"]): string => {
+  const agentFacts = (path: string, a: PlacementView["agent"]): string => {
     if (!a) return "";
     const ap = `${path}.agent`;
     const parts = [
@@ -423,8 +431,8 @@ ${body}
       a.context
         ? slot(
             `${ap}.context`,
-            `context ${Math.round((100 * a.context.used) / a.context.max)}%`,
-            "",
+            `context ${Math.round((100 * a.context.used) / a.context.max)}% <span class="k">${tokens(a.context.used)}/${tokens(a.context.max)}</span>`,
+            "pair",
             "span",
             ` title="${a.context.used} of ${a.context.max} tokens"`,
           )
@@ -434,7 +442,7 @@ ${body}
         : "",
       a.thinking ? slot(`${ap}.thinking`, esc(a.thinking)) : "",
       a.mode ? slot(`${ap}.mode`, esc(a.mode)) : "",
-      a.usage && a.usage.costUsd > 0
+      a.usage?.costUsd
         ? slot(`${ap}.usage.costUsd`, `$${a.usage.costUsd.toFixed(2)}`, "num")
         : "",
       a.error ? slot(`${ap}.error`, esc(a.error), "warn") : "",
@@ -471,7 +479,7 @@ ${body}
         ` idle${dot === "off" ? " off" : ""}`,
         dot,
         `        <div class="name">${name}</div>
-        <div class="what">${what}</div>${agentLine(path, p.agent)}
+        <div class="what">${what}</div>${agentFacts(path, p.agent)}
 ${lever(holdLever ? [holdLever] : [])}`,
       );
     }
@@ -561,7 +569,7 @@ ${lever(holdLever ? [holdLever] : [])}`,
       `        <div class="name">${name}${corner}</div>
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
         <div class="rig">${rig}</div>
-        <div class="stats">${stats}</div>${agentLine(path, p.agent)}
+        <div class="stats">${stats}</div>${agentFacts(path, p.agent)}
 ${lever(levers)}`,
     );
   };

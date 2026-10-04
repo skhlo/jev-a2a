@@ -34,7 +34,7 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
 
 // An adapter whose next observation and send are scripted per run.
 type Script = {
-  observe?: () => Promise<Observation | null>;
+  observe?: (seen: string) => Promise<Observation | null>;
   send?: (
     key: string,
     text: string,
@@ -66,7 +66,9 @@ const idle: Observation = {
 const scripted = (script: Script): ShellOptions => ({
   adapter: (): Promise<Adapter> =>
     Promise.resolve({
-      observe: script.observe ?? (() => Promise.resolve(idle)),
+      observe: (_agent, seen) =>
+        (script.observe ?? (() => Promise.resolve(idle)))(seen),
+
       send: (_agent, key, text) =>
         (script.send ?? (() => Promise.resolve("accepted" as const)))(
           key,
@@ -660,7 +662,7 @@ test("a failed send is not_sent only when the daemon refused before sending", ()
   );
 });
 
-test("each run hands the telemetry sink one snapshot per served placement: the daemon's, missing, or unreachable", async () => {
+test("each run hands the telemetry sink one snapshot per served placement, stamped with the run's clock: the daemon's, missing, or unreachable", async () => {
   const home = mkdtempSync(join(tmpdir(), "shell-"));
   const config = configFor(home);
   const written: Telemetry[] = [];
@@ -668,15 +670,16 @@ test("each run hands the telemetry sink one snapshot per served placement: the d
     ...scripted({ observe }),
     telemetry: (t) => written.push(t),
   });
-  // A session the daemon knows, mid-turn.
+  // A session the daemon knows, mid-turn; the adapter stamps the snapshot
+  // with the time the shell hands it.
   let shell = await openShell(
     config,
-    options(() =>
+    options((seen) =>
       Promise.resolve({
         ready: false,
         status: "running",
         pendingPermissions: 0,
-        snapshot: snapshot("running"),
+        snapshot: { ...snapshot("running"), seen },
       }),
     ),
   );
@@ -701,6 +704,7 @@ test("each run hands the telemetry sink one snapshot per served placement: the d
       t.at,
       Object.entries(t.placements).map(([key, a]) => [
         key,
+        a.seen,
         a.status,
         a.turnStartedAt,
         a.error,
@@ -710,17 +714,41 @@ test("each run hands the telemetry sink one snapshot per served placement: the d
       [
         "jev-router-telemetry/1",
         "1970-01-01T00:00:01.000Z",
-        [["orchestrator@mbp", "running", "2026-01-01T00:00:00.000Z", null]],
+        [
+          [
+            "orchestrator@mbp",
+            "1970-01-01T00:00:01.000Z",
+            "running",
+            "2026-01-01T00:00:00.000Z",
+            null,
+          ],
+        ],
       ],
       [
         "jev-router-telemetry/1",
         "1970-01-01T00:00:01.000Z",
-        [["orchestrator@mbp", "missing", null, null]],
+        [
+          [
+            "orchestrator@mbp",
+            "1970-01-01T00:00:01.000Z",
+            "missing",
+            null,
+            null,
+          ],
+        ],
       ],
       [
         "jev-router-telemetry/1",
         "1970-01-01T00:00:01.000Z",
-        [["orchestrator@mbp", "unreachable", null, "ssh flake"]],
+        [
+          [
+            "orchestrator@mbp",
+            "1970-01-01T00:00:01.000Z",
+            "unreachable",
+            null,
+            "ssh flake",
+          ],
+        ],
       ],
     ],
   );
@@ -733,4 +761,35 @@ test("each run hands the telemetry sink one snapshot per served placement: the d
   await shell.deliver();
   await shell.close();
   assert.equal(written.length, 3);
+});
+
+test("a telemetry write that fails is reported and the run still sends", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const config = configFor(home);
+  const sent: string[] = [];
+  const shell = await openShell(config, {
+    ...scripted({
+      send: (key) => {
+        sent.push(key);
+        return Promise.resolve("accepted");
+      },
+    }),
+    telemetry: () => {
+      throw new Error("EISDIR: telemetry.json is a directory");
+    },
+  });
+  shell.apply({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "Fix it",
+    to: "orchestrator",
+  });
+  const report = await shell.deliver();
+  await shell.close();
+  assert.deepEqual(sent, ["D1/M1"]);
+  assert.ok(
+    report.some((line) => line.startsWith("telemetry not written: EISDIR")),
+    report.join("\n"),
+  );
 });

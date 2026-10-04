@@ -1,5 +1,5 @@
 // What the router last saw of each served session beyond its readiness:
-// Paseo's agent snapshot, reduced to the fields the board shows. It is not
+// the adapter's snapshot, reduced to the fields the board shows. It is not
 // part of the record: an observation is journaled only when readiness or
 // the session changes, and a snapshot changes every run (`updatedAt`,
 // tokens). The shell writes it whole after each run's observations as
@@ -9,24 +9,28 @@
 // telemetry", never a fault.
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { PaseoAgent } from "@getpaseo/client";
 
 export const TELEMETRY_VERSION = "jev-router-telemetry/1";
 
 // Paseo's statuses, plus the two the router adds when it got no snapshot.
-export type AgentStatus =
-  | "idle"
-  | "running"
-  | "initializing"
-  | "error"
-  | "closed"
-  | "missing"
-  | "unreachable";
+const STATUSES = [
+  "idle",
+  "running",
+  "initializing",
+  "error",
+  "closed",
+  "missing",
+  "unreachable",
+] as const;
+export type AgentStatus = (typeof STATUSES)[number];
+
+const ATTENTIONS = ["finished", "error", "permission"] as const;
+export type Attention = (typeof ATTENTIONS)[number];
 
 export type AgentSnapshot = {
   seen: string;
   status: AgentStatus;
-  attention: "finished" | "error" | "permission" | null;
+  attention: Attention | null;
   turnStartedAt: string | null;
   lastUserMessageAt: string | null;
   permissions: {
@@ -39,12 +43,15 @@ export type AgentSnapshot = {
   model: string | null;
   thinking: string | null;
   mode: string | null;
+  // Both bounds, max above zero; null when the provider reports no window.
   context: { used: number; max: number } | null;
+  // Token counts since the session started; costUsd null when the provider
+  // reports none.
   usage: {
     input: number;
     cached: number;
     output: number;
-    costUsd: number;
+    costUsd: number | null;
   } | null;
   error: string | null;
   title: string | null;
@@ -56,18 +63,6 @@ export type Telemetry = {
   at: string;
   placements: Record<string, AgentSnapshot>;
 };
-
-const ATTENTIONS = ["finished", "error", "permission"] as const;
-
-const STATUSES: readonly AgentStatus[] = [
-  "idle",
-  "running",
-  "initializing",
-  "error",
-  "closed",
-  "missing",
-  "unreachable",
-];
 
 // A snapshot for a session the router got nothing from: the daemon does not
 // know the agent (`missing`), or the host could not be reached
@@ -96,46 +91,6 @@ export function emptySnapshot(
   };
 }
 
-// Paseo's snapshot, reduced. Optional fields read as null; the context
-// window needs both bounds to mean anything.
-export function snapshotOf(agent: PaseoAgent, seen: string): AgentSnapshot {
-  const usage = agent.lastUsage;
-  const used = usage?.contextWindowUsedTokens;
-  const max = usage?.contextWindowMaxTokens;
-  return {
-    seen,
-    status: agent.status,
-    attention: agent.attentionReason ?? null,
-    turnStartedAt: agent.activeTurn?.startedAt ?? null,
-    lastUserMessageAt: agent.lastUserMessageAt ?? null,
-    permissions: agent.pendingPermissions.map((p) => ({
-      id: p.id,
-      name: p.name,
-      title: p.title ?? null,
-      kind: p.kind,
-    })),
-    provider: agent.provider,
-    model: agent.model ?? null,
-    thinking: agent.effectiveThinkingOptionId ?? agent.thinkingOptionId ?? null,
-    mode: agent.currentModeId ?? null,
-    context:
-      typeof used === "number" && typeof max === "number" && max > 0
-        ? { used, max }
-        : null,
-    usage: usage
-      ? {
-          input: usage.inputTokens ?? 0,
-          cached: usage.cachedInputTokens ?? 0,
-          output: usage.outputTokens ?? 0,
-          costUsd: usage.totalCostUsd ?? 0,
-        }
-      : null,
-    error: agent.lastError ?? null,
-    title: agent.title ?? null,
-    cwd: agent.cwd,
-  };
-}
-
 export const telemetryPath = (home: string): string =>
   join(home, "telemetry.json");
 
@@ -148,7 +103,8 @@ export function writeTelemetry(home: string, telemetry: Telemetry): void {
 }
 
 // Null when there is no file or it is not a telemetry file of this version;
-// `onError` hears why when it was there and unreadable.
+// `onError` hears why when it was there and unreadable, and which entries
+// a damaged file lost.
 export function readTelemetry(
   home: string,
   onError: (message: string) => void = () => undefined,
@@ -168,7 +124,7 @@ export function readTelemetry(
     onError(`telemetry.json is not JSON: ${describe(error)}`);
     return null;
   }
-  const telemetry = parseTelemetry(value);
+  const telemetry = parseTelemetry(value, onError);
   if (!telemetry) onError("telemetry.json is not a telemetry file");
   return telemetry;
 }
@@ -188,11 +144,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const str = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
 
-const num = (value: unknown): number => (typeof value === "number" ? value : 0);
+// A finite count, or null: a missing or odd number must not become a zero
+// that divides.
+const num = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
 
 // Reads a file this module wrote; anything else is null. Snapshots that do
-// not parse are dropped one by one, so one bad entry hides one placement.
-export function parseTelemetry(value: unknown): Telemetry | null {
+// not parse are dropped one by one, with a word each, so one bad entry
+// hides one placement.
+export function parseTelemetry(
+  value: unknown,
+  onError: (message: string) => void = () => undefined,
+): Telemetry | null {
   if (
     !isRecord(value) ||
     value.version !== TELEMETRY_VERSION ||
@@ -204,6 +167,7 @@ export function parseTelemetry(value: unknown): Telemetry | null {
   for (const [key, raw] of Object.entries(value.placements)) {
     const snapshot = parseSnapshot(raw);
     if (snapshot) placements[key] = snapshot;
+    else onError(`telemetry.json: the entry for ${key} is not a snapshot`);
   }
   return { version: TELEMETRY_VERSION, at: value.at, placements };
 }
@@ -213,14 +177,15 @@ function parseSnapshot(value: unknown): AgentSnapshot | null {
   const status = STATUSES.find((s) => s === value.status);
   if (!status) return null;
   const attention = ATTENTIONS.find((a) => a === value.attention) ?? null;
-  const context = isRecord(value.context)
-    ? { used: num(value.context.used), max: num(value.context.max) }
-    : null;
+  const used = isRecord(value.context) ? num(value.context.used) : null;
+  const max = isRecord(value.context) ? num(value.context.max) : null;
+  const context =
+    used !== null && max !== null && max > 0 ? { used, max } : null;
   const usage = isRecord(value.usage)
     ? {
-        input: num(value.usage.input),
-        cached: num(value.usage.cached),
-        output: num(value.usage.output),
+        input: num(value.usage.input) ?? 0,
+        cached: num(value.usage.cached) ?? 0,
+        output: num(value.usage.output) ?? 0,
         costUsd: num(value.usage.costUsd),
       }
     : null;
@@ -273,7 +238,8 @@ export function agentLine(agent: AgentSnapshot): string {
     parts.push(
       [harness, agent.thinking, agent.mode].filter(Boolean).join(" · "),
     );
-  if (agent.usage) parts.push(`$${agent.usage.costUsd.toFixed(2)}`);
+  if (agent.usage?.costUsd !== null && agent.usage?.costUsd !== undefined)
+    parts.push(`$${agent.usage.costUsd.toFixed(2)}`);
   if (agent.error) parts.push(`error: ${agent.error}`);
   return `${parts.join(" · ")} · seen ${agent.seen}`;
 }
