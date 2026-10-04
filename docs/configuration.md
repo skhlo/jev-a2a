@@ -2,23 +2,24 @@
 
 The router reads one JSON file, `~/.config/jev-router/config.json` unless
 `--config <path>` or `$ROUTER_CONFIG` says otherwise, and a `secrets.env`
-beside it. [`router/config.example.json`](../router/config.example.json) is
-a complete file for two hosts; a test keeps it valid. The loader is
-`router/src/config.ts` over the core's `validateConfig` in
-`router/src/core.ts`; what they refuse is listed with each key below. The
-reasoning behind the policy keys is in the
-[spec](../research/jev-router-spec.md#configuration).
+in the same directory as that file.
+[`router/config.example.json`](../router/config.example.json) is a complete
+one-host file; a test keeps it loading. The loader is `router/src/config.ts`
+over the core's `validateConfig` in `router/src/core.ts`; what they refuse
+is listed with each key. The spec's
+[Configuration](../research/jev-router-spec.md#configuration) section says
+what is fixed on purpose and is not configuration.
 
 ## Keys
 
 ### `policy`
 
-| Key            | Meaning                                                                                                                          | Refused when          |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `threshold`    | The probability Jev's choice must reach to be dispatched; below it the router hands the choice back. Pick it with `router eval`. | Not in (0, 1]         |
-| `deadline`     | How long a task may stay open, in **milliseconds**. The example uses 21600000 (six hours). Nothing is sent after the deadline.   | Not a positive number |
-| `maxText`      | The longest request, reply or answer text, in characters.                                                                        | Not a positive number |
-| `maxOpenTasks` | How many tasks may be open at once; a request past that is refused with "Too many open requests".                                | Not a positive number |
+| Key            | Meaning                                                                                                                                                                    | Refused when          |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `threshold`    | The probability Jev's choice must reach to be dispatched; below it the router hands the choice back. Pick it with `router eval`.                                           | Not in (0, 1]         |
+| `deadline`     | How long a task may stay open, in **milliseconds**. The example uses 21600000 (six hours). At the deadline the task ends with its verdict and no further delivery is sent. | Not a positive number |
+| `maxText`      | The longest request or answer text, in characters.                                                                                                                         | Not a positive number |
+| `maxOpenTasks` | How many tasks may be open at once; a request past that is refused with "Too many open requests".                                                                          | Not a positive number |
 
 ### `principals`
 
@@ -33,14 +34,14 @@ unknown role, or a name that collides with a participant id.
 
 A list; at least one. Each has:
 
-| Key              | Meaning                                                                                                                                        |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`             | Stable, unique, non-empty. Used in `permissions`, `agents` and on the command line.                                                            |
-| `name`           | For display.                                                                                                                                   |
-| `kind`           | `agent` or `service`.                                                                                                                          |
-| `hosts`          | Distinct names from `hosts`; the participant has one placement per host.                                                                       |
-| `idempotent`     | **Required**, `true` or `false`: whether the participant's adapter deduplicates by the router's message key. Paseo sends are keyed, so `true`. |
-| `responsibility` | The text Jev reads, in full; see [participants.md](participants.md) for how to write it.                                                       |
+| Key              | Meaning                                                                                                                                        | Refused when              |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `id`             | Stable and unique. Used in `permissions`, `agents` and on the command line.                                                                    | Empty or repeated         |
+| `name`           | A label.                                                                                                                                       |                           |
+| `kind`           | `agent` or `service`.                                                                                                                          | Anything else             |
+| `hosts`          | Host names; the participant has one placement per host. A host the router serves must also be in `hosts` below.                                | Empty, or a name repeated |
+| `idempotent`     | **Required**, `true` or `false`: whether the participant's adapter deduplicates by the router's message key. Paseo sends are keyed, so `true`. | Missing or not a boolean  |
+| `responsibility` | The text Jev reads, in full; see [participants.md](participants.md) for how to write it.                                                       | Empty                     |
 
 ### `permissions`
 
@@ -53,28 +54,28 @@ an unknown principal or participant on either side.
 
 Machines named in `participants[].hosts`; at least one.
 
-| Key            | Meaning                                                                                                                                                              | Default  |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| `paseo`        | The host's Paseo daemon: a websocket URL such as `ws://127.0.0.1:6767/ws`, or `ssh://[user@]host[:port]` to tunnel to a loopback-bound daemon as the Paseo CLI does. | required |
-| `replyCommand` | What a participant on this host runs to reply; it goes into every envelope.                                                                                          | `router` |
+| Key            | Meaning                                                                                                                                                                                                                                                                                                                      | Default  |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `paseo`        | The host's Paseo daemon: a websocket URL such as `ws://127.0.0.1:6767/ws`, or `ssh://[user@]host[:port]` to reach a daemon on `127.0.0.1:6767` of that machine through an SSH tunnel, as the Paseo CLI does. The port is SSH's; the connection runs with `BatchMode=yes`, so it needs key authentication that never prompts. | required |
+| `replyCommand` | What a participant on this host runs to reply; it goes into every envelope.                                                                                                                                                                                                                                                  | `router` |
 
 ### `agents`
 
 Placement key (`participant@host`) to Paseo agent id. The agent id is the
 placement's session identity: a placement without an entry is not observed
-and not delivered to. `paseo agent ls --json` prints each agent's `id`
-(`--host ssh://<host>` for another machine; the table form shows only the
-short id). Refused: a key that is not a configured placement, or a host not
-in `hosts`.
+and not delivered to. `paseo agent ls -g --json` prints each agent's `id`
+across directories (`--host ssh://<host>` for another machine; the table
+form shows only the short id). Refused: a key that is not a configured
+placement, a host not in `hosts`, or an empty value.
 
 ### `serve`
 
-| Key          | Meaning                                                                                                                                                                       | Default          |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `listen`     | Where `router serve` accepts events from other hosts (`POST /events`, bearer `ROUTER_TOKEN`; `GET /health` needs no token). Set a tailnet address when other hosts take part. | `127.0.0.1:7677` |
-| `board`      | Where the board is served. **Must be loopback** (`127.0.0.1`, `localhost` or `[::1]`), because the board trusts the login header Tailscale Serve sets.                        | `127.0.0.1:7678` |
-| `identities` | Tailnet login to the list of configured principals it acts as on the board. `GET /whoami` on the board shows the login Serve reports.                                         | `{}`             |
-| `wake`       | Seconds between looks while work waits only for a session to be seen idle; `0` looks on events alone. 0 to 3600.                                                              | `20`             |
+| Key          | Meaning                                                                                                                                                                               | Default          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `listen`     | Where `router serve` accepts events from other hosts (`POST /events`, bearer `ROUTER_TOKEN`; `GET /health` needs no token). Set a tailnet address when other hosts take part.         | `127.0.0.1:7677` |
+| `board`      | Where the board is served. **Must be loopback** (`127.0.0.1`, `localhost` or `[::1]`); the board trusts the login header Tailscale Serve sets, so nothing else may reach it.          | `127.0.0.1:7678` |
+| `identities` | Tailnet login to the list of principals it acts as on the board. Each must be a configured principal. `GET /whoami` on the board shows the `tailscale-user-login` header Serve sends. | `{}`             |
+| `wake`       | Seconds between looks while work waits only for a session to be seen idle; `0` looks on events alone. 0 to 3600.                                                                      | `20`             |
 
 ### `jev`
 
@@ -90,9 +91,9 @@ configured".
 
 ### `telemetry`
 
-| Key     | Meaning                                                                                                                                  | Default |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `sheet` | Whether each run reads the health sheet (checkout, subagents, activity) beyond readiness. Off, a run costs one Paseo call per placement. | `true`  |
+| Key     | Meaning                                                                                                                                                            | Default |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| `sheet` | Whether each run reads the health sheet (checkout, subagents, activity) beyond readiness. Off, a run costs one Paseo call per placement. Refused unless a boolean. | `true`  |
 
 ### `home`
 
@@ -102,17 +103,15 @@ Default `~/.local/state/jev-router`.
 ## Secrets
 
 `secrets.env` holds `KEY=VALUE` lines; `router/secrets.env.example` names
-them. The file is read at start and a value already in the environment
-wins. Keep it at mode 600; nothing secret belongs in the JSON file.
+them. The file is read at start from the directory of the configuration
+file in use, so `router eval --config candidate.json` looks for
+`secrets.env` beside `candidate.json`: keep candidates in
+`~/.config/jev-router/`, or export the key. A value already in the
+environment wins. Keep the file at mode 600; nothing secret belongs in the
+JSON file.
 
 | Key                | Where                                                                 |
 | ------------------ | --------------------------------------------------------------------- |
 | `TYPESAFE_API_KEY` | The router host, for Jev.                                             |
 | `ROUTER_TOKEN`     | The router host and every host with a client.                         |
 | `ROUTER_URL`       | Hosts that do not run the router: `serve.listen` as an `http://` URL. |
-
-## Not configuration, by design
-
-Message identity, the delivery state machine, the eligibility rule, reply
-correlation, and what each event may do are fixed; the
-[spec](../research/jev-router-spec.md#configuration) says why.

@@ -21,11 +21,11 @@ Anything else that waits (a hold, a hand-back, an open question, a replaced
 session) waits on an event, and a quiet router arms nothing.
 
 A session is sent to only when the router has just seen it idle, or closed
-(a persisted session with no process; the prompt resumes it), with no
-pending permission and the agent not archived. A turn a person starts
-between the look and the send is the one race left; holding the session
-(`router observe <participant@host> --hold`, or the lever on the board)
-closes it, and `--release` opens it again.
+(a persisted session with no process; the prompt resumes it) and not
+archived, and in either case with no pending permission. A turn a person
+starts between the look and the send is the one race left; holding the
+session (`router observe <participant@host> --hold`, or the lever on the
+board) closes it, and `--release` opens it again.
 
 ## The record
 
@@ -39,22 +39,22 @@ closes it, and `--release` opens it again.
   when readiness or the session changes, while a snapshot changes every
   run. The board shows each snapshot with its age (the nav tick dates the
   file); `router status` prints one line per placement with the time,
-  branch, diff and pull request. A missing or unreadable file is "no
-  telemetry", logged once by `serve`, never a fault; a damaged entry drops
-  its placement, named in the log; a damaged sheet field reads as not read.
+  branch, diff and pull request. A missing file is "no telemetry" and
+  never a fault; an unreadable one is logged once by `serve`; a damaged
+  entry drops its placement, named in the log; a damaged sheet field reads
+  as not read.
 
 With `telemetry.sheet` on (the default) a run costs, per host, one workspace
 list, and per live session two more calls (the subagent list and the
 timeline tail) on top of the one that reads readiness. A read that fails is
 a `telemetry:` line in the run's report, which `serve` logs once while the
 cause lasts, and a `null` field. `telemetry.sheet: false` keeps a run to the
-one call per placement. Measured on three hosts over SSH, the sheet's cost
-was not visible next to the SSH round trips.
+one call per placement.
 
 ## `router serve` as a service
 
-`router/jev-router.service` runs `router serve` as a systemd user service;
-the install steps are at the top of the file:
+`router/jev-router.service` runs `router serve` as a systemd user service.
+From the repository root:
 
 ```sh
 cp router/jev-router.service ~/.config/systemd/user/
@@ -70,8 +70,8 @@ otherwise. Logs: `journalctl --user -u jev-router`. After a code change:
 Exit codes:
 
 - `2`: a reason a restart cannot change (the port is taken, the
-  configuration or the token is wrong). The unit stays down with the
-  message in `systemctl --user status jev-router`.
+  configuration is invalid, `ROUTER_TOKEN` is not set). The unit stays down
+  with the message in `systemctl --user status jev-router`.
 - `75`: the listen address was not up yet. `serve` waits up to 120 seconds
   for it (a tailnet address arrives after the service at boot), then exits
   75 and the unit restarts it.
@@ -91,11 +91,13 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
 - `/`: the page, or the view model as JSON for a client whose `Accept`
   ranks `application/json` above `text/html`; `/board.json` is the model
   regardless. See [board-model.md](board-model.md).
-- `/whoami`: the tailnet login Serve reports, the principals it maps to in
-  `serve.identities`, and the `tailscale-*` headers seen. Use it to fill in
+- `/whoami`: the `tailscale-*` headers seen, with the `login` and
+  `principals` they map to once the login is in `serve.identities` (`null`
+  and empty before). Read `tailscale-user-login` from it to fill in
   `serve.identities`.
-- `POST /actions`: the board's forms. Refused unless the request comes from
-  the page itself (`Sec-Fetch-Site` or a matching `Origin`).
+- `POST /actions`: the board's forms. A request with no identity gets 403;
+  one a browser marks as cross-site (`Sec-Fetch-Site`, or an `Origin` that
+  does not match the host) is refused.
 
 Routes match by suffix, so the board can be mounted under a path
 (`tailscale serve --bg --set-path /router http://127.0.0.1:7678`), and its
@@ -103,13 +105,16 @@ forms use relative URLs.
 
 ## When nothing moves
 
-- `router status <task>` shows what a task waits for: a recipient, a
-  session not ready or held, a send behind another, an open question.
+- `router status <task>` shows the task's deliveries, their sends and
+  replies, an open question, and a recipient still to be chosen.
+- `router run` makes one pass by hand and prints the run's report, which
+  says why each waiting delivery waits: not ready, held, queued behind
+  another. The board's task row says the same.
 - `router needs-you` lists the decisions waiting on a person;
   `--as <participant>` lists what a participant sender is owed.
-- `router run` makes one pass by hand and prints the run's report.
 - `journalctl --user -u jev-router -f` follows `serve`; each `telemetry:`
   note appears once while its cause lasts.
-- A placement missing from the board was not in `agents`, or its agent id
-  is wrong (`missing` in its health line) or its host could not be reached
-  (`unreachable`, with the reason as a tooltip).
+- A placement absent from the board has no entry in `agents`. One whose
+  agent id the daemon does not know shows `missing` in its health line;
+  one whose host could not be reached shows `unreachable`, with the reason
+  as a tooltip.

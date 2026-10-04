@@ -49,12 +49,12 @@ Each of these is a place where the design was wrong for live data:
 - a delivery that waits (queued, held, on a session not ready, behind an
   unconfirmed send, or on a replaced session) says what it waits for, where
   the design shows only the send's outcome;
-- the "from <placement>" on an open row that another agent sent shows to
+- the `from <placement>` on an open row that another agent sent shows to
   every viewer, since a person is never a participant (the design spares
   the sender its own placement);
 - every placement's sheet is rendered, hidden, so the script opens one
   without a round trip (the design renders the open one);
-- `pr.mergeable` is read as Paseo's word (`CONFLICTING` shows "conflicts");
-  the design's sample used a boolean;
+- `pr.mergeable` is read as Paseo's word (`CONFLICTING` shows "conflicts"),
+  not as a boolean;
 - the Flexoki dark pin (`data-scheme`) is not carried, as the theme switch
   covers it.

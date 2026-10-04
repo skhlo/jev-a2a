@@ -16,15 +16,15 @@
       "kind": "agent",
       "hosts": ["laptop"],
       "idempotent": true,
-      "responsibility": "Changes code in any repository on the laptop: fixes, features, tests, reviews. Not for notes or research. Examples: 'Fix the failing build in the router repo', 'Add a test for the config loader'."
+      "responsibility": "Changes code in any repository: fixes, features, tests, reviews. Not for notes or research. Examples: 'Fix the failing build in the router repo', 'Add a test for the config loader'."
     },
     {
       "id": "notes",
       "name": "Notes agent",
       "kind": "agent",
-      "hosts": ["desk"],
+      "hosts": ["laptop"],
       "idempotent": true,
-      "responsibility": "Notes, research and synthesis in the vault on the desk machine. Not for code changes. Examples: 'Summarize what we decided about the board', 'Draft a note on the eval procedure'."
+      "responsibility": "Notes, research and synthesis in the vault. Not for code changes. Examples: 'Summarize what we decided about the board', 'Draft a note on the eval procedure'."
     }
   ],
   "permissions": {
@@ -33,12 +33,11 @@
     "notes": ["coder"]
   },
   "hosts": {
-    "laptop": { "paseo": "ws://127.0.0.1:6767/ws" },
-    "desk": { "paseo": "ssh://desk" }
+    "laptop": { "paseo": "ws://127.0.0.1:6767/ws" }
   },
   "agents": {
-    "coder@laptop": "paste the agent id from `paseo agent ls --json`",
-    "notes@desk": "paste the agent id from `paseo --host ssh://desk agent ls --json`"
+    "coder@laptop": "paste the id from `paseo agent ls -g --json`",
+    "notes@laptop": "paste the id from `paseo agent ls -g --json`"
   },
   "serve": {
     "listen": "127.0.0.1:7677",

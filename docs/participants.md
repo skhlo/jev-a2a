@@ -13,9 +13,9 @@ The text is all Jev sees, so it decides the routing. Write it as:
 1. an ownership rule: what the participant does;
 2. what it is not for, naming the neighbour a request might be confused
    with;
-3. a few example requests, in every language requests arrive in. Three
-   Korean examples raised Korean probabilities by 0.17 on average; a note
-   saying "requests may be Korean" did nothing.
+3. a few example requests, in every language requests arrive in. The
+   spec records the measurement behind this: examples in a language move
+   its probabilities, a note saying the language may occur does not.
 
 The participant's owner keeps the text next to that agent's own `AGENTS.md`
 and refreshes it when the role changes; the router config copies it. Names
@@ -28,30 +28,34 @@ Before a text, a grant or the threshold changes, judge a labeled set with
 the candidate configuration:
 
 ```sh
-router eval --config candidate.json --set my-requests.jsonl
+router eval --config ~/.config/jev-router/candidate.json --set my-requests.jsonl
 ```
+
+`secrets.env` is read from the candidate's directory, so keep candidates
+beside the live file, or export `TYPESAFE_API_KEY`.
 
 The set is JSON lines, one `{"text": ..., "expect": ..., "lang": ...}` per
 line; blank lines and lines starting with `#` are skipped, and a duplicate
 text is refused. `expect` is a participant id the requester may address, or
 `none` for a request that should be handed back. The bundled
-`router/eval/requests.jsonl` names this repository's own participants, so
-it is a shape to copy, not a set to run on another roster. Phrase the
+`router/eval/requests.jsonl` is the maintainer's own set, labeled for the
+maintainer's deployment, so it is a shape to copy, not a set to run on
+another roster. Phrase the
 labeled requests differently from the examples in the text, and include
 some that should go elsewhere or to `none`.
 
-`eval` prints, for each threshold, how many requests would be dispatched,
-how many of those wrongly, and how many handed back, and exits 1 when any
-request got no usable judgment. Nothing enforces the rule, but the rule is:
+`eval` prints, for thresholds from 0.60 to 0.95 in steps of 0.05, how
+many requests would be dispatched, how many of those wrongly, and how many
+handed back, and exits 1 when any request got no usable judgment. Nothing enforces the rule, but the rule is:
 a change goes live only with no wrong dispatch at the configured threshold
 on the whole set, since a new text shifts every other participant's
 probabilities too. `--model <id>` judges with another model; pin
 `jev.model` to a dated version once the threshold is tuned to it.
 
 Adding a participant, in order: write the text; add its labeled requests;
-run `eval` on a candidate config that carries the text and the grant; then
-make the candidate the live config. Until the grant is live nobody can
-address the participant, and Jev never sees it.
+run `eval` on a candidate config that carries the text and the permission;
+then make the candidate the live config. Until the permission is live
+nobody can address the participant, and Jev never sees it.
 
 ## A participant as the sender
 
@@ -74,17 +78,17 @@ like any delivery:
 - the final word, which needs no reply.
 
 ```sh
-# As the design agent on mba:
-router submit --to orchestrator "The board's log panel clips its last line at 1280 wide."
-# The design agent's session hears back, for example:
-# [router T41 question/D7/R2] orchestrator asks about your request. Answer with:
+# In the notes agent's session:
+router submit --to coder "The board's log panel clips its last line at 1280 wide."
+# The notes agent's session hears back, for example:
+# [router T41 question/D7/R2] coder asks about your request. Answer with:
 #   router answer --as <session> --task T41 --delivery D7 --question R2 --text "<answer>" ...
 ```
 
-Each notice is told once per key (`question/<delivery>/<id>`, `choose/<n>`
-or `final`), through the same adapter and with the same record of
-attempting, accepted and unknown, so a restart or a dropped call is retried
-under the same rules as a send. `router status T` lists them, and the
+Each notice is told once (the `key` in the task's `notices`, see
+[board-model.md](board-model.md)), through the same adapter and with the
+same record of attempting, accepted and unknown, so a restart or a dropped
+call is retried under the same rules as a send. `router status T` lists them, and the
 board's task detail shows them under "Notices to".
 
 Limits:

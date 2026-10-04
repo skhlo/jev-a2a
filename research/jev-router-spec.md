@@ -98,33 +98,35 @@ nothing.
 
 ## Configuration
 
-| Key            | Decides                                                                                                                                                                                                                                                                                                                                                                                                 |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `policy`       | `threshold` in (0, 1] for dispatching on a judgment; `deadline`, `maxText` and `maxOpenTasks`, all positive. Validation refuses anything else, plus unknown participant kinds, duplicate or empty hosts, and permissions that name unknown ids.                                                                                                                                                         |
-| `principals`   | Non-participant identities and their role: `requester` or `operator`. Names are free; a household may have several requesters.                                                                                                                                                                                                                                                                          |
-| `participants` | `id`, `name`, `kind` (`agent` or `service`), `hosts`, `idempotent`, `responsibility`. The responsibility text is what Jev sees, so write it as an ownership rule with what it is not for, followed by a few example requests in every language requests arrive in (measured: three Korean examples raised Korean probabilities by 0.17 on average; a note saying "requests may be Korean" did nothing). |
-| `permissions`  | For each principal or participant, which participants it may address. Absent means nobody. Jev only ever chooses among a sender's permitted participants.                                                                                                                                                                                                                                               |
+The keys, their defaults and what validation refuses are in
+[`docs/configuration.md`](../docs/configuration.md). The decisions behind
+the core's keys:
+
+- `policy.threshold` is picked per deployment with `router eval`, not
+  given a universal value; `deadline`, `maxText` and `maxOpenTasks` are
+  capacity, not policy the router reasons about.
+- `principals` are the identities that are not sessions, by role
+  (`requester`, `operator`); names are free, since a household may have
+  several requesters.
+- A participant's `responsibility` text is what Jev sees, so it is written
+  as an ownership rule with what it is not for, followed by a few example
+  requests in every language requests arrive in. Measured: three Korean
+  examples raised Korean probabilities by 0.17 on average; a note saying
+  "requests may be Korean" did nothing.
+- `permissions` are explicit and absent means nobody, so Jev only ever
+  chooses among a sender's permitted participants and a new participant is
+  invisible until its permission is live.
 
 ### Connecting a participant
 
 The same steps each time an agent joins the roster; the vault was the first
-(decided 2026-09-30, generalized 2026-10-01):
-
-1. The participant's owner writes the responsibility text, next to the
-   agent's own `AGENTS.md`, from its role section and its glossary: an
-   ownership rule, what it is not for, then a few example requests in the
-   languages its users write. Names that identify companies, clients or
-   business areas stay out; the text goes to an external API. The owner
-   refreshes it when `AGENTS.md` changes. The router config copies it.
-2. Add labeled requests for the participant to `router/eval/requests.jsonl`,
-   phrased differently from the examples in the text, with some that should
-   go elsewhere or to `none`.
-3. Run `router eval --config` on a candidate config that carries the new
-   text and the grant, since eval judges the participants the requester may
-   address: no wrong dispatch at the configured threshold on the whole set,
-   since a new text shifts every other participant's probabilities too.
-4. Then make the candidate the live config. Until the grant is live nobody
-   can address the participant, and Jev never sees it.
+(decided 2026-09-30, generalized 2026-10-01). The procedure is in
+[`docs/participants.md`](../docs/participants.md): the owner writes the
+text next to the agent's own `AGENTS.md` and the router config copies it;
+labeled requests are added, phrased differently from the text's examples;
+`router eval` runs on a candidate config that carries the text and the
+permission, since a new text shifts every other participant's
+probabilities; only then does the candidate go live.
 
 Not configuration, by design: message identity, the delivery state machine,
 the eligibility rule, reply correlation, and what each event may do.
@@ -487,9 +489,9 @@ Deployment decisions taken on 2026-09-30, outside the contract:
 - `router serve` runs as a systemd user service on the router host
   (`router/jev-router.service`, decided 2026-10-01): restarts on failure,
   logs to journald, starts at boot under linger. It binds the tailnet
-  address, which at boot arrives after the service; `serve` waits up to
-  120 seconds for it, then exits 75 (`EX_TEMPFAIL`) so the unit restarts
-  it; exit 2 (port taken, configuration or token wrong) stays down. One instance per host: the second finds the port taken
+  address, which at boot arrives after the service; `serve` waits for it
+  rather than failing (the wait, the exit codes and the unit's restart
+  rule are in `docs/operating.md`). One instance per host: the second finds the port taken
   and says so. Deliveries happen on events and runs, and `serve` looks again
   every `serve.wake` seconds while the record has work waiting only for a
   session to be seen idle; it watches the journal file so a CLI run on the

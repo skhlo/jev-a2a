@@ -28,9 +28,9 @@ the lever that holds or releases the session. A context meter sits in the
 name row (the health row on an idle card) with the token counts and cost as
 its tooltip; on a busy card provider/model, thinking and mode join the tags;
 while subagents run, the status line counts them. Without a snapshot the
-row reads "no telemetry", and the nav tick, which otherwise dates the
-telemetry, says so too. The router's last twenty log lines fill the rest of
-the column, newest at the bottom.
+row reads "no telemetry"; without a telemetry file at all the nav tick,
+which otherwise dates the telemetry, says so too. The router's last twenty
+log lines fill the rest of the column, newest at the bottom.
 
 ## The sheet
 
@@ -45,13 +45,14 @@ with the host and session. Three sections follow:
   "#n title" linked to its URL (when it is a web address) with its state
   word (draft, merged, else the state) and "conflicts" when Paseo reports
   `CONFLICTING`, then checks (failing, pending, passing, no checks, or
-  unknown) and the review word; the workspace status with "active <age>".
+  unknown) and the review word; the workspace status with `active <age>`.
 - **Subagents**: the non-zero counts, then the running ones as a tree one
   level deep (a child under its parent; a child whose parent is not running
   sits at the top); "none running" with counts alone, "none" with neither.
 - **Activity**: the last eight timeline entries oldest first, each with its
-  seconds, kind word, tool and status, and text, the last one marked current
-  when it is a running tool; the heading counts the turns among them.
+  clock (hh:mm:ss), kind word, tool and status, and text, the last one
+  marked current when it is a running tool; the heading counts the turns
+  among them.
 
 A field the router did not read says "not read"; subagents and activity add
 "session not live" when the session is not idle or running. Every
@@ -99,9 +100,8 @@ board takes the tailnet login Serve reports, and a login listed in
   typing in the session, so the router does not send there.
 
 Each form posts to the board's `actions` endpoint and comes back to the page
-with the outcome. The board trusts the login header Serve sets, so `serve.board`
-must stay on loopback, and anything that can reach that port can claim a
-login.
+with the outcome. `serve.board` must stay on loopback; the README's Limits
+say why.
 
 ## The script
 

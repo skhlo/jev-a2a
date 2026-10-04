@@ -25,10 +25,23 @@ person would otherwise carry in their head:
 - **A record.** One journal of what was sent to which session, what came
   back, and what is still waiting on someone.
 
+Five words carry the rest of this file. A **participant** is an agent or a
+service with a stable id, one or more hosts and a **responsibility text**:
+an ownership rule with examples, and all that Jev reads. A **placement** is
+a participant on one host (`coder@laptop`), with one current Paseo session.
+A **principal** is who acts on the record. A person is a requester, who
+submits, or an operator, who settles what the router cannot confirm; a
+participant acts through its session. A **delivery** is one request on its
+way to one placement. The [spec's vocabulary](research/jev-router-spec.md#vocabulary)
+has more.
+
 When a request names no recipient, Jev (a
 [TypeSafe](https://typesafe.ai) System One model) reads each participant's
 responsibility text and picks one. If no owner is clear, the router hands
-the choice back to the sender instead of guessing.
+the choice back to the sender instead of guessing. This is where the router
+earns its place: requests that name nobody; sends nobody is watching, from a
+laptop that will be asleep when the answer comes; and "what did I start,
+where is it, what needs me" from any device.
 
 The router does not orchestrate, run workflows, or hold a session until a
 task finishes. How the work gets done belongs to the agents. Typing into a
@@ -43,49 +56,42 @@ session you are already looking at needs none of this.
    hosts, when the session is idle. A busy session gets it the next time the
    router looks and finds it idle ([when it looks](docs/operating.md#when-the-router-looks)).
 4. The agent does the work and replies with the command from the envelope:
-   `router reply --task T27 --in-reply-to <message> --kind completed --text "..."`.
-5. `router status T27` shows the result: here, `1 of 1 completed`, with the
+   `router reply --task T1 --in-reply-to <message> --kind completed --text "..."`.
+5. `router status T1` shows the result: here, `1 of 1 completed`, with the
    reply.
-
-Five words carry the rest of this file. A **participant** is an agent or a
-service with a stable id, one or more hosts and a **responsibility text**,
-which is all Jev reads. A **placement** is a participant on one host
-(`coder@laptop`), with one current Paseo session. A **principal** is who
-acts: a person as a requester, who submits, or as an operator, who settles
-what the router cannot; or a participant, through its session. A
-**delivery** is one request on its way to one placement. The [spec](research/jev-router-spec.md#vocabulary) defines them
-in full.
 
 ## Quick start
 
-You need, on the host that runs the router: Node 26 (it runs the TypeScript
+On the host that runs the router you need Node 26 (it runs the TypeScript
 directly), pnpm, and a Paseo daemon with at least one agent. A TypeSafe API
-key is needed only for requests that name no recipient. Other machines need
-a Paseo daemon reachable over SSH and, for their agents to reply, Node.
-The hosts here reach each other over Tailscale; acting on the board from
-another device depends on Tailscale Serve.
+key is needed only for requests that name no recipient.
 
 ```sh
 git clone https://github.com/skhlo/jev-a2a && cd jev-a2a/router
 pnpm install
 printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
-  > ~/.local/bin/router && chmod +x ~/.local/bin/router   # ~/.local/bin on PATH
+  > ~/.local/bin/router && chmod +x ~/.local/bin/router   # ~/.local/bin exists and is on PATH
 
 mkdir -p ~/.config/jev-router
 cp config.example.json ~/.config/jev-router/config.json
 cp secrets.env.example ~/.config/jev-router/secrets.env && chmod 600 ~/.config/jev-router/secrets.env
 ```
 
-Edit the config: name your hosts under `hosts` (a websocket URL for the
-local daemon, `ssh://<host>` for another machine), your agents under
-`participants` with a responsibility text each, and under `agents` the Paseo
-agent id of each `participant@host` (`paseo agent ls --json` prints it; add
-`--host ssh://<host>` for another machine). Every key is explained in
-[docs/configuration.md](docs/configuration.md); note that `policy.deadline`
-is in milliseconds. Put `TYPESAFE_API_KEY` in `secrets.env` if you have one,
-and choose a `ROUTER_TOKEN`.
+The example is one host, `laptop`, with two agents, `coder` and `notes`.
+Edit it to match yours:
 
-Then send something to a named participant and read the record:
+- `hosts`: your host's name, with its daemon's websocket URL;
+- `participants`: your agents, each with a responsibility text, and the
+  same names under `permissions`, which say who may address whom;
+- `agents`: the Paseo agent id of each `participant@host`, from
+  `paseo agent ls -g --json`;
+- `secrets.env`: a `ROUTER_TOKEN` you choose, and `TYPESAFE_API_KEY` if
+  you have one.
+
+Every key, its default and what is refused is in
+[docs/configuration.md](docs/configuration.md); `policy.deadline` is in
+milliseconds. Then send something to a named participant and read the
+record:
 
 ```sh
 router submit --to coder "Reply with the word pong."
@@ -98,31 +104,36 @@ The agent's session receives the prompt with its envelope and answers with
 completed` and the reply text. If the session was busy, the task waits and
 `router run` makes another pass by hand.
 
-For replies from agents on other machines, and for the board, run the
-daemon:
+For the board, run the daemon:
 
 ```sh
 router serve             # events on 127.0.0.1:7677, board on http://127.0.0.1:7678
 ```
 
-Set `serve.listen` to the host's tailnet address when other hosts take
-part, and on each of those hosts install `router/client/router.mjs` as
-`router` on the PATH with `ROUTER_URL` and the same `ROUTER_TOKEN` in its
-`secrets.env`; it needs only Node. To keep `serve` running, install it as a
+Other machines join through `hosts` entries of the form `ssh://<host>`,
+with `serve.listen` on an address they can reach. Their agents reply
+through the client:
+
+```sh
+install -m 755 router/client/router.mjs ~/.local/bin/router   # on each other host; needs only Node
+```
+
+It reads `ROUTER_URL` and the same `ROUTER_TOKEN` from that host's
+`~/.config/jev-router/secrets.env`. To keep `serve` running, install it as a
 user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 
 ## Commands
 
-| Command                                          | What it does                                                    |
-| ------------------------------------------------ | --------------------------------------------------------------- |
-| `router submit [--to P [--hosts a,b]] <text>`    | Record a request and deliver it; without `--to`, Jev picks      |
-| `router status [<task>]`                         | The record: every task, or one task with its deliveries and log |
-| `router needs-you`                               | Decisions waiting on you                                        |
-| `router choose --task T --to P`                  | Name the recipient when the router handed the choice back       |
-| `router answer --task T --question Q --text ...` | Answer a question an agent asked                                |
-| `router cancel <task>`                           | Cancel a task whose work has not reached anyone yet             |
-| `router run`                                     | Observe the sessions and deliver what is eligible, once         |
-| `router serve`                                   | Accept events from other hosts; serve the board; keep looking   |
+| Command                                          | What it does                                                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `router submit [--to P [--hosts a,b]] <text>`    | Record a request and deliver it; without `--to`, Jev picks; `--hosts` narrows a participant on several hosts |
+| `router status [<task>]`                         | The record: every task, or one task with its deliveries and log                                              |
+| `router needs-you`                               | Decisions waiting on you                                                                                     |
+| `router choose --task T --to P`                  | Name the recipient when the router handed the choice back                                                    |
+| `router answer --task T --question Q --text ...` | Answer a question an agent asked                                                                             |
+| `router cancel <task>`                           | Cancel a task whose work has not reached anyone yet                                                          |
+| `router run`                                     | Observe the sessions and deliver what is eligible, once                                                      |
+| `router serve`                                   | Accept events from other hosts; serve the board; keep looking                                                |
 
 Agents use `router reply`. `router observe <placement> --hold` keeps the
 router from sending to a session a person is typing in; `router resolve`
@@ -132,64 +143,59 @@ judges a labeled request set. `router --help` lists every flag, including
 and `--config`.
 
 An agent's own session may submit, choose and answer too, within
-`permissions`, and is told the answers at the placement it sent from:
+`permissions`; it is told the recipient's questions, Jev's hand-backs and
+the final word at the placement it sent from. That path is built and
+unit-tested but has not yet run live:
 [docs/participants.md](docs/participants.md#a-participant-as-the-sender).
 
 ## The board
 
 `router serve` serves a page on loopback (`serve.board`, `127.0.0.1:7678`)
-from the same record: a card per placement with what its session is doing
-and its health (branch, diff, pull request, running subagents, the last
-tool calls), the tasks that need you, in flight and done, and the selected
-task's exchange. Click a card's name, or press `s`, for the health sheet.
+from the same record: a card per placement with what its session is doing,
+its pending permissions and health; the tasks that need you, in flight and
+done; and the selected task's exchange. A card's name, or `s`, opens the
+placement's sheet: branch, diff and pull request, running subagents, the
+last tool calls.
 
 ![The health sheet of one agent over the tasks column](router/design/screenshots/board-sheet.png)
 
 Opened directly, the page is read-only. Put it behind Tailscale Serve
 (`tailscale serve --bg --set-path /router http://127.0.0.1:7678`) to reach
-it from another device and to act: the board takes the login Serve reports,
-`/whoami` shows it, and a login listed in `serve.identities` answers,
-chooses, cancels, resolves and holds as its principals. The page works
-without JavaScript; with it, it refreshes every ten seconds and `?` lists
-the keys. The same address serves the view model as JSON (`board.json`),
-the contract `jev-router-board/1`.
+it from another device and to act: the board reads the login Serve reports
+(`/whoami` shows the headers), and a login listed in `serve.identities`
+answers, chooses, cancels, resolves and holds as its principals. The page
+works without JavaScript; with it, it refreshes every ten seconds and `?`
+lists the keys. The same address serves the page's data as JSON
+(`board.json`), the contract `jev-router-board/1`.
 
 More: [docs/board.md](docs/board.md) (what every part shows),
 [docs/board-model.md](docs/board-model.md) (the JSON).
 
 ## Routing quality
 
-Jev sees only the responsibility texts, so they decide the routing. Each
-participant's owner writes its text next to that agent's own `AGENTS.md`:
-an ownership rule, what it is not for, and a few example requests in every
-language requests arrive in; the router config copies it.
-
-Before a text, a grant or the threshold changes, judge a labeled set with
-the candidate config:
-
-```sh
-router eval --config candidate.json --set my-requests.jsonl
-```
-
-It prints, per threshold, how many requests would be dispatched, how many
-of those wrongly, and how many handed back. The rule: a change goes live
-only with no wrong dispatch at the configured threshold. The bundled set in
-`router/eval/` names this repository's own participants; write your own in
-the same shape ([docs/participants.md](docs/participants.md)). Pin
-`jev.model` once the threshold is tuned.
+Jev sees only the responsibility texts, so they decide the routing, and a
+choice is dispatched only when its probability reaches `policy.threshold`.
+Each participant's owner writes its text next to that agent's own
+`AGENTS.md`; the router config copies it. Before a text, a permission or
+the threshold changes, `router eval` judges a labeled set of requests with
+the candidate config, and the rule is that a change goes live only with no
+wrong dispatch at the configured threshold. How to write the text, the
+set's format and the procedure: [docs/participants.md](docs/participants.md).
 
 ## Limits
 
 - Events from other hosts are authenticated by one shared token, so any
   host that holds it can reply, submit, answer or choose as any participant
   session the record knows (not as a person).
-- A session is sent to only when the router has just seen it idle, with no
-  pending permission, or closed (the prompt resumes it). A turn a person
-  starts in between is the one race left; holding the session closes it.
+- A session is sent to only when the router has just seen it idle or closed
+  (not archived; the prompt resumes it), with no pending permission. A turn
+  a person starts in between is the one race left; holding the session
+  closes it.
 - The board trusts the login header Tailscale Serve sets, so anything that
   can reach its loopback port can claim a login.
-- A participant that sends work is told once per key; a notice lost to an
-  interrupted call is not repeated for a non-idempotent participant
+- A participant that sends work is told each question, hand-back and end
+  once; a notice lost to an interrupted call is not repeated when the
+  participant's adapter does not deduplicate
   ([docs/participants.md](docs/participants.md#a-participant-as-the-sender)).
 - What has and has not been exercised live is listed in the spec:
   [Verified live, and not](research/jev-router-spec.md#verified-live-and-not).
@@ -214,9 +220,9 @@ the same shape ([docs/participants.md](docs/participants.md)). Pin
 | Path                         | Contents                                                              |
 | ---------------------------- | --------------------------------------------------------------------- |
 | `router/src/`                | The router: a pure core (`core.ts`) and the shell around it           |
-| `router/config.example.json` | A complete configuration for two hosts; a test keeps it valid         |
+| `router/config.example.json` | A one-host configuration that loads as it is; a test keeps it valid   |
 | `router/client/`             | The client for hosts that do not run the router                       |
-| `router/eval/`               | The labeled request set                                               |
+| `router/eval/`               | The maintainer's labeled request set                                  |
 | `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
 | `router/jev-router.service`  | The systemd user unit for `router serve`                              |
 | `docs/`                      | Reference pages                                                       |
@@ -230,10 +236,10 @@ pnpm fmt:check
 ```
 
 CI runs these plus `node --test router-core.test.js` in `research/`, and
-fails if the run changed `package.json` or the lockfile. After changing the
-view model or the board fixture, `pnpm exec node src/board-sample.ts`
-regenerates the sample and `pnpm exec node src/board-shots.ts` the
-screenshots.
+fails if the run changed `package.json` or the lockfile. Regenerating the
+sample and the screenshots after a view-model change:
+[docs/board-model.md](docs/board-model.md#the-contract) and
+[router/design/README.md](router/design/README.md#files).
 
 ## License
 

@@ -48,9 +48,11 @@ records it.
   `session_replaced` or `unknown_send`). The sample has no `resolve` item.
 - `placements` are the placements the router serves, keyed
   `participant@host`. `delivery` is the newest open delivery pinned to the
-  current session, or `null`. A delivery is pinned at the attempt, so its
-  send's `outcome` may still be `attempting`; its `question` is `null`
-  while none is open (answered, or never asked).
+  current session, or `null`. Its `messageId` and `outcome` are those of
+  the current send: the request, or the latest answer once one was sent.
+  A delivery is pinned at the attempt, so the outcome may still be
+  `attempting`; its `question` is `null` while none is open (answered, or
+  never asked).
 - `placements[].agent` is `null` when the telemetry file has no entry for
   the placement. `status` is Paseo's (`idle`, `running`, `initializing`,
   `error`, `closed`), or the router's `missing` (the daemon does not know
@@ -75,11 +77,13 @@ records it.
   or `null`. `activity.items` is the last eight timeline entries, oldest
   first, `text` cut to its first line and 160 characters, `tool` and
   `status` set for a tool call; `activity.turns` counts the user messages
-  among those eight, not the whole timeline. `subagents` and `activity`
-  are read only for a session seen `idle` or `running`: in Paseo 0.10 a
-  timeline fetch resumes a closed session, and observing must not.
+  among those eight, not the whole timeline; the whole timeline's counts
+  and the subagents' own timelines are not held. `subagents` and
+  `activity` are read only for a session seen `idle` or `running`: in
+  Paseo 0.10 a timeline fetch resumes a closed session, and observing must
+  not.
 - `open` and `finished` are newest first; `finished` keeps the last ten.
-  `routing` is `null` once a recipient is found. `judgments[].probabilities`
+  `routing` is `null` once a recipient is found or the task has ended. `judgments[].probabilities`
   is `null` when the judgment was not `valid`. `final` is `null` while the
   task is open; `final.by` is the principal who canceled it (only the
   sender may) or `null` when the router ended it.
@@ -89,7 +93,9 @@ records it.
   a notice to its session, is unconfirmed), `held`, `not_ready` or
   `queued_behind`, with `behind` the id of the delivery at the head of the
   placement's queue for the last and `null` otherwise. `end` is `null`
-  while open.
+  while open; then its `reason` and, when recorded, `text`, `messageId`
+  and `by`: the session that replied, or the operator who resolved it. The
+  current `send` is the request, or the latest answer once one was sent.
 - `via` is the placement a participant sender submitted from, `null` for a
   person's request. `notices` are what that sender is owed or was told, by
   `key` (`question/<delivery>/<id>`, `choose/<n>` or `final`), with
