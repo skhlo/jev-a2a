@@ -1,4 +1,4 @@
-// The board page: the v0.8 design drawn from the view model and the viewer,
+// The board page: the v0.9 design drawn from the view model and the viewer,
 // a pure function of both. The tests read what a viewer or the design agent
 // reads: text, data-paths, and the forms with their fields.
 import test from "node:test";
@@ -31,6 +31,7 @@ import {
   journal,
   NOW,
   replacedJournal,
+  sampleJournal,
   viaJournal,
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
@@ -196,12 +197,12 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
   );
 });
 
-test("every data-path of the v0.8 design is rendered for the fixture or dropped with a reason", () => {
+test("every data-path of the v0.9 design is rendered for the fixture or dropped with a reason", () => {
   const lines = (name: string): string[] =>
     readFileSync(join(import.meta.dirname, "..", "design", name), "utf8")
       .split("\n")
       .filter((line) => line && !line.startsWith("#"));
-  const listed = lines("v0.8-paths.txt");
+  const listed = lines("v0.9-paths.txt");
   // The committed list is the extraction's output: distinct and sorted.
   assert.ok(listed.length > 100);
   assert.deepEqual(listed, [...new Set(listed)].sort());
@@ -210,23 +211,25 @@ test("every data-path of the v0.8 design is rendered for the fixture or dropped 
   const shape = (path: string): string => path.replaceAll(/\[\d+\]/g, "[]");
   const design = [...new Set(listed.map(shape))].sort();
   const dropped = new Map(
-    lines("v0.8-dropped.txt").map((line): [string, string] => {
+    lines("v0.9-dropped.txt").map((line): [string, string] => {
       const at = line.lastIndexOf(" | ");
       return at < 0 ? [line, ""] : [line.slice(0, at), line.slice(at + 3)];
     }),
   );
-  // The design's pages select an answer, a long working task, a choice and
-  // a resolve; render each task of the fixture, the record with the replaced
-  // session for the resolve form, and the record before T4's first reply.
+  // The design's pages select an answer, a long working task, a choice, a
+  // resolve and a task another agent sent; render each task of the fixture,
+  // the record with the replaced session for the resolve form, the record
+  // before T4's first reply, and the sample's record with T5.
   const records = [
     journal,
     replacedJournal,
     deliveredJournal,
     answeredJournal,
     attemptingJournal,
+    sampleJournal,
   ].map((entries) => model(ME, entries));
   const rendered = new Set(
-    ["T1", "T2", "T3", "T4"]
+    ["T1", "T2", "T3", "T4", "T5"]
       .flatMap((task) =>
         records.flatMap((m) => dataPaths(renderBoard(m, { task }))),
       )
@@ -235,11 +238,11 @@ test("every data-path of the v0.8 design is rendered for the fixture or dropped 
   assert.deepEqual(
     design.filter((path) => !rendered.has(path) && !dropped.has(path)),
     [],
-    "v0.8 paths neither rendered nor in design/v0.8-dropped.txt",
+    "v0.9 paths neither rendered nor in design/v0.9-dropped.txt",
   );
   for (const [path, reason] of dropped) {
     assert.ok(reason.trim(), `${path} is dropped without a reason`);
-    assert.ok(design.includes(path), `${path} is not a v0.8 path`);
+    assert.ok(design.includes(path), `${path} is not a v0.9 path`);
     assert.ok(!rendered.has(path), `${path} is rendered after all`);
   }
 });
@@ -374,7 +377,10 @@ test("forms and levers follow the viewer's principals and roles", () => {
   assert.deepEqual(answer?.inputs, ["text"]);
   assert.ok(guest.includes(">Answer T2</a>"));
   assert.ok(!guest.includes('value="resolve"'));
-  assert.ok(!guest.includes('value="hold"'));
+  // A hold says a person is typing in the session: any identified viewer
+  // may set it (v0.9); nobody identified gets no lever.
+  assert.ok(guest.includes('value="hold"'));
+  assert.ok(!page(null, { task: "T2" }).includes('value="hold"'));
   assert.match(
     guest,
     /waits on <span data-path="needsYou\[1\]\.principal">operator<\/span>/,
@@ -383,7 +389,7 @@ test("forms and levers follow the viewer's principals and roles", () => {
   assert.ok(!guestT4.includes('value="resolve"'));
   assert.ok(guestT4.includes('class="form ro"'));
 
-  // An operator: the resolve form and the hold levers.
+  // An operator: the resolve form, next to the hold levers every login has.
   const me = page(ME, { task: "T4" }, replacedJournal);
   assert.deepEqual(groups(me)["needs-you"], ["T1", "T2", "T4"]);
   const resolve = formFor(me, "resolve");
@@ -494,7 +500,11 @@ test("a login with two principals in one role gets forms for the one its posts a
     task: "T2",
   });
   assert.deepEqual(groups(teamFirst)["needs-you"], ["T1", "T2"]);
-  assert.ok(!teamFirst.includes("<form"));
+  // Only the hold levers, which any identified viewer gets.
+  assert.deepEqual(
+    formsIn(teamFirst).filter((f) => f.fields.action !== "hold"),
+    [],
+  );
   assert.match(strip(detailOf(teamFirst)), /question Q2 · waits on you/);
   const youFirst = renderBoard(modelFor(["you", "team"], roles), {
     task: "T2",
@@ -624,7 +634,7 @@ test("a delivery without a reply reads as delivered once its send was accepted, 
 test("a task a participant sent lists the notices it was told; a person's task has no such table", () => {
   const html = page(ME, { task: "T5" }, viaJournal);
   assert.equal(textOf(html, "open[0].source"), "orchestrator/M5");
-  assert.equal(textOf(html, "open[0].via"), "orchestrator@mbp");
+  assert.equal(textOf(detailOf(html), "open[0].via"), "orchestrator@mbp");
   assert.match(strip(html), /Notices to\s*orchestrator@mbp/);
   assert.equal(textOf(html, "open[0].notices[0].key"), "question/D4/Q5");
   assert.equal(textOf(html, "open[0].notices[0].kind"), "question");
@@ -649,18 +659,58 @@ test("a task a participant sent lists the notices it was told; a person's task h
   ]);
   assert.equal(textOf(moved, "open[0].notices[0].outcome"), "withdrawn");
   // A notice is listed from the moment it is owed, before any attempt;
-  // with nothing owed yet the table is a hint. A person's task has none.
+  // with nothing owed yet there is no table, as in the design. A person's
+  // task has none either.
   const owed = page(ME, { task: "T5" }, viaJournal.slice(0, -2));
   assert.equal(textOf(owed, "open[0].notices[0].outcome"), "pending");
   assert.equal(textOf(owed, "open[0].notices[0].session"), "—");
   const quiet = page(ME, { task: "T5" }, viaJournal.slice(0, -3));
-  assert.match(
-    strip(quiet),
-    /Notices to\s*orchestrator@mbp\s*Nothing told yet\./,
-  );
+  assert.ok(!quiet.includes("Notices to"));
+  assert.equal(textOf(detailOf(quiet), "open[0].via"), "orchestrator@mbp");
   const person = page(ME, { task: "T2" });
   assert.ok(!person.includes("Notices to"));
   assert.ok(!person.includes('data-path="open[1].via"'));
+});
+
+test("v0.9: via in the head, from <via> on an open row, the notices table after the deliveries, withdrawn muted", () => {
+  // The sample's T5 is finished: the head names the sender's placement, the
+  // notices table follows the deliveries with the design's columns, and a
+  // withdrawn outcome carries its class.
+  const done = page(ME, { task: "T5" }, sampleJournal);
+  const head = done.match(/<div class="meta">([^]*?)<\/div>/)?.[1] ?? "";
+  assert.match(
+    strip(head),
+    /from orchestrator\/M5 via orchestrator@mbp at 09:44Z/,
+  );
+  const facts = strip(done.slice(done.indexOf('<div class="facts">')));
+  assert.match(
+    facts,
+    /Deliveries[^]*Notices to\s*orchestrator@mbp\s*Notice\s*Kind\s*Session\s*Outcome[^]*Jev/,
+  );
+  assert.ok(
+    done.includes(
+      '<span class="outcome withdrawn" data-path="finished[0].notices[0].outcome">withdrawn</span>',
+    ),
+  );
+  assert.ok(
+    done.includes(
+      '<span class="outcome accepted" data-path="finished[0].notices[1].outcome">accepted</span>',
+    ),
+  );
+  // Finished: no "from" on its row.
+  assert.ok(!done.includes('data-path="finished[0].via">from'));
+  // Open: the row says from <via> before the recipient. The design spares
+  // the sender its own placement, but a person is never a participant (a
+  // principal may not share a participant's id), so every viewer sees it.
+  const open = page(ME, {}, viaJournal);
+  assert.ok(
+    open.includes(
+      '<span class="to" data-path="open[0].via">from orchestrator@mbp</span><span class="to" data-path="open[0].recipient">incus</span>',
+    ),
+  );
+  assert.ok(
+    page(null, {}, viaJournal).includes('data-path="open[0].via">from'),
+  );
 });
 
 test("an answered question reads as working on the card and as the answer in the row", () => {
