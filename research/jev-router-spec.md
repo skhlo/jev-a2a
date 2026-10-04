@@ -86,7 +86,8 @@ and the design does not try to route it.
 
 The core is a functional core: the shell authenticates callers, calls Jev and
 adapters, and feeds their results back as events. `commands(state)` tells the
-shell what to do next (`judge` or `deliver`); the core performs no I/O.
+shell what to do next (`judge`, `deliver` or `notify`); the core performs no
+I/O.
 `initial(config)` validates the configuration and refuses an invalid one.
 
 ## Configuration
@@ -135,17 +136,19 @@ Events (`reduce(state, event) → state`, with `state.last` = `{ ok, code?, mess
 
 | Event                                                                | Who                                          | Effect                                                                                                                                                                                                                                                                          |
 | -------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `submit { by, messageId, text, to?, hosts?, via? }`                  | a requester or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev; without it, a sender permitted to address nobody is refused.                                                                         |
+| `submit { by, messageId, text, to?, hosts? }`                        | a requester or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev; without it, a sender permitted to address nobody is refused. A participant sender's task records `via`, the placement it sent from. |
 | `judged { taskId, choice, probabilities, model }` / `judgeFailed`    | shell, after Jev                             | One judgment per request. Selects the recipient, or asks the sender (`no_owner`, `low_confidence`, `invalid_judgment`, `routing_unavailable`) with the permitted participants ranked in Jev's order as suggestions.                                                             |
-| `choose { by, taskId, to }`                                          | original sender                              | Resolves a pending recipient choice once.                                                                                                                                                                                                                                       |
+| `choose { by, taskId, to }`                                          | original sender, from a current session      | Resolves a pending recipient choice once. A replaced session may not choose, as it may not submit.                                                                                                                                                                              |
 | `attempt { deliveryId }`                                             | shell                                        | Commits `attempting`, pins the session and marks it busy **before** the adapter call. Rejected unless eligible.                                                                                                                                                                 |
 | `adapterResult { deliveryId, messageId, outcome }`                   | shell                                        | `accepted`, `unknown`, or `not_sent`. `not_sent` re-queues; the request may move to another session only if no earlier attempt on this one could have arrived. `unknown` is retried with the same key only for a deduplicating adapter. Applies only to an attempt in progress. |
 | `update { by, taskId, messageId, inReplyTo, kind, text }`            | pinned session                               | `working`, `question`, `completed`, `failed`. Proves receipt. `working` after a question settles the question. A reply to the message before an unsent queued answer withdraws that answer. Other replies to earlier messages are kept as history only.                         |
-| `answer { by, taskId, messageId, questionId, text }`                 | original sender                              | Consumes the open question and queues the answer to the same session. Rejected once the question was settled in the session.                                                                                                                                                    |
+| `answer { by, taskId, messageId, questionId, deliveryId?, text }`    | original sender                              | Consumes the open question and queues the answer to the same session. Rejected once the question was settled in the session, and as `ambiguous` when two deliveries ask under the same id and none is named.                                                                   |
 | `cancel { by, taskId }`                                              | original sender                              | Only while nothing may have reached the participant.                                                                                                                                                                                                                            |
 | `resolve { by: operator, deliveryId, messageId, outcome, evidence }` | operator                                     | Closes an open pinned delivery as `finished` or `not_sent`. Never resends.                                                                                                                                                                                                      |
+| `noticeAttempt { taskId, key, text }`                                | shell                                        | Like `attempt`, for a notice to a participant sender (below): recorded `attempting` with the sender's session before the adapter call; rejected unless the notice is due and eligible; a repeat must carry the first text.                                                      |
+| `noticeResult { taskId, key, outcome }`                              | shell                                        | Like `adapterResult`: `accepted`, `unknown`, or `not_sent` (pending again). Applies only to an attempt in progress.                                                                                                                                                             |
 | `observe { placement, ready?, hold?, session? }`                     | shell's presence refresh; a person's hold    | Readiness, hold and session replacement. A new session is not ready until an observation says so; a hold stays until released.                                                                                                                                                  |
-| `restart` / `tick { now }`                                           | router                                       | Interrupted attempts become `unknown`; deadlines fire.                                                                                                                                                                                                                          |
+| `restart` / `tick { now }`                                           | router                                       | Interrupted attempts, of sends and of notices, become `unknown`; deadlines fire.                                                                                                                                                                                                |
 | `configured { config }`                                              | router                                       | The configuration in force from here on; invalid ones are refused. Recorded first and on every change, so replay uses the rules of the time.                                                                                                                                    |
 
 Queries: `commands(state)` is the shell's work list; `needsYou(state,
@@ -161,8 +164,28 @@ checks that every item's event succeeds.
 A delivery is **eligible** when its task is open; its current message is
 pending, or unknown with a deduplicating adapter; it is unpinned or pinned to
 the placement's current session; no other send to the placement is unconfirmed
-(`attempting` or `unknown`); the placement is not held and is ready; and, if
-unpinned, no older unpinned delivery waits for the same placement.
+(`attempting` or `unknown`) and no notice to its session is `attempting`; the
+placement is not held and is ready; and, if unpinned, no older unpinned
+delivery waits for the same placement.
+
+### Notices to a participant sender
+
+A task whose sender is a participant session hears back at `via`, the
+placement it sent from, through the same adapter and gate as a delivery. What
+is **due** is derived from the record, keyed so each is told once: an open
+question on a live delivery (`question/<delivery>/<id>`: two deliveries of one
+fan-out may ask under the same message id), a hand-back to choose while it
+stands (`choose/<judgment count>`), and the end (`final`). A notice is
+**eligible** when it is due and not yet accepted; not `attempting`, and not
+`unknown` unless the sender's adapter deduplicates (recorded on the notice
+when it falls due) and the session that may have it is still the
+placement's; and the sender's placement is not busy by the delivery rule
+above. A question or choice that stops standing before it was accepted
+is `withdrawn` with a log line and never told late (a notice is recorded as
+`pending` the moment it is due, so one never attempted is withdrawn too);
+`final` is never withdrawn. An `unknown` notice does not hold its session: nothing waits on it
+and there is no reconciliation for it, so a non-deduplicating sender is
+simply not told again and finds the item in `needsYou` and `status`.
 
 ### Rules and why
 
@@ -202,17 +225,19 @@ the task.
 
 ## Invariants
 
-Checked by the oracle in `router-core.test.js` after every event of every test,
-including 400 random sequences of 90 events each, half with a non-deduplicating
-participant. The oracle derives eligibility, in-flight, status, judgment
+Checked by the oracle in `router/src/core.test.ts` (the prototype's
+`router-core.test.js` keeps the pre-notice subset) after every event of every
+test, including 400 random sequences of 120 events each, half with a
+non-deduplicating participant. The oracle derives eligibility, in-flight, status, judgment
 validity, the verdict and the needs-you lists itself rather than calling the
 core. That catches a core rule that drifts from the spec, not an oracle that
 restates the core's mistake: the review of this redo found the verdict oracle
 had copied the core's formula and passed a timed-out task with no deliveries
 as `completed`, so the verdict check is now stated by cases. A coverage guard
 requires every status, every accepted event type, both kinds of resend, every
-rejection code and blocking reason, a held pinned send, a withdrawn answer and
-every kind of "needs you" item to occur, so the run cannot pass vacuously.
+rejection code and blocking reason, a held pinned send, a withdrawn answer, a
+told, a withdrawn and a repeated notice and every kind of "needs you" item to
+occur, so the run cannot pass vacuously.
 
 1. One task per `source/messageId`; receipts never change.
 2. At most one unconfirmed send per placement.
@@ -223,7 +248,8 @@ every kind of "needs you" item to occur, so the run cannot pass vacuously.
 7. Terminal states, recipients, closed deliveries and send histories never change.
 8. A delivery that may have reached a session stays pinned to it; the pin is released only when every attempt on it was definitely `not_sent`.
 9. A rejected event changes nothing but the log.
-10. Canceled tasks never had a possibly-delivered attempt; terminal tasks have no sendable work.
+10. Canceled tasks never had a possibly-delivered attempt; terminal tasks have no sendable work (a final notice is not work: it goes to the sender, not to a participant).
+11. Only a task with `via` has notices; each key once; an `attempting` notice went to the sender's own session and is the only thing in flight there; a notice is repeated under the rule of 3 by its recorded deduplication; a notice no longer due is never left `pending` or `unknown`.
 
 Mutation checks are run by hand while a rule is added and are not kept in the
 repository, so the record here is a description, not a count. Guards broken
@@ -328,11 +354,14 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
    wrong ones, at the top of a plateau and with a margin of about 0.2 over
    the worst wrong choice seen. Re-run when the roster or a text changes,
    and before moving the pin.
-2. Authentication of participant replies: a local reply is trusted on
-   `PASEO_AGENT_ID`; a reply over HTTP is trusted on the shared
-   `ROUTER_TOKEN`, so any holder of the token can reply as any participant.
-   Board actions are authenticated by Tailscale identity and
-   are not affected.
+2. Authentication of participant events: a local reply is trusted on
+   `PASEO_AGENT_ID`; over HTTP, a reply, answer, request or choice is
+   trusted on the shared `ROUTER_TOKEN`, so any holder of the token can act
+   as any participant session. `serve` refuses a `by` that is not a session
+   the record knows, and a replaced session's request or choice; a replaced
+   session's reply still reaches the core, which knows whether it holds the
+   delivery. Board actions are authenticated by Tailscale identity and are
+   not affected.
 3. Raising a hold from where the person is typing: today a hold is set by
    hand, from the CLI or the board. Detecting that the person has taken
    over a session is not built.
@@ -363,9 +392,11 @@ recovery with the same key and one prompt in the agent's transcript;
 questions and answers pinned to a session; Jev dispatch, abstention and
 low-confidence hand-back with latency of 250 to 300 ms; the board and its
 actions over the tailnet. Not exercised live: a host that is down for a
-whole run, token rotation, `resolve` from the board, throughput. Not built:
-a participant on another host submitting work; the reply client only
-replies.
+whole run, token rotation, `resolve` from the board, throughput. Built
+2026-10-04 and not yet run live: a participant session submits, chooses and
+answers through the client, and is told questions, hand-backs and the end
+as notices at the placement it sent from (`via`), once per key, through the
+same adapter and idle gate as a send.
 
 ## Example deployment
 

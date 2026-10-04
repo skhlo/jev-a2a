@@ -46,22 +46,47 @@ participant that runs on several hosts.
 
 ## Commands
 
-| Command                                            | What it does                                                   |
-| -------------------------------------------------- | -------------------------------------------------------------- |
-| `router submit [--to P [--hosts a,b]] <text>`      | Record a request and deliver it                                |
-| `router status [<task>]`                           | Show the record                                                |
-| `router needs-you`                                 | List decisions waiting on a person                             |
-| `router choose --task T --to P`                    | Name the recipient when the router handed the choice back      |
-| `router answer --task T --question Q --text ...`   | Answer a question an agent asked                               |
-| `router reply --task T --in-reply-to M --kind ...` | An agent's reply: `working`, `question`, `completed`, `failed` |
-| `router run`                                       | Observe the sessions and deliver what is eligible              |
-| `router serve`                                     | Accept replies from other hosts over HTTP; serve the board     |
-| `router eval`                                      | Judge a labeled request set with the configured texts          |
-| `router cancel <task>`                             | Cancel a task                                                  |
+| Command                                                         | What it does                                                   |
+| --------------------------------------------------------------- | -------------------------------------------------------------- |
+| `router submit [--to P [--hosts a,b]] <text>`                   | Record a request and deliver it                                |
+| `router status [<task>]`                                        | Show the record                                                |
+| `router needs-you`                                              | List decisions waiting on a person                             |
+| `router choose --task T --to P`                                 | Name the recipient when the router handed the choice back      |
+| `router answer --task T --question Q [--delivery D] --text ...` | Answer a question an agent asked                               |
+| `router reply --task T --in-reply-to M --kind ...`              | An agent's reply: `working`, `question`, `completed`, `failed` |
+| `router run`                                                    | Observe the sessions and deliver what is eligible              |
+| `router serve`                                                  | Accept events from other hosts over HTTP; serve the board      |
+| `router eval`                                                   | Judge a labeled request set with the configured texts          |
+| `router cancel <task>`                                          | Cancel a task                                                  |
 
-`reply` and `answer` also take `--text-file <path>` in place of `--text`, for
-text that a shell cannot quote in one argument. `router` with no arguments
-prints the full usage.
+`reply`, `answer` and `submit` also take `--text-file <path>` in place of
+`--text`, for text that a shell cannot quote in one argument. `router` with
+no arguments prints the full usage.
+
+### A participant as the sender
+
+An agent's session may submit work too, with the same `submit`, `choose` and
+`answer` commands, as far as `permissions` lets its participant address
+others. On another host the client acts as the session `$PASEO_AGENT_ID`;
+on the router host the CLI acts as a person unless told `--as <session>`,
+since an agent there also submits on a person's behalf. The
+router then tells the sender what a person would read on the board, at the
+placement it sent from and only when that session is idle, like any
+delivery: the recipient's question, with the `answer` command that settles
+it; the choice when Jev handed the request back, with the `choose` command;
+and the final word, which needs no reply. Each is told once per key, through
+the same adapter and with the same record of attempting, accepted and
+unknown, so a restart or a dropped call is retried under the same rules as
+a send. `router status T` lists them, and the board's task detail shows
+them under "Notices to".
+
+```sh
+# As the design agent on mba:
+router submit --to orchestrator "The board's log panel clips its last line at 1280 wide."
+# The design agent's session hears back, for example:
+# [router T41 question/D7/R2] orchestrator asks about your request. Answer with:
+#   router answer --as <session> --task T41 --delivery D7 --question R2 --text "<answer>" ...
+```
 
 ## The board
 
@@ -226,10 +251,19 @@ committed sample matches.
     the operator who resolved it), and `waits`: why the send has not gone
     out, or `null` when nothing holds it back (it has gone, it ended, or
     it goes on the router's next run). `reason` is `session_replaced`,
-    `in_flight` (another send to the placement is unconfirmed), `held`,
+    `in_flight` (another send to the placement, or a notice to its
+    session, is unconfirmed), `held`,
     `not_ready` or `queued_behind`; for `queued_behind`, `behind` is the
     id of the delivery at the head of the placement's queue, the one that
     goes next, and otherwise `null`.
+  - `via`: the placement a participant sender submitted from, where it is
+    told about its request; `null` for a person's request.
+  - `notices`: what that sender is owed or was told, each with its `key`
+    (`question/<delivery>/<id>`, `choose/<n>` or `final`), `kind`, the
+    `session` it went to (`null` before an attempt) and its `outcome`
+    (`pending`, `attempting`, `accepted`, `unknown` or `withdrawn`). Empty
+    for a person's request. The sample has none; the fixture `viaJournal`
+    in `router/src/board-fixture.ts` shows one.
   - `log`: the task's own log lines, as `router status <task>` shows them.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its
@@ -277,26 +311,28 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
 - **Secrets:** copy `router/secrets.env.example` to
   `~/.config/jev-router/secrets.env`, mode 600. The router host needs
   `TYPESAFE_API_KEY`, and `ROUTER_TOKEN` for `router serve`: a secret you
-  choose, which reply hosts present.
+  choose, which the other hosts' clients present.
 - **Reachable address:** `serve.listen` defaults to `127.0.0.1:7677`. Set it
   to an address the other hosts can reach, such as the host's tailnet
-  address, if agents on other hosts reply.
+  address, if participants on other hosts take part.
 - **Record:** the journal lives in `~/.local/state/jev-router/`, or wherever
   `home` in the config points.
 - **Service:** `router/jev-router.service` runs `router serve` as a systemd
   user service; the install steps are at the top of that file. Its `PATH`
   line assumes Node comes from mise or `/usr/bin`; edit it otherwise.
 
-On a host that only replies, install `router/client/router.mjs` as `router` on
-the PATH. In the same secrets file give it `ROUTER_URL`, the router host's
-`serve.listen` address as an `http://` URL, and the same `ROUTER_TOKEN`.
+On a host that does not run the router, install `router/client/router.mjs`
+as `router` on the PATH. It carries `reply`, `submit`, `answer` and `choose`,
+each acting as the session `$PASEO_AGENT_ID`. In the same secrets file give
+it `ROUTER_URL`, the router host's `serve.listen` address as an `http://`
+URL, and the same `ROUTER_TOKEN`.
 
 ## Repository layout
 
 | Path                          | Contents                                                        |
 | ----------------------------- | --------------------------------------------------------------- |
 | `router/src/`                 | The router: a pure core (`core.ts`) and the shell around it     |
-| `router/client/`              | The reply client for hosts that do not run the router           |
+| `router/client/`              | The client for hosts that do not run the router                 |
 | `router/eval/`                | The labeled request set                                         |
 | `router/design/`              | The board design's data-paths, and the ones the page drops      |
 | `research/jev-router-spec.md` | The design and the contract. Start here for the reasoning       |
@@ -316,15 +352,25 @@ fails if the run changed `package.json` or the lockfile.
 
 ## Limits
 
-- Replies from other hosts are authenticated by one shared token, so any host
-  that holds it can reply as any participant.
+- Events from other hosts are authenticated by one shared token, so any host
+  that holds it can reply, submit, answer or choose as any participant
+  session the record knows (not as a person, and a replaced session may
+  only reply or answer).
 - A session is only sent to when the router has just seen it idle. A turn a
   person starts in between is the one race left; holding the session closes
   it.
 - The board trusts the login header Tailscale Serve sets, so anything that
   can reach its loopback port can claim a login.
-- A participant on another host cannot submit work: the reply client only
-  replies.
+- A participant sender is told once per key. A notice whose adapter call
+  was interrupted or whose host was unreachable is marked unknown and is
+  not repeated when the participant's adapter does not deduplicate, or when
+  its session was replaced since; there is no operator form for it. On the
+  router host the sender still finds the item with
+  `router needs-you --as <participant>` and `router status`; the client on
+  another host has no query command, so a person relays it. Mark a Paseo
+  participant `idempotent: true`, as its sends are keyed.
+- When two deliveries of one request ask under the same message id, an
+  answer must name its delivery (`--delivery`); the notices do.
 - Not exercised live: a host that is down for a whole run, token rotation,
   and throughput. The spec keeps the full list.
 

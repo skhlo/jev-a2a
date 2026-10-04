@@ -31,6 +31,7 @@ import {
   journal,
   NOW,
   replacedJournal,
+  viaJournal,
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
 import type { Entry } from "./journal.ts";
@@ -367,6 +368,7 @@ test("forms and levers follow the viewer's principals and roles", () => {
   assert.deepEqual(answer?.fields, {
     action: "answer",
     task: "T2",
+    delivery: "D1",
     question: "Q2",
   });
   assert.deepEqual(answer?.inputs, ["text"]);
@@ -500,6 +502,7 @@ test("a login with two principals in one role gets forms for the one its posts a
   assert.deepEqual(formFor(youFirst, "answer")?.fields, {
     action: "answer",
     task: "T2",
+    delivery: "D1",
     question: "Q2",
   });
   assert.ok(formFor(youFirst, "cancel"));
@@ -616,6 +619,48 @@ test("a delivery without a reply reads as delivered once its send was accepted, 
     strip(renderBoard(unlisted)),
     /environment@mbp\s*attempting on T5 · Rebuild/,
   );
+});
+
+test("a task a participant sent lists the notices it was told; a person's task has no such table", () => {
+  const html = page(ME, { task: "T5" }, viaJournal);
+  assert.equal(textOf(html, "open[0].source"), "orchestrator/M5");
+  assert.equal(textOf(html, "open[0].via"), "orchestrator@mbp");
+  assert.match(strip(html), /Notices to\s*orchestrator@mbp/);
+  assert.equal(textOf(html, "open[0].notices[0].key"), "question/D4/Q5");
+  assert.equal(textOf(html, "open[0].notices[0].kind"), "question");
+  assert.equal(textOf(html, "open[0].notices[0].session"), "A1");
+  assert.equal(textOf(html, "open[0].notices[0].outcome"), "accepted");
+  // The requester is not asked to answer the sender's question.
+  assert.ok(!html.includes('name="questionId" value="Q5"'));
+  // A notice that stopped standing before it was told reads as withdrawn.
+  const at = viaJournal.at(-1)?.at ?? AT;
+  const moved = page(ME, { task: "T5" }, [
+    ...viaJournal.slice(0, -1),
+    {
+      at,
+      event: {
+        type: "noticeResult",
+        taskId: "T5",
+        key: "question/D4/Q5",
+        outcome: "not_sent",
+      },
+    },
+    { at, event: { type: "observe", placement: "incus@lab01", session: "L2" } },
+  ]);
+  assert.equal(textOf(moved, "open[0].notices[0].outcome"), "withdrawn");
+  // A notice is listed from the moment it is owed, before any attempt;
+  // with nothing owed yet the table is a hint. A person's task has none.
+  const owed = page(ME, { task: "T5" }, viaJournal.slice(0, -2));
+  assert.equal(textOf(owed, "open[0].notices[0].outcome"), "pending");
+  assert.equal(textOf(owed, "open[0].notices[0].session"), "—");
+  const quiet = page(ME, { task: "T5" }, viaJournal.slice(0, -3));
+  assert.match(
+    strip(quiet),
+    /Notices to\s*orchestrator@mbp\s*Nothing told yet\./,
+  );
+  const person = page(ME, { task: "T2" });
+  assert.ok(!person.includes("Notices to"));
+  assert.ok(!person.includes('data-path="open[1].via"'));
 });
 
 test("an answered question reads as working on the card and as the answer in the row", () => {

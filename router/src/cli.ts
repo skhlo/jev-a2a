@@ -11,10 +11,12 @@ import {
   currentSend,
   findTask,
   needsYou,
+  noticeWaits,
   responsibilityTexts,
 } from "./core.ts";
 import { describeNeed, newMessageId, taskLog } from "./board.ts";
 import {
+  sessionReader,
   bind,
   BindError,
   boardListener,
@@ -37,24 +39,27 @@ import type { Event, Role, State, Task } from "./types.ts";
 
 const USAGE = `router: a prompt with an envelope and a record
 
-  router submit [--to <participant>] [--hosts a,b] [--message <id>] [--as <principal>] <text...>
+  router submit [--to <participant>] [--hosts a,b] [--message <id>] [--as <principal>] (<text...> | --text-file <path>)
                                                without --to, Jev picks the recipient
-  router choose --task <T> --to <participant>  answer a needs_recipient
+  router choose --task <T> --to <participant> [--as <principal>]
+                                               answer a needs_recipient
   router run                                   observe placements, deliver what is eligible
-  router serve                                 accept replies from other hosts over HTTP; serve the board
+  router serve                                 accept events from other hosts over HTTP; serve the board
   router eval [--set <file>] [--model <id>] [--as <principal>]
                                                judge the labeled set with this config's texts; nothing recorded
   router status [<task>]                       the record
-  router needs-you [--as <principal>]          decisions waiting on a person
+  router needs-you [--as <principal|participant>]
+                                               decisions waiting on a person, or owed to a participant sender
   router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ... | --text-file <path>] [--message <id>]
-  router answer --task <T> --question <Q> (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
+  router answer --task <T> --question <Q> [--delivery <D>] (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
   router observe <participant@host> --hold | --release
   router resolve --delivery <D> --message <M> --outcome finished|not_sent --evidence ... [--as <operator>]
   router cancel <task> [--as <principal>]
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
 A participant's reply is authenticated by $PASEO_AGENT_ID (never --as); over
-HTTP, by $ROUTER_TOKEN from secrets.env.`;
+HTTP, by $ROUTER_TOKEN from secrets.env. A participant session on this host
+submits, chooses and answers with --as <its session id>.`;
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -153,7 +158,7 @@ if (command === "serve") {
   process.exit(exitCode);
 }
 
-// `router serve`: replies and answers from other hosts, and the board. Each
+// `router serve`: events from participants on other hosts, and the board. Each
 // event is one shell run, and runs are handled one at a time so the journal
 // lock is never contended from inside the server.
 async function serve(config: RouterConfig): Promise<void> {
@@ -174,7 +179,12 @@ async function serve(config: RouterConfig): Promise<void> {
     queue = run.catch(() => undefined);
     return run;
   };
-  const deps = { config, handle, log: (line: string) => console.log(line) };
+  const deps = {
+    config,
+    handle,
+    sessionOf: sessionReader(config),
+    log: (line: string) => console.log(line),
+  };
   const events = createServer(eventsListener(deps, token));
   const board = createServer(boardListener(deps));
   // A permanent failure exits 2 and the service unit does not restart it; an
@@ -240,7 +250,12 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
 
   switch (command) {
     case "submit": {
-      const text = rest.join(" ").trim();
+      // The text is the remaining words or a file, not both.
+      if (values["text-file"] !== undefined && rest.length)
+        fail("Pass the text as words or with --text-file, not both.");
+      const text = (
+        values["text-file"] === undefined ? rest.join(" ") : textArg()
+      ).trim();
       if (!text) fail("Give the request text after the options.");
       const event: Event = {
         type: "submit",
@@ -289,6 +304,7 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
         taskId: need("task"),
         messageId: values.message ?? newMessageId(),
         questionId: need("question"),
+        deliveryId: values.delivery ?? null,
         text: textArg() || fail("An answer needs text that is not empty."),
       });
     case "observe": {
@@ -366,6 +382,15 @@ function describe(task: Task, state: State): string[] {
       lines.push(`    question ${d.question.id}: ${d.question.text}`);
     for (const u of d.updates)
       lines.push(`    ${u.kind} ${u.messageId} ↩ ${u.inReplyTo}: ${u.text}`);
+  }
+  // What a participant sender was told, and what it is still owed.
+  if (task.via !== null) {
+    for (const n of task.notices)
+      lines.push(
+        `  notice ${n.key} → ${task.via} · session ${n.session ?? "none"} · ${n.outcome}`,
+      );
+    for (const { key, why } of noticeWaits(state, task))
+      lines.push(`  notice ${key} waits: ${why.replaceAll("_", " ")}`);
   }
   for (const entry of taskLog(state.log, task.id))
     lines.push(`  ${entry.n}. ${entry.actor}: ${entry.text}`);

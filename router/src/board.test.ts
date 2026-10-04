@@ -22,6 +22,7 @@ import {
   extend,
   journal,
   NOW,
+  viaJournal,
 } from "./board-fixture.ts";
 import { boardSample, SAMPLE_PATH } from "./board-sample.ts";
 import { readJournal, type Entry } from "./journal.ts";
@@ -73,7 +74,7 @@ test("the model lists what waits on a person and the open and finished tasks", (
   assert.ok(you);
   assert.deepEqual(you.items.map(describeNeed), [
     "T1: choose a recipient (low_confidence; suggested orchestrator, knowledge, environment, incus)",
-    'T2: answer Q2 "Force push?"',
+    'T2: answer Q2 on D1 "Force push?"',
   ]);
   assert.deepEqual(
     model.needsYou.find((n) => n.principal === "operator")?.items,
@@ -248,6 +249,31 @@ test("a placement's delivery tells an open question from an answered one", () =>
     },
   );
   assert.equal(model.needsYou.flatMap((g) => g.items).length, 1);
+});
+
+test("a task a participant sent names the placement it hears back at and what it was told", () => {
+  const m = boardModel(
+    boardState(config, viaJournal, NOW),
+    config,
+    NOW,
+    messageTimes(viaJournal),
+  );
+  const t5 = m.open.find((t) => t.id === "T5");
+  assert.equal(t5?.source, "orchestrator/M5");
+  assert.equal(t5?.via, "orchestrator@mbp");
+  assert.deepEqual(t5?.notices, [
+    {
+      key: "question/D4/Q5",
+      kind: "question",
+      session: "A1",
+      outcome: "accepted",
+    },
+  ]);
+  // A person's requests carry neither.
+  for (const t of m.open.filter((t) => t.id !== "T5"))
+    assert.deepEqual([t.via, t.notices], [null, []], t.id);
+  // The sender's open question is its own to answer, not the requester's.
+  assert.ok(!m.needsYou.flatMap((g) => g.items).some((i) => i.taskId === "T5"));
 });
 
 test("a placement shows its newest open delivery, even for an older task", () => {
@@ -451,6 +477,7 @@ test("actionEvent: each form becomes its event, signed by the principal the role
   if (answer.ok && answer.event.type === "answer") {
     assert.equal(answer.event.text, "main please");
     assert.equal(answer.event.by, "you");
+    assert.equal(answer.event.deliveryId, null);
     assert.match(answer.event.messageId, /^m-/);
   }
   assert.deepEqual(of("action=cancel&task=T1"), {

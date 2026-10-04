@@ -626,7 +626,12 @@ ${model.placements
     const open = `<a class="btn sm ghost" href="${href(item.taskId)}">Open task</a>`;
     const reply = it.act
       ? form(
-          { action: "answer", task: item.taskId, question: item.questionId },
+          {
+            action: "answer",
+            task: item.taskId,
+            delivery: item.deliveryId,
+            question: item.questionId,
+          },
           `<textarea name="text" required placeholder="Reply here without opening the task" aria-label="Your answer to ${esc(item.taskId)}"></textarea>
         <div class="row"><span class="hint"><kbd class="k">↵</kbd> send · <kbd class="k">→</kbd> open task · <kbd class="k">esc</kbd> close</span><span class="spacer"></span>${open}<button class="btn sm accent">Send</button></div>`,
         )
@@ -792,7 +797,12 @@ ${group(
         const to = `Answer <b>${esc(d?.placement ?? t?.recipient ?? DASH)}</b> on ${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}, question ${slot(`${it.path}.questionId`, esc(item.questionId), "mono")}${as}`;
         if (!it.act) return readOnly(to);
         return `  ${form(
-          { action: "answer", task: item.taskId, question: item.questionId },
+          {
+            action: "answer",
+            task: item.taskId,
+            delivery: item.deliveryId,
+            question: item.questionId,
+          },
           `
     <div class="to">${to}</div>
     <textarea name="text" required placeholder="Your answer reaches the session as its next turn" aria-label="Your answer to ${esc(item.taskId)}"></textarea>
@@ -912,6 +922,11 @@ ${forms}
         : DASH;
       return `<tr data-path="${dp}"><td>${slot(`${dp}.id`, esc(d.id), "mono")}</td><td>${slot(`${dp}.placement`, esc(d.placement), "mono")}</td><td>${slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.messageId)} · ${esc(d.send.outcome)}`, "mono")}</td><td>${state}</td><td>${last}</td><td>${slot(`${dp}.session`, d.session ? esc(shortId(d.session)) : DASH, "mono", "span", d.session ? fullId(d.session) : "")}</td></tr>`;
     });
+    // What a participant sender was told at the placement it sent from.
+    const notices = t.notices.map((n, ni) => {
+      const np = `${path}.notices[${ni}]`;
+      return `<tr data-path="${np}"><td>${slot(`${np}.key`, esc(n.key), "mono")}</td><td>${slot(`${np}.kind`, esc(n.kind))}</td><td>${slot(`${np}.session`, n.session ? esc(shortId(n.session)) : DASH, "mono", "span", n.session ? fullId(n.session) : "")}</td><td>${slot(`${np}.outcome`, esc(n.outcome))}</td></tr>`;
+    });
     const judgments = t.judgments.map((j, ji) => {
       const jp = `${path}.judgments[${ji}]`;
       const table =
@@ -945,6 +960,12 @@ ${
     ? `    <div><h3 class="kicker">Deliveries</h3>
       <table><tr><th>Delivery</th><th>Placement</th><th>Send</th><th>State</th><th>Last reply</th><th>Session</th></tr>${deliveries.join("")}</table></div>`
     : `    <div class="hint" data-path="${path}.deliveries">No delivery yet.</div>`
+}
+${
+  t.via === null
+    ? ""
+    : `    <div><h3 class="kicker">Notices to ${slot(`${path}.via`, esc(t.via), "mono")}</h3>
+      ${notices.length ? `<table><tr><th>Notice</th><th>Kind</th><th>Session</th><th>State</th></tr>${notices.join("")}</table>` : `<div class="hint" data-path="${path}.notices">Nothing told yet.</div>`}</div>`
 }
 ${
   judgments.length

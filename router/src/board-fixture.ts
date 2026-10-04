@@ -283,3 +283,45 @@ export const replacedJournal = extend({
   placement: "knowledge@mini",
   session: "K2",
 });
+
+// The record with a fifth task the orchestrator's session sent to incus
+// (its delivery is D4: T1 had none yet): incus asked a question and the
+// sender was told it at orchestrator@mbp, where it hears back.
+export const viaJournal = extend(
+  {
+    type: "submit",
+    by: "A1",
+    messageId: "M5",
+    text: "Start a scratch VM for the router's tests.",
+    to: "incus",
+  },
+  { type: "observe", placement: "incus@lab01", session: "L1", ready: true },
+  { type: "attempt", deliveryId: "D4" },
+  {
+    type: "adapterResult",
+    deliveryId: "D4",
+    messageId: "M5",
+    outcome: "accepted",
+  },
+  {
+    type: "update",
+    by: "L1",
+    taskId: "T5",
+    messageId: "Q5",
+    inReplyTo: "M5",
+    kind: "question",
+    text: "Which image?",
+  },
+  {
+    type: "noticeAttempt",
+    taskId: "T5",
+    key: "question/D4/Q5",
+    text: "[router T5 question/D4/Q5] incus asks about your request.",
+  },
+  {
+    type: "noticeResult",
+    taskId: "T5",
+    key: "question/D4/Q5",
+    outcome: "accepted",
+  },
+);

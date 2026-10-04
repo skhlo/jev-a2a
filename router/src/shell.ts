@@ -8,8 +8,10 @@ import {
   commands,
   currentSend,
   findDelivery,
+  findNotice,
   findTask,
   initial,
+  noticeWaits,
   reduce,
   validateConfig,
 } from "./core.ts";
@@ -22,8 +24,10 @@ import type {
   Config,
   Event,
   JudgmentQuestion,
+  NoticeDue,
   Outcome,
   State,
+  Task,
 } from "./types.ts";
 
 export type Shell = {
@@ -146,11 +150,13 @@ export async function openShell(
     state = recorded;
   }
 
-  // A send left "attempting" means the previous run died mid-send.
+  // A send or a notice left "attempting" means the previous run died
+  // mid-send.
   if (
     allDeliveries(state).some((d) =>
       d.sends.some((s) => s.outcome === "attempting"),
-    )
+    ) ||
+    state.tasks.some((t) => t.notices.some((n) => n.outcome === "attempting"))
   )
     apply({ type: "restart" });
   apply({ type: "tick", now: now() });
@@ -205,6 +211,95 @@ export async function openShell(
         ? `[router ${taskId} ${send.messageId}] Answer to your question. When done, run: ${reply}`
         : `[router ${taskId} ${send.messageId}] Task from the router. When done, run: ${reply}`;
     return `${head} (use --kind question to ask the sender something, --kind working for progress, --kind failed if you cannot do it).\n\n${send.text}`;
+  }
+
+  // What a participant sender is told, with the client command that answers
+  // it: `--as` names the session, which the CLI on the router host needs
+  // and the client ignores (it is always $PASEO_AGENT_ID). A final notice
+  // carries each delivery's last word.
+  function noticeText(task: Task, due: NoticeDue): string {
+    const { key } = due;
+    const placement = state.placements[task.via ?? ""];
+    const command =
+      config.hosts[placement?.host ?? ""]?.replyCommand ?? "router";
+    const as = `--as ${placement?.session ?? "<session>"}`;
+    const head = `[router ${task.id} ${key}]`;
+    if (due.kind === "question") {
+      const delivery = task.deliveries.find((d) => d.id === due.deliveryId);
+      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --delivery ${due.deliveryId} --question ${due.questionId} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
+    }
+    if (due.kind === "choose") {
+      const routing =
+        task.routing?.state === "needs_recipient" ? task.routing : null;
+      const suggested = routing?.suggestions.length
+        ? `; suggested ${routing.suggestions.join(", ")}`
+        : "";
+      return `${head} The router could not pick a recipient for your request (${(routing?.reason ?? "unknown").replaceAll("_", " ")}${suggested}). Choose with: ${command} choose ${as} --task ${task.id} --to <participant>, one of: ${task.permitted.join(", ")}.\n\n${task.text}`;
+    }
+    const words = task.deliveries
+      .map((d) => {
+        const end = d.end;
+        if (!end) return `${d.participant}@${d.host}: no result`;
+        return `${d.participant}@${d.host} ${end.reason}${end.text ? `:\n${end.text}` : ""}`;
+      })
+      .join("\n\n");
+    return `${head} Your request is ${task.final?.status ?? "closed"}${task.final?.reason ? ` (${task.final.reason})` : ""}. No reply is needed.\n\n${words}`;
+  }
+
+  // Each due notice for a sender this router can reach, through the same
+  // adapter and idle gate as a delivery.
+  async function notifyAll(report: string[]): Promise<void> {
+    for (;;) {
+      const next = commands(state).find(
+        (c): c is Extract<Command, { type: "notify" }> =>
+          c.type === "notify" && isServed(findTask(state, c.taskId)?.via ?? ""),
+      );
+      if (!next) break;
+      const task = findTask(state, next.taskId);
+      if (!task || task.via === null) break;
+      const agentId = config.agents[task.via];
+      if (!agentId) {
+        report.push(`${task.id}: no agent configured for ${task.via}`);
+        break;
+      }
+      // A repeat sends the first attempt's text under the same key.
+      const text = findNotice(task, next.key)?.text ?? noticeText(task, next);
+      const attempted = apply({
+        type: "noticeAttempt",
+        taskId: task.id,
+        key: next.key,
+        text,
+      });
+      report.push(attempted.message);
+      if (!attempted.ok) break;
+      const host = state.placements[task.via]?.host ?? "";
+      let outcome: Awaited<ReturnType<Adapter["send"]>>;
+      try {
+        outcome = await (
+          await adapterFor(host)
+        ).send(agentId, `N/${task.id}/${next.key}`, text);
+      } catch (error: unknown) {
+        if (error instanceof RouterBug) throw error;
+        report.push(
+          `${task.id} notice ${next.key}: ${host} unreachable (${error instanceof Error ? error.message : String(error)})`,
+        );
+        outcome = "unknown";
+      }
+      const acked = apply({
+        type: "noticeResult",
+        taskId: task.id,
+        key: next.key,
+        outcome,
+      });
+      report.push(acked.message);
+    }
+    for (const task of state.tasks) {
+      if (task.via === null || !isServed(task.via)) continue;
+      for (const { key, why } of noticeWaits(state, task))
+        report.push(
+          `${task.id} notice ${key} waits: ${why.replaceAll("_", " ")}`,
+        );
+    }
   }
 
   // One Jev call per unaddressed request. The event carries what the core
@@ -298,6 +393,7 @@ export async function openShell(
       if (why && why !== "closed" && why !== "not_pending")
         report.push(`${d.id} waits: ${why.replaceAll("_", " ")}`);
     }
+    await notifyAll(report);
     return report;
   }
 

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,9 +11,11 @@ import {
   boardListener,
   eventsListener,
   sameSite,
+  sessionReader,
   type Bindable,
   type BindOptions,
   type Run,
+  type SessionStatus,
 } from "./server.ts";
 import { BOARD_VERSION } from "./board.ts";
 import {
@@ -39,6 +41,9 @@ const config: RouterConfig = {
   },
   jev: { model: "jev-latest" },
 };
+
+// Every caller is a current session unless a test says otherwise.
+const sessionOf = (): SessionStatus => "current";
 
 const handled: Event[] = [];
 const handle = (event: Event): Promise<Run> => {
@@ -75,7 +80,9 @@ const taskIds = (list: unknown): unknown[] => {
 };
 
 test("events: health is open, everything else needs the exact token", async () => {
-  const server = createServer(eventsListener({ config, handle }, "secret"));
+  const server = createServer(
+    eventsListener({ config, handle, sessionOf }, "secret"),
+  );
   const url = await serve(server);
   try {
     assert.equal((await fetch(`${url}/health`)).status, 200);
@@ -96,9 +103,11 @@ test("events: health is open, everything else needs the exact token", async () =
     const auth = { authorization: "Bearer secret" };
     assert.equal((await post(auth, "{}", "/other")).status, 404);
     assert.equal((await post(auth, "{nope")).status, 400);
+    // Events the serve endpoint does not take: the core's own events that a
+    // client has no business sending, like a tick or a configuration.
     const forbidden = await post(
       auth,
-      JSON.stringify({ type: "submit", by: "you", text: "x" }),
+      JSON.stringify({ type: "tick", now: 1 }),
     );
     assert.equal(forbidden.status, 400);
     assert.equal(
@@ -124,9 +133,127 @@ test("events: health is open, everything else needs the exact token", async () =
       report: ["delivered"],
     });
     assert.equal(handled.length, 1);
+    // A participant's own requests and choices pass the same gate; the
+    // core decides whether the session may make them.
+    for (const event of [
+      { type: "submit", by: "A1", messageId: "m2", text: "x", to: "incus" },
+      { type: "choose", by: "A1", taskId: "T2", to: "incus" },
+    ]) {
+      const res = await post(auth, JSON.stringify(event));
+      assert.equal(res.status, 200);
+      assert.equal(handled.at(-1)?.type, event.type);
+    }
+    assert.equal(handled.length, 3);
+    // The shell's own events stay out, whoever signs them.
+    const attempt = await post(
+      auth,
+      JSON.stringify({ type: "attempt", deliveryId: "D1" }),
+    );
+    assert.equal(attempt.status, 400);
+    assert.match(
+      String(((await attempt.json()) as { message: string }).message),
+      /serve accepts submit, choose, update and answer events/,
+    );
+    assert.equal(handled.length, 3);
   } finally {
     server.close();
   }
+});
+
+test("events: a person is refused; a replaced session may reply and answer but not submit or choose", async () => {
+  const seen: Event[] = [];
+  const server = createServer(
+    eventsListener(
+      {
+        config,
+        handle: (event) => {
+          seen.push(event);
+          return handle(event);
+        },
+        sessionOf: (by) =>
+          by === "A1" ? "current" : by === "A0" ? "replaced" : null,
+      },
+      "secret",
+    ),
+  );
+  const url = await serve(server);
+  const post = (event: Record<string, unknown>) =>
+    fetch(`${url}/events`, {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+      body: JSON.stringify(event),
+    });
+  try {
+    const refused = [
+      // The shared token acting as the person, or as nobody.
+      { type: "submit", by: "you", messageId: "m", text: "x" },
+      {
+        type: "answer",
+        by: "you",
+        taskId: "T1",
+        messageId: "m",
+        questionId: "Q",
+      },
+      { type: "submit", messageId: "m", text: "x" },
+      // A replaced session asking for new work.
+      { type: "choose", by: "A0", taskId: "T1", to: "incus" },
+      { type: "submit", by: "A0", messageId: "m", text: "x" },
+    ];
+    for (const event of refused) {
+      const res = await post(event);
+      assert.equal(res.status, 403, JSON.stringify(event));
+      assert.partialDeepStrictEqual(await res.json(), {
+        ok: false,
+        code: "unauthenticated",
+      });
+    }
+    assert.equal(seen.length, 0);
+    // A replaced session finishing its work still reaches the core, which
+    // knows whether that session holds the delivery.
+    const passed = [
+      {
+        type: "update",
+        by: "A0",
+        taskId: "T1",
+        messageId: "m",
+        inReplyTo: "M",
+        kind: "completed",
+      },
+      {
+        type: "answer",
+        by: "A0",
+        taskId: "T1",
+        messageId: "m",
+        questionId: "Q",
+      },
+      { type: "submit", by: "A1", messageId: "m", text: "x", to: "incus" },
+    ];
+    for (const event of passed)
+      assert.equal((await post(event)).status, 200, JSON.stringify(event));
+    assert.equal(seen.length, 3);
+  } finally {
+    server.close();
+  }
+});
+
+test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", () => {
+  const record = mkdtempSync(join(tmpdir(), "server-sessions-"));
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const sessionOf = sessionReader({ ...fixture, home: record });
+  assert.equal(sessionOf("A1"), "current");
+  assert.equal(sessionOf("K2"), "current");
+  assert.equal(sessionOf("K1"), "replaced");
+  assert.equal(sessionOf("you"), null);
+  assert.equal(sessionOf(""), null);
+  // Nothing was written: the record is as long as the fixture.
+  assert.equal(
+    readFileSync(join(record, "journal.jsonl"), "utf8").split("\n").length,
+    replacedJournal.length + 1,
+  );
+  assert.ok(!existsSync(join(record, "journal.lock")));
 });
 
 test("sameSite: browsers must come from the page; other clients pass", () => {
@@ -475,8 +602,8 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
     const answer = find("answer", "taskId", "T2");
     assert.ok(answer?.type === "answer");
     assert.deepEqual(
-      [answer.by, answer.questionId, answer.text],
-      ["you", "Q2", "seen in the session"],
+      [answer.by, answer.questionId, answer.deliveryId, answer.text],
+      ["you", "Q2", "D1", "seen in the session"],
     );
     // D3's send was accepted, so the form offers finished alone.
     assert.deepEqual(find("resolve", "deliveryId", "D3"), {

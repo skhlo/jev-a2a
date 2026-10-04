@@ -22,7 +22,7 @@ export type RouterConfig = Config & {
   // Placement key ("participant@host") -> Paseo agent id. The agent id is the
   // placement's session identity. Placements without an entry are not served.
   agents: Record<string, string>;
-  // Where `router serve` listens for replies from other hosts, where it
+  // Where `router serve` listens for events from other hosts, where it
   // serves the board (loopback; expose it through Tailscale Serve), and which
   // tailnet logins may act from the board, as which principals.
   serve: {

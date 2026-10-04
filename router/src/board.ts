@@ -21,6 +21,8 @@ import type {
   Event,
   Final,
   NeedsYouItem,
+  Notice,
+  NoticeKind,
   Role,
   Send,
   SendOutcome,
@@ -79,6 +81,17 @@ export type TaskView = {
   // ended it.
   final: (Final & { by: string | null }) | null;
   deliveries: DeliveryView[];
+  // The placement a participant sender submitted from, and what it has
+  // been told there (a question to answer, a recipient to choose, the
+  // final word), each with the send outcome of the notice; both null and
+  // empty for a person's task.
+  via: string | null;
+  notices: {
+    key: string;
+    kind: NoticeKind;
+    session: string | null;
+    outcome: Notice["outcome"];
+  }[];
   // This task's lines in the router's log, as `router status <task>` shows
   // them, so a template never matches log text itself.
   log: State["log"];
@@ -284,6 +297,13 @@ function taskView(task: Task, state: State): TaskView {
       ...task.final,
       by: task.final.status === "canceled" ? task.source : null,
     },
+    via: task.via,
+    notices: task.notices.map(({ key, kind, session, outcome }) => ({
+      key,
+      kind,
+      session,
+      outcome,
+    })),
     deliveries: task.deliveries.map((d) => {
       const send = currentSend(d);
       const last = d.updates.at(-1);
@@ -327,7 +347,7 @@ export function describeNeed(item: NeedsYouItem): string {
     case "choose":
       return `${item.taskId}: choose a recipient (${item.reason}${item.suggestions.length ? `; suggested ${item.suggestions.join(", ")}` : ""})`;
     case "answer":
-      return `${item.taskId}: answer ${item.questionId} "${item.text}"`;
+      return `${item.taskId}: answer ${item.questionId} on ${item.deliveryId} "${item.text}"`;
     case "resolve":
       return `${item.deliveryId}: resolve ${item.messageId} (${item.reason})`;
   }
@@ -400,6 +420,8 @@ export function actionEvent(
             taskId: field("task"),
             messageId: newMessageId(),
             questionId: field("question"),
+            // The form names the delivery; an older page may not.
+            deliveryId: field("delivery") || null,
             text: field("text"),
           },
         }

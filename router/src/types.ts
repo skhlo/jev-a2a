@@ -109,6 +109,31 @@ export type Final = {
   of: number;
 };
 
+// What a participant sender has been told about its task: a question it
+// must answer, a recipient it must choose, or the final word. Keyed by
+// what it reports, so each is sent once; the outcome follows a send's.
+export type NoticeKind = "question" | "choose" | "final";
+// A notice is recorded as pending when it becomes due, before any attempt.
+// A question notice names its delivery: two deliveries of one fan-out may
+// ask under the same message id.
+export type NoticeDue =
+  | { key: string; kind: "choose" | "final" }
+  | { key: string; kind: "question"; deliveryId: string; questionId: string };
+export type Notice = NoticeDue & {
+  // The text of the first attempt; a repeat sends the same text under the
+  // same key, as a send does. Null until attempted.
+  text: string | null;
+  // Whether the sender's adapter deduplicates by key, as configured when
+  // the notice became due; decides whether unknown is repeated.
+  idempotent: boolean;
+  // The session the notice went to, set at the attempt. An unknown notice
+  // is repeated only at this session.
+  session: string | null;
+  // withdrawn: the question or choice stopped standing before it was told.
+  outcome: SendOutcome;
+  trail: TrailStep[];
+};
+
 export type Task = {
   id: string;
   source: string;
@@ -116,7 +141,10 @@ export type Task = {
   text: string;
   to: string | null;
   hosts: string[] | null;
+  // The placement a participant sender submitted from; notices go there.
+  // Null for a person.
   via: string | null;
+  notices: Notice[];
   deadline: number;
   // Participants the sender could address when it asked.
   permitted: string[];
@@ -171,7 +199,6 @@ export type Event =
       text: string;
       to?: string | null;
       hosts?: string[] | null;
-      via?: string | null;
     }
   | {
       type: "judged";
@@ -208,6 +235,8 @@ export type Event =
       taskId: string;
       messageId: string;
       questionId: string;
+      // Names the delivery when two of them ask under the same id.
+      deliveryId?: string | null;
       text: string;
     }
   | { type: "cancel"; by: string; taskId: string }
@@ -226,12 +255,20 @@ export type Event =
       hold?: boolean;
       session?: string;
     }
+  | { type: "noticeAttempt"; taskId: string; key: string; text: string }
+  | {
+      type: "noticeResult";
+      taskId: string;
+      key: string;
+      outcome: AdapterOutcome;
+    }
   | { type: "restart" }
   | { type: "tick"; now: number };
 
 export type Command =
   | { type: "judge"; taskId: string; question: JudgmentQuestion }
-  | { type: "deliver"; deliveryId: string; messageId: string };
+  | { type: "deliver"; deliveryId: string; messageId: string }
+  | ({ type: "notify"; taskId: string } & NoticeDue);
 
 export type JudgmentQuestion = {
   state: { request: string };

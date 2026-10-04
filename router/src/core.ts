@@ -21,6 +21,8 @@ import type {
   Final,
   JudgmentQuestion,
   NeedsYouItem,
+  Notice,
+  NoticeDue,
   Outcome,
   Participant,
   Rejected,
@@ -185,6 +187,29 @@ export const inFlight = (delivery: Delivery): boolean =>
   delivery.session !== null &&
   ["attempting", "unknown"].includes(currentSend(delivery).outcome);
 const isTerminal = (task: Task): boolean => task.final !== null;
+// A notice whose adapter call has not returned. It blocks the session like
+// an in-flight send. An unknown notice does not: nothing waits on it, and a
+// deduplicating adapter repeats it, so there is no reconciliation to wait for.
+const noticeInFlight = (state: State, session: string): boolean =>
+  state.tasks.some((t) =>
+    t.notices.some((n) => n.outcome === "attempting" && n.session === session),
+  );
+
+// A session that a placement no longer binds may finish its work but not
+// start any: no new request, no choice of recipient.
+function notCurrentSession(state: State, by: string): Rejected | null {
+  const session = state.sessions[by];
+  if (
+    session &&
+    state.placements[placementKey(session.participant, session.host)]
+      ?.session !== by
+  )
+    return reject(
+      "unauthenticated",
+      "A replaced session cannot submit new work or choose a recipient.",
+    );
+  return null;
+}
 
 // Authenticated caller -> principal: a configured principal id, or the
 // participant that owns the calling session.
@@ -256,21 +281,35 @@ export function blockedReason(
   if (send.outcome !== "pending" && !retryable(state, delivery, send))
     return "not_pending";
   if (sessionReplaced(state, delivery)) return "session_replaced";
-  const holder = allDeliveries(state).find(
-    (other) =>
-      other !== delivery &&
-      other.placement === delivery.placement &&
-      inFlight(other),
-  );
-  if (holder) return "in_flight";
-  if (placement.hold) return "held";
-  if (!placement.ready) return "not_ready";
+  const busy = placementBusy(state, delivery.placement, delivery);
+  if (busy) return busy;
   if (delivery.session !== null) return null;
   // This delivery is open, unpinned and its task is open, so the queue has a
   // head: this delivery, or one created before it.
   return queueHead(state, delivery.placement)?.id === delivery.id
     ? null
     : "queued_behind";
+}
+
+// Why nothing may go to a placement now: a send (other than `except`) or a
+// notice is unconfirmed there, a person holds it, or it was not seen idle.
+function placementBusy(
+  state: State,
+  key: string,
+  except: Delivery | null = null,
+): BlockedReason | null {
+  const placement = state.placements[key];
+  if (!placement) return "closed";
+  if (
+    allDeliveries(state).some(
+      (d) => d !== except && d.placement === key && inFlight(d),
+    ) ||
+    noticeInFlight(state, placement.session)
+  )
+    return "in_flight";
+  if (placement.hold) return "held";
+  if (!placement.ready) return "not_ready";
+  return null;
 }
 
 // The delivery that goes next on a placement's queue: of its open, unpinned
@@ -309,8 +348,85 @@ export function commands(state: State): Command[] {
         messageId: currentSend(delivery).messageId,
       });
   }
+  for (const task of state.tasks)
+    for (const due of dueNotices(state, task))
+      if (noticeBlockedReason(state, task, due.key) === null)
+        work.push({ type: "notify", taskId: task.id, ...due });
   return work;
 }
+
+// What a participant sender should be told about its task now, keyed so
+// each is told once: an open question on a delivery, a recipient to
+// choose while Jev's hand-back stands, and the final word. A question or a
+// choice that no longer stands is not due, so it is never sent late.
+export function dueNotices(state: State, task: Task): NoticeDue[] {
+  if (task.via === null) return [];
+  const due: NoticeDue[] = [];
+  if (isTerminal(task)) due.push({ key: "final", kind: "final" });
+  else {
+    if (task.routing?.state === "needs_recipient")
+      due.push({
+        key: `choose/${task.judgments.length}`,
+        kind: "choose",
+      });
+    for (const delivery of task.deliveries)
+      if (
+        isOpen(delivery) &&
+        delivery.question &&
+        !sessionReplaced(state, delivery)
+      )
+        due.push({
+          key: `question/${delivery.id}/${delivery.question.id}`,
+          kind: "question",
+          deliveryId: delivery.id,
+          questionId: delivery.question.id,
+        });
+  }
+  return due;
+}
+
+export const findNotice = (task: Task, key: string): Notice | undefined =>
+  task.notices.find((n) => n.key === key);
+
+// Why a due notice cannot go to the sender now, or null if it can: it was
+// told (or an attempt is unresolved and cannot be repeated); an unknown one
+// may only be repeated at the session that may have it; the sender's
+// placement is gone, held, busy with a send or a notice, or not idle.
+export function noticeBlockedReason(
+  state: State,
+  task: Task,
+  key: string,
+): BlockedReason | "told" | null {
+  const notice = findNotice(task, key);
+  if (notice) {
+    if (notice.outcome === "accepted") return "told";
+    if (notice.outcome === "attempting" || notice.outcome === "withdrawn")
+      return "not_pending";
+    if (notice.outcome === "unknown") {
+      if (!notice.idempotent) return "not_pending";
+      if (state.placements[task.via ?? ""]?.session !== notice.session)
+        return "session_replaced";
+    }
+  }
+  return task.via === null ? "closed" : placementBusy(state, task.via);
+}
+
+// What a sender is still owed and why it waits, for the shell's report and
+// `router status`: told, withdrawn and never-to-be-repeated notices are
+// not waiting.
+export function noticeWaits(
+  state: State,
+  task: Task,
+): { key: string; why: NoticeWait }[] {
+  const waits: { key: string; why: NoticeWait }[] = [];
+  for (const due of dueNotices(state, task)) {
+    const why = noticeBlockedReason(state, task, due.key);
+    if (why && why !== "told" && why !== "closed" && why !== "not_pending")
+      waits.push({ key: due.key, why });
+  }
+  return waits;
+}
+type NoticeWait = Exclude<BlockedReason, "closed" | "not_pending">;
 
 // One Choice over the participants the sender could address when it asked,
 // plus an abstention.
@@ -516,7 +632,7 @@ export function reduce(previous: State, event: Event): State {
     });
     return unchanged;
   }
-  for (const task of state.tasks) settle(state, task);
+  const withdrawn = state.tasks.flatMap((task) => settle(state, task));
   state.last = outcome;
   if (outcome.message)
     state.log.push({
@@ -524,6 +640,8 @@ export function reduce(previous: State, event: Event): State {
       actor: outcome.actor ?? "Router",
       text: outcome.message,
     });
+  for (const text of withdrawn)
+    state.log.push({ n: state.log.length + 1, actor: "Router", text });
   return state;
 }
 
@@ -564,22 +682,16 @@ const handlers: Handlers = {
     return ok("Configuration recorded.");
   },
 
-  submit(state, { by, messageId, text, to = null, hosts = null, via = null }) {
+  submit(state, { by, messageId, text, to = null, hosts = null }) {
     const source = principalOf(state, by);
     if (!source || roleOf(state, source) === "operator")
       return reject(
         "unauthenticated",
         "Only the user or a current participant session can submit.",
       );
+    const replaced = notCurrentSession(state, by);
+    if (replaced) return replaced;
     const session = state.sessions[by];
-    if (
-      session &&
-      state.placements[placementKey(source, session.host)]?.session !== by
-    )
-      return reject(
-        "unauthenticated",
-        "A replaced session cannot submit new work.",
-      );
     const invalid = badMessageId(messageId) ?? badText(state, text);
     if (invalid) return invalid;
     if (
@@ -620,7 +732,9 @@ const handlers: Handlers = {
       text,
       to,
       hosts: wanted,
-      via,
+      // A participant sender hears back at the placement it sent from.
+      via: session ? placementKey(source, session.host) : null,
+      notices: [],
       deadline: state.now + state.config.policy.deadline,
       // Whom the sender could address when it asked; the judgment's options.
       permitted: [...(state.config.permissions[source] ?? [])],
@@ -700,7 +814,8 @@ const handlers: Handlers = {
   choose(state, { by, taskId, to }) {
     const task = findTask(state, taskId);
     if (!task) return reject("not_found", "No such request.");
-    const forbidden = notSender(state, by, task);
+    const forbidden =
+      notSender(state, by, task) ?? notCurrentSession(state, by);
     if (forbidden) return forbidden;
     if (isTerminal(task) || task.routing?.state !== "needs_recipient")
       return reject(
@@ -868,7 +983,10 @@ const handlers: Handlers = {
     });
   },
 
-  answer(state, { by, taskId, messageId, questionId, text }) {
+  answer(
+    state,
+    { by, taskId, messageId, questionId, deliveryId = null, text },
+  ) {
     const task = findTask(state, taskId);
     if (!task) return reject("not_found", "No such request.");
     const invalid =
@@ -877,7 +995,7 @@ const handlers: Handlers = {
       badText(state, text);
     if (invalid) return invalid;
     const key = `${task.source}/${messageId}`;
-    const content = digest({ taskId, questionId, text });
+    const content = digest({ taskId, questionId, deliveryId, text });
     const prior = priorReceipt(state, key, content);
     if (prior) return prior;
     if (task.final)
@@ -885,9 +1003,23 @@ const handlers: Handlers = {
         "terminal",
         `${task.id} is ${task.final.status} and accepts no further messages.`,
       );
-    const delivery = task.deliveries.find(
-      (d) => isOpen(d) && d.question?.id === questionId,
+    if (
+      deliveryId !== null &&
+      !task.deliveries.some((d) => d.id === deliveryId)
+    )
+      return reject("not_found", `${task.id} has no delivery ${deliveryId}.`);
+    const asking = task.deliveries.filter(
+      (d) =>
+        isOpen(d) &&
+        d.question?.id === questionId &&
+        (deliveryId === null || d.id === deliveryId),
     );
+    if (asking.length > 1)
+      return reject(
+        "ambiguous",
+        `${asking.map((d) => d.id).join(" and ")} both ask under ${questionId}; pass the delivery.`,
+      );
+    const delivery = asking[0];
     if (!delivery)
       return reject(
         "no_question",
@@ -964,6 +1096,59 @@ const handlers: Handlers = {
     );
   },
 
+  // Like attempt, for a notice: recorded before the adapter is called, with
+  // the sender's session so a later observer can tell whom it reached.
+  noticeAttempt(state, { taskId, key, text }) {
+    const task = findTask(state, taskId);
+    if (!task) return reject("not_found", "No such request.");
+    const due = dueNotices(state, task).find((d) => d.key === key);
+    if (!due)
+      return reject("not_due", `${task.id}: nothing to tell under ${key}.`);
+    if (typeof text !== "string" || !text.trim())
+      return reject("invalid", "A notice needs text.");
+    const reason = noticeBlockedReason(state, task, key);
+    if (reason)
+      return reject(
+        "not_eligible",
+        `${task.id} notice ${key} cannot be sent: ${reason.replaceAll("_", " ")}.`,
+      );
+    const placement = state.placements[task.via ?? ""];
+    if (!placement) return reject("not_found", "No such placement.");
+    const notice = findNotice(task, key) ?? recordNotice(state, task, due);
+    if (notice.text === null) notice.text = text;
+    else if (notice.text !== text)
+      return reject(
+        "conflict",
+        `${task.id} notice ${key} was first attempted with different text.`,
+      );
+    notice.session = placement.session;
+    notice.outcome = "attempting";
+    notice.trail.push("attempting");
+    placement.ready = false;
+    return ok(
+      `Recorded notice ${task.id}/${key} as attempting to ${placement.session} before calling the adapter.`,
+    );
+  },
+
+  noticeResult(state, { taskId, key, outcome }) {
+    const task = findTask(state, taskId);
+    if (!task) return reject("not_found", "No such request.");
+    const notice = findNotice(task, key);
+    if (!includes(ADAPTER_OUTCOMES, outcome))
+      return reject("invalid", "Outcome is accepted, not_sent or unknown.");
+    if (!notice || notice.outcome !== "attempting")
+      return reject(
+        "stale_ack",
+        `${task.id} notice ${key} has no attempt in progress.`,
+      );
+    notice.trail.push(outcome);
+    notice.outcome = outcome === "not_sent" ? "pending" : outcome;
+    return ok(
+      `${task.id}/${key}: notice ${outcome === "not_sent" ? "not sent; it will be retried" : outcome}.`,
+      { actor: "Adapter" },
+    );
+  },
+
   // ready: the adapter saw the session idle. hold: a person is using the
   // session and the router must not send to it, idle or not.
   observe(state, { placement, ready, hold, session }) {
@@ -991,13 +1176,16 @@ const handlers: Handlers = {
   restart(state) {
     state.boot++;
     let uncertain = 0;
-    for (const delivery of allDeliveries(state))
-      for (const send of delivery.sends)
-        if (send.outcome === "attempting") {
-          send.outcome = "unknown";
-          send.trail.push("unknown");
-          uncertain++;
-        }
+    const interrupted = [
+      ...allDeliveries(state).flatMap((d) => d.sends),
+      ...state.tasks.flatMap((t) => t.notices),
+    ];
+    for (const attempt of interrupted)
+      if (attempt.outcome === "attempting") {
+        attempt.outcome = "unknown";
+        attempt.trail.push("unknown");
+        uncertain++;
+      }
     return ok(
       `Router boot ${state.boot}: ${uncertain} interrupted attempt(s) marked unknown. Nothing replayed.`,
     );
@@ -1086,8 +1274,23 @@ function verdict(task: Task, reason = "delivery"): Final {
   };
 }
 
-// Close what can no longer happen, then derive status.
-function settle(state: State, task: Task): void {
+function recordNotice(state: State, task: Task, due: NoticeDue): Notice {
+  const notice: Notice = {
+    ...due,
+    text: null,
+    idempotent: participant(state, task.source)?.idempotent ?? false,
+    session: null,
+    outcome: "pending",
+    trail: [],
+  };
+  task.notices.push(notice);
+  return notice;
+}
+
+// Close what can no longer happen, then derive status. Returns a log line
+// for each notice withdrawn: a question or a choice that stopped standing
+// before the sender was told is never told late.
+function settle(state: State, task: Task): string[] {
   if (isTerminal(task)) {
     // Nothing new is sent after a deadline: never-sent deliveries expire.
     for (const delivery of task.deliveries)
@@ -1096,4 +1299,23 @@ function settle(state: State, task: Task): void {
   } else if (task.deliveries.length && task.deliveries.every((d) => !isOpen(d)))
     task.final = verdict(task);
   task.status = status(task);
+  // What the sender is owed is recorded as soon as it is due, so a notice
+  // that is never sent still shows, and its withdrawal is logged.
+  const due = dueNotices(state, task);
+  for (const d of due)
+    if (!findNotice(task, d.key)) recordNotice(state, task, d);
+  const dueKeys = due.map((d) => d.key);
+  const withdrawn: string[] = [];
+  for (const notice of task.notices)
+    if (
+      ["pending", "unknown"].includes(notice.outcome) &&
+      !dueKeys.includes(notice.key)
+    ) {
+      notice.outcome = "withdrawn";
+      notice.trail.push("withdrawn");
+      withdrawn.push(
+        `${task.id} notice ${notice.key} withdrawn: the ${notice.kind === "choose" ? "choice" : "question"} no longer stands.`,
+      );
+    }
+  return withdrawn;
 }

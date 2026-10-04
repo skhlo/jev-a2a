@@ -1,4 +1,4 @@
-// --text and --text-file for the CLI, and the same rule in the reply client,
+// --text and --text-file for the CLI, and the same rule in the client,
 // run as the process a participant runs.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -99,6 +99,111 @@ test("client: --text-file posts the file as the reply text", async () => {
     assert.equal(missing.code, 2);
     assert.match(missing.stderr, /--text-file: .*ENOENT/);
     assert.equal(posted.length, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("client: submit, answer and choose post as the participant session", async () => {
+  const posted: Record<string, unknown>[] = [];
+  const server = createServer((request, response) => {
+    let raw = "";
+    request.on("data", (chunk) => (raw += chunk));
+    request.on("end", () => {
+      posted.push(JSON.parse(raw) as Record<string, unknown>);
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ ok: true, message: "recorded" }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string")
+    throw new Error("no port");
+  const url = `http://127.0.0.1:${address.port}`;
+  try {
+    // Text as the remaining words, addressed and narrowed to hosts.
+    let out = await run(url, [
+      "submit",
+      "--to",
+      "environment",
+      "--hosts",
+      "mbp,mini",
+      "Which",
+      "shell?",
+    ]);
+    assert.equal(out.code, 0, out.stderr);
+    assert.partialDeepStrictEqual(posted[0], {
+      type: "submit",
+      by: "A1",
+      text: "Which shell?",
+      to: "environment",
+      hosts: ["mbp", "mini"],
+    });
+    assert.match(String(posted[0]?.messageId), /^m-/);
+    // Unaddressed, from a file, with the caller's own message id.
+    out = await run(url, ["submit", "--text-file", file, "--message", "M7"]);
+    assert.equal(out.code, 0, out.stderr);
+    assert.partialDeepStrictEqual(posted[1], {
+      type: "submit",
+      by: "A1",
+      messageId: "M7",
+      text: body,
+      to: null,
+      hosts: null,
+    });
+    out = await run(url, ["submit"]);
+    assert.equal(out.code, 2);
+    assert.match(out.stderr, /A request needs text/);
+    out = await run(url, ["submit", "--text-file", file, "and", "words"]);
+    assert.equal(out.code, 2);
+    assert.match(out.stderr, /not both/);
+
+    out = await run(url, [
+      "answer",
+      "--task",
+      "T3",
+      "--delivery",
+      "D4",
+      "--question",
+      "Q1",
+      "--text",
+      "ubuntu",
+    ]);
+    assert.equal(out.code, 0, out.stderr);
+    assert.partialDeepStrictEqual(posted[2], {
+      type: "answer",
+      by: "A1",
+      taskId: "T3",
+      questionId: "Q1",
+      deliveryId: "D4",
+      text: "ubuntu",
+    });
+    out = await run(url, ["answer", "--task", "T3", "--text", "x"]);
+    assert.equal(out.code, 2);
+    assert.match(out.stderr, /--question is required/);
+
+    // The notices name --as for the router host's CLI; here the session is
+    // always $PASEO_AGENT_ID, so --as is taken and ignored.
+    out = await run(url, [
+      "choose",
+      "--as",
+      "someone-else",
+      "--task",
+      "T3",
+      "--to",
+      "incus",
+    ]);
+    assert.equal(out.code, 0, out.stderr);
+    assert.deepEqual(posted[3], {
+      type: "choose",
+      by: "A1",
+      taskId: "T3",
+      to: "incus",
+    });
+    out = await run(url, ["status"]);
+    assert.equal(out.code, 2);
+    assert.match(out.stderr, /router submit \[--to <participant>\]/);
+    assert.equal(posted.length, 4);
   } finally {
     server.close();
   }
