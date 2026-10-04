@@ -1,4 +1,4 @@
-// The board page: the v0.10 design drawn from the view model and the viewer,
+// The board page: the v0.11 design drawn from the view model and the viewer,
 // a pure function of both. The tests read what a viewer or the design agent
 // reads: text, data-paths, and the forms with their fields.
 import test from "node:test";
@@ -16,6 +16,9 @@ import {
 import {
   age,
   count,
+  counts,
+  diff,
+  hms,
   label,
   left,
   renderBoard,
@@ -36,6 +39,7 @@ import {
   viaJournal,
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
+import { shots } from "./board-shots.ts";
 import type { Entry } from "./journal.ts";
 import { emptySnapshot, type Telemetry } from "./telemetry.ts";
 import type { Role } from "./types.ts";
@@ -71,6 +75,12 @@ const page = (
 ): string => renderBoard(model(login, entries, now), options);
 
 const strip = (html: string): string => html.replace(/<[^>]+>/g, "");
+// The page without its sheets (v0.11), which repeat each card's levers and
+// tags; and the sheets alone.
+const rail = (html: string): string =>
+  html.replace(/<aside class="sheet"[^]*?<\/aside>/g, "");
+const sheets = (html: string): string[] =>
+  [...html.matchAll(/<aside class="sheet"[^]*?<\/aside>/g)].map((m) => m[0]);
 const escape = (text: string): string =>
   text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // The text of each element that reads `path`.
@@ -199,14 +209,25 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
     ),
     ["needs recipient", "low confidence", "routing unavailable", "working"],
   );
+  // v0.11: seconds for activity rows; the diff with the minus sign and
+  // thousands; the non-zero counts as words in the object's order.
+  assert.equal(hms("2026-09-30T09:43:48.000Z"), "09:43:48Z");
+  assert.equal(hms(null), "—");
+  assert.equal(diff(4176, 1700), "+4,176 −1,700");
+  assert.equal(diff(0, 0), "+0 −0");
+  assert.equal(
+    counts({ running: 2, completed: 1200, failed: 0, canceled: 1 }),
+    "2 running · 1,200 completed · 1 canceled",
+  );
+  assert.equal(counts({ running: 0, completed: 0 }), "");
 });
 
-test("every data-path of the v0.10 design is rendered for the fixture or dropped with a reason", () => {
+test("every data-path of the v0.11 design is rendered for the fixture or dropped with a reason", () => {
   const lines = (name: string): string[] =>
     readFileSync(join(import.meta.dirname, "..", "design", name), "utf8")
       .split("\n")
       .filter((line) => line && !line.startsWith("#"));
-  const listed = lines("v0.10-paths.txt");
+  const listed = lines("v0.11-paths.txt");
   // The committed list is the extraction's output: distinct and sorted.
   assert.ok(listed.length > 100);
   assert.deepEqual(listed, [...new Set(listed)].sort());
@@ -215,7 +236,7 @@ test("every data-path of the v0.10 design is rendered for the fixture or dropped
   const shape = (path: string): string => path.replaceAll(/\[\d+\]/g, "[]");
   const design = [...new Set(listed.map(shape))].sort();
   const dropped = new Map(
-    lines("v0.10-dropped.txt").map((line): [string, string] => {
+    lines("v0.11-dropped.txt").map((line): [string, string] => {
       const at = line.lastIndexOf(" | ");
       return at < 0 ? [line, ""] : [line.slice(0, at), line.slice(at + 3)];
     }),
@@ -253,11 +274,11 @@ test("every data-path of the v0.10 design is rendered for the fixture or dropped
   assert.deepEqual(
     design.filter((path) => !rendered.has(path) && !dropped.has(path)),
     [],
-    "v0.10 paths neither rendered nor in design/v0.10-dropped.txt",
+    "v0.11 paths neither rendered nor in design/v0.11-dropped.txt",
   );
   for (const [path, reason] of dropped) {
     assert.ok(reason.trim(), `${path} is dropped without a reason`);
-    assert.ok(design.includes(path), `${path} is not a v0.10 path`);
+    assert.ok(design.includes(path), `${path} is not a v0.11 path`);
     assert.ok(!rendered.has(path), `${path} is rendered after all`);
   }
 });
@@ -294,7 +315,7 @@ test("the fixture's board: what needs you, what is in flight, what is done", () 
     /<div class="card idle" tabindex="0" data-path="placements\[2\]">/,
   );
   assert.match(strip(html), /environment@mbp\s*held · no open delivery/);
-  assert.ok(!html.includes('data-path="placements[2].session"'));
+  assert.ok(!rail(html).includes('data-path="placements[2].session"'));
   // The rows read as the design wrote them.
   assert.equal(textOf(html, "open[2].routing.reason"), "low confidence");
   assert.equal(
@@ -423,7 +444,7 @@ test("forms and levers follow the viewer's principals and roles", () => {
   );
   assert.ok(me.includes('data-path="open[0].deliveries[0].send.outcome"'));
   assert.deepEqual(
-    formsIn(me)
+    formsIn(rail(me))
       .filter((f) => f.fields.action === "hold")
       .map((f) => [f.fields.placement, f.fields.hold]),
     // The rail orders by state: the asking card, the held one, then the
@@ -1147,7 +1168,7 @@ test("a real record: a long request keeps a short title and session ids are shor
 });
 
 test("v0.10 health: each card closes with the status line, the snapshot's age and the lever; the meter and the harness tags; no telemetry without a snapshot", () => {
-  const seen = renderBoard(model(ME, sampleJournal, NOW, telemetry));
+  const seen = rail(renderBoard(model(ME, sampleJournal, NOW, telemetry)));
   const rows = [...seen.matchAll(/<div class="tele">([^]*?)<\/div>/g)].map(
     (m) =>
       strip(m[1] ?? "")
@@ -1157,8 +1178,9 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   assert.deepEqual(rows, [
     // Mid-turn, with the turn's age; the Answer link and Hold in the row.
     "running 29s · seen 10sAnswer T2Hold",
-    // Stopped at a permission prompt: the names, in the accent.
-    "asks permission: Bash · seen 10sHold",
+    // Stopped at a permission prompt: the names, in the accent; two
+    // subagents run (v0.11).
+    "asks permission: Bash · 2 subagents · seen 10sHold",
     // Idle after a finished turn: how long ago it ended; the idle card
     // carries its meter in this row.
     "idle 21m · seen 9s86%Release",
@@ -1177,7 +1199,7 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   );
   assert.match(
     seen,
-    /<div class="name"><span data-path="placements\[0\]\.key">orchestrator@mbp<\/span><span class="meter" data-path="placements\[0\]\.agent\.context, placements\[0\]\.agent\.usage"[^>]*><span class="bar"><i style="width: 31%"><\/i><\/span><span class="num" data-path="percent\(placements\[0\]\.agent\.context\.used, placements\[0\]\.agent\.context\.max\)">31%<\/span><\/span><span class="age num"/,
+    /<div class="name"><span class="key" data-path="placements\[0\]\.key" role="button" aria-haspopup="dialog" title="Open the sheet \(s\)">orchestrator@mbp<\/span><span class="meter" data-path="placements\[0\]\.agent\.context, placements\[0\]\.agent\.usage"[^>]*><span class="bar"><i style="width: 31%"><\/i><\/span><span class="num" data-path="percent\(placements\[0\]\.agent\.context\.used, placements\[0\]\.agent\.context\.max\)">31%<\/span><\/span><span class="age num"/,
   );
   // Harness tags after ready and held.
   assert.ok(
@@ -1193,7 +1215,7 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   );
   // Without telemetry: "no telemetry" on each card and in the tick; the
   // lever still closes the card.
-  const none = page(ME);
+  const none = rail(page(ME));
   assert.ok(none.includes('<span data-path="telemetryAt">no telemetry</span>'));
   assert.equal(
     [...none.matchAll(/<div class="tele">/g)].length,
@@ -1306,135 +1328,404 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   assert.ok(!edges.includes('data-path="placements[2].agent.context'));
 });
 
-test("the sheet (part 2, plain until v0.11): the checkout row, the open subagents and the activity tail; a field not read is left out, and every string is escaped", () => {
-  const seen = renderBoard(model(ME, sampleJournal, NOW, telemetry));
-  const sheets = [
-    ...seen.matchAll(/<div class="sheet"[^>]*>([^]*?)<\/div>\n/g),
-  ].map((m) =>
-    [...(m[1] ?? "").matchAll(/<div(?: [^>]*)?>([^]*?)<\/div>/g)].map((r) =>
-      strip(r[1] ?? ""),
+test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkout as a grid, Subagents as a tree, Activity as a feed; null reads not read, empty reads none; every string escaped", () => {
+  const html = renderBoard(model(ME, sampleJournal, NOW, telemetry));
+  const all = sheets(html);
+  assert.deepEqual(
+    all.map((s) => s.match(/<aside class="sheet"[^>]*>/)?.[0]),
+    [
+      '<aside class="sheet" role="dialog" aria-label="orchestrator@mbp" data-path="placements[0]" data-key="orchestrator@mbp" hidden>',
+      '<aside class="sheet" role="dialog" aria-label="knowledge@mini" data-path="placements[1]" data-key="knowledge@mini" hidden>',
+      '<aside class="sheet" role="dialog" aria-label="environment@mbp" data-path="placements[2]" data-key="environment@mbp" hidden>',
+    ],
+  );
+  const [o, k, e] = all;
+  assert.ok(o && k && e);
+  // The head: dot, name, meter, the status line with the seen age apart,
+  // the levers, then the tags with host and session.
+  assert.ok(
+    o.includes(
+      '<div class="name"><span class="dot ask" data-path="placements[0].delivery.latest.kind, placements[0].ready, placements[0].hold"></span><h2><span data-path="placements[0].key">orchestrator@mbp</span></h2><span class="meter" data-path="placements[0].agent.context, placements[0].agent.usage"',
     ),
   );
-  assert.deepEqual(sheets, [
-    // The orchestrator: a dirty worktree ahead of its base, an open pull
-    // request whose checks fail, every subagent done, the tail ending in
-    // the running answer.
+  assert.ok(
+    o.includes(
+      '<span class="seen num" data-path="age(placements[0].agent.seen, at)" title="2026-09-30 09:44Z">seen 10s</span></span><span class="lever"><a class="btn sm accent" data-path="needsYou[0].items[1]" href="?task=T2#answer-D1">Answer T2</a><form',
+    ),
+  );
+  assert.ok(
+    o.includes(
+      '<span class="tag" data-path="placements[0].host">mbp</span><span class="tag" data-path="placements[0].session">session A1</span></div>',
+    ),
+  );
+  // Checkout: the grid's rows for a dirty worktree ahead of its base with
+  // an open pull request whose checks fail.
+  const kv = (s: string): [string, string][] =>
+    [...s.matchAll(/<dt>([^<]*)<\/dt><dd>([^]*?)<\/dd>/g)].map((m) => [
+      m[1] ?? "",
+      strip(m[2] ?? "").replaceAll(/\s+/g, " "),
+    ]);
+  assert.deepEqual(kv(o), [
+    ["project", "A2A"],
+    ["workspace", "feat-noticesworktree"],
+    ["directory", "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices"],
     [
-      "feat/notices* · +412 −96 · PR #21 failure",
-      "3 subagents (0 running)",
-      "user message [router T5 N1] incus asks about your request. Answer with: router answer …",
-      "reasoning The question is which kernel the lab image should boot.",
-      "Read completed research/lab-images.md",
-      "assistant message The lab image boots 6.12 LTS; answering incus with that.",
-      "Bash running router answer --as A1 --task T5 --delivery D5 --question Q1 --text '6.12 LTS'",
+      "branch",
+      "feat/noticesgit@github.com:me/jev-a2a.gitdirtyahead 3 · behind 0",
     ],
-    // knowledge@mini: a plain checkout, two subagents open, the tail ending
-    // in the call waiting on the permission.
+    ["diff", "+412 −96"],
     [
-      "main",
-      "8 subagents (2 running)",
-      "user message [router T4 M4] Task from the router. When done, run: router reply …",
-      "Agent running Sweep the vault for notes that cite the retired runbook.",
-      "Bash running rg -l runbook-2024 /Users/agent/vault/ops",
+      "pull request",
+      "#21 feat(router): notices to participant sendersopenconflicts",
     ],
-    // environment@mbp: a directory with no git facts; the per-session reads
-    // were not made, so nothing else.
-    ["directory"],
+    ["checks", "checks failing·review pending"],
+    ["status", "runningactive 20s"],
   ]);
-  // The pull request links out with its title; the failing checks are
-  // dotted; the subagents' briefs are the count's tooltip.
   assert.ok(
-    seen.includes(
-      '<a class="err" data-path="placements[0].agent.checkout.pr" href="https://github.com/me/jev-a2a/pull/21" title="feat(router): notices to participant senders">PR #21 failure</a>',
+    o.includes(
+      '<a class="pr" data-path="placements[0].agent.checkout.pr.number, placements[0].agent.checkout.pr.title, placements[0].agent.checkout.pr.url" href="https://github.com/me/jev-a2a/pull/21" title="#21 feat(router): notices to participant senders">#21 feat(router): notices to participant senders</a>',
     ),
   );
   assert.ok(
-    seen.includes(
-      '<span data-path="placements[1].agent.subagents.counts" title="worker: Sweep the vault for notes that cite the retired runbook.\nExplore: List every note under ops/ that links runbook-2024.">8 subagents (2 running)</span>',
+    o.includes(
+      '<span class="role-warn" data-path="placements[0].agent.checkout.dirty">dirty</span>',
     ),
   );
   assert.ok(
-    seen.includes(
-      '<div data-path="placements[0].agent.activity.items[4]" title="2026-09-30 09:44Z"><b>Bash</b> <span class="k">running</span> router answer',
+    o.includes(
+      '<span class="role-err" data-path="placements[0].agent.checkout.pr.checks">checks failing</span>',
     ),
   );
-  // No sheet field, no row: part 1's telemetry renders as before.
-  const bare = renderBoard(
-    model(ME, sampleJournal, NOW, {
-      ...telemetry,
-      placements: Object.fromEntries(
-        Object.entries(telemetry.placements).map(([key, a]) => [
-          key,
-          { ...a, checkout: null, subagents: null, activity: null },
-        ]),
-      ),
-    }),
+  assert.ok(
+    o.includes(
+      '<span class="num" data-path="diff(placements[0].agent.checkout.diff.additions, placements[0].agent.checkout.diff.deletions)">+412 −96</span>',
+    ),
   );
-  assert.ok(!bare.includes('class="sheet"'));
-  // Hostile strings stay text: a branch, a tool's name and text, a PR
-  // title and a brief with markup in them; a pull request whose URL is not
-  // a web address is not a link.
-  const hostile = telemetry.placements["orchestrator@mbp"];
-  const open = hostile?.checkout?.pr;
-  const first = telemetry.placements["knowledge@mini"]?.subagents?.running[0];
-  assert.ok(hostile?.checkout && open && first);
-  const sharp = renderBoard(
-    model(ME, sampleJournal, NOW, {
-      ...telemetry,
-      placements: {
-        "orchestrator@mbp": {
-          ...hostile,
-          checkout: {
-            ...hostile.checkout,
-            branch: "<b>x</b>",
-            pr: { ...open, title: '"><i>', url: "javascript:alert(1)" },
+  // A plain checkout: no diff, no pull request, the kind as words.
+  assert.deepEqual(kv(k), [
+    ["project", "vault"],
+    ["workspace", "mainlocal checkout"],
+    ["directory", "/Users/agent/vault"],
+    ["branch", "main"],
+    ["diff", "no diff"],
+    ["pull request", "no pull request"],
+    ["status", "needs inputactive 4m"],
+  ]);
+  // Subagents: counts, then none running; or the tree with the child
+  // under its parent.
+  assert.ok(
+    o.includes(
+      '<p class="counts-line" data-path="counts(placements[0].agent.subagents.counts)">3 completed</p><p class="none" data-path="placements[0].agent.subagents.running">none running</p>',
+    ),
+  );
+  assert.ok(
+    k.includes(
+      '<p class="counts-line" data-path="counts(placements[1].agent.subagents.counts)">2 running · 5 completed · 1 canceled</p><div class="subs"><div class="subagent" data-path="placements[1].agent.subagents.running[0]"><span class="dot work" data-path="placements[1].agent.subagents.running[0].status" title="running"></span><span class="title" data-path="placements[1].agent.subagents.running[0].title" title="toolu_01sweep">worker</span>',
+    ),
+  );
+  assert.ok(
+    k.includes(
+      '<div class="kids" data-path="placements[1].agent.subagents.running[].parent"><div class="subagent" data-path="placements[1].agent.subagents.running[1]">',
+    ),
+  );
+  assert.ok(
+    k.includes(
+      '<span class="when" data-path="age(placements[1].agent.subagents.running[1].startedAt, at)" title="2026-09-30 09:40Z">started 4m</span>',
+    ),
+  );
+  // The card's status line counts them (v0.11's one card change).
+  assert.ok(
+    rail(html).includes(
+      '<span data-path="count(placements[1].agent.subagents.running)">2 subagents</span> · <span class="seen num"',
+    ),
+  );
+  // Activity: turns in the heading; each row its seconds, kind word, tool
+  // and status, text; the last row, a running tool, is current.
+  assert.ok(
+    o.includes(
+      '<h3><span class="kicker">Activity · last 8</span><span class="n" data-path="placements[0].agent.activity.turns">1 turn</span></h3>',
+    ),
+  );
+  assert.ok(
+    o.includes(
+      '<div class="item" data-path="placements[0].agent.activity.items[2]"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[2].at)" title="2026-09-30 09:44Z">09:44:35Z</span><span class="kind" data-path="placements[0].agent.activity.items[2].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[2].tool">Read</span><span class="status" data-path="placements[0].agent.activity.items[2].status">completed</span><span class="text" data-path="placements[0].agent.activity.items[2].text" title="research/lab-images.md">research/lab-images.md</span></span></div>',
+    ),
+  );
+  assert.ok(
+    o.includes(
+      '<div class="item now" data-path="placements[0].agent.activity.items[4]" aria-current="true"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[4].at)" title="2026-09-30 09:44Z">09:44:40Z</span><span class="kind" data-path="placements[0].agent.activity.items[4].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[4].tool">Bash</span><span class="status running" data-path="placements[0].agent.activity.items[4].status">running</span>',
+    ),
+  );
+  assert.ok(
+    o.includes(
+      '<span class="kind" data-path="placements[0].agent.activity.items[1].kind">reasoning</span>',
+    ),
+  );
+  // Not read on a live session: no reason added.
+  assert.ok(
+    e.includes(
+      '<p class="none" data-path="placements[2].agent.subagents">subagents not read</p>',
+    ),
+  );
+  assert.ok(
+    e.includes(
+      '<p class="none" data-path="placements[2].agent.activity">activity not read</p>',
+    ),
+  );
+  assert.ok(
+    e.includes(
+      '<span class="muted" data-path="placements[2].agent.checkout.branch">detached</span>',
+    ),
+  );
+
+  // A closed session and a missing one: not read with the reason; a null
+  // agent's sheet has the three sections not read and no tags.
+  const closed = telemetry.placements["environment@mbp"];
+  const sheetsOf = (t: Telemetry): string[] =>
+    sheets(renderBoard(model(ME, sampleJournal, NOW, t)));
+  const cold = sheetsOf({
+    ...telemetry,
+    placements: {
+      ...telemetry.placements,
+      "environment@mbp": {
+        ...emptySnapshot(telemetry.at, "missing"),
+        ...closed,
+        status: "closed",
+        attention: null,
+        context: null,
+        usage: null,
+      },
+      "knowledge@mini": emptySnapshot(telemetry.at, "missing"),
+    },
+  });
+  assert.ok(
+    cold[2]?.includes(
+      '<p class="none" data-path="placements[2].agent.subagents">subagents not read · session not live</p>',
+    ),
+  );
+  assert.ok(
+    cold[2]?.includes(
+      '<p class="none" data-path="placements[2].agent.activity">activity not read · session not live</p>',
+    ),
+  );
+  assert.ok(
+    cold[2]?.includes(
+      '<span data-path="placements[2].agent.status">closed</span>',
+    ),
+  );
+  assert.ok(
+    cold[1]?.includes(
+      '<p class="none" data-path="placements[1].agent.checkout">checkout not read</p>',
+    ),
+  );
+  assert.ok(
+    cold[1]?.includes(
+      '<p class="none" data-path="placements[1].agent.subagents">subagents not read · session not live</p>',
+    ),
+  );
+  const none = sheets(page(ME));
+  assert.equal(none.length, 3);
+  assert.ok(
+    none[0]?.includes(
+      '<span class="line"><span class="k" data-path="placements[0].agent">no telemetry</span></span>',
+    ),
+  );
+  assert.ok(
+    none[0]?.includes(
+      '<div class="rig"><span class="tag" data-path="placements[0].host">mbp</span>',
+    ),
+  );
+  assert.ok(none[0]?.includes("checkout not read</p>"));
+
+  // Empty reads: no subagents at all, an empty tail, a pull request that is
+  // a draft with conflicts and no review, a non-web URL that is not a link,
+  // a parent that is not running (the child sits at the top level), and
+  // hostile strings.
+  const sharp = telemetry.placements["orchestrator@mbp"];
+  const open = sharp?.checkout?.pr;
+  const first = telemetry.placements["knowledge@mini"]?.subagents?.running[1];
+  assert.ok(sharp?.checkout && open && first);
+  const [odd, quiet] = sheetsOf({
+    ...telemetry,
+    placements: {
+      "orchestrator@mbp": {
+        ...sharp,
+        checkout: {
+          ...sharp.checkout,
+          project: "<p>",
+          workspace: "<w>",
+          directory: "/tmp/<d>",
+          branch: "<b>x</b>",
+          remote: "git@<r>",
+          dirty: false,
+          ahead: 0,
+          behind: 2,
+          diff: null,
+          pr: {
+            ...open,
+            title: '"><i>',
+            url: "javascript:alert(1)",
+            state: "<S>",
+            draft: false,
+            mergeable: "CONFLICTING",
+            checks: null,
+            review: null,
           },
-          subagents: {
-            counts: { running: 1, completed: 0, failed: 0, canceled: 0 },
-            running: [{ ...first, title: "<x>", description: '"' }],
-          },
-          activity: {
-            turns: 0,
-            items: [
-              {
-                at: null,
-                kind: "tool_call",
-                text: "echo '<script>alert(1)</script>' & \"done\"",
-                tool: "<Bash>",
-                status: "completed",
-              },
-            ],
-          },
+          activityAt: null,
+        },
+        subagents: {
+          counts: { running: 1, completed: 0, failed: 0, canceled: 0 },
+          running: [
+            {
+              ...first,
+              id: "<id>",
+              title: "<x>",
+              description: '"',
+              parent: "gone",
+            },
+          ],
+        },
+        activity: {
+          turns: 0,
+          items: [
+            {
+              at: null,
+              kind: "tool_call",
+              text: "echo '<script>alert(1)</script>' & \"done\"",
+              tool: "<Bash>",
+              status: "failed",
+            },
+            {
+              at: "2026-09-30T09:44:40.000Z",
+              kind: "error",
+              text: "boom",
+              tool: null,
+              status: null,
+            },
+            {
+              at: "2026-09-30T09:44:41.000Z",
+              kind: "compaction",
+              text: "completed",
+              tool: null,
+              status: null,
+            },
+          ],
         },
       },
-    }),
-  );
-  assert.ok(sharp.includes("&lt;b&gt;x&lt;/b&gt;*"));
-  assert.ok(
-    sharp.includes(
-      '<div data-path="placements[0].agent.activity.items[0]"><b>&lt;Bash&gt;</b> <span class="k">completed</span> echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;</div>',
-    ),
-  );
-  assert.ok(!sharp.includes("<script>alert"));
-  assert.ok(!sharp.includes("javascript:"));
-  assert.ok(
-    sharp.includes(
-      '<span class="err" data-path="placements[0].agent.checkout.pr" title="&quot;&gt;&lt;i&gt;">PR #21 failure</span>',
-    ),
-  );
-  assert.ok(sharp.includes('title="&lt;x&gt;: &quot;"'));
-  // An empty tail reads "no activity".
-  const quiet = renderBoard(
-    model(ME, sampleJournal, NOW, {
-      ...telemetry,
-      placements: {
-        "orchestrator@mbp": { ...hostile, activity: { turns: 0, items: [] } },
+      "knowledge@mini": {
+        ...sharp,
+        subagents: {
+          counts: { running: 0, completed: 0, failed: 0, canceled: 0 },
+          running: [],
+        },
+        activity: { turns: 0, items: [] },
       },
-    }),
+    },
+  });
+  assert.ok(odd && quiet);
+  // The strip leaves the entities: the markup never became tags.
+  assert.deepEqual(kv(odd), [
+    ["project", "&lt;p&gt;"],
+    ["workspace", "&lt;w&gt;worktree"],
+    ["directory", "/tmp/&lt;d&gt;"],
+    ["branch", "&lt;b&gt;x&lt;/b&gt;git@&lt;r&gt;ahead 0 · behind 2"],
+    ["diff", "no diff"],
+    ["pull request", "#21 &quot;&gt;&lt;i&gt;&lt;s&gt;conflicts"],
+    ["checks", "checks unknown"],
+    ["status", "running"],
+  ]);
+  assert.ok(
+    odd.includes(
+      'data-path="placements[0].agent.checkout.directory" title="/tmp/&lt;d&gt;"',
+    ),
+  );
+  assert.ok(!odd.includes("javascript:"));
+  assert.ok(
+    odd.includes(
+      '<span class="pr" data-path="placements[0].agent.checkout.pr.number, placements[0].agent.checkout.pr.title, placements[0].agent.checkout.pr.url" title="#21 &quot;&gt;&lt;i&gt;">#21 &quot;&gt;&lt;i&gt;</span>',
+    ),
+  );
+  assert.ok(
+    odd.includes(
+      '<span class="role-warn" data-path="placements[0].agent.checkout.pr.mergeable">conflicts</span>',
+    ),
+  );
+  assert.ok(
+    odd.includes(
+      '<div class="subs"><div class="subagent" data-path="placements[0].agent.subagents.running[0]">',
+    ),
+  );
+  assert.ok(!odd.includes('class="kids"'));
+  assert.ok(
+    odd.includes(
+      '<span class="title" data-path="placements[0].agent.subagents.running[0].title" title="&lt;id&gt;">&lt;x&gt;</span><span class="desc" data-path="placements[0].agent.subagents.running[0].description" title="&quot;">&quot;</span>',
+    ),
+  );
+  // No hostile tag survives once the page's own tags are taken out.
+  assert.ok(
+    !/<(p|w|d|r|s|id|x)>/i.test(
+      odd.replace(
+        /<\/?(p|dd|dt|dl|div|span|a|h2|h3|section|aside|button|form|input)\b[^>]*>/g,
+        "",
+      ),
+    ),
+  );
+  assert.ok(
+    odd.includes(
+      '<div class="item" data-path="placements[0].agent.activity.items[0]"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[0].at)">—</span><span class="kind" data-path="placements[0].agent.activity.items[0].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[0].tool">&lt;Bash&gt;</span><span class="status role-err" data-path="placements[0].agent.activity.items[0].status">failed</span><span class="text" data-path="placements[0].agent.activity.items[0].text" title="echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;">echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;</span></span></div>',
+    ),
+  );
+  assert.ok(!odd.includes("<script>alert"));
+  assert.ok(
+    odd.includes(
+      '<div class="item error" data-path="placements[0].agent.activity.items[1]">',
+    ),
+  );
+  assert.ok(
+    odd.includes(
+      '<div class="item quiet" data-path="placements[0].agent.activity.items[2]">',
+    ),
+  );
+  assert.ok(
+    odd.includes(
+      '<span class="kind" data-path="placements[0].agent.activity.items[2].kind">compaction</span>',
+    ),
+  );
+  assert.ok(
+    odd.includes(
+      '<span class="n" data-path="placements[0].agent.activity.turns">0 turns</span>',
+    ),
   );
   assert.ok(
     quiet.includes(
-      '<span class="k" data-path="placements[0].agent.activity.items">no activity</span>',
+      '<p class="none" data-path="placements[1].agent.subagents">none</p>',
     ),
+  );
+  assert.ok(
+    quiet.includes(
+      '<p class="none" data-path="placements[1].agent.activity.items">none</p>',
+    ),
+  );
+  // The card's line carries no count when none run; the footer and the help
+  // name the key.
+  assert.ok(
+    !rail(html).includes("count(placements[0].agent.subagents.running)"),
+  );
+  assert.ok(html.includes("<span><kbd>s</kbd> sheet</span>"));
+  assert.ok(html.includes("<dt>s</dt>"));
+});
+
+test("the README's screenshots: the sample board, and the same page with one sheet shown", () => {
+  const pages = shots();
+  assert.deepEqual(Object.keys(pages), ["board", "board-sheet"]);
+  assert.equal(
+    sheets(pages.board ?? "").filter((s) => !s.includes(" hidden>")).length,
+    0,
+  );
+  assert.deepEqual(
+    sheets(pages["board-sheet"] ?? "")
+      .filter((s) => !s.includes(" hidden>"))
+      .map((s) => s.match(/data-key="([^"]*)"/)?.[1]),
+    ["orchestrator@mbp"],
   );
 });

@@ -440,9 +440,9 @@ export const sampleJournal: Entry[] = [
 // last run: the orchestrator's session mid-turn (it is answering incus's
 // question), knowledge@mini working on T4 and stopped at a permission
 // prompt, environment@mbp idle with most of its window used. The sheet:
-// the orchestrator on a dirty worktree with an open pull request whose
-// checks fail, its tail ending in a running shell call, its subagents all
-// done; knowledge@mini with two subagents open, one under the other, in a
+// the orchestrator on a dirty worktree with an open pull request that
+// conflicts and whose checks fail, its tail ending in a running shell call,
+// its subagents all done; knowledge@mini with two subagents open, one under the other, in a
 // plain checkout with no pull request; environment@mbp's per-session reads
 // failed that run (the run's report said so), so it has its checkout and
 // nothing else, which is also how a closed session's sheet reads (the
@@ -488,7 +488,7 @@ export const telemetry: Telemetry = {
           state: "OPEN",
           draft: false,
           merged: false,
-          mergeable: "MERGEABLE",
+          mergeable: "CONFLICTING",
           checks: "failure",
           review: "pending",
         },

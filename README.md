@@ -94,9 +94,18 @@ router submit --to orchestrator "The board's log panel clips its last line at 12
 ## The board
 
 `router serve` also serves a page, the board, on `127.0.0.1:7678` by default
-(`serve.board`). It reads the same record as the CLI. The page is the v0.10
-console of the board design (`skhlo/designs`, tag `jev-a2a-v0.10`), drawn on
+(`serve.board`). It reads the same record as the CLI. The page is the v0.11
+console of the board design (`skhlo/designs`, tag `jev-a2a-v0.11`), drawn on
 the server from the view model below, in three columns:
+
+![The board: agents, tasks and the selected task's detail](router/design/screenshots/board.png)
+
+![The health sheet of one agent over the tasks column](router/design/screenshots/board-sheet.png)
+
+The pictures are the sample board (`router/src/board.sample.json`, no live
+request text), the second with orchestrator@mbp's sheet open;
+`pnpm exec node src/board-shots.ts` in `router/` redraws them with a
+Chromium on `PATH`.
 
 - **Agents**: a card per placement the router serves, saying what its
   session is doing (asks on a task, with the question; works on one,
@@ -112,15 +121,32 @@ the server from the view model below, in three columns:
   another status; the snapshot's age; the lever. A context meter sits in
   the name row (the health row on an idle card) with the token counts and
   cost as its tooltip, and on a busy card provider/model, thinking and mode
-  join the tags. Without a snapshot the row reads "no telemetry", and the
-  nav tick, which otherwise dates the telemetry, says so too. Above the
-  health row, when the router read any of it, the session's sheet in plain
-  form (the design's v0.11 binds it): the checkout as Paseo's sidebar shows
-  it (branch, starred when dirty, the diff size, the pull request with its
-  checks, linked, its title as tooltip), the subagents counted with the
-  open ones' briefs as tooltip, and the last eight timeline entries, each
-  a line. The router's last twenty log lines fill the rest of the column,
-  newest at the bottom.
+  join the tags; while subagents run, the status line counts them. Without
+  a snapshot the row reads "no telemetry", and the nav tick, which
+  otherwise dates the telemetry, says so too. The router's last twenty log
+  lines fill the rest of the column, newest at the bottom.
+- **The sheet** (v0.11): a card's name, or `s` on the focused card, opens
+  the placement's health over the tasks column, the detail left whole. Its
+  head repeats the card's dot, name, meter, status line with the seen age
+  and levers, then the tags with the host and session. Checkout is a
+  key-value grid: project; workspace with its kind; directory; branch with
+  the remote, "dirty" and "ahead n · behind n" when either is non-zero;
+  the diff as `+a −d` or "no diff"; the pull request as "#n title" linked
+  to its URL (when it is a web address) with its state word (draft,
+  merged, else the state) and "conflicts" when Paseo reports
+  `CONFLICTING`, then checks (failing, pending, passing, no checks, or
+  unknown) and the review word; the workspace status with "active <age>".
+  Subagents is the non-zero counts, then the running ones as a tree one
+  level deep (a child under its parent; a child whose parent is not
+  running sits at the top), "none running" with counts alone, "none" with
+  neither. Activity is the last eight timeline entries oldest first, each
+  with its seconds, kind word, tool and status, and text, the last one
+  marked current when it is a running tool; the heading counts the turns
+  among them. A field the router did not read says "not read"; subagents
+  and activity add "session not live" when the session is not idle or
+  running. Every placement's sheet is in the page, hidden; `esc` or its
+  close button closes it, a refresh keeps it open by key, and a lever
+  pressed in it brings it back with the page.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
   send; In flight holds the other open tasks, and Done the last finished
@@ -158,32 +184,34 @@ may have reached a participant, and the outcome says so.
 The page reads and acts without a script. Its script adds:
 
 - a refresh every ten seconds: the page fetches itself for the selected task
-  and swaps the nav counts and the three columns. It keeps the selected
-  task, the collapsed groups (in `localStorage`), typed drafts (in
-  `sessionStorage`, by their form's `data-path`), the open peek and the
-  filter, and it leaves alone a column you are typing in.
+  and swaps the nav counts, the three columns and the sheets. It keeps the
+  selected task, the collapsed groups (in `localStorage`), typed drafts (in
+  `sessionStorage`, by their form's `data-path`), the open peek, the open
+  sheet (its element, scroll and all) and the filter, and it leaves alone
+  a column you are typing in or a sheet holding the focus.
 - the palettes: Flexoki, light or dark with the system, and One Dark. The
   choice is kept in `localStorage` and in a `router-theme` cookie, so the
   server paints it before the script runs.
 - the keys the footer names: `j` and `k` move between task rows; space opens
   the peek, the row's open question with a reply box beside the row; `↵`
   opens the task, or in the peek sends the reply (`⇧↵` breaks the line); `→`
-  opens the peeked task; `a` goes to the answer box; `c` cancels the
-  selected task; `h` holds or releases the focused agent, or the selected
-  task's; `/` filters the rows by text, id, recipient or state; `?` lists
+  opens the peeked task; `s` opens or closes the sheet of the focused
+  agent, else the open sheet's, else the selected task's; `a` goes to the
+  answer box; `c` cancels the selected task; `h` holds or releases the
+  focused agent, the open sheet's, or the selected task's; `/` filters the rows by text, id, recipient or state; `?` lists
   the keys; `esc` closes; `⌘↩` or `Ctrl ↩` sends the form you are typing
   in.
 
 Each element the design binds keeps the `data-path` the design gives it, and
 rows and groups keep `data-task` and `data-group`, so the page can be
-compared with the design mechanically. `router/design/v0.10-paths.txt` lists
+compared with the design mechanically. `router/design/v0.11-paths.txt` lists
 the design's paths, as `router/src/design-paths.ts` extracts them, and a test
 fails when one is neither rendered for the board fixture nor named with a
-reason in `router/design/v0.10-dropped.txt`. The test compares paths with
+reason in `router/design/v0.11-dropped.txt`. The test compares paths with
 their indexes blanked (`open[].deliveries[].latest`), since the design's
 sample is larger than the fixture.
 
-The page differs from v0.10 on purpose where the design was wrong for live
+The page differs from v0.11 on purpose where the design was wrong for live
 data: counted nouns agree with their number, each clock carries its full
 date as a tooltip, the needs-you count counts tasks the same way in the nav
 and in the group, blue follows the viewer (the design colours every question
@@ -196,8 +224,11 @@ ready, behind an unconfirmed send, or on a replaced session) says what it
 waits for where the design shows only the send's outcome, and the "from
 <placement>" on an open row that another agent sent shows to every viewer,
 since a person is never a participant (the design spares the sender its own
-placement). What remains open: the design's health sheet is rendered plain
-until v0.11 binds it; a post does not
+placement), every placement's sheet is rendered, hidden, so the script
+opens one without a round trip (the design renders the open one), a narrow
+screen's sheet takes the whole screen, and the Flexoki dark pin
+(`data-scheme`) is not carried, as the theme switch covers it. What remains
+open: a post does not
 name its principal, so a login that holds two principals in one role acts as
 the first one `serve.identities` lists, and the other's items show without a
 form; a draft is keyed by its form's `data-path`, which shifts when an
@@ -426,6 +457,7 @@ URL, and the same `ROUTER_TOKEN`.
 | `router/client/`              | The client for hosts that do not run the router                 |
 | `router/eval/`                | The labeled request set                                         |
 | `router/design/`              | The board design's data-paths, and the ones the page drops      |
+| `router/design/screenshots/`  | The README's pictures of the board, drawn from the sample       |
 | `research/jev-router-spec.md` | The design and the contract. Start here for the reasoning       |
 | `research/`                   | The executable model the design was verified on, and background |
 

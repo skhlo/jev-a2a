@@ -1,10 +1,16 @@
 actor.login
 actor.principals[]
+age(placements[0].agent.checkout.activityAt, at)
 age(placements[0].agent.seen, at)
+age(placements[0].agent.subagents.running[0].startedAt, at)
+age(placements[0].agent.subagents.running[0].updatedAt, at)
+age(placements[0].agent.subagents.running[1].startedAt, at)
+age(placements[0].agent.subagents.running[1].updatedAt, at)
 age(placements[0].agent.turnStartedAt, at)
 age(placements[0].delivery.latest.at, at)
+age(placements[1].agent.checkout.activityAt, at)
 age(placements[1].agent.seen, at)
-age(placements[2].agent.attentionAt, at)
+age(placements[2].agent.checkout.activityAt, at)
 age(placements[2].agent.seen, at)
 age(placements[3].agent.seen, at)
 age(placements[3].agent.turnStartedAt, at)
@@ -24,7 +30,11 @@ count(needsYou[].items)
 count(open)
 count(open[] not in needsYou)
 count(placements)
+count(placements[0].agent.subagents.running)
 count(placements[].hold)
+counts(placements[0].agent.subagents.counts)
+counts(placements[1].agent.subagents.counts)
+diff(placements[1].agent.checkout.diff.additions, placements[1].agent.checkout.diff.deletions)
 finished[0]
 finished[0].a2a
 finished[0].chosenBy
@@ -74,6 +84,22 @@ first_line(open[0].text)
 first_line(open[1].text)
 first_line(open[3].text)
 first_line(open[4].text)
+hms(placements[0].agent.activity.items[0].at)
+hms(placements[0].agent.activity.items[1].at)
+hms(placements[0].agent.activity.items[2].at)
+hms(placements[0].agent.activity.items[3].at)
+hms(placements[0].agent.activity.items[4].at)
+hms(placements[0].agent.activity.items[5].at)
+hms(placements[0].agent.activity.items[6].at)
+hms(placements[0].agent.activity.items[7].at)
+hms(placements[1].agent.activity.items[0].at)
+hms(placements[1].agent.activity.items[1].at)
+hms(placements[1].agent.activity.items[2].at)
+hms(placements[1].agent.activity.items[3].at)
+hms(placements[1].agent.activity.items[4].at)
+hms(placements[1].agent.activity.items[5].at)
+hms(placements[1].agent.activity.items[6].at)
+hms(placements[1].agent.activity.items[7].at)
 left(open[0].deadline, at)
 left(open[1].deadline, at)
 left(open[2].deadline, at)
@@ -208,10 +234,59 @@ percent(placements[1].agent.context.used, placements[1].agent.context.max)
 percent(placements[2].agent.context.used, placements[2].agent.context.max)
 percent(placements[3].agent.context.used, placements[3].agent.context.max)
 placements[0]
+placements[0].agent.activity.items[0]
+placements[0].agent.activity.items[0].kind
+placements[0].agent.activity.items[0].text
+placements[0].agent.activity.items[1]
+placements[0].agent.activity.items[1].kind
+placements[0].agent.activity.items[1].status
+placements[0].agent.activity.items[1].text
+placements[0].agent.activity.items[1].tool
+placements[0].agent.activity.items[2]
+placements[0].agent.activity.items[2].kind
+placements[0].agent.activity.items[2].text
+placements[0].agent.activity.items[3]
+placements[0].agent.activity.items[3].kind
+placements[0].agent.activity.items[3].status
+placements[0].agent.activity.items[3].text
+placements[0].agent.activity.items[3].tool
+placements[0].agent.activity.items[4]
+placements[0].agent.activity.items[4].kind
+placements[0].agent.activity.items[4].text
+placements[0].agent.activity.items[5]
+placements[0].agent.activity.items[5].kind
+placements[0].agent.activity.items[5].status
+placements[0].agent.activity.items[5].text
+placements[0].agent.activity.items[5].tool
+placements[0].agent.activity.items[6]
+placements[0].agent.activity.items[6].kind
+placements[0].agent.activity.items[6].text
+placements[0].agent.activity.items[7]
+placements[0].agent.activity.items[7].kind
+placements[0].agent.activity.items[7].text
+placements[0].agent.activity.turns
+placements[0].agent.checkout.branch
+placements[0].agent.checkout.diff
+placements[0].agent.checkout.directory
+placements[0].agent.checkout.kind
+placements[0].agent.checkout.pr
+placements[0].agent.checkout.project
+placements[0].agent.checkout.remote
+placements[0].agent.checkout.status
+placements[0].agent.checkout.workspace
 placements[0].agent.context, placements[0].agent.usage
 placements[0].agent.mode
 placements[0].agent.provider, placements[0].agent.model
 placements[0].agent.status
+placements[0].agent.subagents.running[0]
+placements[0].agent.subagents.running[0].description
+placements[0].agent.subagents.running[0].status
+placements[0].agent.subagents.running[0].title
+placements[0].agent.subagents.running[1]
+placements[0].agent.subagents.running[1].description
+placements[0].agent.subagents.running[1].status
+placements[0].agent.subagents.running[1].title
+placements[0].agent.subagents.running[].parent
 placements[0].agent.thinking
 placements[0].delivery.latest.kind
 placements[0].delivery.latest.kind, placements[0].ready, placements[0].hold
@@ -223,10 +298,54 @@ placements[0].key
 placements[0].ready
 placements[0].session
 placements[1]
+placements[1].agent.activity.items[0]
+placements[1].agent.activity.items[0].kind
+placements[1].agent.activity.items[0].text
+placements[1].agent.activity.items[1]
+placements[1].agent.activity.items[1].kind
+placements[1].agent.activity.items[1].text
+placements[1].agent.activity.items[2]
+placements[1].agent.activity.items[2].kind
+placements[1].agent.activity.items[2].text
+placements[1].agent.activity.items[3]
+placements[1].agent.activity.items[3].kind
+placements[1].agent.activity.items[3].text
+placements[1].agent.activity.items[4]
+placements[1].agent.activity.items[4].kind
+placements[1].agent.activity.items[4].text
+placements[1].agent.activity.items[5]
+placements[1].agent.activity.items[5].kind
+placements[1].agent.activity.items[5].status
+placements[1].agent.activity.items[5].text
+placements[1].agent.activity.items[5].tool
+placements[1].agent.activity.items[6]
+placements[1].agent.activity.items[6].kind
+placements[1].agent.activity.items[6].text
+placements[1].agent.activity.items[7]
+placements[1].agent.activity.items[7].kind
+placements[1].agent.activity.items[7].status
+placements[1].agent.activity.items[7].text
+placements[1].agent.activity.items[7].tool
+placements[1].agent.activity.turns
+placements[1].agent.checkout.ahead, placements[1].agent.checkout.behind
+placements[1].agent.checkout.branch
+placements[1].agent.checkout.directory
+placements[1].agent.checkout.dirty
+placements[1].agent.checkout.kind
+placements[1].agent.checkout.pr.checks
+placements[1].agent.checkout.pr.mergeable
+placements[1].agent.checkout.pr.number, placements[1].agent.checkout.pr.title, placements[1].agent.checkout.pr.url
+placements[1].agent.checkout.pr.review
+placements[1].agent.checkout.pr.state, placements[1].agent.checkout.pr.draft, placements[1].agent.checkout.pr.merged
+placements[1].agent.checkout.project
+placements[1].agent.checkout.remote
+placements[1].agent.checkout.status
+placements[1].agent.checkout.workspace
 placements[1].agent.context, placements[1].agent.usage
 placements[1].agent.mode
 placements[1].agent.permissions[].name
 placements[1].agent.provider, placements[1].agent.model
+placements[1].agent.subagents.running
 placements[1].agent.thinking
 placements[1].delivery.excerpt
 placements[1].delivery.latest.kind, placements[1].ready, placements[1].hold
@@ -237,11 +356,31 @@ placements[1].key
 placements[1].ready
 placements[1].session
 placements[2]
+placements[2].agent.activity
+placements[2].agent.checkout.ahead, placements[2].agent.checkout.behind
+placements[2].agent.checkout.branch
+placements[2].agent.checkout.diff
+placements[2].agent.checkout.directory
+placements[2].agent.checkout.kind
+placements[2].agent.checkout.pr.checks
+placements[2].agent.checkout.pr.number, placements[2].agent.checkout.pr.title, placements[2].agent.checkout.pr.url
+placements[2].agent.checkout.pr.review
+placements[2].agent.checkout.pr.state, placements[2].agent.checkout.pr.draft, placements[2].agent.checkout.pr.merged
+placements[2].agent.checkout.project
+placements[2].agent.checkout.remote
+placements[2].agent.checkout.status
+placements[2].agent.checkout.workspace
 placements[2].agent.context, placements[2].agent.usage
+placements[2].agent.mode
+placements[2].agent.provider, placements[2].agent.model
 placements[2].agent.status
+placements[2].agent.subagents
+placements[2].agent.thinking
 placements[2].delivery.latest.kind, placements[2].ready, placements[2].hold
 placements[2].hold
+placements[2].host
 placements[2].key
+placements[2].session
 placements[3]
 placements[3].agent.context, placements[3].agent.usage
 placements[3].agent.mode
