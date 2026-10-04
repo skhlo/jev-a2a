@@ -1,4 +1,4 @@
-// The board page: the v0.9 design drawn from the view model and the viewer,
+// The board page: the v0.10 design drawn from the view model and the viewer,
 // a pure function of both. The tests read what a viewer or the design agent
 // reads: text, data-paths, and the forms with their fields.
 import test from "node:test";
@@ -37,7 +37,7 @@ import {
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
 import type { Entry } from "./journal.ts";
-import { emptySnapshot } from "./telemetry.ts";
+import { emptySnapshot, type Telemetry } from "./telemetry.ts";
 import type { Role } from "./types.ts";
 
 // Past every deadline in the fixture.
@@ -51,6 +51,7 @@ const model = (
   login: string | null,
   entries: Entry[] = journal,
   now = NOW,
+  seen: Telemetry | null = null,
 ): BoardModel =>
   boardModel(
     boardState(config, entries, now),
@@ -60,6 +61,7 @@ const model = (
     login
       ? identify({ "tailscale-user-login": login }, config.serve.identities)
       : null,
+    seen,
   );
 const page = (
   login: string | null,
@@ -199,12 +201,12 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
   );
 });
 
-test("every data-path of the v0.9 design is rendered for the fixture or dropped with a reason", () => {
+test("every data-path of the v0.10 design is rendered for the fixture or dropped with a reason", () => {
   const lines = (name: string): string[] =>
     readFileSync(join(import.meta.dirname, "..", "design", name), "utf8")
       .split("\n")
       .filter((line) => line && !line.startsWith("#"));
-  const listed = lines("v0.9-paths.txt");
+  const listed = lines("v0.10-paths.txt");
   // The committed list is the extraction's output: distinct and sorted.
   assert.ok(listed.length > 100);
   assert.deepEqual(listed, [...new Set(listed)].sort());
@@ -213,7 +215,7 @@ test("every data-path of the v0.9 design is rendered for the fixture or dropped 
   const shape = (path: string): string => path.replaceAll(/\[\d+\]/g, "[]");
   const design = [...new Set(listed.map(shape))].sort();
   const dropped = new Map(
-    lines("v0.9-dropped.txt").map((line): [string, string] => {
+    lines("v0.10-dropped.txt").map((line): [string, string] => {
       const at = line.lastIndexOf(" | ");
       return at < 0 ? [line, ""] : [line.slice(0, at), line.slice(at + 3)];
     }),
@@ -221,15 +223,26 @@ test("every data-path of the v0.9 design is rendered for the fixture or dropped 
   // The design's pages select an answer, a long working task, a choice, a
   // resolve and a task another agent sent; render each task of the fixture,
   // the record with the replaced session for the resolve form, the record
-  // before T4's first reply, and the sample's record with T5.
+  // before T4's first reply, and the sample's record with T5 and its
+  // telemetry, once more with a session the daemon does not know.
+  const missing: Telemetry = {
+    ...telemetry,
+    placements: {
+      ...telemetry.placements,
+      "environment@mbp": emptySnapshot(telemetry.at, "missing"),
+    },
+  };
   const records = [
-    journal,
-    replacedJournal,
-    deliveredJournal,
-    answeredJournal,
-    attemptingJournal,
-    sampleJournal,
-  ].map((entries) => model(ME, entries));
+    ...[
+      journal,
+      replacedJournal,
+      deliveredJournal,
+      answeredJournal,
+      attemptingJournal,
+    ].map((entries) => model(ME, entries)),
+    model(ME, sampleJournal, NOW, telemetry),
+    model(ME, sampleJournal, NOW, missing),
+  ];
   const rendered = new Set(
     ["T1", "T2", "T3", "T4", "T5"]
       .flatMap((task) =>
@@ -240,11 +253,11 @@ test("every data-path of the v0.9 design is rendered for the fixture or dropped 
   assert.deepEqual(
     design.filter((path) => !rendered.has(path) && !dropped.has(path)),
     [],
-    "v0.9 paths neither rendered nor in design/v0.9-dropped.txt",
+    "v0.10 paths neither rendered nor in design/v0.10-dropped.txt",
   );
   for (const [path, reason] of dropped) {
     assert.ok(reason.trim(), `${path} is dropped without a reason`);
-    assert.ok(design.includes(path), `${path} is not a v0.9 path`);
+    assert.ok(design.includes(path), `${path} is not a v0.10 path`);
     assert.ok(!rendered.has(path), `${path} is rendered after all`);
   }
 });
@@ -1133,51 +1146,68 @@ test("a real record: a long request keeps a short title and session ids are shor
   );
 });
 
-test("telemetry: each card says what the router last saw of its session; nothing without a snapshot", () => {
-  const seen = renderBoard(
-    boardModel(
-      boardState(config, sampleJournal, NOW),
-      config,
-      NOW,
-      messageTimes(sampleJournal),
-      identify({ "tailscale-user-login": ME }, config.serve.identities),
-      telemetry,
-    ),
-  );
-  const cards = [...seen.matchAll(/<div class="agent">([^]*?)<\/div>/g)].map(
+test("v0.10 health: each card closes with the status line, the snapshot's age and the lever; the meter and the harness tags; no telemetry without a snapshot", () => {
+  const seen = renderBoard(model(ME, sampleJournal, NOW, telemetry));
+  const rows = [...seen.matchAll(/<div class="tele">([^]*?)<\/div>/g)].map(
     (m) =>
       strip(m[1] ?? "")
         .replaceAll(/\s+/g, " ")
         .trim(),
   );
-  assert.deepEqual(cards, [
-    // Mid-turn, with the turn's age and the harness tags.
-    "running for 29s·context 31% 61.4k/200k·claude/claude-opus-5-5·high·auto·$4.18·seen 10s ago",
-    // Stopped at a permission prompt: named, in the accent.
-    "running for 4m·permission·waiting on Bash·context 32% 88.2k/272k·codex/gpt-5.5·medium·default·$11.02·seen 10s ago",
-    // Idle; a finished turn is not an alarm.
-    "idle·context 86% 172k/200k·claude/claude-sonnet-5-5·low·acceptEdits·$9.61·seen 9s ago",
+  assert.deepEqual(rows, [
+    // Mid-turn, with the turn's age; the Answer link and Hold in the row.
+    "running 29s · seen 10sAnswer T2Hold",
+    // Stopped at a permission prompt: the names, in the accent.
+    "asks permission: Bash · seen 10sHold",
+    // Idle after a finished turn: how long ago it ended; the idle card
+    // carries its meter in this row.
+    "idle 21m · seen 9s86%Release",
   ]);
   assert.ok(
     seen.includes(
-      '<span class="warn" data-path="placements[1].agent.permissions[]">waiting on Bash</span>',
+      '<span class="ask" data-path="placements[1].agent.permissions[].name" title="Run rg over the vault">asks permission: Bash</span>',
     ),
   );
+  // The meter: a bar with the share, full at 80%, the counts and cost as
+  // its tooltip; in the name row of a busy card.
   assert.ok(
     seen.includes(
-      '<span class="pair" data-path="placements[2].agent.context" title="171500 of 200000 tokens">context 86% <span class="k">172k/200k</span></span>',
+      '<span class="meter full" data-path="placements[2].agent.context, placements[2].agent.usage" title="171,500 of 200,000 tokens in context · since the session started: input 880, cached 1,204,000, output 44,120 · $9.61"><span class="bar"><i style="width: 86%"></i></span><span class="num" data-path="percent(placements[2].agent.context.used, placements[2].agent.context.max)">86%</span></span>',
     ),
   );
-  // The column header dates the snapshots.
-  assert.match(strip(seen), /Agents\s*3 placements · seen 9s ago/);
-  // Without telemetry: no line, no date.
+  assert.match(
+    seen,
+    /<div class="name"><span data-path="placements\[0\]\.key">orchestrator@mbp<\/span><span class="meter" data-path="placements\[0\]\.agent\.context, placements\[0\]\.agent\.usage"[^>]*><span class="bar"><i style="width: 31%"><\/i><\/span><span class="num" data-path="percent\(placements\[0\]\.agent\.context\.used, placements\[0\]\.agent\.context\.max\)">31%<\/span><\/span><span class="age num"/,
+  );
+  // Harness tags after ready and held.
+  assert.ok(
+    seen.includes(
+      '<span class="tag" data-path="placements[1].ready">not ready</span><span class="tag" data-path="placements[1].agent.provider, placements[1].agent.model">codex/gpt-5.5</span><span class="tag" data-path="placements[1].agent.thinking" title="thinking medium">medium</span><span class="tag" data-path="placements[1].agent.mode" title="mode default">default</span>',
+    ),
+  );
+  // The nav tick dates the snapshots.
+  assert.ok(
+    seen.includes(
+      '<span data-path="time(telemetryAt)" title="2026-09-30 09:44Z">telemetry 09:44Z</span>',
+    ),
+  );
+  // Without telemetry: "no telemetry" on each card and in the tick; the
+  // lever still closes the card.
   const none = page(ME);
-  assert.ok(!none.includes('class="agent"'));
-  assert.ok(!none.includes("telemetryAt"));
-  // An unreachable host says so, with the failure escaped; a session the
-  // daemon does not know is missing; a placement the file lacks has no line.
+  assert.ok(none.includes('<span data-path="telemetryAt">no telemetry</span>'));
+  assert.equal(
+    [...none.matchAll(/<div class="tele">/g)].length,
+    none.match(/<div class="card[ "]/g)?.length,
+  );
+  assert.match(
+    none,
+    /<span class="k" data-path="placements\[2\]\.agent">no telemetry<\/span><\/span><span class="lever">/,
+  );
+  // Error, missing and unreachable: the status dotted, the error (or a
+  // sentence) as its tooltip, escaped; an attention of error on another
+  // status adds a dotted "error".
   const down = renderBoard(
-    boardModel(boardState(config, journal, NOW), config, NOW, {}, null, {
+    model(ME, journal, NOW, {
       ...telemetry,
       placements: {
         "knowledge@mini": emptySnapshot(
@@ -1186,18 +1216,92 @@ test("telemetry: each card says what the router last saw of its session; nothing
           "ssh: connect to host <mini> port 22: timed out",
         ),
         "environment@mbp": emptySnapshot(telemetry.at, "missing"),
+        "orchestrator@mbp": {
+          ...emptySnapshot(telemetry.at, "missing"),
+          status: "idle",
+          attention: "error",
+          error: "context overflow",
+        },
       },
     }),
   );
-  const states = [...down.matchAll(/<div class="agent">([^]*?)<\/div>/g)].map(
-    (m) =>
-      strip(m[1] ?? "")
-        .replaceAll(/\s+/g, " ")
-        .trim(),
+  assert.ok(
+    down.includes(
+      '<span class="err" data-path="placements[1].agent.status, placements[1].agent.error" title="ssh: connect to host &lt;mini&gt; port 22: timed out">unreachable</span>',
+    ),
   );
-  assert.deepEqual(states, [
-    "unreachable·ssh: connect to host &lt;mini&gt; port 22: timed out·seen 9s ago",
-    "missing·seen 9s ago",
-  ]);
-  assert.ok(!down.includes('data-path="placements[0].agent'));
+  assert.ok(
+    down.includes(
+      '<span class="err" data-path="placements[2].agent.status, placements[2].agent.error" title="the daemon does not know this agent">missing</span>',
+    ),
+  );
+  assert.ok(
+    down.includes(
+      '<span data-path="placements[0].agent.status">idle</span> · <span class="err" data-path="placements[0].agent.attention, placements[0].agent.error" title="context overflow">error</span>',
+    ),
+  );
+  // A placement the file lacks reads "no telemetry" while the others have
+  // a snapshot.
+  const some = renderBoard(
+    model(ME, journal, NOW, {
+      ...telemetry,
+      placements: { "knowledge@mini": emptySnapshot(telemetry.at, "missing") },
+    }),
+  );
+  assert.ok(
+    some.includes(
+      '<span class="k" data-path="placements[0].agent">no telemetry</span>',
+    ),
+  );
+  assert.ok(some.includes('data-path="placements[1].agent.status, '));
+  // Edges: a permission wins over an error status; running without a turn
+  // start has no age; no cost reported and no usage shape the tooltip; no
+  // context, no meter; exactly 80% fills the meter.
+  const idle = telemetry.placements["environment@mbp"];
+  assert.ok(idle?.usage);
+  const usage = idle.usage;
+  const edges = renderBoard(
+    model(ME, journal, NOW, {
+      ...telemetry,
+      placements: {
+        "orchestrator@mbp": {
+          ...idle,
+          status: "error",
+          error: "boom",
+          permissions: [{ id: "p", name: "Edit", title: null, kind: "tool" }],
+          context: { used: 160_000, max: 200_000 },
+          usage: { ...usage, costUsd: null },
+        },
+        "knowledge@mini": {
+          ...idle,
+          status: "running",
+          attention: null,
+          turnStartedAt: null,
+          context: { used: 10, max: 100 },
+          usage: null,
+        },
+        "environment@mbp": { ...idle, context: null },
+      },
+    }),
+  );
+  assert.ok(
+    edges.includes(
+      '<span class="ask" data-path="placements[0].agent.permissions[].name" title="Edit">asks permission: Edit</span>',
+    ),
+  );
+  assert.ok(
+    edges.includes(
+      '<span class="meter full" data-path="placements[0].agent.context, placements[0].agent.usage" title="160,000 of 200,000 tokens in context · since the session started: input 880, cached 1,204,000, output 44,120 · no cost reported">',
+    ),
+  );
+  assert.match(
+    edges,
+    /<span data-path="placements\[1\]\.agent\.status">running<\/span> · <span class="seen num"/,
+  );
+  assert.ok(
+    edges.includes(
+      '<span class="meter" data-path="placements[1].agent.context, placements[1].agent.usage" title="10 of 100 tokens in context">',
+    ),
+  );
+  assert.ok(!edges.includes('data-path="placements[2].agent.context'));
 });
