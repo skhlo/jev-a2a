@@ -202,8 +202,9 @@ without a known login it has no actor.
 
 The contract is the `BoardModel` type in `router/src/board.ts`, the sample
 in `router/src/board.sample.json`, and this section. The sample is the model
-built from the board's test fixture (`router/src/board-fixture.ts`), so it
-holds no live request text. After changing the model or the fixture, run
+built from the board's test fixture (`router/src/board-fixture.ts`,
+`sampleJournal`: the fixture plus one participant-sent task), so it holds no
+live request text. After changing the model or the fixture, run
 `pnpm exec node src/board-sample.ts` in `router/`; a test fails until the
 committed sample matches.
 
@@ -265,8 +266,9 @@ committed sample matches.
     (`question/<delivery>/<id>`, `choose/<n>` or `final`), `kind`, the
     `session` it went to (`null` before an attempt) and its `outcome`
     (`pending`, `attempting`, `accepted`, `unknown` or `withdrawn`). Empty
-    for a person's request. The sample has none; the fixture `viaJournal`
-    in `router/src/board-fixture.ts` shows one.
+    for a person's request. The sample's T5, in `finished`, is one the
+    orchestrator's session sent, with a withdrawn choice, an accepted
+    question and a pending end.
   - `log`: the task's own log lines, as `router status <task>` shows them.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its

@@ -24,7 +24,7 @@ import {
   NOW,
   viaJournal,
 } from "./board-fixture.ts";
-import { boardSample, SAMPLE_PATH } from "./board-sample.ts";
+import { boardSample, sampleModel, SAMPLE_PATH } from "./board-sample.ts";
 import { readJournal, type Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 
@@ -419,6 +419,31 @@ test("the committed sample is what the generator writes from the fixture", () =>
     readFileSync(SAMPLE_PATH, "utf8"),
     boardSample(),
     "src/board.sample.json is stale: run `pnpm exec node src/board-sample.ts` in router/.",
+  );
+});
+
+test("the sample holds a participant-sent task with a notice in each state the design binds", () => {
+  const model = sampleModel();
+  const sent = [...model.open, ...model.finished].filter((t) => t.via);
+  assert.deepEqual(
+    sent.map((t) => [
+      t.id,
+      t.via,
+      t.judgments.map((j) => j.valid),
+      t.notices.map((n) => [n.key, n.session, n.outcome]),
+    ]),
+    [
+      [
+        "T5",
+        "orchestrator@mbp",
+        [true],
+        [
+          ["choose/1", null, "withdrawn"],
+          ["question/D4/Q5", "A1", "accepted"],
+          ["final", null, "pending"],
+        ],
+      ],
+    ],
   );
 });
 

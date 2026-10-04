@@ -51,7 +51,7 @@
       "participant": "orchestrator",
       "host": "mbp",
       "session": "A1",
-      "ready": true,
+      "ready": false,
       "hold": false,
       "delivery": {
         "id": "D1",
@@ -321,6 +321,150 @@
   ],
   "finished": [
     {
+      "id": "T5",
+      "status": "completed",
+      "a2a": "TASK_STATE_COMPLETED",
+      "source": "orchestrator/M5",
+      "messageId": "M5",
+      "recipient": "incus",
+      "chosenBy": "sender",
+      "text": "Start a scratch VM for the router's tests.",
+      "deadline": "2026-09-30T10:44:10.000Z",
+      "routing": null,
+      "judgments": [
+        {
+          "choice": "incus",
+          "probabilities": {
+            "environment": 0.4,
+            "incus": 0.55,
+            "none": 0.05
+          },
+          "model": "jev-1.13.0",
+          "valid": true,
+          "threshold": 0.9
+        }
+      ],
+      "final": {
+        "status": "completed",
+        "reason": null,
+        "completed": 1,
+        "of": 1,
+        "by": null
+      },
+      "via": "orchestrator@mbp",
+      "notices": [
+        {
+          "key": "choose/1",
+          "kind": "choose",
+          "session": null,
+          "outcome": "withdrawn"
+        },
+        {
+          "key": "question/D4/Q5",
+          "kind": "question",
+          "session": "A1",
+          "outcome": "accepted"
+        },
+        {
+          "key": "final",
+          "kind": "final",
+          "session": null,
+          "outcome": "pending"
+        }
+      ],
+      "deliveries": [
+        {
+          "id": "D4",
+          "placement": "incus@lab01",
+          "session": "L1",
+          "send": {
+            "kind": "answer",
+            "messageId": "A5",
+            "outcome": "accepted"
+          },
+          "sends": [
+            {
+              "messageId": "M5",
+              "kind": "request",
+              "text": "Start a scratch VM for the router's tests.",
+              "outcome": "accepted"
+            },
+            {
+              "messageId": "A5",
+              "kind": "answer",
+              "text": "ubuntu-24.04",
+              "outcome": "accepted"
+            }
+          ],
+          "question": null,
+          "updates": [
+            {
+              "messageId": "Q5",
+              "inReplyTo": "M5",
+              "kind": "question",
+              "text": "Which image?"
+            },
+            {
+              "messageId": "R5",
+              "inReplyTo": "A5",
+              "kind": "completed",
+              "text": "scratch-vm ready"
+            }
+          ],
+          "latest": {
+            "messageId": "R5",
+            "inReplyTo": "A5",
+            "kind": "completed",
+            "text": "scratch-vm ready"
+          },
+          "end": {
+            "reason": "completed",
+            "text": "scratch-vm ready",
+            "messageId": "R5",
+            "by": "L1"
+          },
+          "waits": null
+        }
+      ],
+      "log": [
+        {
+          "n": 40,
+          "actor": "Router",
+          "text": "T5 recorded for orchestrator/M5. The caller may disconnect."
+        },
+        {
+          "n": 41,
+          "actor": "Jev",
+          "text": "T5: no confident owner (incus 0.55). The sender must choose."
+        },
+        {
+          "n": 44,
+          "actor": "Router",
+          "text": "T5: sender chose incus."
+        },
+        {
+          "n": 45,
+          "actor": "Router",
+          "text": "T5 notice choose/1 withdrawn: the choice no longer stands."
+        },
+        {
+          "n": 52,
+          "actor": "Router",
+          "text": "Recorded notice T5/question/D4/Q5 as attempting to A1 before calling the adapter."
+        },
+        {
+          "n": 53,
+          "actor": "Adapter",
+          "text": "T5/question/D4/Q5: notice accepted."
+        },
+        {
+          "n": 55,
+          "actor": "Router",
+          "text": "T5: answer A5 queued for the pinned session L1."
+        }
+      ]
+    },
+    {
       "id": "T3",
       "status": "completed",
       "a2a": "TASK_STATE_COMPLETED",
@@ -402,106 +546,110 @@
     "Q2": "2026-09-30T09:31:00.000Z",
     "C1": "2026-09-30T09:38:00.000Z",
     "M4": "2026-09-30T09:40:00.000Z",
-    "W2": "2026-09-30T09:44:00.000Z"
+    "W2": "2026-09-30T09:44:00.000Z",
+    "M5": "2026-09-30T09:44:10.000Z",
+    "Q5": "2026-09-30T09:44:30.000Z",
+    "A5": "2026-09-30T09:44:40.000Z",
+    "R5": "2026-09-30T09:44:50.000Z"
   },
   "log": [
     {
-      "n": 20,
+      "n": 44,
       "actor": "Router",
-      "text": "Clock at 1790760000000."
+      "text": "T5: sender chose incus."
     },
     {
-      "n": 21,
-      "actor": "Participant",
-      "text": "D1: on it."
-    },
-    {
-      "n": 22,
+      "n": 45,
       "actor": "Router",
-      "text": "Clock at 1790760300000."
+      "text": "T5 notice choose/1 withdrawn: the choice no longer stands."
     },
     {
-      "n": 23,
+      "n": 46,
       "actor": "Adapter",
-      "text": "environment@mbp: ready, held, session E1."
+      "text": "incus@lab01: ready, session L1."
     },
     {
-      "n": 24,
+      "n": 47,
       "actor": "Router",
-      "text": "Clock at 1790760660000."
+      "text": "Recorded D4/M5 as attempting to L1 before calling the adapter."
     },
     {
-      "n": 25,
+      "n": 48,
+      "actor": "Adapter",
+      "text": "D4/M5: adapter reported accepted."
+    },
+    {
+      "n": 49,
+      "actor": "Router",
+      "text": "Clock at 1790761470000."
+    },
+    {
+      "n": 50,
       "actor": "Participant",
-      "text": "D1 asks: Force push?"
+      "text": "D4 asks: Which image?"
     },
     {
-      "n": 26,
+      "n": 51,
       "actor": "Adapter",
       "text": "orchestrator@mbp: ready, session A1."
     },
     {
-      "n": 27,
+      "n": 52,
       "actor": "Router",
-      "text": "Recorded D2/M3 as attempting to A1 before calling the adapter."
+      "text": "Recorded notice T5/question/D4/Q5 as attempting to A1 before calling the adapter."
     },
     {
-      "n": 28,
+      "n": 53,
       "actor": "Adapter",
-      "text": "D2/M3: adapter reported accepted."
+      "text": "T5/question/D4/Q5: notice accepted."
     },
     {
-      "n": 29,
+      "n": 54,
       "actor": "Router",
-      "text": "Clock at 1790761080000."
+      "text": "Clock at 1790761480000."
     },
     {
-      "n": 30,
+      "n": 55,
+      "actor": "Router",
+      "text": "T5: answer A5 queued for the pinned session L1."
+    },
+    {
+      "n": 56,
+      "actor": "Adapter",
+      "text": "orchestrator@mbp: not ready, session A1."
+    },
+    {
+      "n": 57,
+      "actor": "Adapter",
+      "text": "incus@lab01: ready, session L1."
+    },
+    {
+      "n": 58,
+      "actor": "Router",
+      "text": "Recorded D4/A5 as attempting to L1 before calling the adapter."
+    },
+    {
+      "n": 59,
+      "actor": "Adapter",
+      "text": "D4/A5: adapter reported accepted."
+    },
+    {
+      "n": 60,
+      "actor": "Router",
+      "text": "Clock at 1790761490000."
+    },
+    {
+      "n": 61,
       "actor": "Participant",
-      "text": "D2: completed result stored."
+      "text": "D4: completed result stored."
     },
     {
-      "n": 31,
+      "n": 62,
       "actor": "Adapter",
-      "text": "orchestrator@mbp: ready, session A1."
+      "text": "orchestrator@mbp: not ready, session A1."
     },
     {
-      "n": 32,
-      "actor": "Router",
-      "text": "Clock at 1790761200000."
-    },
-    {
-      "n": 33,
-      "actor": "Router",
-      "text": "T4 recorded for you/M4. The caller may disconnect."
-    },
-    {
-      "n": 34,
-      "actor": "Jev",
-      "text": "T4: Jev selected knowledge at 0.94."
-    },
-    {
-      "n": 35,
-      "actor": "Router",
-      "text": "Recorded D3/M4 as attempting to K1 before calling the adapter."
-    },
-    {
-      "n": 36,
-      "actor": "Adapter",
-      "text": "D3/M4: adapter reported accepted."
-    },
-    {
-      "n": 37,
-      "actor": "Router",
-      "text": "Clock at 1790761440000."
-    },
-    {
-      "n": 38,
-      "actor": "Participant",
-      "text": "D3: Reading the notes."
-    },
-    {
-      "n": 39,
+      "n": 63,
       "actor": "Router",
       "text": "Clock at 1790761500000."
     }
