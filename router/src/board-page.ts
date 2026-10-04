@@ -401,6 +401,48 @@ ${body}
     </div>`;
   const lever = (levers: string[]): string =>
     levers.length ? `        <div class="lever">${levers.join("")}</div>` : "";
+  // What the router last saw of the session, from the telemetry file: a
+  // plain line until the design binds it. Nothing without telemetry.
+  const agentLine = (path: string, a: PlacementView["agent"]): string => {
+    if (!a) return "";
+    const ap = `${path}.agent`;
+    const parts = [
+      a.turnStartedAt
+        ? `${slot(`${ap}.status`, esc(a.status))} ${ago(`age(${ap}.turnStartedAt, at)`, a.turnStartedAt, "num", `for ${age(a.turnStartedAt, at)}`)}`
+        : slot(`${ap}.status`, esc(a.status)),
+      a.attention && a.attention !== "finished"
+        ? slot(`${ap}.attention`, esc(a.attention), "warn")
+        : "",
+      a.permissions.length
+        ? slot(
+            `${ap}.permissions[]`,
+            `waiting on ${a.permissions.map((q) => esc(q.name)).join(", ")}`,
+            "warn",
+          )
+        : "",
+      a.context
+        ? slot(
+            `${ap}.context`,
+            `context ${Math.round((100 * a.context.used) / a.context.max)}%`,
+            "",
+            "span",
+            ` title="${a.context.used} of ${a.context.max} tokens"`,
+          )
+        : "",
+      a.provider || a.model
+        ? `<span class="pair">${slot(`${ap}.provider`, esc(a.provider ?? ""))}${a.model ? `/${slot(`${ap}.model`, esc(a.model))}` : ""}</span>`
+        : "",
+      a.thinking ? slot(`${ap}.thinking`, esc(a.thinking)) : "",
+      a.mode ? slot(`${ap}.mode`, esc(a.mode)) : "",
+      a.usage && a.usage.costUsd > 0
+        ? slot(`${ap}.usage.costUsd`, `$${a.usage.costUsd.toFixed(2)}`, "num")
+        : "",
+      a.error ? slot(`${ap}.error`, esc(a.error), "warn") : "",
+      ago(`age(${ap}.seen, at)`, a.seen, "num", `seen ${age(a.seen, at)} ago`),
+    ].filter(Boolean);
+    return `
+        <div class="agent">${parts.join('<span class="sep">·</span>')}</div>`;
+  };
 
   const card = (p: PlacementView, i: number): string => {
     const path = `placements[${i}]`;
@@ -429,7 +471,7 @@ ${body}
         ` idle${dot === "off" ? " off" : ""}`,
         dot,
         `        <div class="name">${name}</div>
-        <div class="what">${what}</div>
+        <div class="what">${what}</div>${agentLine(path, p.agent)}
 ${lever(holdLever ? [holdLever] : [])}`,
       );
     }
@@ -519,13 +561,13 @@ ${lever(holdLever ? [holdLever] : [])}`,
       `        <div class="name">${name}${corner}</div>
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
         <div class="rig">${rig}</div>
-        <div class="stats">${stats}</div>
+        <div class="stats">${stats}</div>${agentLine(path, p.agent)}
 ${lever(levers)}`,
     );
   };
 
   const agents = `<aside class="panel agents" aria-label="Agents">
-  <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}</h2>
+  <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}${model.telemetryAt ? `<span class="n"> · ${ago("age(telemetryAt, at)", model.telemetryAt, "num", `seen ${age(model.telemetryAt, at)} ago`)}</span>` : ""}</h2>
   <div class="scroll"><div class="cards">
 ${model.placements
   .map((p, i): [PlacementView, number] => [p, i])
@@ -1145,6 +1187,11 @@ h1, h2, h3, p { margin: 0; }
 .card .what .id { color: inherit; font-size: inherit; }
 .card .rig { display: flex; gap: 4px; flex-wrap: wrap; }
 .card .stats { display: flex; gap: 6px; align-items: baseline; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); white-space: nowrap; }
+.card .agent { display: flex; flex-wrap: wrap; gap: 2px 5px; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.card .agent .pair { white-space: nowrap; }
+.card.idle .agent { grid-column: 1 / -1; }
+.card .agent .warn { color: var(--accent); }
+.card .agent .sep { color: var(--text-3); }
 .card .stats .k { color: var(--text-3); }
 .card .stats .ask { color: var(--accent); }
 .card .lever { margin-top: 6px; display: flex; gap: 6px; }

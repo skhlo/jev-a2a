@@ -390,6 +390,14 @@ configuration, so the replay starts from it, not from today's (found
 2026-10-01, when lowering the threshold made a September hand-back into a
 dispatch and the choice that followed it unreadable).
 
+Beside the record, not in it: `telemetry.json`, what the shell last saw of
+each served session beyond its readiness (status, the turn's start, pending
+permissions, context use, model and mode, usage and cost, the last error),
+taken from the same snapshot the readiness check reads and written whole
+after each run's observations. It changes every run, so journaling it would
+bury the record; it is not folded, not replayed and not locked, and a board
+view or `router status` shows what the file holds with its age, or nothing.
+
 ## Verified live, and not
 
 Verified on 2026-09-30: the envelope round trip

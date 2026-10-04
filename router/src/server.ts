@@ -25,6 +25,7 @@ import {
 import { renderBoard } from "./board-page.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
+import { readTelemetry } from "./telemetry.ts";
 import { fold, servedBy } from "./shell.ts";
 import { waitsOnSessions } from "./core.ts";
 import type { Event, Outcome } from "./types.ts";
@@ -349,6 +350,8 @@ export function boardListener(
   const { config } = deps;
   const log = deps.log ?? ((): void => undefined);
   const now = deps.now ?? Date.now;
+  // A bad telemetry file is logged once, not on every refresh.
+  let telemetryError: string | null = null;
   const model = (at: number, actor: Actor | null) => {
     const entries = readJournal(config.home);
     return boardModel(
@@ -357,6 +360,11 @@ export function boardListener(
       at,
       messageTimes(entries),
       actor,
+      readTelemetry(config.home, (message) => {
+        if (message === telemetryError) return;
+        telemetryError = message;
+        log(message);
+      }),
     );
   };
   return (req, res) => {

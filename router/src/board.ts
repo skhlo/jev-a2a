@@ -14,6 +14,7 @@ import {
 } from "./core.ts";
 import { fold } from "./shell.ts";
 import type { RouterConfig } from "./config.ts";
+import type { AgentSnapshot, Telemetry } from "./telemetry.ts";
 import type { Entry } from "./journal.ts";
 import type {
   BlockedReason,
@@ -122,6 +123,9 @@ export type PlacementView = {
     question: { id: string; text: string; at: string | null } | null;
     latest: { kind: UpdateKind; at: string | null } | null;
   } | null;
+  // What the router last saw of the session beyond its readiness, from the
+  // telemetry file; null when the file has no entry for the placement.
+  agent: AgentSnapshot | null;
 };
 
 // Who is viewing, with the role of each principal the login may act as.
@@ -142,6 +146,8 @@ export type BoardModel = {
   // When each message was recorded, by message id.
   times: Record<string, string>;
   log: State["log"];
+  // When the placements' snapshots were taken; null without telemetry.
+  telemetryAt: string | null;
 };
 
 const FINISHED_SHOWN = 10;
@@ -179,6 +185,7 @@ export function boardModel(
   now: number,
   times: Record<string, string> = {},
   actor: Actor | null = null,
+  telemetry: Telemetry | null = null,
 ): BoardModel {
   const tasks = state.tasks.map((task) => taskView(task, state)).reverse();
   // Oldest first. Tasks list in submission order, which is not creation
@@ -240,12 +247,14 @@ export function boardModel(
                   : null,
               }
             : null,
+          agent: telemetry?.placements[key] ?? null,
         };
       }),
     open: tasks.filter((t) => !t.final),
     finished: tasks.filter((t) => t.final).slice(0, FINISHED_SHOWN),
     times,
     log: state.log.slice(-LOG_SHOWN),
+    telemetryAt: telemetry?.at ?? null,
   };
 }
 

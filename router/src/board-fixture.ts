@@ -9,6 +9,7 @@
 import type { RouterConfig } from "./config.ts";
 import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
+import type { Telemetry } from "./telemetry.ts";
 import base from "./example-config.ts";
 
 export const config: RouterConfig = {
@@ -433,3 +434,73 @@ export const sampleJournal: Entry[] = [
     { type: "observe", placement: "orchestrator@mbp", ready: false },
   ),
 ];
+
+// What the shell last saw of the sample's sessions, taken at the end of its
+// last run: the orchestrator's session mid-turn (it is answering incus's
+// question), knowledge@mini working on T4 and stopped at a permission
+// prompt, environment@mbp idle with most of its window used. Together with
+// `sampleJournal` it is what the published sample is built from.
+export const telemetry: Telemetry = {
+  version: "jev-router-telemetry/1",
+  at: "2026-09-30T09:44:51.000Z",
+  placements: {
+    "orchestrator@mbp": {
+      seen: "2026-09-30T09:44:50.000Z",
+      status: "running",
+      attention: null,
+      turnStartedAt: "2026-09-30T09:44:31.000Z",
+      lastUserMessageAt: "2026-09-30T09:44:31.000Z",
+      permissions: [],
+      provider: "claude",
+      model: "claude-opus-5-5",
+      thinking: "high",
+      mode: "auto",
+      context: { used: 61_400, max: 200_000 },
+      usage: { input: 1_240, cached: 418_900, output: 9_870, costUsd: 4.18 },
+      error: null,
+      title: "router orchestrator",
+      cwd: "/home/me/Projects/jev-a2a",
+    },
+    "knowledge@mini": {
+      seen: "2026-09-30T09:44:50.000Z",
+      status: "running",
+      attention: "permission",
+      turnStartedAt: "2026-09-30T09:40:05.000Z",
+      lastUserMessageAt: "2026-09-30T09:40:04.000Z",
+      permissions: [
+        {
+          id: "perm-1",
+          name: "Bash",
+          title: "Run rg over the vault",
+          kind: "tool",
+        },
+      ],
+      provider: "codex",
+      model: "gpt-5.5",
+      thinking: "medium",
+      mode: "default",
+      context: { used: 88_200, max: 272_000 },
+      usage: { input: 3_020, cached: 905_300, output: 21_410, costUsd: 11.02 },
+      error: null,
+      title: "vault curator",
+      cwd: "/Users/agent/vault",
+    },
+    "environment@mbp": {
+      seen: "2026-09-30T09:44:51.000Z",
+      status: "idle",
+      attention: "finished",
+      turnStartedAt: null,
+      lastUserMessageAt: "2026-09-30T09:21:12.000Z",
+      permissions: [],
+      provider: "claude",
+      model: "claude-sonnet-5-5",
+      thinking: "low",
+      mode: "acceptEdits",
+      context: { used: 171_500, max: 200_000 },
+      usage: { input: 880, cached: 1_204_000, output: 44_120, costUsd: 9.61 },
+      error: null,
+      title: "environment",
+      cwd: "/home/me",
+    },
+  },
+};

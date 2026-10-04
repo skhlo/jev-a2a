@@ -31,6 +31,8 @@ import {
   journal,
   NOW,
   replacedJournal,
+  sampleJournal,
+  telemetry,
   viaJournal,
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
@@ -1078,5 +1080,73 @@ test("a real record: a long request keeps a short title and session ids are shor
     detailT5.includes(
       `D4 ended · completed · by <span data-path="finished[0].deliveries[0].end.by" title="${session}">cef0c5d5</span>`,
     ),
+  );
+});
+
+test("telemetry: each card says what the router last saw of its session; nothing without a snapshot", () => {
+  const seen = renderBoard(
+    boardModel(
+      boardState(config, sampleJournal, NOW),
+      config,
+      NOW,
+      messageTimes(sampleJournal),
+      identify({ "tailscale-user-login": ME }, config.serve.identities),
+      telemetry,
+    ),
+  );
+  const cards = [...seen.matchAll(/<div class="agent">([^]*?)<\/div>/g)].map(
+    (m) =>
+      strip(m[1] ?? "")
+        .replaceAll(/\s+/g, " ")
+        .trim(),
+  );
+  assert.deepEqual(cards, [
+    // Mid-turn, with the turn's age and the harness tags.
+    "running for 29s·context 31%·claude/claude-opus-5-5·high·auto·$4.18·seen 10s ago",
+    // Stopped at a permission prompt: named, in the accent.
+    "running for 4m·permission·waiting on Bash·context 32%·codex/gpt-5.5·medium·default·$11.02·seen 10s ago",
+    // Idle; a finished turn is not an alarm.
+    "idle·context 86%·claude/claude-sonnet-5-5·low·acceptEdits·$9.61·seen 9s ago",
+  ]);
+  assert.ok(
+    seen.includes(
+      '<span class="warn" data-path="placements[1].agent.permissions[]">waiting on Bash</span>',
+    ),
+  );
+  assert.ok(
+    seen.includes(
+      '<span data-path="placements[2].agent.context" title="171500 of 200000 tokens">context 86%</span>',
+    ),
+  );
+  // The column header dates the snapshots.
+  assert.match(strip(seen), /Agents\s*3 placements · seen 9s ago/);
+  // Without telemetry: no line, no date.
+  const none = page(ME);
+  assert.ok(!none.includes('class="agent"'));
+  assert.ok(!none.includes("telemetryAt"));
+  // An unreachable host says so, with the failure.
+  const down = renderBoard(
+    boardModel(boardState(config, journal, NOW), config, NOW, {}, null, {
+      ...telemetry,
+      placements: {
+        "knowledge@mini": {
+          ...telemetry.placements["environment@mbp"]!,
+          status: "unreachable",
+          turnStartedAt: null,
+          context: null,
+          usage: null,
+          provider: null,
+          model: null,
+          thinking: null,
+          mode: null,
+          attention: null,
+          error: "ssh: connect to host mini port 22: timed out",
+        },
+      },
+    }),
+  );
+  assert.match(
+    strip(down).replaceAll(/\s+/g, " "),
+    /unreachable·ssh: connect to host mini port 22: timed out·seen 9s ago/,
   );
 });

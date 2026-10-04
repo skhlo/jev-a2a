@@ -7,6 +7,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { createPaseoClient } from "@getpaseo/client";
+import { snapshotOf, type AgentSnapshot } from "./telemetry.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
@@ -14,6 +15,8 @@ export type Observation = {
   ready: boolean;
   status: string;
   pendingPermissions: number;
+  // The rest of what the daemon said, for the board's telemetry.
+  snapshot: AgentSnapshot;
 };
 
 // A fault in the router itself, as opposed to a host that cannot be reached:
@@ -72,6 +75,7 @@ export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
         ready: status === "idle" && pendingPermissions.length === 0,
         status,
         pendingPermissions: pendingPermissions.length,
+        snapshot: snapshotOf(result.agent, new Date().toISOString()),
       };
     },
     async send(agentId, key, text) {

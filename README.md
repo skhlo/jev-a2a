@@ -233,6 +233,18 @@ committed sample matches.
   the session waits on with its `id`, `text` and `at` (`null` while no
   question is open: answered, or never asked), and the `latest` update's
   `kind` and `at`.
+  - `agent`: what the router last saw of the session beyond its readiness,
+    from the telemetry file (below), or `null` when the file has no entry
+    for the placement: `seen` (when), `status` (Paseo's `idle`, `running`,
+    `initializing`, `error` or `closed`, or the router's `missing` when the
+    daemon does not know the agent and `unreachable` when the host could
+    not be reached, with the failure in `error`), `attention` (`finished`,
+    `error`, `permission` or `null`), `turnStartedAt` and
+    `lastUserMessageAt`, `permissions` pending (each with `id`, `name`,
+    `title` and `kind`), `provider`, `model`, `thinking` and `mode`,
+    `context` (`used` and `max` tokens, or `null`), `usage` (`input`,
+    `cached`, `output` tokens and `costUsd`, or `null`), the last `error`,
+    the agent's `title` and `cwd`.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
@@ -273,11 +285,19 @@ committed sample matches.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its
   `actor` and its `text`.
+- `telemetryAt`: when the placements' snapshots were taken, or `null`
+  without telemetry.
 
-The record does not hold adapter status, the number of permission requests
-pending in a session, or session telemetry (context use, turns, tool calls,
-cost, process, worktree, subagents, activity), so the model does not carry
-them. These are the gaps a later telemetry round fills.
+Telemetry is not part of the record: an observation is journaled only when
+readiness or the session changes, and a snapshot changes every run. After
+each run's observations the shell writes `telemetry.json` beside the
+journal, whole, by rename (`jev-router-telemetry/1`: `at` and one snapshot
+per served placement, from the same Paseo call that reads readiness); the
+board and `router status` read it without a lock and show what they find
+with its age. A missing or unreadable file is no telemetry, logged once by
+serve, never a fault. Not held yet: the subagent tree, the session's last
+activity, turn and tool counts and the worktree, which need other daemon
+calls per run.
 
 ## Participants and responsibility texts
 
@@ -323,7 +343,7 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
   to an address the other hosts can reach, such as the host's tailnet
   address, if participants on other hosts take part.
 - **Record:** the journal lives in `~/.local/state/jev-router/`, or wherever
-  `home` in the config points.
+  `home` in the config points, with `telemetry.json` beside it.
 - **Service:** `router/jev-router.service` runs `router serve` as a systemd
   user service; the install steps are at the top of that file. Its `PATH`
   line assumes Node comes from mise or `/usr/bin`; edit it otherwise.

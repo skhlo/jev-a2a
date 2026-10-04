@@ -68,6 +68,31 @@
           "kind": "question",
           "at": "2026-09-30T09:31:00.000Z"
         }
+      },
+      "agent": {
+        "seen": "2026-09-30T09:44:50.000Z",
+        "status": "running",
+        "attention": null,
+        "turnStartedAt": "2026-09-30T09:44:31.000Z",
+        "lastUserMessageAt": "2026-09-30T09:44:31.000Z",
+        "permissions": [],
+        "provider": "claude",
+        "model": "claude-opus-5-5",
+        "thinking": "high",
+        "mode": "auto",
+        "context": {
+          "used": 61400,
+          "max": 200000
+        },
+        "usage": {
+          "input": 1240,
+          "cached": 418900,
+          "output": 9870,
+          "costUsd": 4.18
+        },
+        "error": null,
+        "title": "router orchestrator",
+        "cwd": "/home/me/Projects/jev-a2a"
       }
     },
     {
@@ -88,6 +113,38 @@
           "kind": "working",
           "at": "2026-09-30T09:44:00.000Z"
         }
+      },
+      "agent": {
+        "seen": "2026-09-30T09:44:50.000Z",
+        "status": "running",
+        "attention": "permission",
+        "turnStartedAt": "2026-09-30T09:40:05.000Z",
+        "lastUserMessageAt": "2026-09-30T09:40:04.000Z",
+        "permissions": [
+          {
+            "id": "perm-1",
+            "name": "Bash",
+            "title": "Run rg over the vault",
+            "kind": "tool"
+          }
+        ],
+        "provider": "codex",
+        "model": "gpt-5.5",
+        "thinking": "medium",
+        "mode": "default",
+        "context": {
+          "used": 88200,
+          "max": 272000
+        },
+        "usage": {
+          "input": 3020,
+          "cached": 905300,
+          "output": 21410,
+          "costUsd": 11.02
+        },
+        "error": null,
+        "title": "vault curator",
+        "cwd": "/Users/agent/vault"
       }
     },
     {
@@ -97,7 +154,32 @@
       "session": "E1",
       "ready": true,
       "hold": true,
-      "delivery": null
+      "delivery": null,
+      "agent": {
+        "seen": "2026-09-30T09:44:51.000Z",
+        "status": "idle",
+        "attention": "finished",
+        "turnStartedAt": null,
+        "lastUserMessageAt": "2026-09-30T09:21:12.000Z",
+        "permissions": [],
+        "provider": "claude",
+        "model": "claude-sonnet-5-5",
+        "thinking": "low",
+        "mode": "acceptEdits",
+        "context": {
+          "used": 171500,
+          "max": 200000
+        },
+        "usage": {
+          "input": 880,
+          "cached": 1204000,
+          "output": 44120,
+          "costUsd": 9.61
+        },
+        "error": null,
+        "title": "environment",
+        "cwd": "/home/me"
+      }
     }
   ],
   "open": [
@@ -653,5 +735,6 @@
       "actor": "Router",
       "text": "Clock at 1790761500000."
     }
-  ]
+  ],
+  "telemetryAt": "2026-09-30T09:44:51.000Z"
 }

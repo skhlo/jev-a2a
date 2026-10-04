@@ -37,6 +37,7 @@ import {
   type Labeled,
 } from "./eval.ts";
 import { openShell, type Shell } from "./shell.ts";
+import { agentLine, readTelemetry, writeTelemetry } from "./telemetry.ts";
 import { textOption } from "./text.ts";
 import type { Event, Role, State, Task } from "./types.ts";
 
@@ -142,6 +143,7 @@ const open = (): Promise<Shell> =>
     judge: apiKey
       ? (question) => judge(question, { ...config.jev, apiKey })
       : null,
+    telemetry: (telemetry) => writeTelemetry(config.home, telemetry),
     crash:
       crash === "after_attempt" || crash === "after_send" ? crash : undefined,
   });
@@ -364,11 +366,16 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
       } else {
         if (!shell.state.tasks.length) console.log("No tasks recorded.");
         for (const task of shell.state.tasks) console.log(oneLine(task));
+        const telemetry = readTelemetry(config.home, (m) => console.error(m));
         for (const [key, p] of Object.entries(shell.state.placements))
-          if (config.agents[key])
+          if (config.agents[key]) {
             console.log(
               `${key}: ${p.ready ? "ready" : "not ready"}${p.hold ? ", held" : ""} · session ${p.session}`,
             );
+            const agent = telemetry?.placements[key];
+            if (agent) console.log(`  ${agentLine(agent)}`);
+          }
+        if (telemetry) console.log(`telemetry at ${telemetry.at}`);
       }
       return 0;
     }
