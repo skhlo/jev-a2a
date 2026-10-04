@@ -32,11 +32,13 @@ test("a valid file gets its defaults", () => {
   assert.deepEqual(config.serve.identities, {});
   assert.equal(config.serve.wake, 20);
   assert.equal(config.jev.model, "jev-latest");
+  assert.deepEqual(config.telemetry, { sheet: true });
   assert.match(config.home, /jev-router$/);
   const explicit = loadConfig(
     write({
       ...valid,
       home: "/var/lib/router",
+      telemetry: { sheet: false },
       serve: {
         listen: "100.64.0.1:7677",
         board: "localhost:9000",
@@ -47,6 +49,7 @@ test("a valid file gets its defaults", () => {
     }),
   );
   assert.equal(explicit.home, "/var/lib/router");
+  assert.deepEqual(explicit.telemetry, { sheet: false });
   assert.equal(explicit.serve.board, "localhost:9000");
   assert.equal(explicit.serve.wake, 0);
   assert.throws(
@@ -73,6 +76,10 @@ test("what the router refuses, with the reason", () => {
     ],
     [{ ...valid, agents: { "orchestrator@mbp": 3 } }, /must be an agent id/],
     [{ ...valid, serve: { board: "0.0.0.0:7678" } }, /loopback/],
+    [
+      { ...valid, telemetry: { sheet: "yes" } },
+      /telemetry.sheet is true or false/,
+    ],
     [{ ...valid, serve: { board: "100.64.0.1:7678" } }, /loopback/],
     [{ ...valid, serve: { identities: ["me"] } }, /identities maps/],
     [

@@ -47,6 +47,7 @@ const config: RouterConfig = {
     wake: 0,
   },
   jev: { model: "jev-latest" },
+  telemetry: { sheet: true },
 };
 
 // Every caller is a current session unless a test says otherwise.

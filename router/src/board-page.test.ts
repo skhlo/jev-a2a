@@ -1305,3 +1305,110 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   );
   assert.ok(!edges.includes('data-path="placements[2].agent.context'));
 });
+
+test("the sheet (part 2, plain until v0.11): the checkout row, the open subagents and the activity tail; a field not read is left out, and every string is escaped", () => {
+  const seen = renderBoard(model(ME, sampleJournal, NOW, telemetry));
+  const sheets = [
+    ...seen.matchAll(/<div class="sheet"[^>]*>([^]*?)<\/div>\n/g),
+  ].map((m) =>
+    [...(m[1] ?? "").matchAll(/<div(?: [^>]*)?>([^]*?)<\/div>/g)].map((r) =>
+      strip(r[1] ?? ""),
+    ),
+  );
+  assert.deepEqual(sheets, [
+    // The orchestrator: a dirty worktree ahead of its base, an open pull
+    // request whose checks fail, every subagent done, the tail ending in
+    // the running answer.
+    [
+      "feat/notices* · +412 −96 · PR #21 failure",
+      "0 subagents open · 3 done",
+      "user message [router T5 N1] incus asks about your request. Answer with: router answer …",
+      "reasoning The question is which kernel the lab image should boot.",
+      "Read completed research/lab-images.md",
+      "assistant message The lab image boots 6.12 LTS; answering incus with that.",
+      "Bash running router answer --as A1 --task T5 --delivery D5 --question Q1 --text '6.12 LTS'",
+    ],
+    // knowledge@mini: a plain checkout, two subagents open, the tail ending
+    // in the call waiting on the permission.
+    [
+      "main",
+      "2 subagents open · 6 done",
+      "user message [router T4 M4] Task from the router. When done, run: router reply …",
+      "Agent running Sweep the vault for notes that cite the retired runbook.",
+      "Bash running rg -l runbook-2024 /Users/agent/vault/ops",
+    ],
+    // environment@mbp: a directory with no git facts; the per-session reads
+    // were not made, so nothing else.
+    ["directory"],
+  ]);
+  // The pull request links out with its title; the failing checks are
+  // dotted; the subagents' briefs are the count's tooltip.
+  assert.ok(
+    seen.includes(
+      '<a class="err" data-path="placements[0].agent.checkout.pr" href="https://github.com/me/jev-a2a/pull/21" title="feat(router): notices to participant senders">PR #21 failure</a>',
+    ),
+  );
+  assert.ok(
+    seen.includes(
+      '<span data-path="placements[1].agent.subagents.counts" title="worker: Sweep the vault for notes that cite the retired runbook.\nExplore: List every note under ops/ that links runbook-2024.">2 subagents open · 6 done</span>',
+    ),
+  );
+  assert.ok(
+    seen.includes(
+      '<div data-path="placements[0].agent.activity.items[4]" title="2026-09-30T09:44:40.000Z"><b>Bash</b> <span class="k">running</span> router answer',
+    ),
+  );
+  // No sheet field, no row: part 1's telemetry renders as before.
+  const bare = renderBoard(
+    model(ME, sampleJournal, NOW, {
+      ...telemetry,
+      placements: Object.fromEntries(
+        Object.entries(telemetry.placements).map(([key, a]) => [
+          key,
+          { ...a, checkout: null, subagents: null, activity: null },
+        ]),
+      ),
+    }),
+  );
+  assert.ok(!bare.includes('class="sheet"'));
+  // Hostile strings stay text: a branch, a tool's text, a PR title and a
+  // brief with markup in them; a pull request whose URL is not a web
+  // address is not a link; an empty tail reads "no activity".
+  const hostile = telemetry.placements["orchestrator@mbp"];
+  const open = hostile?.checkout?.pr;
+  const first = telemetry.placements["knowledge@mini"]?.subagents?.running[0];
+  assert.ok(hostile?.checkout && open && first);
+  const sharp = renderBoard(
+    model(ME, sampleJournal, NOW, {
+      ...telemetry,
+      placements: {
+        "orchestrator@mbp": {
+          ...hostile,
+          checkout: {
+            ...hostile.checkout,
+            branch: "<b>x</b>",
+            pr: { ...open, title: '"><i>', url: "javascript:alert(1)" },
+          },
+          subagents: {
+            counts: { running: 1, completed: 0, failed: 0, canceled: 0 },
+            running: [{ ...first, title: "<x>", description: '"' }],
+          },
+          activity: { turns: 0, items: [] },
+        },
+      },
+    }),
+  );
+  assert.ok(sharp.includes("&lt;b&gt;x&lt;/b&gt;*"));
+  assert.ok(!sharp.includes("javascript:"));
+  assert.ok(
+    sharp.includes(
+      '<span class="err" data-path="placements[0].agent.checkout.pr" title="&quot;&gt;&lt;i&gt;">PR #21 failure</span>',
+    ),
+  );
+  assert.ok(sharp.includes('title="&lt;x&gt;: &quot;"'));
+  assert.ok(
+    sharp.includes(
+      '<span class="k" data-path="placements[0].agent.activity.items">no activity</span>',
+    ),
+  );
+});

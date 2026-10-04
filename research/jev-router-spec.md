@@ -416,6 +416,21 @@ and not locked on read; a failed write is a line in the run's report, not a
 stopped run; and a board view or `router status` shows what the file holds
 with its time, or nothing.
 
+The sheet (telemetry part 2) rides in the same snapshot from three more
+reads: the host's workspace list once per run (`fetch_workspaces`: the
+project placement, `gitRuntime`, `diffStat`, `githubRuntime.pullRequest`),
+joined to the agent by the `project` the refresh returns (project key and
+workspace name, else the directory; the agent snapshot carries no
+workspace id); and, per session, the provider subagent list
+(`agent.provider_subagents.list`, only on the `DaemonClient` under the
+client package's internal subpath; the whole history, so counts plus the
+open ones) and the timeline tail (`fetch_agent_timeline`, direction
+`tail`). The per-session reads happen only for a session seen `idle` or
+`running`: `fetch_agent_timeline_request` calls `ensureAgentLoaded` in the
+0.10.2 daemon and would resume a `closed` session, and observing must not
+change what it observes. Each read fails alone: the field is `null`, the
+run's report gets a line. `telemetry.sheet: false` turns the three off.
+
 ## Verified live, and not
 
 Verified on 2026-09-30: the envelope round trip

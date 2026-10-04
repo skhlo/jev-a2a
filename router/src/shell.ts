@@ -222,6 +222,8 @@ export async function openShell(
           : `${key}: agent ${agentId} not found on this daemon`,
       );
       if (!outcome.ok) report.push(`${key}: ${outcome.message}`);
+      // A sheet read that failed cost one field, not the observation.
+      for (const note of seen?.notes ?? []) report.push(`${key}: ${note}`);
     }
     // Telemetry is a side file: a failure to write it is reported, and the
     // run goes on to its sends.

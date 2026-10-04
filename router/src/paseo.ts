@@ -9,12 +9,36 @@
 // daemon restart), and a prompt to it resumes the session first
 // (sendPromptToAgent calls ensureAgentLoaded), while the refresh the router
 // observes with does not; an archived agent reads closed too, and a prompt
-// would unarchive it, so readiness excludes it.
+// would unarchive it, so readiness excludes it. A timeline fetch resumes a
+// closed agent as a prompt does, so the health sheet's per-session reads
+// happen only for sessions seen idle or running.
+//
+// The subagent list is not on the public client; it is on the DaemonClient
+// the client is built over, exported under the package's internal subpath.
+// This builds the same pair createPaseoClient builds, so one connection
+// serves both; the client version pins the subpath.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
-import { createPaseoClient } from "@getpaseo/client";
-import type { PaseoAgent } from "@getpaseo/client";
-import type { AgentSnapshot } from "./telemetry.ts";
+import { createPaseoApi } from "@getpaseo/client";
+import type {
+  PaseoAgent,
+  PaseoAgentRefetchResult,
+  PaseoWorkspace,
+} from "@getpaseo/client";
+import {
+  DaemonClient,
+  type FetchAgentTimelinePayload,
+  type ProviderSubagentListPayload,
+} from "@getpaseo/client/internal/daemon-client";
+import {
+  ACTIVITY_KINDS,
+  SUBAGENT_STATUSES,
+  type Activity,
+  type ActivityItem,
+  type AgentSnapshot,
+  type Checkout,
+  type Subagents,
+} from "./telemetry.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
@@ -25,6 +49,8 @@ export type Observation = {
   // The rest of what the daemon said, for the board's telemetry, stamped
   // with the caller's clock.
   snapshot: AgentSnapshot;
+  // Sheet reads that failed, one line each; the field they fed is null.
+  notes?: string[];
 };
 
 // A fault in the router itself, as opposed to a host that cannot be reached:
@@ -38,6 +64,28 @@ export type Adapter = {
   // snapshot is recorded as taken.
   observe(agentId: string, seen: string): Promise<Observation | null>;
   send(agentId: string, key: string, text: string): Promise<AdapterOutcome>;
+  close(): Promise<void>;
+};
+
+export type AdapterOptions = {
+  // Whether to read the health sheet (checkout, subagents, activity) along
+  // with the rail. Default on.
+  sheet?: boolean;
+  // Timeline entries per session.
+  tail?: number;
+};
+
+export type Subagent = ProviderSubagentListPayload["subagents"][number];
+export type TimelineEntry = FetchAgentTimelinePayload["entries"][number];
+
+// What the adapter asks of a daemon, so the rules above it are testable
+// without one.
+export type Daemon = {
+  refresh(agentId: string): Promise<PaseoAgentRefetchResult | null>;
+  send(agentId: string, text: string, messageId: string): Promise<void>;
+  workspaces(): Promise<PaseoWorkspace[]>;
+  subagents(agentId: string): Promise<Subagent[]>;
+  tail(agentId: string, limit: number): Promise<TimelineEntry[]>;
   close(): Promise<void>;
 };
 
@@ -112,31 +160,224 @@ export function snapshotOf(agent: PaseoAgent, seen: string): AgentSnapshot {
     error: agent.lastError ?? null,
     title: agent.title ?? null,
     cwd: agent.cwd,
+    checkout: null,
+    subagents: null,
+    activity: null,
   };
 }
 
-// endpoint: a websocket URL, or ssh://[user@]host[:port] for a daemon bound to
-// loopback on another machine.
-export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
-  const tunnel = endpoint.startsWith("ssh://")
-    ? await openSshTunnel(endpoint)
-    : null;
-  const client = createPaseoClient({
-    url: tunnel ? `ws://127.0.0.1:${tunnel.port}/ws` : endpoint,
+// The first line of a text, cut to a width; null when there is none.
+export function firstLine(
+  text: string | null | undefined,
+  width = 160,
+): string | null {
+  const line = text?.split("\n").find((l) => l.trim()) ?? null;
+  if (line === null) return null;
+  const trimmed = line.trim();
+  return trimmed.length > width ? `${trimmed.slice(0, width - 1)}…` : trimmed;
+}
+
+// A workspace entry (protocol 0.9.2: project placement, gitRuntime,
+// diffStat, githubRuntime.pullRequest) reduced to the sheet's checkout.
+export function checkoutOf(w: PaseoWorkspace): Checkout {
+  const git = w.gitRuntime ?? null;
+  const pr = w.githubRuntime?.pullRequest ?? null;
+  return {
+    project: w.projectDisplayName,
+    workspace: w.name,
+    directory: w.workspaceDirectory,
+    kind: w.workspaceKind,
+    branch: git?.currentBranch ?? w.project?.checkout.currentBranch ?? null,
+    remote: git?.remoteUrl ?? w.project?.checkout.remoteUrl ?? null,
+    dirty: git?.isDirty ?? null,
+    ahead: git?.aheadBehind?.ahead ?? git?.aheadOfOrigin ?? null,
+    behind: git?.aheadBehind?.behind ?? git?.behindOfOrigin ?? null,
+    diff: w.diffStat
+      ? { additions: w.diffStat.additions, deletions: w.diffStat.deletions }
+      : null,
+    pr: pr
+      ? {
+          number: pr.number ?? null,
+          url: pr.url,
+          title: pr.title,
+          state: pr.state,
+          draft: pr.isDraft ?? false,
+          merged: pr.isMerged,
+          mergeable: pr.mergeable ?? null,
+          checks: pr.checksStatus ?? null,
+          review: pr.reviewDecision ?? null,
+        }
+      : null,
+    status: w.status,
+    activityAt: w.activityAt,
+  };
+}
+
+// The agent's place in the workspace list: by project key and workspace
+// name, else by directory. Null when the daemon placed the agent nowhere
+// it lists.
+export function checkoutFor(
+  project: PaseoAgentRefetchResult["project"],
+  workspaces: PaseoWorkspace[],
+): Checkout | null {
+  if (!project) return null;
+  const named = workspaces.find(
+    (w) =>
+      w.project?.projectKey === project.projectKey &&
+      (w.project.workspaceName ?? w.name) === project.workspaceName,
+  );
+  const match =
+    named ??
+    workspaces.find((w) => w.workspaceDirectory === project.checkout.cwd);
+  return match ? checkoutOf(match) : null;
+}
+
+// The session's whole subagent history, counted, with the open ones
+// listed oldest first; a history is long and the sheet is short.
+export function subagentsOf(list: Subagent[], limit = 20): Subagents {
+  const counts = { running: 0, completed: 0, failed: 0, canceled: 0 };
+  for (const s of list)
+    if (SUBAGENT_STATUSES.includes(s.status)) counts[s.status] += 1;
+  const running = list
+    .filter((s) => s.status === "running")
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
+    .slice(0, limit)
+    .map((s) => ({
+      id: s.id,
+      title: s.title,
+      description: firstLine(s.description),
+      status: s.status,
+      startedAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      parent: s.parentSubagentId ?? null,
+    }));
+  return { counts, running };
+}
+
+// A timeline tail, each entry cut to a line: what it was, its first line
+// of text, and for a tool call its name and state.
+export function activityOf(entries: TimelineEntry[]): Activity {
+  const items = entries.flatMap((e): ActivityItem[] => {
+    const item = e.item;
+    const kind = ACTIVITY_KINDS.find((k) => k === item.type);
+    if (!kind) return [];
+    const base = { at: e.timestamp, kind, tool: null, status: null };
+    switch (item.type) {
+      case "user_message":
+      case "assistant_message":
+      case "reasoning":
+        return [{ ...base, text: firstLine(item.text) }];
+      case "tool_call":
+        return [
+          {
+            ...base,
+            text: firstLine(toolText(item.detail)),
+            tool: item.name,
+            status: item.status,
+          },
+        ];
+      case "error":
+      case "notification":
+        return [{ ...base, text: firstLine(item.message) }];
+      case "todo":
+        return [{ ...base, text: `${item.items.length} item(s)` }];
+      case "compaction":
+        return [{ ...base, text: item.status }];
+      default:
+        return [{ ...base, text: null }];
+    }
   });
-  try {
-    await client.connect();
-  } catch (error) {
-    tunnel?.close();
-    throw tunnel?.failure()
-      ? new Error(`SSH to ${endpoint} failed: ${tunnel.failure()}`)
-      : error;
+  return {
+    turns: items.filter((i) => i.kind === "user_message").length,
+    items,
+  };
+}
+
+type ToolCall = Extract<TimelineEntry["item"], { type: "tool_call" }>;
+
+// The one line that says what a tool call did.
+function toolText(detail: ToolCall["detail"]): string | null {
+  switch (detail.type) {
+    case "shell":
+      return detail.command;
+    case "read":
+    case "edit":
+    case "write":
+      return detail.filePath;
+    case "search":
+      return detail.query;
+    case "fetch":
+      return detail.url;
+    case "worktree_setup":
+      return detail.worktreePath;
+    case "sub_agent":
+      return detail.description ?? detail.subAgentType ?? null;
+    case "plain_text":
+      return detail.text ?? detail.label ?? null;
+    case "plan":
+      return detail.text;
+    default:
+      return null;
   }
+}
+
+// The adapter's rules over a daemon: the rail from one refresh; the sheet,
+// when on, from one workspace list per adapter (one run) and, for a session
+// seen idle or running, its subagents and timeline tail. Each sheet read
+// fails on its own: the field is null and the observation carries a note.
+export function adapterOver(
+  daemon: Daemon,
+  options: AdapterOptions = {},
+): Adapter {
+  const sheet = options.sheet ?? true;
+  const tail = options.tail ?? 8;
+  let workspaces: Promise<PaseoWorkspace[]> | null = null;
+  const listed = (): Promise<PaseoWorkspace[]> =>
+    (workspaces ??= daemon.workspaces());
+  const attempt = async <T>(
+    what: string,
+    agentId: string,
+    read: () => Promise<T>,
+    notes: string[],
+  ): Promise<T | null> => {
+    try {
+      return await read();
+    } catch (error: unknown) {
+      notes.push(
+        `${what} of ${agentId} not read: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  };
   return {
     async observe(agentId, seen) {
-      const result = await client.agents.ref(agentId).refresh();
+      const result = await daemon.refresh(agentId);
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
+      const snapshot = snapshotOf(result.agent, seen);
+      const notes: string[] = [];
+      if (sheet) {
+        snapshot.checkout = await attempt(
+          "checkout",
+          agentId,
+          async () => checkoutFor(result.project, await listed()),
+          notes,
+        );
+        if (status === "idle" || status === "running") {
+          snapshot.subagents = await attempt(
+            "subagents",
+            agentId,
+            async () => subagentsOf(await daemon.subagents(agentId)),
+            notes,
+          );
+          snapshot.activity = await attempt(
+            "activity",
+            agentId,
+            async () => activityOf(await daemon.tail(agentId, tail)),
+            notes,
+          );
+        }
+      }
       return {
         ready: isReady(
           status,
@@ -145,25 +386,76 @@ export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
         ),
         status,
         pendingPermissions: pendingPermissions.length,
-        snapshot: snapshotOf(result.agent, seen),
+        snapshot,
+        ...(notes.length ? { notes } : {}),
       };
     },
     async send(agentId, key, text) {
       try {
-        await client.agents.ref(agentId).send(text, { messageId: key });
+        await daemon.send(agentId, text, key);
         return "accepted";
       } catch (error: unknown) {
         return sendFailure(error, agentId, key);
       }
     },
-    async close() {
-      try {
-        await client.close();
-      } finally {
-        tunnel?.close();
-      }
-    },
+    close: () => daemon.close(),
   };
+}
+
+// endpoint: a websocket URL, or ssh://[user@]host[:port] for a daemon bound to
+// loopback on another machine.
+export async function createPaseoAdapter(
+  endpoint: string,
+  options: AdapterOptions = {},
+): Promise<Adapter> {
+  const tunnel = endpoint.startsWith("ssh://")
+    ? await openSshTunnel(endpoint)
+    : null;
+  const daemonClient = new DaemonClient({
+    url: tunnel ? `ws://127.0.0.1:${tunnel.port}/ws` : endpoint,
+    clientId: `jev-router-${crypto.randomUUID()}`,
+    clientType: "cli",
+  });
+  try {
+    await daemonClient.connect();
+  } catch (error) {
+    tunnel?.close();
+    throw tunnel?.failure()
+      ? new Error(`SSH to ${endpoint} failed: ${tunnel.failure()}`)
+      : error;
+  }
+  const api = createPaseoApi(daemonClient);
+  return adapterOver(
+    {
+      refresh: (agentId) => api.agents.ref(agentId).refresh(),
+      async send(agentId, text, messageId) {
+        await api.agents.ref(agentId).send(text, { messageId });
+      },
+      workspaces: async () => (await api.workspaces.list()).entries,
+      subagents: async (agentId) =>
+        (await daemonClient.listProviderSubagents(agentId)).subagents,
+      tail: async (agentId, limit) =>
+        (
+          await api.agents.ref(agentId).timeline.refetch({
+            direction: "tail",
+            limit,
+            projection: "projected",
+          })
+        ).entries,
+      async close() {
+        try {
+          await api.dispose();
+        } finally {
+          try {
+            await daemonClient.close();
+          } finally {
+            tunnel?.close();
+          }
+        }
+      },
+    },
+    options,
+  );
 }
 
 type Tunnel = { port: number; close(): void; failure(): string | null };

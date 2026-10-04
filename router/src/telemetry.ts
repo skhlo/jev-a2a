@@ -27,6 +27,107 @@ export type AgentStatus = (typeof STATUSES)[number];
 const ATTENTIONS = ["finished", "error", "permission"] as const;
 export type Attention = (typeof ATTENTIONS)[number];
 
+// The session's directory as Paseo's workspace list describes it: the
+// sidebar's row (project, branch, +a −d, #n) plus the git and pull request
+// state behind it. From one list per host per run, joined to the agent by
+// project key and workspace name.
+const WORKSPACE_KINDS = [
+  "local_checkout",
+  "worktree",
+  "checkout",
+  "directory",
+] as const;
+const WORKSPACE_STATUSES = [
+  "running",
+  "attention",
+  "needs_input",
+  "failed",
+  "done",
+] as const;
+const MERGEABLES = ["UNKNOWN", "MERGEABLE", "CONFLICTING"] as const;
+const CHECKS = ["success", "pending", "none", "failure"] as const;
+const REVIEWS = ["pending", "approved", "changes_requested"] as const;
+export type Checkout = {
+  project: string;
+  workspace: string;
+  directory: string;
+  kind: (typeof WORKSPACE_KINDS)[number];
+  branch: string | null;
+  remote: string | null;
+  dirty: boolean | null;
+  ahead: number | null;
+  behind: number | null;
+  // Paseo reports none for a plain checkout with nothing to diff.
+  diff: { additions: number; deletions: number } | null;
+  pr: {
+    number: number | null;
+    url: string;
+    title: string;
+    state: string;
+    draft: boolean;
+    merged: boolean;
+    mergeable: (typeof MERGEABLES)[number] | null;
+    checks: (typeof CHECKS)[number] | null;
+    review: (typeof REVIEWS)[number] | null;
+  } | null;
+  status: (typeof WORKSPACE_STATUSES)[number];
+  activityAt: string | null;
+};
+
+// The harness's subagents as Paseo lists them, the whole session's history:
+// counts by status, and the ones still open.
+export const SUBAGENT_STATUSES = [
+  "running",
+  "completed",
+  "failed",
+  "canceled",
+] as const;
+export type SubagentStatus = (typeof SUBAGENT_STATUSES)[number];
+export type Subagent = {
+  id: string;
+  // The subagent's type as the harness names it (worker, Explore).
+  title: string | null;
+  // The first line of its brief.
+  description: string | null;
+  status: SubagentStatus;
+  startedAt: string;
+  updatedAt: string;
+  // Another subagent's id when this one was spawned by a subagent.
+  parent: string | null;
+};
+export type Subagents = {
+  counts: Record<SubagentStatus, number>;
+  running: Subagent[];
+};
+
+// The tail of the session's timeline: the last few entries, oldest first,
+// each cut to a line.
+export const ACTIVITY_KINDS = [
+  "user_message",
+  "assistant_message",
+  "reasoning",
+  "tool_call",
+  "todo",
+  "error",
+  "notification",
+  "compaction",
+  "plugin",
+] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+export type ActivityItem = {
+  at: string | null;
+  kind: ActivityKind;
+  text: string | null;
+  // A tool call's name and state; null for the other kinds.
+  tool: string | null;
+  status: SubagentStatus | null;
+};
+export type Activity = {
+  // User messages among the items, not the session's total.
+  turns: number;
+  items: ActivityItem[];
+};
+
 export type AgentSnapshot = {
   seen: string;
   status: AgentStatus;
@@ -58,6 +159,12 @@ export type AgentSnapshot = {
   error: string | null;
   title: string | null;
   cwd: string | null;
+  // The health sheet. Each is null when the router did not read it: the
+  // sheet is off, the session was not live (a timeline fetch would resume a
+  // closed one), or that read failed. An empty list is read and empty.
+  checkout: Checkout | null;
+  subagents: Subagents | null;
+  activity: Activity | null;
 };
 
 export type Telemetry = {
@@ -91,6 +198,9 @@ export function emptySnapshot(
     error,
     title: null,
     cwd: null,
+    checkout: null,
+    subagents: null,
+    activity: null,
   };
 }
 
@@ -223,7 +333,121 @@ function parseSnapshot(value: unknown): AgentSnapshot | null {
     error: str(value.error),
     title: str(value.title),
     cwd: str(value.cwd),
+    checkout: parseCheckout(value.checkout),
+    subagents: parseSubagents(value.subagents),
+    activity: parseActivity(value.activity),
   };
+}
+
+const oneOf = <T extends string>(
+  words: readonly T[],
+  value: unknown,
+): T | null => words.find((w) => w === value) ?? null;
+
+const bool = (value: unknown): boolean | null =>
+  typeof value === "boolean" ? value : null;
+
+// A sheet field that does not parse reads as not read: the snapshot keeps
+// its rail.
+function parseCheckout(value: unknown): Checkout | null {
+  if (!isRecord(value)) return null;
+  const project = str(value.project);
+  const workspace = str(value.workspace);
+  const directory = str(value.directory);
+  const kind = oneOf(WORKSPACE_KINDS, value.kind);
+  const status = oneOf(WORKSPACE_STATUSES, value.status);
+  if (
+    project === null ||
+    workspace === null ||
+    directory === null ||
+    !kind ||
+    !status
+  )
+    return null;
+  const additions = isRecord(value.diff) ? num(value.diff.additions) : null;
+  const deletions = isRecord(value.diff) ? num(value.diff.deletions) : null;
+  const pr = isRecord(value.pr) ? value.pr : null;
+  const url = pr ? str(pr.url) : null;
+  return {
+    project,
+    workspace,
+    directory,
+    kind,
+    branch: str(value.branch),
+    remote: str(value.remote),
+    dirty: bool(value.dirty),
+    ahead: num(value.ahead),
+    behind: num(value.behind),
+    diff:
+      additions !== null && deletions !== null
+        ? { additions, deletions }
+        : null,
+    pr:
+      pr && url !== null
+        ? {
+            number: num(pr.number),
+            url,
+            title: str(pr.title) ?? "",
+            state: str(pr.state) ?? "",
+            draft: bool(pr.draft) ?? false,
+            merged: bool(pr.merged) ?? false,
+            mergeable: oneOf(MERGEABLES, pr.mergeable),
+            checks: oneOf(CHECKS, pr.checks),
+            review: oneOf(REVIEWS, pr.review),
+          }
+        : null,
+    status,
+    activityAt: str(value.activityAt),
+  };
+}
+
+function parseSubagents(value: unknown): Subagents | null {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.counts) ||
+    !Array.isArray(value.running)
+  )
+    return null;
+  const counts = { running: 0, completed: 0, failed: 0, canceled: 0 };
+  for (const status of SUBAGENT_STATUSES)
+    counts[status] = num(value.counts[status]) ?? 0;
+  const running: Subagent[] = [];
+  for (const raw of value.running) {
+    if (!isRecord(raw)) return null;
+    const id = str(raw.id);
+    const status = oneOf(SUBAGENT_STATUSES, raw.status);
+    const startedAt = str(raw.startedAt);
+    const updatedAt = str(raw.updatedAt);
+    if (id === null || !status || startedAt === null || updatedAt === null)
+      return null;
+    running.push({
+      id,
+      title: str(raw.title),
+      description: str(raw.description),
+      status,
+      startedAt,
+      updatedAt,
+      parent: str(raw.parent),
+    });
+  }
+  return { counts, running };
+}
+
+function parseActivity(value: unknown): Activity | null {
+  if (!isRecord(value) || !Array.isArray(value.items)) return null;
+  const items: ActivityItem[] = [];
+  for (const raw of value.items) {
+    const kind = isRecord(raw) ? oneOf(ACTIVITY_KINDS, raw.kind) : null;
+    if (!isRecord(raw) || !kind) return null;
+    items.push({
+      at: str(raw.at),
+      kind,
+      text: str(raw.text),
+      tool: str(raw.tool),
+      status: oneOf(SUBAGENT_STATUSES, raw.status),
+    });
+  }
+  return { turns: num(value.turns) ?? 0, items };
 }
 
 // One line of a snapshot, as `router status` prints it under the placement.
@@ -244,6 +468,19 @@ export function agentLine(agent: AgentSnapshot): string {
     );
   if (agent.usage?.costUsd !== null && agent.usage?.costUsd !== undefined)
     parts.push(`$${agent.usage.costUsd.toFixed(2)}`);
+  if (agent.checkout) parts.push(checkoutLine(agent.checkout));
+  if (agent.subagents?.counts.running)
+    parts.push(`${agent.subagents.counts.running} subagent(s) running`);
   if (agent.error) parts.push(`error: ${agent.error}`);
   return `${parts.join(" · ")} · seen ${agent.seen}`;
+}
+
+// The sidebar's row in words: branch (starred when dirty), diff, PR and
+// its checks.
+export function checkoutLine(c: Checkout): string {
+  const diff = c.diff ? ` +${c.diff.additions} −${c.diff.deletions}` : "";
+  const pr = c.pr
+    ? ` · PR #${c.pr.number ?? "?"}${c.pr.checks ? ` ${c.pr.checks}` : ""}`
+    : "";
+  return `${c.branch ?? c.kind}${c.dirty ? "*" : ""}${diff}${pr}`;
 }

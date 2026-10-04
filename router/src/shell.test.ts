@@ -30,6 +30,7 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
     wake: 0,
   },
   jev: { model: "jev-latest" },
+  telemetry: { sheet: true },
 });
 
 // An adapter whose next observation and send are scripted per run.
@@ -57,6 +58,9 @@ const snapshot = (status: "idle" | "running"): AgentSnapshot => ({
   error: null,
   title: null,
   cwd: "/work",
+  checkout: null,
+  subagents: null,
+  activity: null,
 });
 const idle: Observation = {
   ready: true,
@@ -791,5 +795,32 @@ test("a telemetry write that fails is reported and the run still sends", async (
   assert.ok(
     report.some((line) => line.startsWith("telemetry not written: EISDIR")),
     report.join("\n"),
+  );
+});
+
+test("a sheet read the adapter could not make is one line of the report, and the observation stands", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const shell = await openShell(
+    configFor(home),
+    scripted({
+      observe: (seen) =>
+        Promise.resolve({
+          ready: true,
+          status: "idle",
+          pendingPermissions: 0,
+          snapshot: { ...snapshot("idle"), seen },
+          notes: ["activity of A1 not read: timeline gone"],
+        }),
+    }),
+  );
+  const report = await shell.deliver();
+  await shell.close();
+  assert.equal(shell.state.placements["orchestrator@mbp"]?.ready, true);
+  assert.deepEqual(
+    report.filter((line) => line.startsWith("orchestrator@mbp")),
+    [
+      "orchestrator@mbp: idle",
+      "orchestrator@mbp: activity of A1 not read: timeline gone",
+    ],
   );
 });
