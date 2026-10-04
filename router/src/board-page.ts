@@ -1,5 +1,5 @@
-// The board's page: the v0.9 console of the board design (skhlo/designs, tag
-// jev-a2a-v0.9, scripts/gen-jev-a2a-board.py), drawn on the server from the
+// The board's page: the v0.10 console of the board design (skhlo/designs, tag
+// jev-a2a-v0.10, scripts/gen-jev-a2a-board.py), drawn on the server from the
 // view model and the viewer. The template translates the generator's HTML
 // functions and carries its CSS: every slot keeps the data-path the design
 // gives it, rows keep data-task and groups data-group, so the live page can
@@ -13,6 +13,7 @@ import type {
   PlacementView,
   TaskView,
 } from "./board.ts";
+import type { AgentStatus } from "./telemetry.ts";
 import type {
   Judgment,
   NeedsYouItem,
@@ -60,13 +61,9 @@ const span = (ms: number): string => {
 export const age = (iso: string | null | undefined, at: string): string =>
   iso ? span(Date.parse(at) - Date.parse(iso)) : DASH;
 
-// tokens(n): a token count in thousands or millions, as a rail reads it.
-export const tokens = (n: number): string =>
-  n >= 1_000_000
-    ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
-    : n >= 1_000
-      ? `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}k`
-      : String(n);
+// percent(used, max): a share as a whole percentage.
+export const percent = (used: number, max: number): number =>
+  Math.round((100 * used) / max);
 
 // left(deadline, at): the countdown to the deadline, or how far past it.
 export const left = (deadline: string, at: string): string => {
@@ -378,7 +375,7 @@ export function renderBoard(
   }</span>
   <span class="counts">${pill("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${pill("count(open[] not in needsYou)", flight.length, "in flight")}${pill("count(placements[].hold)", held, "held")}${pill("count(placements)", agentCount, noun(agentCount, "agent"))}</span>
   <span class="spacer"></span>
-  <span class="tick">built ${clock("time(at)", at, "")} · ${slot("version", esc(model.version))}</span>
+  <span class="tick">built ${clock("time(at)", at, "")} · ${model.telemetryAt ? slot("time(telemetryAt)", `telemetry ${time(model.telemetryAt)}`, "", "span", ` title="${esc(model.telemetryAt)}"`) : slot("telemetryAt", "no telemetry")} · ${slot("version", esc(model.version))}</span>
   <span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span>
   <nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>
 </header>`;
@@ -407,48 +404,104 @@ ${body}
       </div>
     </div>`;
   const lever = (levers: string[]): string =>
-    levers.length ? `        <div class="lever">${levers.join("")}</div>` : "";
+    levers.length ? `<span class="lever">${levers.join("")}</span>` : "";
+  // The card's last row: the status line, the meter on an idle card, and
+  // the lever at its end.
+  const tele = (line: string, meter: string, levers: string[]): string =>
+    `        <div class="tele"><span class="line">${line}</span>${meter}${lever(levers)}</div>`;
   // What the router last saw of the session, from the telemetry file: a
   // plain line until the design binds it. Nothing without telemetry.
-  const agentFacts = (path: string, a: PlacementView["agent"]): string => {
+  // v0.10: placements[].agent closes each card as a health row (the status
+  // line, the snapshot's age, the lever) and a context meter. The status
+  // line is the first that applies: pending permissions in the accent;
+  // error, missing and unreachable dotted with the error as tooltip (a
+  // sentence when there is none); running with the turn's age; idle with
+  // the last turn's end; any other status as words. A null agent reads
+  // "no telemetry".
+  const STATUS_NOTE: Partial<Record<AgentStatus, string>> = {
+    error: "the session reported an error",
+    missing: "the daemon does not know this agent",
+    unreachable: "the host could not be reached",
+  };
+  const health = (
+    path: string,
+    a: PlacementView["agent"],
+  ): { line: string; meter: string } => {
+    const ap = `${path}.agent`;
+    if (!a) return { line: slot(ap, "no telemetry", "k"), meter: "" };
+    const errTip = ` title="${esc(a.error ?? STATUS_NOTE[a.status] ?? "")}"`;
+    let line: string;
+    if (a.permissions.length) {
+      line = slot(
+        `${ap}.permissions[].name`,
+        `asks permission: ${esc(a.permissions.map((q) => q.name).join(", "))}`,
+        "ask",
+        "span",
+        ` title="${esc(a.permissions.map((q) => q.title ?? q.name).join("; "))}"`,
+      );
+    } else if (a.status in STATUS_NOTE) {
+      line = slot(
+        `${ap}.status, ${ap}.error`,
+        esc(a.status),
+        "err",
+        "span",
+        errTip,
+      );
+    } else {
+      line = slot(`${ap}.status`, esc(label(a.status)));
+      if (a.status === "running" && a.turnStartedAt)
+        line += ` ${slot(`age(${ap}.turnStartedAt, at)`, age(a.turnStartedAt, at), "num", "span", ` title="turn started ${esc(a.turnStartedAt)}"`)}`;
+      else if (
+        a.status === "idle" &&
+        a.attention === "finished" &&
+        a.attentionAt
+      )
+        line += ` ${slot(`age(${ap}.attentionAt, at)`, age(a.attentionAt, at), "num", "span", ` title="last turn ended ${esc(a.attentionAt)}"`)}`;
+    }
+    if (a.attention === "error" && !(a.status in STATUS_NOTE))
+      line += ` · ${slot(`${ap}.attention, ${ap}.error`, "error", "err", "span", errTip)}`;
+    line += ` · ${slot(`age(${ap}.seen, at)`, `seen ${age(a.seen, at)}`, "seen num", "span", ` title="${esc(a.seen)}"`)}`;
+    let meter = "";
+    const c = a.context;
+    if (c) {
+      const pct = percent(c.used, c.max);
+      let tip = `${c.used.toLocaleString("en-US")} of ${c.max.toLocaleString("en-US")} tokens in context`;
+      const u = a.usage;
+      if (u) {
+        const cost =
+          u.costUsd === null ? "no cost reported" : `$${u.costUsd.toFixed(2)}`;
+        tip += ` · since the session started: input ${u.input.toLocaleString("en-US")}, cached ${u.cached.toLocaleString("en-US")}, output ${u.output.toLocaleString("en-US")} · ${cost}`;
+      }
+      meter = `<span class="meter${pct >= 80 ? " full" : ""}" data-path="${ap}.context, ${ap}.usage" title="${esc(tip)}"><span class="bar"><i style="width: ${pct}%"></i></span>${slot(`percent(${ap}.context.used, ${ap}.context.max)`, `${pct}%`, "num")}</span>`;
+    }
+    return { line, meter };
+  };
+  // provider/model, thinking and mode as tags; a null field is left out.
+  const harnessTags = (path: string, a: PlacementView["agent"]): string => {
     if (!a) return "";
     const ap = `${path}.agent`;
-    const parts = [
-      a.turnStartedAt
-        ? `${slot(`${ap}.status`, esc(a.status))} ${ago(`age(${ap}.turnStartedAt, at)`, a.turnStartedAt, "num", `for ${age(a.turnStartedAt, at)}`)}`
-        : slot(`${ap}.status`, esc(a.status)),
-      a.attention && a.attention !== "finished"
-        ? slot(`${ap}.attention`, esc(a.attention), "warn")
-        : "",
-      a.permissions.length
+    const pm = [a.provider, a.model].filter(Boolean).join("/");
+    return (
+      (pm ? slot(`${ap}.provider, ${ap}.model`, esc(pm), "tag") : "") +
+      (a.thinking
         ? slot(
-            `${ap}.permissions[]`,
-            `waiting on ${a.permissions.map((q) => esc(q.name)).join(", ")}`,
-            "warn",
-          )
-        : "",
-      a.context
-        ? slot(
-            `${ap}.context`,
-            `context ${Math.round((100 * a.context.used) / a.context.max)}% <span class="k">${tokens(a.context.used)}/${tokens(a.context.max)}</span>`,
-            "pair",
+            `${ap}.thinking`,
+            esc(a.thinking),
+            "tag",
             "span",
-            ` title="${a.context.used} of ${a.context.max} tokens"`,
+            ` title="thinking ${esc(a.thinking)}"`,
           )
-        : "",
-      a.provider || a.model
-        ? `<span class="pair">${slot(`${ap}.provider`, esc(a.provider ?? ""))}${a.model ? `/${slot(`${ap}.model`, esc(a.model))}` : ""}</span>`
-        : "",
-      a.thinking ? slot(`${ap}.thinking`, esc(a.thinking)) : "",
-      a.mode ? slot(`${ap}.mode`, esc(a.mode)) : "",
-      a.usage && a.usage.costUsd !== null
-        ? slot(`${ap}.usage.costUsd`, `$${a.usage.costUsd.toFixed(2)}`, "num")
-        : "",
-      a.error ? slot(`${ap}.error`, esc(a.error), "warn") : "",
-      ago(`age(${ap}.seen, at)`, a.seen, "num", `seen ${age(a.seen, at)} ago`),
-    ].filter(Boolean);
-    return `
-        <div class="agent">${parts.join('<span class="sep">·</span>')}</div>`;
+        : "") +
+      (a.mode
+        ? slot(
+            `${ap}.mode`,
+            esc(a.mode),
+            "tag",
+            "span",
+            ` title="mode ${esc(a.mode)}"`,
+          )
+        : "")
+    );
   };
 
   const card = (p: PlacementView, i: number): string => {
@@ -466,6 +519,7 @@ ${body}
         )
       : "";
     const name = slot(`${path}.key`, esc(p.key));
+    const { line, meter } = health(path, p.agent);
     if (!d) {
       // Idle: no delivery pinned to the session. The card collapses to its
       // name, dot, state and lever.
@@ -480,8 +534,8 @@ ${body}
         ` idle${dot === "off" ? " off" : ""}`,
         dot,
         `        <div class="name">${name}</div>
-        <div class="what">${what}</div>${agentFacts(path, p.agent)}
-${lever(holdLever ? [holdLever] : [])}`,
+        <div class="what">${what}</div>
+${tele(line, meter, holdLever ? [holdLever] : [])}`,
       );
     }
     const task = slot(
@@ -530,7 +584,8 @@ ${lever(holdLever ? [holdLever] : [])}`,
         fullId(p.session),
       ) +
       slot(`${path}.ready`, p.ready ? "ready" : "not ready", "tag") +
-      (p.hold ? slot(`${path}.hold`, "held", "tag") : "");
+      (p.hold ? slot(`${path}.hold`, "held", "tag") : "") +
+      harnessTags(path, p.agent);
     const latestAt = `${path}.delivery.latest.at`;
     const answeredAt = `times[${path}.delivery.messageId]`;
     const stats =
@@ -567,16 +622,16 @@ ${lever(holdLever ? [holdLever] : [])}`,
       path,
       asks ? " warm" : "",
       dot,
-      `        <div class="name">${name}${corner}</div>
+      `        <div class="name">${name}${meter}${corner}</div>
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
         <div class="rig">${rig}</div>
-        <div class="stats">${stats}</div>${agentFacts(path, p.agent)}
-${lever(levers)}`,
+        <div class="stats">${stats}</div>
+${tele(line, "", levers)}`,
     );
   };
 
   const agents = `<aside class="panel agents" aria-label="Agents">
-  <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}${model.telemetryAt ? `<span class="n"> · ${ago("age(telemetryAt, at)", model.telemetryAt, "num", `seen ${age(model.telemetryAt, at)} ago`)}</span>` : ""}</h2>
+  <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}</h2>
   <div class="scroll"><div class="cards">
 ${model.placements
   .map((p, i): [PlacementView, number] => [p, i])
@@ -1089,7 +1144,7 @@ const STYLE = `
   --body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --std: cubic-bezier(.4, 0, .2, 1); --emph: cubic-bezier(.2, 0, 0, 1); --t-fast: 150ms; --t-mid: 200ms;
-  --fs: 13px; --fs-mono: 11.5px; --fs-small: 12px; --pad: 12px; --row-pad: 7px 10px; --card-gap: 8px;
+  --fs: 13px; --fs-mono: 11.5px; --fs-small: 12px; --pad: 12px; --row-pad: 7px 10px; --card-gap: 6px;
 }
 /* Flexoki dark: bg black, bg-2 base-950, ui base-900/850/800, tx base-200/500/700, accent blue-400. */
 :root, html[data-theme="flexoki"] {
@@ -1193,28 +1248,39 @@ h1, h2, h3, p { margin: 0; }
 .card.off { opacity: .7; }
 .card.idle { padding: 9px var(--pad); }
 .card.idle .body { grid-template-columns: 1fr auto; align-items: center; }
-.card.idle .lever { margin-top: 0; }
 .card.focused { outline: 2px solid var(--text); outline-offset: 2px; }
-.card .body { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.card .body { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .card .name { font-weight: 500; font-size: var(--fs); letter-spacing: -.1px; display: flex; align-items: baseline; gap: 8px; }
 .card .name .age { margin-left: auto; font-family: var(--mono); font-weight: 500; font-size: var(--fs-mono); color: var(--text-3); }
 .card .what { font-size: var(--fs-small); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .what.ask { color: var(--accent); }
 .card .what .id { color: inherit; font-size: inherit; }
-.card .rig { display: flex; gap: 4px; flex-wrap: wrap; }
+.card .rig { display: flex; gap: 4px; flex-wrap: wrap; line-height: 1.35; }
 .card .stats { display: flex; gap: 6px; align-items: baseline; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); white-space: nowrap; }
-.card .agent { display: flex; flex-wrap: wrap; gap: 2px 5px; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
-.card .agent .pair { white-space: nowrap; }
-.card.idle .agent { grid-column: 1 / -1; }
-.card .agent .warn { color: var(--accent); }
-.card .agent .sep { color: var(--text-3); }
 .card .stats .k { color: var(--text-3); }
 .card .stats .ask { color: var(--accent); }
-.card .lever { margin-top: 6px; display: flex; gap: 6px; }
+.card .lever { flex: 0 0 auto; display: flex; gap: 6px; }
+/* Health: placements[].agent closes the card as one row with the lever at its end; the meter sits in the
+   name row, or in this row on an idle card. Only a pending permission takes the accent; a status with an
+   error is dotted and carries the error as its tooltip; a fuller window fills in the text colour. */
+.card .name .meter { margin-left: auto; align-self: center; }
+.card .name .meter + .age { margin-left: 0; }
+.card .tele { display: flex; gap: 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
+.card.idle .tele { grid-column: 1 / -1; }
+.card .tele .line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .tele .ask { color: var(--accent); font-weight: 500; }
+.card .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
+.card .tele .seen, .card .tele .k { color: var(--text-3); }
+.meter { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); }
+.meter .bar { width: 44px; height: 4px; border-radius: 2px; background: var(--hair-strong); overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: var(--text-2); }
+.meter.full { color: var(--text); }
+.meter.full .bar i { background: var(--text); }
 /* The rail's cards take what they need; the router log fills the rest, newest line at the bottom, at least four lines. */
 .agents .scroll { flex: 0 1 auto; }
 .agents .foot { flex: 1 1 0; min-height: calc(4 * 1.6 * var(--fs-mono) + 46px); /* four lines plus the heading line and padding */ padding: 10px 16px 12px; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.6; color: var(--text-3); display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
-.agents .foot .lines { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+/* A line clipped at the top fades out instead of showing half its height. */
+.agents .foot .lines { flex: 1; min-height: 0; position: relative; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.6em); mask-image: linear-gradient(to bottom, transparent, #000 1.6em); }
 .agents .foot .lines .tail { position: absolute; left: 0; right: 0; bottom: 0; }
 .agents .foot div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents .foot b { font-weight: 500; color: var(--text-2); }

@@ -1,6 +1,14 @@
 actor.login
 actor.principals[]
+age(placements[0].agent.seen, at)
+age(placements[0].agent.turnStartedAt, at)
 age(placements[0].delivery.latest.at, at)
+age(placements[1].agent.seen, at)
+age(placements[2].agent.attentionAt, at)
+age(placements[2].agent.seen, at)
+age(placements[3].agent.seen, at)
+age(placements[3].agent.turnStartedAt, at)
+age(placements[4].agent.seen, at)
 age(times[finished[0].messageId], at)
 age(times[finished[1].messageId], at)
 age(times[needsYou[0].items[1].questionId], at)
@@ -195,7 +203,16 @@ open[4].routing.reason
 open[4].source
 open[4].status
 open[4].text
+percent(placements[0].agent.context.used, placements[0].agent.context.max)
+percent(placements[1].agent.context.used, placements[1].agent.context.max)
+percent(placements[2].agent.context.used, placements[2].agent.context.max)
+percent(placements[3].agent.context.used, placements[3].agent.context.max)
 placements[0]
+placements[0].agent.context, placements[0].agent.usage
+placements[0].agent.mode
+placements[0].agent.provider, placements[0].agent.model
+placements[0].agent.status
+placements[0].agent.thinking
 placements[0].delivery.latest.kind
 placements[0].delivery.latest.kind, placements[0].ready, placements[0].hold
 placements[0].delivery.question.text
@@ -206,6 +223,11 @@ placements[0].key
 placements[0].ready
 placements[0].session
 placements[1]
+placements[1].agent.context, placements[1].agent.usage
+placements[1].agent.mode
+placements[1].agent.permissions[].name
+placements[1].agent.provider, placements[1].agent.model
+placements[1].agent.thinking
 placements[1].delivery.excerpt
 placements[1].delivery.latest.kind, placements[1].ready, placements[1].hold
 placements[1].delivery.taskId
@@ -215,10 +237,16 @@ placements[1].key
 placements[1].ready
 placements[1].session
 placements[2]
+placements[2].agent.context, placements[2].agent.usage
+placements[2].agent.status
 placements[2].delivery.latest.kind, placements[2].ready, placements[2].hold
 placements[2].hold
 placements[2].key
 placements[3]
+placements[3].agent.context, placements[3].agent.usage
+placements[3].agent.mode
+placements[3].agent.provider, placements[3].agent.model
+placements[3].agent.status
 placements[3].delivery.excerpt
 placements[3].delivery.latest.kind, placements[3].ready, placements[3].hold
 placements[3].delivery.outcome
@@ -229,6 +257,7 @@ placements[3].key
 placements[3].ready
 placements[3].session
 placements[4]
+placements[4].agent.status, placements[4].agent.error
 placements[4].delivery.latest.kind, placements[4].ready, placements[4].hold
 placements[4].hold
 placements[4].key
@@ -240,6 +269,7 @@ time(open[1].deadline)
 time(open[3].deadline)
 time(open[4].deadline)
 time(placements[0].delivery.latest.at)
+time(telemetryAt)
 time(times[finished[0].deliveries[0].latest.messageId])
 time(times[finished[0].messageId])
 time(times[open[0].messageId])

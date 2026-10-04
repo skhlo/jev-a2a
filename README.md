@@ -94,17 +94,25 @@ router submit --to orchestrator "The board's log panel clips its last line at 12
 ## The board
 
 `router serve` also serves a page, the board, on `127.0.0.1:7678` by default
-(`serve.board`). It reads the same record as the CLI. The page is the v0.9
-console of the board design (`skhlo/designs`, tag `jev-a2a-v0.9`), drawn on
+(`serve.board`). It reads the same record as the CLI. The page is the v0.10
+console of the board design (`skhlo/designs`, tag `jev-a2a-v0.10`), drawn on
 the server from the view model below, in three columns:
 
 - **Agents**: a card per placement the router serves, saying what its
   session is doing (asks on a task, with the question; works on one,
   including after a question was answered, with the answer's time;
   delivered and not yet replied; a send still attempting, unknown or
-  pending; held; ready; not ready) and when it last updated. Cards come in that order, asking first; a card with no open
-  delivery collapses to its name and state. The router's last twenty log
-  lines fill the rest of the column, newest at the bottom.
+  pending; held; ready; not ready) and when it last updated. Cards come in
+  that order, asking first; a card with no open delivery collapses to its
+  name and state. Each card closes with the session's health from the
+  router's telemetry: a pending permission by name, or the status with the
+  turn's age (running) or the last turn's end (idle), with `error`,
+  `missing` and `unreachable` dotted and the reason as a tooltip; the
+  snapshot's age; the lever. A context meter sits in the name row (the
+  health row on an idle card) with the token counts and cost as its
+  tooltip, and provider/model, thinking and mode join the tags. Without a
+  snapshot the row reads "no telemetry". The router's last twenty log lines
+  fill the rest of the column, newest at the bottom.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
   send; In flight holds the other open tasks, and Done the last finished
@@ -160,14 +168,14 @@ The page reads and acts without a script. Its script adds:
 
 Each element the design binds keeps the `data-path` the design gives it, and
 rows and groups keep `data-task` and `data-group`, so the page can be
-compared with the design mechanically. `router/design/v0.9-paths.txt` lists
+compared with the design mechanically. `router/design/v0.10-paths.txt` lists
 the design's paths, as `router/src/design-paths.ts` extracts them, and a test
 fails when one is neither rendered for the board fixture nor named with a
-reason in `router/design/v0.9-dropped.txt`. The test compares paths with
+reason in `router/design/v0.10-dropped.txt`. The test compares paths with
 their indexes blanked (`open[].deliveries[].latest`), since the design's
 sample is larger than the fixture.
 
-The page differs from v0.9 on purpose where the design was wrong for live
+The page differs from v0.10 on purpose where the design was wrong for live
 data: counted nouns agree with their number, each clock carries its full
 date as a tooltip, the needs-you count counts tasks the same way in the nav
 and in the group, blue follows the viewer (the design colours every question
@@ -305,7 +313,8 @@ journal, whole, by rename (`jev-router-telemetry/1`: `at` and one snapshot
 per served placement, from the same Paseo call that reads readiness,
 stamped with the run's clock). A write that fails is a line in the run's
 report, and the run goes on to its sends. The board reads the file without
-a lock and shows each snapshot with its age; `router status` prints one
+a lock and shows each snapshot with its age (the nav tick dates the file);
+`router status` prints one
 line per placement with the time. A missing or unreadable file is no
 telemetry, logged once by serve, never a fault; a damaged entry drops its
 placement, named in the log. Not held yet: the subagent tree, the session's
