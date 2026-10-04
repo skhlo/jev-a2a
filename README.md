@@ -94,8 +94,8 @@ router submit --to orchestrator "The board's log panel clips its last line at 12
 ## The board
 
 `router serve` also serves a page, the board, on `127.0.0.1:7678` by default
-(`serve.board`). It reads the same record as the CLI. The page is the v0.8
-console of the board design (`skhlo/designs`, tag `jev-a2a-v0.8`), drawn on
+(`serve.board`). It reads the same record as the CLI. The page is the v0.9
+console of the board design (`skhlo/designs`, tag `jev-a2a-v0.9`), drawn on
 the server from the view model below, in three columns:
 
 - **Agents**: a card per placement the router serves, saying what its
@@ -112,9 +112,11 @@ the server from the view model below, in three columns:
   Jev was unsure of, the delivery it is queued behind or the session it is
   held on, a send not yet accepted, a delivery that has no reply yet, the
   answer it was just given, or who canceled it.
-- **The selected task**: how its recipient was chosen, its deadline with a
+- **The selected task**: how its recipient was chosen and, for a task
+  another agent sent, the placement it came from, its deadline with a
   countdown while it is open, the form that clears what waits on you, the
-  exchange in time order, and its deliveries, Jev's judgments and log.
+  exchange in time order, and its deliveries, the notices its sender was
+  told, Jev's judgments and log.
 
 Blue marks what needs you and nothing else: a question already answered, or
 one that waits on another principal, is not blue. The selected task is in
@@ -129,10 +131,11 @@ takes the tailnet login Serve reports, and a login listed in
 `serve.identities` acts as its principals. A requester answers, chooses a
 recipient and cancels; an operator resolves a delivery the router cannot
 confirm (the form offers only the outcomes the router accepts: a send the
-session accepted can only be marked finished, and the form says so), and
-holds or releases a session (a person holds a session while typing in it,
-so the router does not send there). Each form posts to the
-board's `actions` endpoint and comes back to the page with the outcome.
+session accepted can only be marked finished, and the form says so); any
+identified login holds or releases a session (a hold says a person is
+typing in the session, so the router does not send there). Each form posts
+to the board's `actions` endpoint and comes back to the page with the
+outcome.
 Cancel shows on each of your open tasks; the router refuses one whose work
 may have reached a participant, and the outcome says so.
 
@@ -157,27 +160,28 @@ The page reads and acts without a script. Its script adds:
 
 Each element the design binds keeps the `data-path` the design gives it, and
 rows and groups keep `data-task` and `data-group`, so the page can be
-compared with the design mechanically. `router/design/v0.8-paths.txt` lists
+compared with the design mechanically. `router/design/v0.9-paths.txt` lists
 the design's paths, as `router/src/design-paths.ts` extracts them, and a test
 fails when one is neither rendered for the board fixture nor named with a
-reason in `router/design/v0.8-dropped.txt`. The test compares paths with
+reason in `router/design/v0.9-dropped.txt`. The test compares paths with
 their indexes blanked (`open[].deliveries[].latest`), since the design's
 sample is larger than the fixture.
 
-The page differs from v0.8 on purpose where the design was wrong for live
+The page differs from v0.9 on purpose where the design was wrong for live
 data: counted nouns agree with their number, each clock carries its full
 date as a tooltip, the needs-you count counts tasks the same way in the nav
 and in the group, blue follows the viewer (the design colours every question
-and its badge, whoever it waits on), a finished task shows its verdict
-instead of a countdown, the forms post the router's own fields (resolving
+and its badge, whoever it waits on), a finished task's verdict names the
+reason and who ended it, the forms post the router's own fields (resolving
 takes evidence), a narrow screen gets one scrolling column, a session id of
 any shape that is a UUID is shortened (the design shortens any id over
-twelve characters), and a delivery that waits (queued, held, on a session
-not ready, behind an unconfirmed send, or on a replaced session) says what
-it waits for where the design shows only the send's outcome. What remains
-open: the design's session telemetry and health sheet, which the record does
-not hold (see below); the hold lever shows for operators, as the design has
-it, although the router accepts a hold from any known login; a post does not
+twelve characters), a delivery that waits (queued, held, on a session not
+ready, behind an unconfirmed send, or on a replaced session) says what it
+waits for where the design shows only the send's outcome, and the "from
+<placement>" on an open row that another agent sent shows to every viewer,
+since a person is never a participant (the design spares the sender its own
+placement). What remains open: the design's health sheet, whose fields the
+router does not collect yet (see the telemetry note below); a post does not
 name its principal, so a login that holds two principals in one role acts as
 the first one `serve.identities` lists, and the other's items show without a
 form; a draft is keyed by its form's `data-path`, which shifts when an

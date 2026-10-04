@@ -1,5 +1,5 @@
-// The board's page: the v0.8 console of the board design (skhlo/designs, tag
-// jev-a2a-v0.8, scripts/gen-jev-a2a-board.py), drawn on the server from the
+// The board's page: the v0.9 console of the board design (skhlo/designs, tag
+// jev-a2a-v0.9, scripts/gen-jev-a2a-board.py), drawn on the server from the
 // view model and the viewer. The template translates the generator's HTML
 // functions and carries its CSS: every slot keeps the data-path the design
 // gives it, rows keep data-task and groups data-group, so the live page can
@@ -264,7 +264,6 @@ export function renderBoard(
   const theme = THEMES.find((name) => name === options.theme) ?? THEMES[0];
   const roleOf = (principal: string): Role | undefined =>
     actor?.principals.find((p) => p.principal === principal)?.role;
-  const operator = actor?.principals.some((p) => p.role === "operator");
   // The principal a post is signed as. A post does not name one: the
   // actions endpoint takes the viewer's first principal in the role the
   // action needs, so the page offers forms for that principal's items only.
@@ -458,7 +457,9 @@ ${body}
     const latest = d?.latest ?? null;
     const dot = dotOf(p);
     const asks = dot === "ask";
-    const holdLever = operator
+    // A hold says a person is typing in the session, so any identified
+    // viewer may set it (v0.9).
+    const holdLever = actor
       ? form(
           { action: "hold", placement: p.key, hold: p.hold ? "0" : "1" },
           slot(`${path}.hold`, p.hold ? "Release" : "Hold", "btn sm", "button"),
@@ -713,11 +714,18 @@ ${model.placements
           `waits on ${slot(`needsYou[${g}].principal`, esc(principal))} · `,
       )
       .join("");
+    // An open task another agent sent names its sender's placement before
+    // the recipient (v0.9: unless the viewer is the sender, which a person
+    // never is, since a principal may not share a participant's id).
+    const from =
+      t.via !== null && t.final === null
+        ? slot(`${path}.via`, `from ${esc(t.via)}`, "to")
+        : "";
     return `${rowHead(t.id, path, cls)}
       <span class="dot ${dot}" data-path="${path}.status"></span>
       <div class="line1">${slot(`${path}.id`, esc(t.id), "id", "a", ` href="${href(t.id)}"`)}${slot(`${path}.text`, esc(t.text), "excerpt")}</div>
       ${ago(`age(times[${path}.messageId], at)`, times[t.messageId], "age num")}
-      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span>${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to")}</div>${peek(t, path)}
+      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span>${from}${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to")}</div>${peek(t, path)}
     </div>`;
   };
 
@@ -975,7 +983,7 @@ ${forms}
     // What a participant sender was told at the placement it sent from.
     const notices = t.notices.map((n, ni) => {
       const np = `${path}.notices[${ni}]`;
-      return `<tr data-path="${np}"><td>${slot(`${np}.key`, esc(n.key), "mono")}</td><td>${slot(`${np}.kind`, esc(n.kind))}</td><td>${slot(`${np}.session`, n.session ? esc(shortId(n.session)) : DASH, "mono", "span", n.session ? fullId(n.session) : "")}</td><td>${slot(`${np}.outcome`, esc(n.outcome))}</td></tr>`;
+      return `<tr data-path="${np}"><td>${slot(`${np}.key`, esc(n.key), "mono")}</td><td>${slot(`${np}.kind`, esc(n.kind))}</td><td>${slot(`${np}.session`, n.session ? esc(shortId(n.session)) : DASH, "mono", "span", n.session ? fullId(n.session) : "")}</td><td>${slot(`${np}.outcome`, esc(n.outcome), `outcome ${esc(n.outcome)}`)}</td></tr>`;
     });
     const judgments = t.judgments.map((j, ji) => {
       const jp = `${path}.judgments[${ji}]`;
@@ -994,7 +1002,7 @@ ${forms}
     <div class="title"><h2 title="${esc(t.text)}">${slot(`${path}.id`, esc(t.id), "id")}${slot(`first_line(${path}.text)`, esc(headline(t.text)))}</h2>${slot(`${path}.status`, esc(label(t.status)), `badge${cls === "ask" ? " ask" : ""}`)}${cancel}</div>
     <div class="meta">
       <span>to ${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : DASH, "mono")} · ${slot(`${path}.chosenBy`, t.chosenBy ? CHOSEN_BY[t.chosenBy] : "no recipient yet")}</span>
-      <span>from ${slot(`${path}.source`, esc(t.source), "mono")} at ${clock(`time(times[${path}.messageId])`, times[t.messageId])}</span>
+      <span>from ${slot(`${path}.source`, esc(t.source), "mono")}${t.via === null ? "" : ` via ${slot(`${path}.via`, esc(t.via), "mono")}`} at ${clock(`time(times[${path}.messageId])`, times[t.messageId])}</span>
       <span>${t.final ? `${deadline} · ${verdict(path, t.final)}` : `${deadline} · ${slot(`left(${path}.deadline, at)`, left(t.deadline, at), "num")}`}</span>
       <span>${slot(`${path}.a2a`, esc(t.a2a), "mono")}</span>
     </div>
@@ -1012,10 +1020,10 @@ ${
     : `    <div class="hint" data-path="${path}.deliveries">No delivery yet.</div>`
 }
 ${
-  t.via === null
+  t.via === null || !notices.length
     ? ""
     : `    <div><h3 class="kicker">Notices to ${slot(`${path}.via`, esc(t.via), "mono")}</h3>
-      ${notices.length ? `<table><tr><th>Notice</th><th>Kind</th><th>Session</th><th>State</th></tr>${notices.join("")}</table>` : `<div class="hint" data-path="${path}.notices">Nothing told yet.</div>`}</div>`
+      <table><tr><th>Notice</th><th>Kind</th><th>Session</th><th>Outcome</th></tr>${notices.join("")}</table></div>`
 }
 ${
   judgments.length
@@ -1040,7 +1048,7 @@ ${
 <style>${STYLE}</style></head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
-     what it reads, as in the board design v0.8: a plain path indexes the
+     what it reads, as in the board design v0.9: a plain path indexes the
      model, and time(), age(), left() and count() are formats over it. -->
 ${notice}
 <div id="app" data-refresh="${refreshSeconds}">
@@ -1234,6 +1242,9 @@ textarea::placeholder, .filter input::placeholder { color: var(--text-3); }
 .task .line2 .state { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; white-space: nowrap; color: var(--text-2); }
 .task .line2 .sub { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; }
+.task .line2 .to + .to::before { content: "· "; }
+/* A notice never waits on the viewer: outcomes stay in the text colours, withdrawn muted. */
+td .outcome.withdrawn { color: var(--text-3); }
 .task.ask .state, .task.fail .state { color: var(--accent); }
 .task.done .excerpt { color: var(--text-2); }
 .task.done.canceled .state { color: var(--text-3); }
