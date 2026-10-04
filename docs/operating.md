@@ -51,8 +51,8 @@ board) closes it, and `--release` opens it again.
   written whole by rename after the run's observations and before its
   sends. It is not part of the record: an observation is journaled only
   when readiness, the session or the hold changes, while a snapshot
-  changes every run. The board shows each snapshot with its age (the nav
-  tick dates the file); `router status` prints one line per placement
+  changes every run. The board shows each snapshot (the nav tick's
+  tooltip dates the file); `router status` prints one line per placement
   with the time,
   branch, diff and pull request. A missing file is "no telemetry" and
   never a fault; an unreadable one is logged once by `serve`; a damaged

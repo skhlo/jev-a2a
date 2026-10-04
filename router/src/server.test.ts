@@ -830,7 +830,7 @@ test("board: asked for JSON, the board serves its model, identified as the page 
     const at = mine.at;
     assert.ok(typeof at === "string");
     assert.equal(at, new Date(NOW).toISOString());
-    assert.ok(html.includes(`>${at.slice(11, 16)}Z</span>`));
+    assert.ok(html.includes(`>updated ${at.slice(11, 16)}Z</span>`));
     assert.deepEqual(
       [...html.matchAll(/<div class="task [^"]*"[^>]* data-task="(T\d+)"/g)]
         .map((m) => m[1])
@@ -1186,6 +1186,7 @@ test("board: the model carries the telemetry file beside the record; a bad file 
         ["orchestrator@mbp", "running"],
         ["knowledge@mini", "running"],
         ["environment@mbp", "idle"],
+        ["environment@mini", "running"],
       ],
     );
     // A damaged file: none again, and one log line however often the page

@@ -14,7 +14,7 @@ age(placements[2].agent.checkout.activityAt, at)
 age(placements[2].agent.seen, at)
 age(placements[3].agent.seen, at)
 age(placements[3].agent.turnStartedAt, at)
-age(placements[4].agent.seen, at)
+age(placements[5].agent.turnStartedAt, at)
 age(times[finished[0].messageId], at)
 age(times[finished[1].messageId], at)
 age(times[needsYou[0].items[1].questionId], at)
@@ -31,12 +31,12 @@ count(open)
 count(open[] not in needsYou)
 count(placements)
 count(placements[0].agent.subagents.running)
+count(placements[5].agent.subagents.running)
 count(placements[].hold)
 counts(placements[0].agent.subagents.counts)
 counts(placements[1].agent.subagents.counts)
 diff(placements[1].agent.checkout.diff.additions, placements[1].agent.checkout.diff.deletions)
 finished[0]
-finished[0].a2a
 finished[0].chosenBy
 finished[0].deliveries[0]
 finished[0].deliveries[0].end
@@ -51,8 +51,10 @@ finished[0].deliveries[0].session
 finished[0].deliveries[0].updates[0]
 finished[0].deliveries[0].updates[1]
 finished[0].final
+finished[0].final, time(finished[0].deadline)
 finished[0].id
 finished[0].log
+finished[0].messageId
 finished[0].notices[0]
 finished[0].notices[0].key
 finished[0].notices[0].kind
@@ -71,6 +73,7 @@ finished[0].notices[2].session
 finished[0].recipient
 finished[0].source
 finished[0].status
+finished[0].status, finished[0].a2a
 finished[0].text
 finished[0].via
 finished[1]
@@ -101,10 +104,12 @@ hms(placements[1].agent.activity.items[5].at)
 hms(placements[1].agent.activity.items[6].at)
 hms(placements[1].agent.activity.items[7].at)
 left(open[0].deadline, at)
+left(open[0].deadline, at), time(open[0].deadline)
 left(open[1].deadline, at)
+left(open[1].deadline, at), time(open[1].deadline)
 left(open[2].deadline, at)
-left(open[3].deadline, at)
-left(open[4].deadline, at)
+left(open[3].deadline, at), time(open[3].deadline)
+left(open[4].deadline, at), time(open[4].deadline)
 log[0]
 log[10]
 log[11]
@@ -143,7 +148,6 @@ needsYou[1].items[0].messageId
 needsYou[1].items[0].reason
 needsYou[].principal
 open[0]
-open[0].a2a
 open[0].chosenBy
 open[0].deliveries[0]
 open[0].deliveries[0].id
@@ -155,12 +159,13 @@ open[0].deliveries[0].sends[0]
 open[0].deliveries[0].session
 open[0].id
 open[0].log
+open[0].messageId
 open[0].recipient
 open[0].source
 open[0].status
+open[0].status, open[0].a2a
 open[0].text
 open[1]
-open[1].a2a
 open[1].chosenBy
 open[1].deliveries[0]
 open[1].deliveries[0].id
@@ -176,9 +181,11 @@ open[1].judgments[0].probabilities
 open[1].judgments[0].threshold
 open[1].judgments[0].valid
 open[1].log
+open[1].messageId
 open[1].recipient
 open[1].source
 open[1].status
+open[1].status, open[1].a2a
 open[1].text
 open[2]
 open[2].deliveries[0].sends[1].text
@@ -187,7 +194,6 @@ open[2].recipient
 open[2].status
 open[2].text
 open[3]
-open[3].a2a
 open[3].chosenBy
 open[3].deliveries[0]
 open[3].deliveries[0].id
@@ -203,12 +209,13 @@ open[3].deliveries[0].updates[1]
 open[3].deliveries[0].updates[2]
 open[3].id
 open[3].log
+open[3].messageId
 open[3].recipient
 open[3].source
 open[3].status
+open[3].status, open[3].a2a
 open[3].text
 open[4]
-open[4].a2a
 open[4].chosenBy
 open[4].deliveries
 open[4].id
@@ -223,16 +230,19 @@ open[4].judgments[0].probabilities.orchestrator
 open[4].judgments[0].threshold
 open[4].judgments[0].valid
 open[4].log
+open[4].messageId
 open[4].recipient
 open[4].routing
 open[4].routing.reason
 open[4].source
 open[4].status
+open[4].status, open[4].a2a
 open[4].text
 percent(placements[0].agent.context.used, placements[0].agent.context.max)
 percent(placements[1].agent.context.used, placements[1].agent.context.max)
 percent(placements[2].agent.context.used, placements[2].agent.context.max)
 percent(placements[3].agent.context.used, placements[3].agent.context.max)
+percent(placements[5].agent.context.used, placements[5].agent.context.max)
 placements[0]
 placements[0].agent.activity.items[0]
 placements[0].agent.activity.items[0].kind
@@ -271,7 +281,6 @@ placements[0].agent.checkout.directory
 placements[0].agent.checkout.kind
 placements[0].agent.checkout.pr
 placements[0].agent.checkout.project
-placements[0].agent.checkout.remote
 placements[0].agent.checkout.status
 placements[0].agent.checkout.workspace
 placements[0].agent.context, placements[0].agent.usage
@@ -295,7 +304,6 @@ placements[0].delivery.taskId
 placements[0].hold
 placements[0].host
 placements[0].key
-placements[0].ready
 placements[0].session
 placements[1]
 placements[1].agent.activity.items[0]
@@ -338,7 +346,6 @@ placements[1].agent.checkout.pr.number, placements[1].agent.checkout.pr.title, p
 placements[1].agent.checkout.pr.review
 placements[1].agent.checkout.pr.state, placements[1].agent.checkout.pr.draft, placements[1].agent.checkout.pr.merged
 placements[1].agent.checkout.project
-placements[1].agent.checkout.remote
 placements[1].agent.checkout.status
 placements[1].agent.checkout.workspace
 placements[1].agent.context, placements[1].agent.usage
@@ -353,7 +360,6 @@ placements[1].delivery.taskId
 placements[1].hold
 placements[1].host
 placements[1].key
-placements[1].ready
 placements[1].session
 placements[2]
 placements[2].agent.activity
@@ -367,7 +373,6 @@ placements[2].agent.checkout.pr.number, placements[2].agent.checkout.pr.title, p
 placements[2].agent.checkout.pr.review
 placements[2].agent.checkout.pr.state, placements[2].agent.checkout.pr.draft, placements[2].agent.checkout.pr.merged
 placements[2].agent.checkout.project
-placements[2].agent.checkout.remote
 placements[2].agent.checkout.status
 placements[2].agent.checkout.workspace
 placements[2].agent.context, placements[2].agent.usage
@@ -383,32 +388,33 @@ placements[2].key
 placements[2].session
 placements[3]
 placements[3].agent.context, placements[3].agent.usage
-placements[3].agent.mode
-placements[3].agent.provider, placements[3].agent.model
 placements[3].agent.status
 placements[3].delivery.excerpt
 placements[3].delivery.latest.kind, placements[3].ready, placements[3].hold
 placements[3].delivery.outcome
 placements[3].delivery.taskId
 placements[3].hold
-placements[3].host
 placements[3].key
-placements[3].ready
-placements[3].session
 placements[4]
 placements[4].agent.status, placements[4].agent.error
 placements[4].delivery.latest.kind, placements[4].ready, placements[4].hold
 placements[4].hold
 placements[4].key
 placements[4].ready
+placements[5]
+placements[5].agent.context, placements[5].agent.usage
+placements[5].agent.status
+placements[5].delivery.latest.kind, placements[5].ready, placements[5].hold, placements[5].agent.status
+placements[5].hold
+placements[5].key
+repo(placements[0].agent.checkout.remote)
+repo(placements[1].agent.checkout.remote)
+repo(placements[2].agent.checkout.remote)
+stale(placements[2], at)
+stale(placements[3], at)
+stale_task(open[1], at)
 time(at)
-time(finished[0].deadline)
-time(open[0].deadline)
-time(open[1].deadline)
-time(open[3].deadline)
-time(open[4].deadline)
 time(placements[0].delivery.latest.at)
-time(telemetryAt)
 time(times[finished[0].deliveries[0].latest.messageId])
 time(times[finished[0].messageId])
 time(times[open[0].messageId])
@@ -418,4 +424,3 @@ time(times[open[3].deliveries[0].latest.messageId])
 time(times[open[3].messageId])
 time(times[open[4].messageId])
 time(times[placements[1].delivery.messageId])
-version

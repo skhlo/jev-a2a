@@ -1,19 +1,20 @@
 // The data-path values of a board page, distinct and sorted. Run as a
-// script, it lists the paths of the board design's v0.11 pages, the coverage
-// set the board page is held to (design/v0.11-paths.txt); the board page test
+// script, it lists the paths of the board design's v0.12 pages, the coverage
+// set the board page is held to (design/v0.12-paths.txt); the board page test
 // reads the rendered page with the same function and compares the paths
 // with their indexes blanked, as the design's sample is larger than the
-// fixture. The pages are jev-a2a/html/board-1440.html, board-peek.html,
+// fixture. The nine pages are jev-a2a/html/board-1440.html, board-peek.html,
 // board-choose.html, board-resolve.html, board-notices.html,
-// board-sheet.html, board-sheet-tree.html and board-sheet-closed.html in
-// skhlo/designs at tag jev-a2a-v0.11. To list them again, in router/:
+// board-sheet.html, board-sheet-tree.html, board-sheet-closed.html and
+// board-help.html in skhlo/designs at tag jev-a2a-v0.12 (commit
+// 81ba68e8c2ba7474f51a188a888c4baf4d7cefe3). To list them again, in router/:
 //
 //   for page in board-1440 board-peek board-choose board-resolve board-notices \
-//       board-sheet board-sheet-tree board-sheet-closed; do
-//     gh api "repos/skhlo/designs/contents/jev-a2a/html/$page.html?ref=da775f33e860bbf89a19edc2506e02a3535f20b4" \
+//       board-sheet board-sheet-tree board-sheet-closed board-help; do
+//     gh api "repos/skhlo/designs/contents/jev-a2a/html/$page.html?ref=81ba68e8c2ba7474f51a188a888c4baf4d7cefe3" \
 //       -H 'Accept: application/vnd.github.raw' > "/tmp/$page.html"
 //   done
-//   pnpm exec node src/design-paths.ts /tmp/board-*.html > design/v0.11-paths.txt
+//   pnpm exec node src/design-paths.ts /tmp/board-*.html > design/v0.12-paths.txt
 import { readFileSync } from "node:fs";
 
 const unescape = (value: string): string =>

@@ -1,12 +1,13 @@
-// The board's page: the v0.11 console of the board design (skhlo/designs, tag
-// jev-a2a-v0.11, scripts/gen-jev-a2a-board.py), drawn on the server from the
+// The board's page: the v0.12 console of the board design (skhlo/designs, tag
+// jev-a2a-v0.12, scripts/gen-jev-a2a-board.py), drawn on the server from the
 // view model and the viewer. The template translates the generator's HTML
 // functions and carries its CSS: every slot keeps the data-path the design
 // gives it, rows keep data-task and groups data-group, so the live page can
 // be compared with the design mechanically. Forms post to the board's
 // actions endpoint with its own fields. The page reads and posts without a
 // script; the script keeps a person's state across refreshes and adds the
-// theme switch, the filter, the keys, the peek and the sheet.
+// filter, the keys, the peek, the sheet, the full router log and the help
+// with its theme switch.
 import type {
   BoardModel,
   DeliveryView,
@@ -107,13 +108,42 @@ export const count = (n: number, one: string, many = `${one}s`): string =>
 // label(status): a router name as words.
 export const label = (name: string): string => name.replaceAll("_", " ");
 
+// The full date of a time, to the minute or to the second.
+const fullDate = (at: Date, seconds = false): string =>
+  `${at
+    .toISOString()
+    .slice(0, seconds ? 19 : 16)
+    .replace("T", " ")}Z`;
+
 // The full date behind a clock or an age, as a title. The design printed
 // the clock alone, which is ambiguous for anything older than a day.
-const dated = (iso: string | null | undefined): string => {
+const dated = (iso: string | null | undefined, prefix = ""): string => {
   const at = instant(iso);
-  return at
-    ? ` title="${at.toISOString().slice(0, 16).replace("T", " ")}Z"`
-    : "";
+  return at ? ` title="${prefix}${fullDate(at)}"` : "";
+};
+
+// The nav tick's title: when the model was built and the telemetry taken,
+// to the second, and the contract (v0.12). The design gives the clocks
+// alone; a telemetry file can be a day old.
+const built = (model: BoardModel): string => {
+  const stamp = (iso: string | null): string => {
+    const at = instant(iso);
+    return at ? fullDate(at, true) : DASH;
+  };
+  return `built ${stamp(model.at)} · ${model.telemetryAt ? `telemetry ${stamp(model.telemetryAt)}` : "no telemetry"} · ${model.version}`;
+};
+
+// repo(url): a remote as owner/repo: the scheme and host (or the scp form's
+// user@host:) and a trailing .git stripped; anything else as it is (v0.12).
+export const repo = (url: string): string => {
+  let rest = url;
+  const scheme = rest.indexOf("://");
+  if (scheme >= 0) {
+    rest = rest.slice(scheme + 3);
+    rest = rest.slice(rest.indexOf("/") + 1);
+  } else if (rest.includes("@") && rest.includes(":"))
+    rest = rest.slice(rest.indexOf(":") + 1);
+  return rest.endsWith(".git") ? rest.slice(0, -4) : rest;
 };
 
 // A task's first line, for the detail title: the design sized the title for
@@ -246,17 +276,19 @@ const CHOSEN_BY: Record<NonNullable<TaskView["chosenBy"]>, string> = {
 };
 
 // A card's dot: the session's state. `wait` is a question for another
-// principal, which waits like one for the viewer, in grey.
-type Dot = "ask" | "wait" | "work" | "held" | "ready" | "off";
-// The rail's order: asking, working or delivered, held, ready, not ready;
-// the model's order within a state.
+// principal, which waits like one for the viewer, in grey; `busy` is a
+// session running a turn the router did not send (v0.12).
+type Dot = "ask" | "wait" | "work" | "busy" | "held" | "ready" | "off";
+// The rail's order: asking, working or delivered, busy, held, ready, not
+// ready; the model's order within a state.
 const RANK: Record<Dot, number> = {
   ask: 0,
   wait: 0,
   work: 1,
-  held: 2,
-  ready: 3,
-  off: 4,
+  busy: 2,
+  held: 3,
+  ready: 4,
+  off: 5,
 };
 
 // A question stays a delivery's latest update after its answer; the open
@@ -265,6 +297,89 @@ const answeredQuestion = (d: {
   question: unknown;
   latest: { kind: UpdateKind } | null;
 }): boolean => d.latest?.kind === "question" && !d.question;
+
+// The answer a delivery's question got, when its current send is one and
+// no question is open: a question stays the latest update after its
+// answer, and a resolve clears the question too, so both are checked.
+const answerOf = (
+  d: DeliveryView,
+): { k: number; send: DeliveryView["sends"][number] } | null => {
+  const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);
+  const send = d.sends[k];
+  return answeredQuestion(d) && send?.kind === "answer" ? { k, send } : null;
+};
+
+// Stale work (v0.12): minutes past which a send without a reply, a turn and
+// a running tool read as stale, and the share of the context window from
+// which it does. The generator's thresholds.
+const STALE_MINUTES = { reply: 30, turn: 15, tool: 5 };
+const CONTEXT_WARN = 80;
+
+// Whether `iso` is more than `minutes` before `at`.
+const older = (
+  iso: string | null | undefined,
+  minutes: number,
+  at: string,
+): boolean => !!iso && Date.parse(at) - Date.parse(iso) > minutes * 60_000;
+
+// Whether a delivery's current send reached the session and has had no
+// reply since: accepted (a send still pending or attempting is a wait,
+// which the row and card already name), and either no update at all or a
+// question since answered. The design counts only "no update at all"; an
+// answered question is unreplied too, as its card says "no reply yet". A
+// resolve ends the delivery, so an ended one is never asked.
+const unreplied = (
+  d: { question: unknown; latest: { kind: UpdateKind } | null },
+  outcome: string,
+): boolean => outcome === "accepted" && (!d.latest || answeredQuestion(d));
+
+// stale(p, at): the first of "no reply <age>" (the delivery's current send
+// is unreplied past STALE_MINUTES.reply), "turn <age>", "tool <age>" (the
+// tail's last item a running tool) and "context <n>%" (CONTEXT_WARN or
+// more), else null.
+export const stale = (
+  p: PlacementView,
+  at: string,
+  times: Record<string, string>,
+): string | null => {
+  const d = p.delivery;
+  const sent = d ? times[d.messageId] : undefined;
+  if (d && unreplied(d, d.outcome) && older(sent, STALE_MINUTES.reply, at))
+    return `no reply ${age(sent, at)}`;
+  const a = p.agent;
+  if (!a) return null;
+  if (a.status === "running" && older(a.turnStartedAt, STALE_MINUTES.turn, at))
+    return `turn ${age(a.turnStartedAt, at)}`;
+  const last = a.activity?.items.at(-1);
+  if (
+    last?.kind === "tool_call" &&
+    last.status === "running" &&
+    older(last.at, STALE_MINUTES.tool, at)
+  )
+    return `tool ${age(last.at, at)}`;
+  const pct = a.context ? percent(a.context.used, a.context.max) : 0;
+  return pct >= CONTEXT_WARN ? `context ${pct}%` : null;
+};
+
+// stale_task(t, at): "no reply <age>" for an open task with an unended
+// delivery whose current send is unreplied past STALE_MINUTES.reply.
+export const staleTask = (
+  t: TaskView,
+  at: string,
+  times: Record<string, string>,
+): string | null => {
+  if (t.final) return null;
+  for (const d of t.deliveries) {
+    const sent = times[d.send.messageId];
+    if (
+      !d.end &&
+      unreplied(d, d.send.outcome) &&
+      older(sent, STALE_MINUTES.reply, at)
+    )
+      return `no reply ${age(sent, at)}`;
+  }
+  return null;
+};
 
 // Why a delivery needs an operator, as the resolve form says it.
 const RESOLVE_WHY: Record<StuckReason, string> = {
@@ -285,6 +400,23 @@ const THEME_NAMES: Record<(typeof THEMES)[number], string> = {
   flexoki: "Flexoki",
   "one-dark": "One Dark",
 };
+
+// The help (v0.12): the keys in two columns, then the theme switch. The
+// design names ⌘↩ alone; the script takes Ctrl ↩ as well.
+const HELP_KEYS: [string, string][] = [
+  ["j / k", "move"],
+  ["space", "peek"],
+  ["↵", "open"],
+  ["→", "open the peek's task"],
+  ["s", "sheet"],
+  ["a", "answer"],
+  ["c", "cancel"],
+  ["h", "hold / release"],
+  ["l", "router log"],
+  ["/", "filter"],
+  ["⌘↩", "send the form (or Ctrl ↩)"],
+  ["esc", "close"],
+];
 
 export type RenderOptions = {
   refreshSeconds?: number;
@@ -411,11 +543,15 @@ export function renderBoard(
   ) => slot(path, text, cls, "span", dated(iso));
   const when = (iso: string | null | undefined): string =>
     iso ? `<span${dated(iso)}>${time(iso)}</span>` : DASH;
-  const verdict = (path: string, f: NonNullable<TaskView["final"]>): string =>
-    slot(
-      `${path}.final`,
-      `${f.completed} of ${count(f.of, "delivery", "deliveries")}`,
-    ) +
+  // A finished task's verdict: how many deliveries completed, under `first`
+  // (the row's slot, or the head's with the deadline), then the reason and
+  // who ended it.
+  const verdict = (
+    path: string,
+    f: NonNullable<TaskView["final"]>,
+    first = (words: string) => slot(`${path}.final`, words),
+  ): string =>
+    first(`${f.completed} of ${count(f.of, "delivery", "deliveries")}`) +
     (f.reason
       ? ` · ${slot(`${path}.final.reason`, esc(label(f.reason)))}`
       : "") +
@@ -423,35 +559,50 @@ export function renderBoard(
 
   // ---- Nav ----
 
+  // v0.12: who ellipsizes with the whole text as its title; the tick reads
+  // "updated <time>" with the build, the telemetry and the contract in its
+  // title; the theme switch is in the help.
   const pill = (path: string, n: number, words: string, cls = ""): string =>
     slot(path, `<b>${n}</b> ${words}`, cls);
   const held = model.placements.filter((p) => p.hold).length;
   const agentCount = model.placements.length;
+  const principals =
+    actor?.principals
+      .map(
+        (p) => `${p.principal}${p.role === p.principal ? "" : ` (${p.role})`}`,
+      )
+      .join(", ") ?? "";
+  const who = actor
+    ? `${actor.login} · ${principals}`
+    : "reading only · not identified";
   const nav = `<header class="nav">
   <span class="brand">Router</span>
-  <span class="who">${
+  <span class="who" title="${esc(who)}">${
     actor
-      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", actor.principals.map((p) => `${esc(p.principal)}${p.role === p.principal ? "" : ` (${esc(p.role)})`}`).join(", "))}`
-      : slot("actor", "reading only · not identified")
+      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", esc(principals))}`
+      : slot("actor", esc(who))
   }</span>
   <span class="counts">${pill("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${pill("count(open[] not in needsYou)", flight.length, "in flight")}${pill("count(placements[].hold)", held, "held")}${pill("count(placements)", agentCount, noun(agentCount, "agent"))}</span>
   <span class="spacer"></span>
-  <span class="tick">built ${clock("time(at)", at, "")} · ${model.telemetryAt ? slot("time(telemetryAt)", `telemetry ${time(model.telemetryAt)}`, "", "span", dated(model.telemetryAt)) : slot("telemetryAt", "no telemetry")} · ${slot("version", esc(model.version))}</span>
-  <span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span>
+  ${slot("time(at)", `updated ${time(at)}`, "tick", "span", ` title="${esc(built(model))}"`)}
   <nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>
 </header>`;
 
   // ---- Agents ----
 
+  // A held placement stays held while its session runs; one that runs a
+  // turn with no delivery and no hold is busy (v0.12).
   const dotOf = (p: PlacementView): Dot => {
     const d = p.delivery;
     if (d) return d.question ? (asksViewer(d.id) ? "ask" : "wait") : "work";
-    return p.hold ? "held" : p.ready ? "ready" : "off";
+    if (p.hold) return "held";
+    if (p.agent?.status === "running") return "busy";
+    return p.ready ? "ready" : "off";
   };
   const rank = (p: PlacementView): number => RANK[dotOf(p)];
 
   // A card: its dot, then the body's lines; `idle` is the collapsed card of
-  // a session with no delivery.
+  // a session with no delivery. The busy dot also reads the agent's status.
   const cardShell = (
     path: string,
     cls: string,
@@ -459,7 +610,7 @@ export function renderBoard(
     body: string,
   ): string =>
     `    <div class="card${cls}" tabindex="0" data-path="${path}">
-      <span class="dot ${dot}" data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"></span>
+      <span class="dot ${dot}" data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold${dot === "busy" ? `, ${path}.agent.status` : ""}"></span>
       <div class="body">
 ${body}
       </div>
@@ -476,14 +627,26 @@ ${body}
   // error, missing and unreachable dotted with the error as tooltip (a
   // sentence when there is none); running with the turn's age; idle with
   // the last turn's end; any other status as words; v0.11 adds "· n
-  // subagents" while any run; then the seen age. A null agent reads "no
-  // telemetry". The sheet's head shows the same line.
+  // subagents" while any run; v0.12 ends it with stale(p, at) in the
+  // warning role. A null agent reads "no telemetry". The seen age comes
+  // apart: v0.12 shows it on a card with a delivery and on the sheet's
+  // head, which repeats the line. The meter turns warn from 80% (v0.12).
   const health = (
     path: string,
-    a: PlacementView["agent"],
-  ): { line: string; meter: string } => {
+    p: PlacementView,
+  ): { status: string; seen: string; meter: string } => {
     const ap = `${path}.agent`;
-    if (!a) return { line: slot(ap, "no telemetry", "k"), meter: "" };
+    const a = p.agent;
+    const late = stale(p, at, times);
+    const warn = late
+      ? ` · ${slot(`stale(${path}, at)`, esc(late), "role-warn num")}`
+      : "";
+    if (!a)
+      return {
+        status: slot(ap, "no telemetry", "k") + warn,
+        seen: "",
+        meter: "",
+      };
     const errTip = ` title="${esc(a.error ?? STATUS_NOTE[a.status] ?? "")}"`;
     let line: string;
     if (a.permissions.length) {
@@ -518,7 +681,13 @@ ${body}
     const running = a.subagents?.running.length ?? 0;
     if (running)
       line += ` · ${slot(`count(${ap}.subagents.running)`, count(running, "subagent"))}`;
-    line += ` · ${ago(`age(${ap}.seen, at)`, a.seen, "seen num", `seen ${age(a.seen, at)}`)}`;
+    line += warn;
+    const seen = ago(
+      `age(${ap}.seen, at)`,
+      a.seen,
+      "seen num",
+      `seen ${age(a.seen, at)}`,
+    );
     let meter = "";
     const c = a.context;
     if (c) {
@@ -530,11 +699,12 @@ ${body}
           u.costUsd === null ? "no cost reported" : `$${u.costUsd.toFixed(2)}`;
         tip += ` · since the session started: input ${thousands(u.input)}, cached ${thousands(u.cached)}, output ${thousands(u.output)} · ${cost}`;
       }
-      meter = `<span class="meter${pct >= 80 ? " full" : ""}" data-path="${ap}.context, ${ap}.usage" title="${esc(tip)}"><span class="bar"><i style="width: ${pct}%"></i></span>${slot(`percent(${ap}.context.used, ${ap}.context.max)`, `${pct}%`, "num")}</span>`;
+      meter = `<span class="meter${pct >= CONTEXT_WARN ? " warn" : ""}" data-path="${ap}.context, ${ap}.usage" title="${esc(tip)}"><span class="bar"><i style="width: ${pct}%"></i></span>${slot(`percent(${ap}.context.used, ${ap}.context.max)`, `${pct}%`, "num")}</span>`;
     }
-    return { line, meter };
+    return { status: line, seen, meter };
   };
-  // provider/model, thinking and mode as tags; a null field is left out.
+  // provider/model, thinking and mode as tags on the sheet's head (v0.12:
+  // the card lost its tags row); a null field is left out.
   const harnessTags = (path: string, a: PlacementView["agent"]): string => {
     if (!a) return "";
     const ap = `${path}.agent`;
@@ -581,8 +751,7 @@ ${body}
       holdLever,
     ].filter(Boolean);
   };
-  // The host and session tags, which open a busy card's rig and close the
-  // sheet's head.
+  // The host and session tags, which close the sheet's head.
   const sessionTags = (p: PlacementView, path: string): string =>
     slot(`${path}.host`, esc(p.host), "tag") +
     slot(
@@ -601,8 +770,10 @@ ${body}
   // head repeats the card's dot, name, meter, status line with the seen age
   // and levers, then the tags. Checkout is a key-value grid; Subagents the
   // counts and a tree one level deep of the running ones; Activity the last
-  // eight timeline items. A null section reads "<name> not read", adding
-  // "session not live" when the router would not read it.
+  // eight timeline items, a running tool last in the text colour with the
+  // pulse dot and the turns left out at 0 (v0.12). A null section reads
+  // "<name> not read", adding "session not live" when the router would not
+  // read it.
   const section = (kicker: string, body: string, extra = ""): string =>
     `    <section>
       <h3><span class="kicker">${kicker}</span>${extra}</h3>
@@ -641,7 +812,15 @@ ${body}
     let branch = c.branch
       ? slot(`${cp}.branch`, esc(c.branch), "mono")
       : slot(`${cp}.branch`, "detached", "muted");
-    if (c.remote) branch += slot(`${cp}.remote`, esc(c.remote), "mono muted");
+    // v0.12: the remote as owner/repo, the whole value as its title.
+    if (c.remote)
+      branch += slot(
+        `repo(${cp}.remote)`,
+        esc(repo(c.remote)),
+        "mono muted remote",
+        "span",
+        ` title="${esc(c.remote)}"`,
+      );
     if (c.dirty) branch += slot(`${cp}.dirty`, "dirty", "role-warn");
     const ahead = c.ahead ?? 0;
     const behind = c.behind ?? 0;
@@ -759,7 +938,9 @@ ${body}
     const acp = `${ap}.activity`;
     const act = a?.activity ?? null;
     if (!act) return section("Activity · last 8", notRead(acp, "activity", a));
-    const turns = slot(`${acp}.turns`, count(act.turns, "turn"), "n");
+    const turns = act.turns
+      ? slot(`${acp}.turns`, count(act.turns, "turn"), "n")
+      : "";
     if (!act.items.length)
       return section(
         "Activity · last 8",
@@ -789,7 +970,7 @@ ${body}
           "span",
           ` title="${esc(it.text)}"`,
         );
-      return `<div class="${cls}" data-path="${ip}"${now ? ' aria-current="true"' : ""}><span class="mark"></span>${slot(`hms(${ip}.at)`, hms(it.at), "at", "span", dated(it.at))}${slot(`${ip}.kind`, esc(KIND[it.kind] ?? label(it.kind)), "kind")}<span class="what">${what}</span></div>`;
+      return `<div class="${cls}" data-path="${ip}"${now ? ' aria-current="true"' : ""}><span class="mark${now ? " work" : ""}"></span>${slot(`hms(${ip}.at)`, hms(it.at), "at", "span", dated(it.at))}${slot(`${ip}.kind`, esc(KIND[it.kind] ?? label(it.kind)), "kind")}<span class="what">${what}</span></div>`;
     });
     return section(
       "Activity · last 8",
@@ -801,7 +982,8 @@ ${body}
     const path = `placements[${i}]`;
     const a = p.agent;
     const ap = `${path}.agent`;
-    const { line, meter } = health(path, p.agent);
+    const { status, seen, meter } = health(path, p);
+    const line = seen ? `${status} · ${seen}` : status;
     return `<aside class="sheet" role="dialog" aria-label="${esc(p.key)}" data-path="${path}" data-key="${esc(p.key)}" hidden>
   <div class="head">
     <div class="name"><span class="dot ${dotOf(p)}" data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"></span><h2>${slot(`${path}.key`, esc(p.key))}</h2>${meter}<button class="close" type="button" aria-label="Close" title="Close (esc)">×</button></div>
@@ -832,7 +1014,21 @@ ${activitySection(ap, a)}
       "span",
       ' role="button" aria-haspopup="dialog" title="Open the sheet (s)"',
     );
-    const { line, meter } = health(path, p.agent);
+    // v0.12: "seen" belongs to a card with a delivery; a card without one
+    // shows the status line alone.
+    const { status, seen, meter } = health(path, p);
+    const line = d && seen ? `${status} · ${seen}` : status;
+    if (dot === "busy")
+      // Busy: running a turn the router did not send. Expanded like a work
+      // card, "busy" under the name and meter, without the delivery lines.
+      return cardShell(
+        path,
+        "",
+        dot,
+        `        <div class="name">${name}${meter}</div>
+        <div class="what busy">${slot(`${path}.agent.status`, "busy")}</div>
+${tele(line, "", levers)}`,
+      );
     if (!d) {
       // Idle: no delivery pinned to the session. The card collapses to its
       // name, dot, state and lever.
@@ -887,11 +1083,6 @@ ${tele(line, meter, levers)}`,
     const excerpt = d.question
       ? ` · ${slot(`${path}.delivery.question.text`, esc(d.question.text))}`
       : ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`;
-    const rig =
-      sessionTags(p, path) +
-      slot(`${path}.ready`, p.ready ? "ready" : "not ready", "tag") +
-      (p.hold ? slot(`${path}.hold`, "held", "tag") : "") +
-      harnessTags(path, p.agent);
     const latestAt = `${path}.delivery.latest.at`;
     const answeredAt = `times[${path}.delivery.messageId]`;
     const stats =
@@ -916,12 +1107,13 @@ ${tele(line, meter, levers)}`,
       dot,
       `        <div class="name">${name}${meter}${corner}</div>
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
-        <div class="rig">${rig}</div>
         <div class="stats">${stats}</div>
 ${tele(line, "", levers)}`,
     );
   };
 
+  // The rail: the cards in state order, then the router log, collapsed to
+  // its kicker line and newest line; l opens the whole block (v0.12).
   const agents = `<aside class="panel agents" aria-label="Agents">
   <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}</h2>
   <div class="scroll"><div class="cards">
@@ -931,21 +1123,11 @@ ${model.placements
   .map(([p, i]) => card(p, i))
   .join("\n")}
   </div></div>
-  <div class="foot"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)}</div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
+  <div class="foot open"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)} · <kbd class="k">l</kbd></div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
 </aside>`;
 
   // ---- Tasks ----
 
-  // The answer a delivery's question got, when its current send is one and
-  // no question is open: a question stays the latest update after its
-  // answer, and a resolve clears the question too, so both are checked.
-  const answerOf = (
-    d: DeliveryView,
-  ): { k: number; send: DeliveryView["sends"][number] } | null => {
-    const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);
-    const send = d.sends[k];
-    return answeredQuestion(d) && send?.kind === "answer" ? { k, send } : null;
-  };
   // What an open task delivery is, in the order the row and the table read
   // it: what it waits for (the router's own reason), the send while it is
   // not accepted, the answer its question got, the latest update, else
@@ -1068,11 +1250,13 @@ ${model.placements
       t.via !== null && t.final === null
         ? slot(`${path}.via`, `from ${esc(t.via)}`, "to")
         : "";
+    // Work that waits too long ends the line, in the warning role (v0.12).
+    const late = staleTask(t, at, times);
     return `${rowHead(t.id, path, cls)}
       <span class="dot ${dot}" data-path="${path}.status"></span>
       <div class="line1">${slot(`${path}.id`, esc(t.id), "id", "a", ` href="${href(t.id)}"`)}${slot(`${path}.text`, esc(t.text), "excerpt")}</div>
       ${ago(`age(times[${path}.messageId], at)`, times[t.messageId], "age num")}
-      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span>${from}${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to")}</div>${peek(t, path)}
+      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span>${from}${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to")}${late ? slot(`stale_task(${path}, at)`, esc(late), "stale role-warn num") : ""}</div>${peek(t, path)}
     </div>`;
   };
 
@@ -1092,7 +1276,7 @@ ${model.placements
 ${rows.join("\n") || '    <div class="empty">nothing</div>'}
   </div>`;
   const tasksPanel = `<section class="panel tasks" aria-label="Tasks">
-  <h2 class="col-h"><span class="kicker">Tasks</span><span class="n">${slot("count(open)", String(model.open.length))} open · ${slot("count(finished)", String(model.finished.length))} finished</span><span class="spacer"></span><a href="board.json">JSON</a></h2>
+  <h2 class="col-h"><span class="kicker">Tasks</span><span class="n">${slot("count(open)", String(model.open.length))} open · ${slot("count(finished)", String(model.finished.length))} finished</span></h2>
   <div class="filter"><span>⌕</span><input placeholder="Filter: text, id, recipient, state" aria-label="Filter tasks" autocomplete="off"><kbd>/</kbd></div>
   <div class="scroll">
 ${group(
@@ -1300,7 +1484,28 @@ ${forms}
           ` id="cancel-${esc(t.id)}" onsubmit="return confirm(${esc(JSON.stringify(`Cancel ${t.id}? Work already sent keeps running; the router stops tracking it.`))})"`,
         )}</span>`
       : "";
-    const deadline = `deadline ${clock(`time(${path}.deadline)`, t.deadline)}`;
+    // v0.12: the head is one line. The message id is the title of "from
+    // ... at", the deadline the title of the countdown or the verdict, the
+    // a2a token the title of the status badge.
+    const deadline = dated(t.deadline, "deadline ");
+    const from = `<span data-path="${path}.messageId" title="${esc(`message ${t.messageId} · ${t.source}`)}">from ${slot(`${path}.source`, esc(source(t)), "mono")}${t.via === null ? "" : ` via ${slot(`${path}.via`, esc(t.via), "mono")}`} at ${clock(`time(times[${path}.messageId])`, times[t.messageId])}</span>`;
+    const end = t.final
+      ? verdict(path, t.final, (words) =>
+          slot(
+            `${path}.final, time(${path}.deadline)`,
+            words,
+            "end",
+            "span",
+            deadline,
+          ),
+        )
+      : slot(
+          `left(${path}.deadline, at), time(${path}.deadline)`,
+          left(t.deadline, at),
+          "num end",
+          "span",
+          deadline,
+        );
     const deliveries = t.deliveries.map((d, di) => {
       const dp = `${path}.deliveries[${di}]`;
       const r = d.end ? null : readingOf(d);
@@ -1346,13 +1551,8 @@ ${forms}
       .join("\n");
     return `<section class="panel detail" aria-label="Task ${esc(t.id)}" data-path="${path}" data-task="${esc(t.id)}">
   <div class="head">
-    <div class="title"><h2 title="${esc(t.text)}">${slot(`${path}.id`, esc(t.id), "id")}${slot(`first_line(${path}.text)`, esc(headline(t.text)))}</h2>${slot(`${path}.status`, esc(label(t.status)), `badge${cls === "ask" ? " ask" : ""}`)}${cancel}</div>
-    <div class="meta">
-      <span>to ${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : DASH, "mono")} · ${slot(`${path}.chosenBy`, t.chosenBy ? CHOSEN_BY[t.chosenBy] : "no recipient yet")}</span>
-      <span>from ${slot(`${path}.source`, esc(t.source), "mono")}${t.via === null ? "" : ` via ${slot(`${path}.via`, esc(t.via), "mono")}`} at ${clock(`time(times[${path}.messageId])`, times[t.messageId])}</span>
-      <span>${t.final ? `${deadline} · ${verdict(path, t.final)}` : `${deadline} · ${slot(`left(${path}.deadline, at)`, left(t.deadline, at), "num")}`}</span>
-      <span>${slot(`${path}.a2a`, esc(t.a2a), "mono")}</span>
-    </div>
+    <div class="title"><h2 title="${esc(t.text)}">${slot(`${path}.id`, esc(t.id), "id")}${slot(`first_line(${path}.text)`, esc(headline(t.text)))}</h2>${slot(`${path}.status, ${path}.a2a`, esc(label(t.status)), `badge${cls === "ask" ? " ask" : ""}`, "span", ` title="${esc(t.a2a)}"`)}${cancel}</div>
+    <div class="meta">to ${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : DASH, "mono")} · ${slot(`${path}.chosenBy`, t.chosenBy ? CHOSEN_BY[t.chosenBy] : "no recipient yet")} · ${from} · ${end}</div>
   </div>
   <div class="scroll">
 ${forms}
@@ -1392,12 +1592,14 @@ ${
 <html lang="en" data-theme="${theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Router</title>
-<style>${STYLE}</style></head>
+<style>${STYLE}</style>
+</head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
-     what it reads, as in the board design v0.11: a plain path indexes the
-     model, and time(), hms(), age(), left(), count(), percent(), diff() and
-     counts() are formats over it. -->
+     what it reads, as in the board design v0.12: a plain path indexes the
+     model, and time(), hms(), age(), left(), count(), percent(), diff(),
+     counts() and repo() are formats over it; stale() and stale_task() name
+     work that waits too long. -->
 ${notice}
 <div id="app" data-refresh="${refreshSeconds}">
 ${nav}
@@ -1408,24 +1610,16 @@ ${detail()}
 ${model.placements.map((p, i) => sheetOf(p, i)).join("\n")}
 </main>
 <footer class="keys">
-  <span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>
+  <span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>l</kbd> log</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>
   <span class="spacer"></span>
   <span>refreshes every ${refreshSeconds}s</span>
 </footer>
 </div>
-<div class="help" role="dialog" aria-label="Keys" hidden><dl>
-  <dt>j / k</dt><dd>Move between task rows</dd>
-  <dt>space</dt><dd>Peek at a row's question and reply beside it</dd>
-  <dt>↵</dt><dd>Open the task; in the peek, send the reply (⇧↵ breaks the line)</dd>
-  <dt>→</dt><dd>Open the task of the open peek</dd>
-  <dt>s</dt><dd>Open or close the health sheet of the focused agent, the open sheet's, or the selected task's</dd>
-  <dt>a</dt><dd>Answer the open question</dd>
-  <dt>c</dt><dd>Cancel the selected task</dd>
-  <dt>h</dt><dd>Hold or release the focused agent, the open sheet's, or the selected task's</dd>
-  <dt>/</dt><dd>Filter the task rows</dd>
-  <dt>⌘↩ or Ctrl ↩</dt><dd>Send the form you are typing in</dd>
-  <dt>esc</dt><dd>Close the peek, the sheet or this list</dd>
-</dl></div>
+<div class="help" role="dialog" aria-label="Keys" hidden>
+  <div class="top"><span class="kicker">Keys</span><span class="spacer"></span><kbd class="k">?</kbd></div>
+  <div class="grid">${HELP_KEYS.map(([key, does]) => `<kbd>${esc(key)}</kbd><span>${esc(does)}</span>`).join("")}</div>
+  <div class="theme"><span>theme</span><span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span></div>
+</div>
 <script>${SCRIPT}</script>
 </body></html>
 `;
@@ -1441,7 +1635,7 @@ const STYLE = `
   --std: cubic-bezier(.4, 0, .2, 1); --emph: cubic-bezier(.2, 0, 0, 1); --t-fast: 150ms; --t-mid: 200ms;
   --fs: 13px; --fs-mono: 11.5px; --fs-small: 12px; --pad: 12px; --row-pad: 7px 10px; --card-gap: 6px;
 }
-/* Flexoki dark: bg black, bg-2 base-950, ui base-900/850/800, tx base-200/500/700, accent blue-400. */
+/* Flexoki dark: bg black, bg-2 base-950, ui base-900/850/800, tx base-200/500/700, accent blue-400; roles green/orange/red-400. */
 :root, html[data-theme="flexoki"] {
   --canvas: #100F0F; --surface: #1C1B1A; --surface-2: #282726; --text: #CECDC3; --text-2: #878580; --text-3: #575653;
   --hair: #282726; --hair-soft: #1F1E1D; --hair-strong: #403E3C;
@@ -1450,7 +1644,7 @@ const STYLE = `
   --accent: #4385BE; --accent-soft: rgba(67,133,190,.16); --accent-line: rgba(67,133,190,.4); --on-accent: #FFFCF0;
   --shadow: rgba(0,0,0,.45);
 }
-/* Flexoki light: bg paper, bg-2 base-50, ui base-100/150/200, tx black/base-600/base-300, accent blue-600. */
+/* Flexoki light: bg paper, bg-2 base-50, ui base-100/150/200, tx black/base-600/base-300, accent blue-600; roles green/orange/red-600. */
 @media (prefers-color-scheme: light) {
   html[data-theme="flexoki"] {
     --canvas: #FFFCF0; --surface: #F2F0E5; --surface-2: #E6E4D9; --text: #100F0F; --text-2: #6F6E69; --text-3: #B7B5AC;
@@ -1461,7 +1655,7 @@ const STYLE = `
     --shadow: rgba(16,15,15,.18);
   }
 }
-/* One Dark, from Zed's assets/themes/one/one.json: editor.background, surface, border.variant, border, text, text.muted, text.placeholder, element.active, text.accent. */
+/* One Dark, from Zed's assets/themes/one/one.json: editor.background, surface, border.variant, border, text, text.muted, text.placeholder, element.active, text.accent; roles success, warning, error. */
 html[data-theme="one-dark"] {
   --canvas: #282C33; --surface: #2F343E; --surface-2: #363C46; --text: #DCE0E5; --text-2: #A9AFBC; --text-3: #878A98;
   --hair: #363C46; --hair-soft: #30353F; --hair-strong: #464B57;
@@ -1486,21 +1680,23 @@ h1, h2, h3, p { margin: 0; }
 
 /* Frame: nav, bento, key line; the bento fills what is left and its panels scroll inside. */
 #app { position: relative; height: 100vh; display: grid; grid-template-rows: 52px 1fr 40px; }
-.nav { display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--canvas); border-bottom: 1px solid var(--hair); }
+/* min-width: 0, so the page's grid lets the nav be narrower than its
+   children's full text and .who truncates instead of widening the page. */
+.nav { display: flex; align-items: center; gap: 14px; padding: 0 20px; min-width: 0; background: var(--canvas); border-bottom: 1px solid var(--hair); }
 .nav .brand { font-weight: 500; font-size: 17px; letter-spacing: -.2px; }
-.nav .who { font-size: var(--fs-small); color: var(--text-3); }
+.nav .who { flex: 0 1 auto; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-small); color: var(--text-3); }
 .nav .counts { display: flex; gap: 6px; margin-left: 4px; }
 .nav .counts span { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; padding: 4px 10px; border-radius: 100px; border: 1px solid var(--hair); color: var(--text-2); white-space: nowrap; }
 .nav .counts span b { font-weight: 500; color: var(--text); margin-right: 4px; }
 .nav .counts .attn { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 .nav .counts .attn b { color: var(--accent); }
 .nav .spacer, .row .spacer, .col-h .spacer, .keys .spacer { flex: 1; }
-.nav .tick { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.nav .tick { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; cursor: help; }
 .nav nav { display: flex; gap: 4px; align-items: center; }
 .nav nav a { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-2); padding: 6px 11px; border-radius: 8px; text-decoration: none; transition: background var(--t-fast) var(--std), color var(--t-fast) var(--std); }
 .nav nav a:hover { background: var(--wash); color: var(--text); }
 .nav nav a.active { background: var(--press); color: var(--text); }
-.themes { display: flex; border: 1px solid var(--hair); border-radius: 100px; padding: 2px; margin-right: 6px; }
+.themes { display: flex; border: 1px solid var(--hair); border-radius: 100px; padding: 2px; }
 .themes button { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-2); background: transparent; border: 0; border-radius: 100px; padding: 3px 10px; cursor: pointer; transition: background var(--t-fast) var(--std), color var(--t-fast) var(--std); }
 .themes button:hover { color: var(--text); }
 .themes button.on { background: var(--press); color: var(--text); }
@@ -1512,12 +1708,11 @@ h1, h2, h3, p { margin: 0; }
 .kicker.attn { color: var(--accent); }
 .col-h { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px 8px; }
 .col-h .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-3); }
-.col-h a { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-2); }
 
 /* Dots: one accent for what needs you; everything else is a shape in the text colour. */
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: 0 0 8px; margin-top: 6px; }
 .dot.ask, .dot.fail { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.dot.work { background: var(--text); animation: pulse 2s var(--std) infinite; }
+.dot.work, .dot.busy { background: var(--text); animation: pulse 2s var(--std) infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .dot.ready, .dot.wait { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-2); }
 .dot.wait { box-shadow: inset 0 0 0 1.5px var(--text-3); }
@@ -1555,20 +1750,20 @@ h1, h2, h3, p { margin: 0; }
 .card .what { font-size: var(--fs-small); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .what.ask { color: var(--accent); }
 .card .what .id { color: inherit; font-size: inherit; }
-.card .rig { display: flex; gap: 4px; flex-wrap: wrap; line-height: 1.35; }
+.card .what.busy { color: var(--text); }
 .card .stats { display: flex; gap: 6px; align-items: baseline; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); white-space: nowrap; }
 .card .stats .k { color: var(--text-3); }
 .card .stats .ask { color: var(--accent); }
 .card .lever { flex: 0 0 auto; display: flex; gap: 6px; }
 /* Health: placements[].agent closes the card as one row with the lever at its end; the meter sits in the
    name row, or in this row on an idle card. Only a pending permission takes the accent; a status with an
-   error is dotted and carries the error as its tooltip; a fuller window fills in the text colour. */
+   error is dotted and carries the error as its tooltip; stale work and a window at 80% take the warning role. */
 .card .name .meter { margin-left: auto; align-self: center; }
 .card .name .meter + .age { margin-left: 0; }
 .card .tele { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
 .card.idle .tele { grid-column: 1 / -1; }
 .card .tele .line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A card whose status line cannot share its row wraps the levers under it (v0.11). */
+/* A status line too long to share the row with the levers keeps the row; the levers wrap under it, right-aligned. */
 .card .tele .lever { margin-left: auto; }
 .card .tele .ask { color: var(--accent); font-weight: 500; }
 .card .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
@@ -1611,7 +1806,7 @@ h1, h2, h3, p { margin: 0; }
 .kv > dd { display: flex; gap: 8px; align-items: baseline; color: var(--text); overflow: hidden; white-space: nowrap; }
 .kv > dt:nth-last-of-type(1), .kv > dd:last-of-type { border-bottom: 0; }
 .kv > dd > * { flex: none; }
-.kv > dd > .path, .kv > dd > .pr { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kv > dd > .path, .kv > dd > .pr, .kv > dd > .remote { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Subagents: a tree one level deep; a child hangs under its parent from a hairline guide. */
 .counts-line { font-size: var(--fs-small); color: var(--text-2); }
 .subs { display: grid; gap: 2px; }
@@ -1621,31 +1816,36 @@ h1, h2, h3, p { margin: 0; }
 .subagent .title { font-weight: 500; color: var(--text); white-space: nowrap; }
 .subagent .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .subagent .when { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; text-align: right; }
-/* Activity: the last eight, oldest first; the current row carries the accent dot. */
+/* Activity: the last eight, oldest first; a running tool is the current row, in the text colour with the pulse dot. */
 .feed { display: grid; }
 .feed .item { display: grid; grid-template-columns: 8px 70px 76px 1fr; column-gap: 10px; align-items: baseline; padding: 4px 0; font-size: var(--fs-small); color: var(--text); }
 .feed .item .mark { align-self: center; width: 6px; height: 6px; border-radius: 50%; }
-.feed .item.now .mark { width: 8px; height: 8px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.feed .item .mark.work { width: 8px; height: 8px; background: var(--text); animation: pulse 2s var(--std) infinite; }
 .feed .item .at { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
 .feed .item .kind { color: var(--text-2); }
 .feed .item .what { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .feed .item .tool { font-weight: 500; white-space: nowrap; }
 .feed .item .status { white-space: nowrap; color: var(--text-2); }
-.feed .item .status.running { color: var(--accent); }
+.feed .item .status.running { color: var(--text); }
 .feed .item .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .feed .item.error, .feed .item.error .kind, .feed .item.error .text { color: var(--err); }
 .feed .item.quiet, .feed .item.quiet .kind, .feed .item.quiet .text { color: var(--text-3); }
 .meter { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); }
 .meter .bar { width: 44px; height: 4px; border-radius: 2px; background: var(--hair-strong); overflow: hidden; }
 .meter .bar i { display: block; height: 100%; background: var(--text-2); }
-.meter.full { color: var(--text); }
-.meter.full .bar i { background: var(--text); }
-/* The rail's cards take what they need; the router log fills the rest, newest line at the bottom, at least four lines. */
-.agents .scroll { flex: 0 1 auto; }
-.agents .foot { flex: 1 1 0; min-height: calc(4 * 1.6 * var(--fs-mono) + 46px); /* four lines plus the heading line and padding */ padding: 10px 16px 12px; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.6; color: var(--text-3); display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.meter.warn { color: var(--warn); }
+.meter.warn .bar i { background: var(--warn); }
+/* The router log, collapsed: its kicker line and the newest line under the cards, which take the rest. */
+.agents .scroll { flex: 1 1 auto; }
+.agents .foot { flex: none; padding: 10px 16px 12px; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.6; color: var(--text-3); display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.agents .foot .k { margin-left: 2px; }
+.agents .foot:not(.open) .tail > div:not(:last-child) { display: none; }
+/* Open (l): the cards take what they need; the log fills the rest, newest line at the bottom, at least four lines. */
+.agents:has(.foot.open) .scroll { flex: 0 1 auto; }
+.agents .foot.open { flex: 1 1 0; min-height: calc(4 * 1.6 * var(--fs-mono) + 46px); /* four lines plus the heading line and padding */ }
 /* A line clipped at the top fades out instead of showing half its height. */
-.agents .foot .lines { flex: 1; min-height: 0; position: relative; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.6em); mask-image: linear-gradient(to bottom, transparent, #000 1.6em); }
-.agents .foot .lines .tail { position: absolute; left: 0; right: 0; bottom: 0; }
+.agents .foot.open .lines { flex: 1; min-height: 0; position: relative; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.6em); mask-image: linear-gradient(to bottom, transparent, #000 1.6em); }
+.agents .foot.open .lines .tail { position: absolute; left: 0; right: 0; bottom: 0; }
 .agents .foot div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents .foot b { font-weight: 500; color: var(--text-2); }
 
@@ -1672,7 +1872,9 @@ textarea::placeholder, .filter input::placeholder { color: var(--text-3); }
 .task .line2 .state { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; white-space: nowrap; color: var(--text-2); }
 .task .line2 .sub { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; }
-.task .line2 .to + .to::before { content: "· "; }
+.task .line2 .to + .to::before, .task .line2 .to + .stale::before { content: "· "; }
+.task .line2 .to + .stale::before { color: var(--text-3); }
+.task .line2 .stale { white-space: nowrap; }
 /* A notice never waits on the viewer: outcomes stay in the text colours, withdrawn muted. */
 td .outcome.withdrawn { color: var(--text-3); }
 .task.ask .state, .task.fail .state { color: var(--accent); }
@@ -1684,7 +1886,9 @@ td .outcome.withdrawn { color: var(--text-3); }
 .detail .head .title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .detail .head h2 { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
 .detail .head h2 .id { color: var(--text-3); margin-right: 6px; }
-.detail .head .meta { margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--fs-small); color: var(--text-2); }
+.detail .head .meta { margin-top: 4px; font-size: var(--fs-small); color: var(--text-2); }
+.detail .head .meta [title] { cursor: help; }
+.detail .head .meta .end { white-space: nowrap; }
 .detail .head .actions { display: flex; gap: 6px; margin-left: auto; }
 .thread { padding: 14px 18px 4px; display: flex; flex-direction: column; gap: 8px; }
 .msg { max-width: 90%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; font-size: var(--fs); line-height: 1.5; color: var(--text-2); border: 1px solid var(--hair); }
@@ -1718,14 +1922,22 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .code pre { margin: 0; padding: 8px 12px; font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.6; color: var(--text-2); white-space: pre-wrap; }
 
 .keys { display: flex; gap: 16px; align-items: center; padding: 0 20px; border-top: 1px solid var(--hair); background: var(--canvas); font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.keys > span { white-space: nowrap; }
 .keys kbd { font-family: var(--mono); font-weight: 500; color: var(--text-2); }
 
-/* The peek: the one overlay, and the one place a shadow is allowed. */
+/* The peek, the sheet and the help are the three overlays, and the only places a shadow is allowed. */
 .peek { position: fixed; z-index: 60; width: 420px; padding: 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--hair-strong); box-shadow: 0 24px 48px var(--shadow); display: grid; gap: 8px; cursor: default; animation: rise var(--t-fast) var(--std) both; }
 .peek::before { content: ""; position: absolute; left: -6px; top: 22px; width: 10px; height: 10px; background: var(--surface-2); border-left: 1px solid var(--hair-strong); border-bottom: 1px solid var(--hair-strong); transform: rotate(45deg); }
 .peek .top { display: flex; align-items: center; gap: 8px; }
 .peek .top .spacer { flex: 1; }
 .peek .q { white-space: pre-wrap; font-size: var(--fs); color: var(--text); line-height: 1.5; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); border: 1px solid var(--accent-line); }
+/* The help: the keys in two columns, bottom right over the detail; the theme switch is its last row. */
+.help { position: fixed; z-index: 70; right: 24px; bottom: 52px; width: 320px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--hair-strong); box-shadow: 0 24px 48px var(--shadow); display: grid; gap: 8px; animation: rise var(--t-fast) var(--std) both; }
+.help .top { display: flex; align-items: center; }
+.help .top .spacer { flex: 1; }
+.help .grid { display: grid; grid-template-columns: 48px 1fr; column-gap: 12px; row-gap: 3px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); }
+.help .grid kbd { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); }
+.help .theme { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--hair); font-size: var(--fs-small); color: var(--text-2); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 /* The live page. A row opens its task through the link on its id, stretched
    over the row, so rows work without a script; the row shows its focus. */
@@ -1744,17 +1956,17 @@ a.btn, .card a.id { text-decoration: none; }
 .peek .q.wait { background: transparent; border-color: var(--hair-strong); }
 .choices input { flex: 1; min-width: 10rem; padding: 6px 12px; border: 1px solid var(--hair); border-radius: 100px; background: var(--canvas); color: var(--text); }
 .notice { position: fixed; z-index: 70; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: baseline; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
-.help { position: fixed; z-index: 60; right: 20px; bottom: 48px; padding: 12px 16px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
-.help dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
-.help dt { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text); }
-.help dd { margin: 0; color: var(--text-2); }
+/* On a screen without a keyboard the footer's l and ? are buttons (the script marks them). */
+.keys > span[data-key] { cursor: pointer; }
 /* The design is drawn for a desktop; a narrow screen gets one column that
    scrolls as a page. */
 @media (max-width: 900px) {
   body { overflow: auto; }
   #app { height: auto; min-height: 100vh; grid-template-rows: auto 1fr auto; }
   .nav, .keys { flex-wrap: wrap; padding: 8px 14px; }
-  .bento { grid-template-columns: 1fr; }
+  /* minmax(0, ...) lets the column be narrower than an ellipsized line's
+     full text, so the line ellipsizes instead of widening the page. */
+  .bento { grid-template-columns: minmax(0, 1fr); }
   .panel, .scroll { overflow: visible; }
   /* One column: the sheet takes the screen. */
   .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
@@ -1764,8 +1976,8 @@ a.btn, .card a.id { text-decoration: none; }
 // ---- Script: reads the rendered page and its data attributes only ----
 
 // The page works without it. It keeps what a person is doing across
-// refreshes and adds the theme switch, the filter, the keys, the peek and
-// the sheet.
+// refreshes and adds the filter, the keys, the peek, the sheet, the full
+// router log and the help with its theme switch.
 const SCRIPT = `
 const root = document.documentElement;
 const $ = (selector, from = document) => from.querySelector(selector);
@@ -1776,7 +1988,8 @@ const stored = (store, key, fallback) => {
 const selected = () => $(".detail")?.dataset.task;
 
 // Theme: the server paints the cookie's palette. A palette chosen on this
-// device wins and goes into both stores, so the next page paints it first.
+// device, in the help, wins and goes into both stores, so the next page
+// paints it first.
 const THEMES = ["flexoki", "one-dark"];
 const paint = () => $$(".themes button").forEach((b) => {
   b.classList.toggle("on", b.dataset.theme === root.dataset.theme);
@@ -1796,6 +2009,20 @@ $$(".themes button").forEach((b) => b.addEventListener("click", () => theme(b.da
 const fold = () => {
   const shut = [].concat(stored(localStorage, "router-collapsed", []));
   $$(".group").forEach((g) => g.classList.toggle("collapsed", shut.includes(g.dataset.group)));
+};
+
+// The router log: collapsed to its newest line until l opens the whole
+// block, which stays open across refreshes, on this device. The server
+// renders it open, so a page without a script, which l needs, shows every
+// line in the open layout; the script sets it from the stored choice at
+// start and after each refresh, before the page is painted.
+const logOpen = () => localStorage.getItem("router-log") === "open";
+const showLog = () => $(".agents .foot")?.classList.toggle("open", logOpen());
+const toggleLog = () => {
+  if (logOpen()) localStorage.removeItem("router-log");
+  else localStorage.setItem("router-log", "open");
+  showLog();
+  return true;
 };
 
 // Drafts, by the data-path of the form or peek they are typed in, kept with
@@ -1918,6 +2145,7 @@ const refresh = async (id = selected()) => {
   if (input && input !== focus) input.value = words;
   if (selected() && selected() !== new URLSearchParams(location.search).get("task")) history.replaceState(null, "", "?task=" + encodeURIComponent(selected()));
   fold();
+  showLog();
   filter();
   drafts();
 };
@@ -2002,9 +2230,20 @@ const KEYS = {
     if (sheet()?.dataset.key === key) closeSheet(); else openSheet(key);
     return true;
   },
+  l: toggleLog,
   "/": () => { $(".filter input")?.focus(); return true; },
   "?": () => { $(".help").hidden = !$(".help").hidden; return true; },
 };
+// A screen without a keyboard still opens the log and the help, where the
+// theme switch is: the footer's l and ? take a click.
+$$(".keys > span").forEach((s) => {
+  const key = $("kbd", s)?.textContent;
+  if (key === "l" || key === "?") s.dataset.key = key;
+});
+document.addEventListener("click", (e) => {
+  const key = e.target.closest(".keys > span[data-key]")?.dataset.key;
+  if (key) KEYS[key]();
+});
 document.addEventListener("keydown", (e) => {
   // A key that ends an IME composition (a Hangul syllable, a kana
   // conversion) belongs to the text; Safari marks it only by keyCode 229.
@@ -2044,6 +2283,7 @@ if (back && params.has("notice") && !params.has("task") && back !== selected() &
 }
 paint();
 fold();
+showLog();
 filter();
 drafts();
 `;

@@ -87,6 +87,7 @@ test("the model lists what waits on a person and the open and finished tasks", (
       ["orchestrator@mbp", true, false, "A1"],
       ["knowledge@mini", false, false, "K1"],
       ["environment@mbp", true, true, "E1"],
+      ["environment@mini", true, false, "E2"],
     ],
   );
   assert.deepEqual(
@@ -176,6 +177,16 @@ test("the model names its contract and carries what a template binds to", () => 
       delivery: null,
       agent: null,
     },
+    {
+      key: "environment@mini",
+      participant: "environment",
+      host: "mini",
+      session: "E2",
+      ready: true,
+      hold: false,
+      delivery: null,
+      agent: null,
+    },
   ]);
   // Without telemetry there is no time; with it, each served placement
   // carries its snapshot and the model the time they were taken.
@@ -188,6 +199,7 @@ test("the model names its contract and carries what a template binds to", () => 
       ["orchestrator@mbp", "running", "claude-opus-5-5"],
       ["knowledge@mini", "running", "gpt-5.5"],
       ["environment@mbp", "idle", "claude-sonnet-5-5"],
+      ["environment@mini", "running", "claude-sonnet-5-5"],
     ],
   );
   // A snapshot for a placement the router does not serve is not shown.
@@ -199,7 +211,7 @@ test("the model names its contract and carries what a template binds to", () => 
   });
   assert.deepEqual(
     extra.placements.map((p) => p.agent),
-    [null, null, null],
+    [null, null, null, null],
   );
   const task = (id: string) => {
     const found = [...model.open, ...model.finished].find((t) => t.id === id);
@@ -490,6 +502,7 @@ test("the sample holds a snapshot per placement in the states the design binds",
       ["orchestrator@mbp", "running", true, [], null],
       ["knowledge@mini", "running", true, ["Bash"], "permission"],
       ["environment@mbp", "idle", false, [], "finished"],
+      ["environment@mini", "running", true, [], null],
     ],
   );
 });
@@ -521,6 +534,45 @@ test("the sample's sheet holds the states the design binds: a dirty worktree wit
   assert.equal(e?.checkout?.kind, "directory");
   assert.equal(e?.subagents, null);
   assert.equal(e?.activity, null);
+});
+
+test("the sample holds what v0.12 binds: a session mid-turn with no delivery, a request with no reply past 30 minutes, a window past 80% and a remote as a web address", () => {
+  const model = sampleModel();
+  const placement = (key: string) => {
+    const found = model.placements.find((p) => p.key === key);
+    assert.ok(found, key);
+    return found;
+  };
+  const busy = placement("environment@mini");
+  assert.deepEqual(
+    [busy.delivery, busy.hold, busy.agent?.status],
+    [null, false, "running"],
+  );
+  // T1 waited for a recipient; once chosen, its delivery has no reply, 43
+  // minutes after the request.
+  const d = model.open.find((t) => t.id === "T1")?.deliveries[0];
+  assert.ok(d);
+  assert.deepEqual([d.latest, d.end], [null, null]);
+  assert.equal(
+    Date.parse(model.at) - Date.parse(model.times[d.send.messageId] ?? ""),
+    43 * 60_000,
+  );
+  const context = placement("environment@mbp").agent?.context;
+  assert.ok(context && context.used / context.max >= 0.8);
+  assert.match(
+    placement("orchestrator@mbp").agent?.checkout?.remote ?? "",
+    /^https:\/\//,
+  );
+  // A choice still waits on you.
+  assert.deepEqual(
+    model.needsYou
+      .find((n) => n.principal === "you")
+      ?.items.map((it) => [it.kind, it.taskId]),
+    [
+      ["answer", "T2"],
+      ["choose", "T6"],
+    ],
+  );
 });
 
 test("messageTimes maps submit, update and answer ids to their journal time", () => {

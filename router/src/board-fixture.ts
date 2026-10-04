@@ -26,6 +26,7 @@ export const config: RouterConfig = {
     "orchestrator@mbp": "A1",
     "knowledge@mini": "K1",
     "environment@mbp": "E1",
+    "environment@mini": "E2",
   },
   serve: {
     listen: "127.0.0.1:0",
@@ -61,8 +62,10 @@ const run = (clock: string, ...events: Event[]): Entry[] => {
 };
 
 // T1 waits for a recipient Jev was not sure of, T2 asks a question, T3 is
-// finished, and T4 went where Jev picked and is being worked on. The three
-// served placements are ready with a question pending, busy, and held.
+// finished, and T4 went where Jev picked and is being worked on. Of the four
+// served placements, orchestrator@mbp has a question pending, knowledge@mini
+// works on T4, environment@mbp is held and environment@mini has nothing to
+// do.
 export const journal: Entry[] = [
   ...run(
     "09:02",
@@ -83,6 +86,12 @@ export const journal: Entry[] = [
       placement: "environment@mbp",
       ready: true,
       session: "E1",
+    },
+    {
+      type: "observe",
+      placement: "environment@mini",
+      ready: true,
+      session: "E2",
     },
     {
       type: "submit",
@@ -343,7 +352,12 @@ export const viaJournal = extend(
 // (withdrawn). incus asked and the sender, idle by then, was told
 // (accepted); it answered from the turn the question started, and incus
 // finished while that turn still ran, so the end is owed and waits for the
-// sender to be idle (pending).
+// sender to be idle (pending). Meanwhile a person started a turn in
+// environment@mini, which the router did not send, so it is not ready and
+// has no delivery (busy, v0.12). In the last run you chose orchestrator for
+// T1, 43 minutes after you sent it: its session is not ready, so the send
+// waits (not stale: nothing was sent). A sixth task Jev was unsure of keeps
+// a choice waiting on you.
 export const sampleJournal: Entry[] = [
   ...journal,
   ...run(
@@ -364,6 +378,7 @@ export const sampleJournal: Entry[] = [
       model: "jev-1.13.0",
     },
     { type: "observe", placement: "orchestrator@mbp", ready: false },
+    { type: "observe", placement: "environment@mini", ready: false },
   ),
   ...run(
     "09:44:20",
@@ -434,22 +449,45 @@ export const sampleJournal: Entry[] = [
       text: "scratch-vm ready",
     },
     { type: "observe", placement: "orchestrator@mbp", ready: false },
+    { type: "choose", by: "you", taskId: "T1", to: "orchestrator" },
+    {
+      type: "submit",
+      by: "you",
+      messageId: "M6",
+      text: "Compare the git config applied on mini with the dotfiles source.",
+    },
+    {
+      type: "judged",
+      taskId: "T6",
+      choice: "environment",
+      probabilities: {
+        orchestrator: 0.33,
+        knowledge: 0.02,
+        environment: 0.62,
+        incus: 0.01,
+        none: 0.02,
+      },
+      model: "jev-1.13.0",
+    },
   ),
 ];
 
 // What the shell last saw of the sample's sessions, taken at the end of its
 // last run: the orchestrator's session mid-turn (it is answering incus's
 // question), knowledge@mini working on T4 and stopped at a permission
-// prompt, environment@mbp idle with most of its window used. The sheet:
-// the orchestrator on a dirty worktree with an open pull request that
-// conflicts and whose checks fail, its tail ending in a running shell call,
-// its subagents all done; knowledge@mini with two subagents open, one under the other, in a
-// plain checkout with no pull request; environment@mbp's per-session reads
-// failed that run (the run's report said so), so it has its checkout and
-// nothing else, which is also how a closed session's sheet reads (the
-// sample has no card with all three null: that is the no-sheet rendering of
-// part 1). Together with `sampleJournal` it is what the published sample is
-// built from.
+// prompt, environment@mbp idle with most of its window used (stale at 80%,
+// v0.12), environment@mini mid-turn on a person's prompt. The sheet: the
+// orchestrator on a dirty worktree with an open pull request that conflicts
+// and whose checks fail, its remote a web address, its tail ending in a
+// running shell call, its subagents all done; knowledge@mini with two
+// subagents open, one under the other, in a plain checkout with no pull
+// request; environment@mbp's per-session reads failed that run (the run's
+// report said so), so it has its checkout and nothing else, which is also
+// how a closed session's sheet reads (the sample has no card with all three
+// null: that is the no-sheet rendering of part 1); environment@mini with one
+// subagent open in a clean checkout whose remote is in the scp form.
+// Together with `sampleJournal` it is what the published sample is built
+// from.
 export const telemetry: Telemetry = {
   version: "jev-router-telemetry/1",
   at: "2026-09-30T09:44:51.000Z",
@@ -477,7 +515,7 @@ export const telemetry: Telemetry = {
         directory: "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices",
         kind: "worktree",
         branch: "feat/notices",
-        remote: "git@github.com:me/jev-a2a.git",
+        remote: "https://github.com/me/jev-a2a.git",
         dirty: true,
         ahead: 3,
         behind: 0,
@@ -665,6 +703,86 @@ export const telemetry: Telemetry = {
       },
       subagents: null,
       activity: null,
+    },
+    "environment@mini": {
+      seen: "2026-09-30T09:44:50.000Z",
+      status: "running",
+      attention: null,
+      attentionAt: null,
+      turnStartedAt: "2026-09-30T09:44:05.000Z",
+      lastUserMessageAt: "2026-09-30T09:44:05.000Z",
+      permissions: [],
+      provider: "claude",
+      model: "claude-sonnet-5-5",
+      thinking: "low",
+      mode: "default",
+      context: { used: 82_000, max: 200_000 },
+      usage: { input: 940, cached: 212_300, output: 6_150, costUsd: 2.07 },
+      error: null,
+      title: "environment",
+      cwd: "/Users/agent/dotfiles",
+      checkout: {
+        project: "dotfiles",
+        workspace: "main",
+        directory: "/Users/agent/dotfiles",
+        kind: "local_checkout",
+        branch: "main",
+        remote: "git@github.com:me/dotfiles.git",
+        dirty: false,
+        ahead: 0,
+        behind: 0,
+        diff: null,
+        pr: null,
+        status: "running",
+        activityAt: "2026-09-30T09:44:40.000Z",
+      },
+      subagents: {
+        counts: { running: 1, completed: 0, failed: 0, canceled: 0 },
+        running: [
+          {
+            id: "toolu_01zprof",
+            title: "Explore",
+            description: "Time each file zsh sources at startup on mini.",
+            status: "running",
+            startedAt: "2026-09-30T09:44:12.000Z",
+            updatedAt: "2026-09-30T09:44:44.000Z",
+            parent: null,
+          },
+        ],
+      },
+      activity: {
+        turns: 1,
+        items: [
+          {
+            at: "2026-09-30T09:44:05.000Z",
+            kind: "user_message",
+            text: "Why does a new zsh take two seconds to start on mini?",
+            tool: null,
+            status: null,
+          },
+          {
+            at: "2026-09-30T09:44:12.000Z",
+            kind: "tool_call",
+            text: "Time each file zsh sources at startup on mini.",
+            tool: "Agent",
+            status: "running",
+          },
+          {
+            at: "2026-09-30T09:44:30.000Z",
+            kind: "tool_call",
+            text: "~/.config/zsh/.zshrc",
+            tool: "Read",
+            status: "completed",
+          },
+          {
+            at: "2026-09-30T09:44:40.000Z",
+            kind: "tool_call",
+            text: "zsh -xi -c exit 2>&1 | tail -40",
+            tool: "Bash",
+            status: "running",
+          },
+        ],
+      },
     },
   },
 };

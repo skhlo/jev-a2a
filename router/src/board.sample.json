@@ -20,22 +20,22 @@
       "role": "requester",
       "items": [
         {
-          "kind": "choose",
-          "taskId": "T1",
-          "reason": "low_confidence",
-          "suggestions": [
-            "orchestrator",
-            "knowledge",
-            "environment",
-            "incus"
-          ]
-        },
-        {
           "kind": "answer",
           "taskId": "T2",
           "deliveryId": "D1",
           "questionId": "Q2",
           "text": "Force push?"
+        },
+        {
+          "kind": "choose",
+          "taskId": "T6",
+          "reason": "low_confidence",
+          "suggestions": [
+            "environment",
+            "orchestrator",
+            "knowledge",
+            "incus"
+          ]
         }
       ]
     },
@@ -100,7 +100,7 @@
           "directory": "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices",
           "kind": "worktree",
           "branch": "feat/notices",
-          "remote": "git@github.com:me/jev-a2a.git",
+          "remote": "https://github.com/me/jev-a2a.git",
           "dirty": true,
           "ahead": 3,
           "behind": 0,
@@ -346,9 +346,163 @@
         "subagents": null,
         "activity": null
       }
+    },
+    {
+      "key": "environment@mini",
+      "participant": "environment",
+      "host": "mini",
+      "session": "E2",
+      "ready": false,
+      "hold": false,
+      "delivery": null,
+      "agent": {
+        "seen": "2026-09-30T09:44:50.000Z",
+        "status": "running",
+        "attention": null,
+        "attentionAt": null,
+        "turnStartedAt": "2026-09-30T09:44:05.000Z",
+        "lastUserMessageAt": "2026-09-30T09:44:05.000Z",
+        "permissions": [],
+        "provider": "claude",
+        "model": "claude-sonnet-5-5",
+        "thinking": "low",
+        "mode": "default",
+        "context": {
+          "used": 82000,
+          "max": 200000
+        },
+        "usage": {
+          "input": 940,
+          "cached": 212300,
+          "output": 6150,
+          "costUsd": 2.07
+        },
+        "error": null,
+        "title": "environment",
+        "cwd": "/Users/agent/dotfiles",
+        "checkout": {
+          "project": "dotfiles",
+          "workspace": "main",
+          "directory": "/Users/agent/dotfiles",
+          "kind": "local_checkout",
+          "branch": "main",
+          "remote": "git@github.com:me/dotfiles.git",
+          "dirty": false,
+          "ahead": 0,
+          "behind": 0,
+          "diff": null,
+          "pr": null,
+          "status": "running",
+          "activityAt": "2026-09-30T09:44:40.000Z"
+        },
+        "subagents": {
+          "counts": {
+            "running": 1,
+            "completed": 0,
+            "failed": 0,
+            "canceled": 0
+          },
+          "running": [
+            {
+              "id": "toolu_01zprof",
+              "title": "Explore",
+              "description": "Time each file zsh sources at startup on mini.",
+              "status": "running",
+              "startedAt": "2026-09-30T09:44:12.000Z",
+              "updatedAt": "2026-09-30T09:44:44.000Z",
+              "parent": null
+            }
+          ]
+        },
+        "activity": {
+          "turns": 1,
+          "items": [
+            {
+              "at": "2026-09-30T09:44:05.000Z",
+              "kind": "user_message",
+              "text": "Why does a new zsh take two seconds to start on mini?",
+              "tool": null,
+              "status": null
+            },
+            {
+              "at": "2026-09-30T09:44:12.000Z",
+              "kind": "tool_call",
+              "text": "Time each file zsh sources at startup on mini.",
+              "tool": "Agent",
+              "status": "running"
+            },
+            {
+              "at": "2026-09-30T09:44:30.000Z",
+              "kind": "tool_call",
+              "text": "~/.config/zsh/.zshrc",
+              "tool": "Read",
+              "status": "completed"
+            },
+            {
+              "at": "2026-09-30T09:44:40.000Z",
+              "kind": "tool_call",
+              "text": "zsh -xi -c exit 2>&1 | tail -40",
+              "tool": "Bash",
+              "status": "running"
+            }
+          ]
+        }
+      }
     }
   ],
   "open": [
+    {
+      "id": "T6",
+      "status": "needs_recipient",
+      "a2a": "TASK_STATE_INPUT_REQUIRED",
+      "source": "you/M6",
+      "messageId": "M6",
+      "recipient": null,
+      "chosenBy": null,
+      "text": "Compare the git config applied on mini with the dotfiles source.",
+      "deadline": "2026-09-30T10:44:50.000Z",
+      "routing": {
+        "state": "needs_recipient",
+        "reason": "low_confidence",
+        "suggestions": [
+          "environment",
+          "orchestrator",
+          "knowledge",
+          "incus"
+        ]
+      },
+      "judgments": [
+        {
+          "choice": "environment",
+          "probabilities": {
+            "orchestrator": 0.33,
+            "knowledge": 0.02,
+            "environment": 0.62,
+            "incus": 0.01,
+            "none": 0.02
+          },
+          "model": "jev-1.13.0",
+          "valid": true,
+          "threshold": 0.9
+        }
+      ],
+      "final": null,
+      "via": null,
+      "notices": [],
+      "deliveries": [],
+      "log": [
+        {
+          "n": 50,
+          "actor": "Router",
+          "text": "T6 recorded for you/M6. The caller may disconnect."
+        },
+        {
+          "n": 51,
+          "actor": "Jev",
+          "text": "T6: no confident owner (environment 0.62). The sender must choose."
+        }
+      ]
+    },
     {
       "id": "T4",
       "status": "working",
@@ -417,12 +571,12 @@
       ],
       "log": [
         {
-          "n": 23,
+          "n": 24,
           "actor": "Router",
           "text": "T4 recorded for you/M4. The caller may disconnect."
         },
         {
-          "n": 24,
+          "n": 25,
           "actor": "Jev",
           "text": "T4: Jev selected knowledge at 0.94."
         }
@@ -503,12 +657,12 @@
       ],
       "log": [
         {
-          "n": 6,
+          "n": 7,
           "actor": "Router",
           "text": "T2 recorded for you/M2. The caller may disconnect."
         },
         {
-          "n": 11,
+          "n": 12,
           "actor": "Router",
           "text": "T2: answer A1m queued for the pinned session A1."
         }
@@ -516,24 +670,15 @@
     },
     {
       "id": "T1",
-      "status": "needs_recipient",
-      "a2a": "TASK_STATE_INPUT_REQUIRED",
+      "status": "queued",
+      "a2a": "TASK_STATE_SUBMITTED",
       "source": "you/M1",
       "messageId": "M1",
-      "recipient": null,
-      "chosenBy": null,
+      "recipient": "orchestrator",
+      "chosenBy": "sender",
       "text": "Fix <b>the</b> build",
       "deadline": "2026-09-30T10:02:00.000Z",
-      "routing": {
-        "state": "needs_recipient",
-        "reason": "low_confidence",
-        "suggestions": [
-          "orchestrator",
-          "knowledge",
-          "environment",
-          "incus"
-        ]
-      },
+      "routing": null,
       "judgments": [
         {
           "choice": "orchestrator",
@@ -552,17 +697,49 @@
       "final": null,
       "via": null,
       "notices": [],
-      "deliveries": [],
+      "deliveries": [
+        {
+          "id": "D5",
+          "placement": "orchestrator@mbp",
+          "session": null,
+          "send": {
+            "kind": "request",
+            "messageId": "M1",
+            "outcome": "pending"
+          },
+          "sends": [
+            {
+              "messageId": "M1",
+              "kind": "request",
+              "text": "Fix <b>the</b> build",
+              "outcome": "pending"
+            }
+          ],
+          "question": null,
+          "updates": [],
+          "latest": null,
+          "end": null,
+          "waits": {
+            "reason": "not_ready",
+            "behind": null
+          }
+        }
+      ],
       "log": [
         {
-          "n": 4,
+          "n": 5,
           "actor": "Router",
           "text": "T1 recorded for you/M1. The caller may disconnect."
         },
         {
-          "n": 5,
+          "n": 6,
           "actor": "Jev",
           "text": "T1: no confident owner (orchestrator 0.6). The sender must choose."
+        },
+        {
+          "n": 49,
+          "actor": "Router",
+          "text": "T1: sender chose orchestrator."
         }
       ]
     }
@@ -676,37 +853,37 @@
       ],
       "log": [
         {
-          "n": 28,
+          "n": 29,
           "actor": "Router",
           "text": "T5 recorded for orchestrator/M5. The caller may disconnect."
         },
         {
-          "n": 29,
+          "n": 30,
           "actor": "Jev",
           "text": "T5: no confident owner (incus 0.55). The sender must choose."
         },
         {
-          "n": 31,
+          "n": 33,
           "actor": "Router",
           "text": "T5: sender chose incus."
         },
         {
-          "n": 32,
+          "n": 34,
           "actor": "Router",
           "text": "T5 notice choose/1 withdrawn: the choice no longer stands."
         },
         {
-          "n": 38,
+          "n": 40,
           "actor": "Router",
           "text": "Recorded notice T5/question/D4/Q5 as attempting to A1 before calling the adapter."
         },
         {
-          "n": 39,
+          "n": 41,
           "actor": "Adapter",
           "text": "T5/question/D4/Q5: notice accepted."
         },
         {
-          "n": 40,
+          "n": 42,
           "actor": "Router",
           "text": "T5: answer A5 queued for the pinned session L1."
         }
@@ -777,7 +954,7 @@
       ],
       "log": [
         {
-          "n": 10,
+          "n": 11,
           "actor": "Router",
           "text": "T3 recorded for you/M3. The caller may disconnect."
         }
@@ -798,108 +975,109 @@
     "M5": "2026-09-30T09:44:10.000Z",
     "Q5": "2026-09-30T09:44:30.000Z",
     "A5": "2026-09-30T09:44:40.000Z",
-    "R5": "2026-09-30T09:44:50.000Z"
+    "R5": "2026-09-30T09:44:50.000Z",
+    "M6": "2026-09-30T09:44:50.000Z"
   },
   "log": [
     {
-      "n": 27,
-      "actor": "Participant",
-      "text": "D3: Reading the notes."
-    },
-    {
-      "n": 28,
-      "actor": "Router",
-      "text": "T5 recorded for orchestrator/M5. The caller may disconnect."
-    },
-    {
-      "n": 29,
-      "actor": "Jev",
-      "text": "T5: no confident owner (incus 0.55). The sender must choose."
-    },
-    {
-      "n": 30,
+      "n": 32,
       "actor": "Adapter",
-      "text": "orchestrator@mbp: not ready, session A1."
+      "text": "environment@mini: not ready, session E2."
     },
     {
-      "n": 31,
+      "n": 33,
       "actor": "Router",
       "text": "T5: sender chose incus."
     },
     {
-      "n": 32,
+      "n": 34,
       "actor": "Router",
       "text": "T5 notice choose/1 withdrawn: the choice no longer stands."
     },
     {
-      "n": 33,
+      "n": 35,
       "actor": "Adapter",
       "text": "incus@lab01: ready, session L1."
     },
     {
-      "n": 34,
+      "n": 36,
       "actor": "Router",
       "text": "Recorded D4/M5 as attempting to L1 before calling the adapter."
     },
     {
-      "n": 35,
+      "n": 37,
       "actor": "Adapter",
       "text": "D4/M5: adapter reported accepted."
     },
     {
-      "n": 36,
+      "n": 38,
       "actor": "Participant",
       "text": "D4 asks: Which image?"
     },
     {
-      "n": 37,
+      "n": 39,
       "actor": "Adapter",
       "text": "orchestrator@mbp: ready, session A1."
     },
     {
-      "n": 38,
+      "n": 40,
       "actor": "Router",
       "text": "Recorded notice T5/question/D4/Q5 as attempting to A1 before calling the adapter."
     },
     {
-      "n": 39,
+      "n": 41,
       "actor": "Adapter",
       "text": "T5/question/D4/Q5: notice accepted."
     },
     {
-      "n": 40,
+      "n": 42,
       "actor": "Router",
       "text": "T5: answer A5 queued for the pinned session L1."
     },
     {
-      "n": 41,
+      "n": 43,
       "actor": "Adapter",
       "text": "orchestrator@mbp: not ready, session A1."
-    },
-    {
-      "n": 42,
-      "actor": "Adapter",
-      "text": "incus@lab01: ready, session L1."
-    },
-    {
-      "n": 43,
-      "actor": "Router",
-      "text": "Recorded D4/A5 as attempting to L1 before calling the adapter."
     },
     {
       "n": 44,
       "actor": "Adapter",
-      "text": "D4/A5: adapter reported accepted."
+      "text": "incus@lab01: ready, session L1."
     },
     {
       "n": 45,
-      "actor": "Participant",
-      "text": "D4: completed result stored."
+      "actor": "Router",
+      "text": "Recorded D4/A5 as attempting to L1 before calling the adapter."
     },
     {
       "n": 46,
       "actor": "Adapter",
+      "text": "D4/A5: adapter reported accepted."
+    },
+    {
+      "n": 47,
+      "actor": "Participant",
+      "text": "D4: completed result stored."
+    },
+    {
+      "n": 48,
+      "actor": "Adapter",
       "text": "orchestrator@mbp: not ready, session A1."
+    },
+    {
+      "n": 49,
+      "actor": "Router",
+      "text": "T1: sender chose orchestrator."
+    },
+    {
+      "n": 50,
+      "actor": "Router",
+      "text": "T6 recorded for you/M6. The caller may disconnect."
+    },
+    {
+      "n": 51,
+      "actor": "Jev",
+      "text": "T6: no confident owner (environment 0.62). The sender must choose."
     }
   ],
   "telemetryAt": "2026-09-30T09:44:51.000Z"
