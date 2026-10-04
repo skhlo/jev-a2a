@@ -1186,6 +1186,7 @@ test("board: the model carries the telemetry file beside the record; a bad file 
         ["orchestrator@mbp", "running"],
         ["knowledge@mini", "running"],
         ["environment@mbp", "idle"],
+        ["environment@mini", "running"],
       ],
     );
     // A damaged file: none again, and one log line however often the page

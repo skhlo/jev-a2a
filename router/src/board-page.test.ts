@@ -291,7 +291,7 @@ test("the fixture's board: what needs you, what is in flight, what is done", () 
   ]);
   assert.equal(textOf(html, "count(open[] not in needsYou)"), "1 in flight");
   assert.equal(textOf(html, "count(placements[].hold)"), "1 held");
-  assert.equal(textOf(html, "count(placements)"), "3 agents");
+  assert.equal(textOf(html, "count(placements)"), "4 agents");
   assert.deepEqual(groups(html), {
     "needs-you": ["T1", "T2"],
     "in-flight": ["T4"],
@@ -447,11 +447,12 @@ test("forms and levers follow the viewer's principals and roles", () => {
     formsIn(rail(me))
       .filter((f) => f.fields.action === "hold")
       .map((f) => [f.fields.placement, f.fields.hold]),
-    // The rail orders by state: the asking card, the held one, then the
-    // idle one with the replaced session.
+    // The rail orders by state: the asking card, the held one, the ready
+    // one, then the idle one with the replaced session.
     [
       ["orchestrator@mbp", "1"],
       ["environment@mbp", "0"],
+      ["environment@mini", "1"],
       ["knowledge@mini", "1"],
     ],
   );
@@ -588,7 +589,8 @@ test("a valid record never breaks the page: Jev still judging, or a judgment wit
 
 test("the rail orders cards by state and keeps the model's order within one", () => {
   // Cards come asking, working, held, ready, not ready, whatever the
-  // model's order; the fixture's order reversed still renders ask, work, held.
+  // model's order; the fixture's order reversed still renders ask, work,
+  // held, ready.
   const me = model(ME);
   const order = (html: string): string[] =>
     [
@@ -600,18 +602,18 @@ test("the rail orders cards by state and keeps the model's order within one", ()
     { ...me, placements: [...me.placements].reverse() },
     { task: "T2" },
   );
-  assert.deepEqual(order(reversed), ["2", "1", "0"]);
+  assert.deepEqual(order(reversed), ["3", "2", "1", "0"]);
   // Two held placements keep the model's order between them.
   const held = me.placements[2];
   assert.ok(held?.hold);
   const twoHeld = renderBoard(
     {
       ...me,
-      placements: [{ ...held, key: "environment@mini" }, ...me.placements],
+      placements: [{ ...held, key: "environment@mba" }, ...me.placements],
     },
     { task: "T2" },
   );
-  assert.deepEqual(order(twoHeld), ["1", "2", "0", "3"]);
+  assert.deepEqual(order(twoHeld), ["1", "2", "0", "3", "4"]);
 });
 
 test("the nav names a role only when it differs from its principal", () => {
@@ -1184,6 +1186,8 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
     // Idle after a finished turn: how long ago it ended; the idle card
     // carries its meter in this row.
     "idle 21m · seen 9s86%Release",
+    // Mid-turn on a prompt the router did not send, with one subagent.
+    "running 55s · 1 subagent · seen 10s41%Hold",
   ]);
   assert.ok(
     seen.includes(
@@ -1337,6 +1341,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
       '<aside class="sheet" role="dialog" aria-label="orchestrator@mbp" data-path="placements[0]" data-key="orchestrator@mbp" hidden>',
       '<aside class="sheet" role="dialog" aria-label="knowledge@mini" data-path="placements[1]" data-key="knowledge@mini" hidden>',
       '<aside class="sheet" role="dialog" aria-label="environment@mbp" data-path="placements[2]" data-key="environment@mbp" hidden>',
+      '<aside class="sheet" role="dialog" aria-label="environment@mini" data-path="placements[3]" data-key="environment@mini" hidden>',
     ],
   );
   const [o, k, e] = all;
@@ -1350,7 +1355,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
   );
   assert.ok(
     o.includes(
-      '<span class="seen num" data-path="age(placements[0].agent.seen, at)" title="2026-09-30 09:44Z">seen 10s</span></span><span class="lever"><a class="btn sm accent" data-path="needsYou[0].items[1]" href="?task=T2#answer-D1">Answer T2</a><form',
+      '<span class="seen num" data-path="age(placements[0].agent.seen, at)" title="2026-09-30 09:44Z">seen 10s</span></span><span class="lever"><a class="btn sm accent" data-path="needsYou[0].items[0]" href="?task=T2#answer-D1">Answer T2</a><form',
     ),
   );
   assert.ok(
@@ -1371,7 +1376,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     ["directory", "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices"],
     [
       "branch",
-      "feat/noticesgit@github.com:me/jev-a2a.gitdirtyahead 3 · behind 0",
+      "feat/noticeshttps://github.com/me/jev-a2a.gitdirtyahead 3 · behind 0",
     ],
     ["diff", "+412 −96"],
     [
@@ -1524,7 +1529,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     ),
   );
   const none = sheets(page(ME));
-  assert.equal(none.length, 3);
+  assert.equal(none.length, 4);
   assert.ok(
     none[0]?.includes(
       '<span class="line"><span class="k" data-path="placements[0].agent">no telemetry</span></span>',
