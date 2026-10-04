@@ -1,9 +1,11 @@
 // The board's fixture: a small deployment and a journal with one task of
 // each kind a requester needs to see. No delivery is stuck, so the operator
 // has nothing to resolve; `replacedJournal` adds one. The board tests, the
-// server tests and the sample generator all read it, so the committed
-// sample shows what the tests check. Its times are fixed and realistic, and nothing in it comes from a
-// live record, which holds private request text.
+// server tests and the sample generator all read it (the generator reads
+// `sampleJournal`, the fixture plus one participant-sent task), so the
+// committed sample shows what the tests check. Its times are fixed and
+// realistic, and nothing in it comes from a live record, which holds
+// private request text.
 import type { RouterConfig } from "./config.ts";
 import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
@@ -39,8 +41,11 @@ export const config: RouterConfig = {
 // When the board is read: after the last event and before any deadline.
 export const NOW = Date.parse("2026-09-30T09:45:00Z");
 
+// `HH:MM`, or `HH:MM:SS` for runs seconds apart.
 const stamp = (clock: string): string =>
-  new Date(`2026-09-30T${clock}:00Z`).toISOString();
+  new Date(
+    `2026-09-30T${clock.length === 5 ? `${clock}:00` : clock}Z`,
+  ).toISOString();
 
 // One shell run as the shell records it: the clock moves to the run's time,
 // then its events follow, each stamped with that time.
@@ -328,72 +333,96 @@ export const viaJournal = extend(
 );
 
 // The record the published sample is built from: the fixture plus a fifth
-// task the orchestrator's session sent, carrying each kind of notice in a
-// different state. Jev was unsure, so the sender was owed a choice; it
-// chose incus before the choice was told (withdrawn); incus asked and the
-// sender was told (accepted); the sender answered, incus finished, and the
-// end is owed while the sender is busy (pending).
-export const sampleJournal = extend(
-  {
-    type: "submit",
-    by: "A1",
-    messageId: "M5",
-    text: "Start a scratch VM for the router's tests.",
-  },
-  {
-    type: "judged",
-    taskId: "T5",
-    choice: "incus",
-    probabilities: { environment: 0.4, incus: 0.55, none: 0.05 },
-    model: "jev-1.13.0",
-  },
-  { type: "choose", by: "A1", taskId: "T5", to: "incus" },
-  { type: "observe", placement: "incus@lab01", session: "L1", ready: true },
-  { type: "attempt", deliveryId: "D4" },
-  {
-    type: "adapterResult",
-    deliveryId: "D4",
-    messageId: "M5",
-    outcome: "accepted",
-  },
-  {
-    type: "update",
-    by: "L1",
-    taskId: "T5",
-    messageId: "Q5",
-    inReplyTo: "M5",
-    kind: "question",
-    text: "Which image?",
-  },
-  {
-    type: "noticeAttempt",
-    taskId: "T5",
-    key: "question/D4/Q5",
-    text: "[router T5 question/D4/Q5] incus asks about your request.",
-  },
-  {
-    type: "noticeResult",
-    taskId: "T5",
-    key: "question/D4/Q5",
-    outcome: "accepted",
-  },
-  {
-    type: "answer",
-    by: "A1",
-    taskId: "T5",
-    messageId: "A5",
-    questionId: "Q5",
-    text: "ubuntu-24.04",
-  },
-  { type: "observe", placement: "incus@lab01", ready: true },
-  { type: "attempt", deliveryId: "D4" },
-  {
-    type: "adapterResult",
-    deliveryId: "D4",
-    messageId: "A5",
-    outcome: "accepted",
-  },
-  {
+// task the orchestrator's session sent in the minute after the fixture's
+// last run, carrying each kind of notice in a different state. Jev was
+// unsure, so the sender was owed a choice, but its session was mid-turn
+// when the router looked; it chose incus itself before it was told
+// (withdrawn). incus asked and the sender, idle by then, was told
+// (accepted); it answered, incus finished, and the end is owed and not yet
+// sent: no run has happened since the completion arrived (pending).
+export const sampleJournal: Entry[] = [
+  ...journal,
+  ...run(
+    "09:44:10",
+    {
+      type: "submit",
+      by: "A1",
+      messageId: "M5",
+      text: "Start a scratch VM for the router's tests.",
+    },
+    {
+      type: "judged",
+      taskId: "T5",
+      choice: "incus",
+      probabilities: {
+        orchestrator: 0.02,
+        knowledge: 0.03,
+        environment: 0.4,
+        incus: 0.5,
+        none: 0.05,
+      },
+      model: "jev-1.13.0",
+    },
+    { type: "observe", placement: "orchestrator@mbp", ready: false },
+  ),
+  ...run(
+    "09:44:20",
+    { type: "choose", by: "A1", taskId: "T5", to: "incus" },
+    { type: "observe", placement: "incus@lab01", session: "L1", ready: true },
+    { type: "attempt", deliveryId: "D4" },
+    {
+      type: "adapterResult",
+      deliveryId: "D4",
+      messageId: "M5",
+      outcome: "accepted",
+    },
+  ),
+  ...run(
+    "09:44:30",
+    {
+      type: "update",
+      by: "L1",
+      taskId: "T5",
+      messageId: "Q5",
+      inReplyTo: "M5",
+      kind: "question",
+      text: "Which image?",
+    },
+    { type: "observe", placement: "orchestrator@mbp", ready: true },
+    {
+      type: "noticeAttempt",
+      taskId: "T5",
+      key: "question/D4/Q5",
+      text: "[router T5 question/D4/Q5] incus asks about your request.",
+    },
+    {
+      type: "noticeResult",
+      taskId: "T5",
+      key: "question/D4/Q5",
+      outcome: "accepted",
+    },
+  ),
+  ...run(
+    "09:44:40",
+    {
+      type: "answer",
+      by: "A1",
+      taskId: "T5",
+      messageId: "A5",
+      questionId: "Q5",
+      text: "ubuntu-24.04",
+    },
+    { type: "observe", placement: "orchestrator@mbp", ready: true },
+    { type: "observe", placement: "incus@lab01", ready: true },
+    { type: "attempt", deliveryId: "D4" },
+    {
+      type: "adapterResult",
+      deliveryId: "D4",
+      messageId: "A5",
+      outcome: "accepted",
+    },
+  ),
+  ...run("09:44:50", {
     type: "update",
     by: "L1",
     taskId: "T5",
@@ -401,5 +430,5 @@ export const sampleJournal = extend(
     inReplyTo: "A5",
     kind: "completed",
     text: "scratch-vm ready",
-  },
-);
+  }),
+];

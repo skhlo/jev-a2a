@@ -9,7 +9,6 @@ import { join } from "node:path";
 import {
   actionEvent,
   BOARD_VERSION,
-  type BoardModel,
   boardModel,
   boardState,
   describeNeed,
@@ -25,7 +24,7 @@ import {
   NOW,
   viaJournal,
 } from "./board-fixture.ts";
-import { boardSample, SAMPLE_PATH } from "./board-sample.ts";
+import { boardSample, sampleModel, SAMPLE_PATH } from "./board-sample.ts";
 import { readJournal, type Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 
@@ -424,7 +423,7 @@ test("the committed sample is what the generator writes from the fixture", () =>
 });
 
 test("the sample holds a participant-sent task with a notice in each state the design binds", () => {
-  const model = JSON.parse(boardSample()) as BoardModel;
+  const model = sampleModel();
   const sent = [...model.open, ...model.finished].filter((t) => t.via);
   assert.deepEqual(
     sent.map((t) => [

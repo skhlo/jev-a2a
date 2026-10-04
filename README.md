@@ -266,9 +266,9 @@ committed sample matches.
     (`question/<delivery>/<id>`, `choose/<n>` or `final`), `kind`, the
     `session` it went to (`null` before an attempt) and its `outcome`
     (`pending`, `attempting`, `accepted`, `unknown` or `withdrawn`). Empty
-    for a person's request. The sample's T5 is one the orchestrator's
-    session sent, with a withdrawn choice, an accepted question and a
-    pending end.
+    for a person's request. The sample's T5, in `finished`, is one the
+    orchestrator's session sent, with a withdrawn choice, an accepted
+    question and a pending end.
   - `log`: the task's own log lines, as `router status <task>` shows them.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its
