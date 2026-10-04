@@ -98,6 +98,15 @@ router submit --to orchestrator "The board's log panel clips its last line at 12
 console of the board design (`skhlo/designs`, tag `jev-a2a-v0.11`), drawn on
 the server from the view model below, in three columns:
 
+![The board: agents, tasks and the selected task's detail](router/design/screenshots/board.png)
+
+![The health sheet of one agent over the tasks column](router/design/screenshots/board-sheet.png)
+
+The pictures are the sample board (`router/src/board.sample.json`, no live
+request text), the second with orchestrator@mbp's sheet open;
+`pnpm exec node src/board-shots.ts` in `router/` redraws them with a
+Chromium on `PATH`.
+
 - **Agents**: a card per placement the router serves, saying what its
   session is doing (asks on a task, with the question; works on one,
   including after a question was answered, with the answer's time;
@@ -448,6 +457,7 @@ URL, and the same `ROUTER_TOKEN`.
 | `router/client/`              | The client for hosts that do not run the router                 |
 | `router/eval/`                | The labeled request set                                         |
 | `router/design/`              | The board design's data-paths, and the ones the page drops      |
+| `router/design/screenshots/`  | The README's pictures of the board, drawn from the sample       |
 | `research/jev-router-spec.md` | The design and the contract. Start here for the reasoning       |
 | `research/`                   | The executable model the design was verified on, and background |
 

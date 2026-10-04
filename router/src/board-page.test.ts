@@ -39,6 +39,7 @@ import {
   viaJournal,
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
+import { shots } from "./board-shots.ts";
 import type { Entry } from "./journal.ts";
 import { emptySnapshot, type Telemetry } from "./telemetry.ts";
 import type { Role } from "./types.ts";
@@ -1712,4 +1713,19 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
   );
   assert.ok(html.includes("<span><kbd>s</kbd> sheet</span>"));
   assert.ok(html.includes("<dt>s</dt>"));
+});
+
+test("the README's screenshots: the sample board, and the same page with one sheet shown", () => {
+  const pages = shots();
+  assert.deepEqual(Object.keys(pages), ["board", "board-sheet"]);
+  assert.equal(
+    sheets(pages.board ?? "").filter((s) => !s.includes(" hidden>")).length,
+    0,
+  );
+  assert.deepEqual(
+    sheets(pages["board-sheet"] ?? "")
+      .filter((s) => !s.includes(" hidden>"))
+      .map((s) => s.match(/data-key="([^"]*)"/)?.[1]),
+    ["orchestrator@mbp"],
+  );
 });
