@@ -29,6 +29,9 @@ export type RouterConfig = Config & {
     listen: string;
     board: string;
     identities: Record<string, string[]>;
+    // Seconds between runs while something waits for a session to be seen
+    // idle; 0 leaves serve to run on events alone.
+    wake: number;
   };
   // Jev for unaddressed requests. The API key comes from TYPESAFE_API_KEY.
   jev: { model: string; url?: string; timeoutMs?: number };
@@ -84,6 +87,9 @@ export function loadConfig(path: string): RouterConfig {
   // reachable through Serve: loopback, never an interface address.
   if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(board))
     fail(`serve.board must be a loopback address, not ${board}`);
+  const wake = serve.wake === undefined ? 20 : serve.wake;
+  if (typeof wake !== "number" || !Number.isFinite(wake) || wake < 0)
+    fail("serve.wake is a number of seconds, 0 or more");
   const identities: Record<string, string[]> = {};
   if (serve.identities !== undefined) {
     if (!isRecord(serve.identities))
@@ -117,6 +123,7 @@ export function loadConfig(path: string): RouterConfig {
           : "127.0.0.1:7677",
       board,
       identities,
+      wake: typeof wake === "number" && wake >= 0 ? wake : 20,
     },
     jev: {
       model:

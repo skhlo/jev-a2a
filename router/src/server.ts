@@ -25,6 +25,7 @@ import { renderBoard } from "./board-page.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
 import { fold } from "./shell.ts";
+import { waitsOnSessions } from "./core.ts";
 import type { Event, Outcome } from "./types.ts";
 
 export type Run = { outcome: Outcome; report: string[] };
@@ -48,6 +49,53 @@ const EVENT_TYPES = ["submit", "choose", "update", "answer"];
 const NEEDS_CURRENT = ["submit", "choose"];
 
 export type SessionStatus = "current" | "replaced" | null;
+
+// Whether the record has work waiting only for a session this router
+// serves, read without the lock, as the board reads it. Serve asks after
+// its own runs and whenever another writer (the CLI on this host) appends.
+export const waitsReader = (config: RouterConfig) => (): boolean => {
+  const state = fold(config, readJournal(config.home));
+  return waitsOnSessions(
+    state,
+    (key) =>
+      config.agents[key] !== undefined &&
+      config.hosts[state.placements[key]?.host ?? ""] !== undefined,
+  );
+};
+
+// While work waits only for a session to be seen idle, serve looks again
+// after `delayMs` instead of waiting for the next event; an idle router arms
+// nothing. `run` performs one run and says whether work still waits. One
+// timer at a time, and a run never overlaps: the caller serializes `run`.
+export function wakeLoop(
+  run: () => Promise<boolean>,
+  delayMs: number,
+  timers: {
+    set: (fn: () => void, ms: number) => unknown;
+    clear: (handle: unknown) => void;
+  } = {
+    set: setTimeout,
+    clear: (handle) => clearTimeout(handle as NodeJS.Timeout),
+  },
+): { after(waiting: boolean): void; stop(): void } {
+  let armed: unknown = null;
+  let stopped = false;
+  const after = (waiting: boolean): void => {
+    if (!waiting || stopped || delayMs <= 0 || armed !== null) return;
+    armed = timers.set(() => {
+      armed = null;
+      run().then(after, () => after(true));
+    }, delayMs);
+  };
+  return {
+    after,
+    stop() {
+      stopped = true;
+      if (armed !== null) timers.clear(armed);
+      armed = null;
+    },
+  };
+}
 
 // Whether `by` is a session the record knows, read without the journal
 // lock, as the board reads it: the events endpoint must not contend with

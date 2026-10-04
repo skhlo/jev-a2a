@@ -30,6 +30,7 @@ test("a valid file gets its defaults", () => {
   assert.equal(config.serve.listen, "127.0.0.1:7677");
   assert.equal(config.serve.board, "127.0.0.1:7678");
   assert.deepEqual(config.serve.identities, {});
+  assert.equal(config.serve.wake, 20);
   assert.equal(config.jev.model, "jev-latest");
   assert.match(config.home, /jev-router$/);
   const explicit = loadConfig(
@@ -40,12 +41,18 @@ test("a valid file gets its defaults", () => {
         listen: "100.64.0.1:7677",
         board: "localhost:9000",
         identities: { "me@example.com": ["you"] },
+        wake: 0,
       },
       jev: { model: "jev-1.13.0", url: "https://x/y", timeoutMs: 5 },
     }),
   );
   assert.equal(explicit.home, "/var/lib/router");
   assert.equal(explicit.serve.board, "localhost:9000");
+  assert.equal(explicit.serve.wake, 0);
+  assert.throws(
+    () => loadConfig(write({ ...valid, serve: { wake: -1 } })),
+    /serve.wake is a number of seconds/,
+  );
   assert.deepEqual(explicit.serve.identities, { "me@example.com": ["you"] });
   assert.deepEqual(explicit.jev, {
     model: "jev-1.13.0",

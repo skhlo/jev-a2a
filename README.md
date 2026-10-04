@@ -34,8 +34,10 @@ router submit "Is this machine current with merged main of the dotfiles baseline
 2. Jev chooses a participant among those the sender may address.
 3. The router sends the prompt to that participant's session on each of its
    hosts, if the session is idle. A busy session gets it the next time the
-   router handles something and finds it idle (a request, a reply, an answer,
-   or `router run`); nothing runs on a schedule.
+   router looks and finds it idle: when it handles something (a request, a
+   reply, an answer, or `router run`), and, while anything waits only for a
+   session to come free, every `serve.wake` seconds (default 20). An idle
+   router runs nothing on a schedule.
 4. The agent does the work and replies with the command from the envelope:
    `router reply --task T27 --in-reply-to <message> --kind completed --text "..."`.
 5. `router status T27` shows the result: here, `2 of 2 completed`, one reply
@@ -307,7 +309,9 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
   participants and permissions described in the
   [spec](research/jev-router-spec.md), plus `hosts` (each
   host's Paseo endpoint), `agents` (the Paseo agent ID for each
-  `participant@host`), `serve` and `jev`.
+  `participant@host`), `serve` (`listen`, `board`, `identities`, and `wake`:
+  seconds between looks while work waits for a busy session, `0` to look
+  only on events) and `jev`.
 - **Secrets:** copy `router/secrets.env.example` to
   `~/.config/jev-router/secrets.env`, mode 600. The router host needs
   `TYPESAFE_API_KEY`, and `ROUTER_TOKEN` for `router serve`: a secret you

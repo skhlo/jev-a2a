@@ -31,6 +31,7 @@ export const config: RouterConfig = {
       "me@example.com": ["you", "operator"],
       "guest@example.com": ["you"],
     },
+    wake: 0,
   },
   jev: { model: "jev-latest" },
 };

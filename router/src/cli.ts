@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { watch } from "node:fs";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import {
   A2A_STATE,
@@ -17,6 +18,8 @@ import {
 import { describeNeed, newMessageId, taskLog } from "./board.ts";
 import {
   sessionReader,
+  waitsReader,
+  wakeLoop,
   bind,
   BindError,
   boardListener,
@@ -165,20 +168,40 @@ async function serve(config: RouterConfig): Promise<void> {
   const token = process.env.ROUTER_TOKEN;
   if (!token) fail("ROUTER_TOKEN is not set; add it to secrets.env.");
   let queue: Promise<unknown> = Promise.resolve();
-  const handle = (event: Event): Promise<Run> => {
-    const run = queue.then(async () => {
-      const shell = await open();
-      try {
-        const outcome = shell.apply(event);
-        const report = outcome.ok ? await shell.deliver() : [];
-        return { outcome, report };
-      } finally {
-        await shell.close();
-      }
-    });
+  // One run: the event, if any, then every deliverable command. Afterwards
+  // the wake loop looks again while work waits only for a session.
+  const runOnce = async (event: Event | null): Promise<Run> => {
+    const shell = await open();
+    try {
+      const outcome = event
+        ? shell.apply(event)
+        : { ok: true as const, message: "wake" };
+      const report = outcome.ok ? await shell.deliver() : [];
+      wake.after(shell.waits());
+      return { outcome, report };
+    } finally {
+      await shell.close();
+    }
+  };
+  const enqueue = (event: Event | null): Promise<Run> => {
+    const run = queue.then(() => runOnce(event));
     queue = run.catch(() => undefined);
     return run;
   };
+  const handle = (event: Event): Promise<Run> => enqueue(event);
+  // A wake run logs only what it changed; observations and "waits" lines
+  // would repeat every interval. runOnce re-arms the loop itself.
+  const wake = wakeLoop(async () => {
+    const { report } = await enqueue(null);
+    for (const line of report)
+      if (
+        !/^[^ ]+: (idle|running|closed|held|[a-z]+ unreachable)|waits: /.test(
+          line,
+        )
+      )
+        console.log(`wake: ${line}`);
+    return false;
+  }, config.serve.wake * 1000);
   const deps = {
     config,
     handle,
@@ -199,8 +222,36 @@ async function serve(config: RouterConfig): Promise<void> {
   }
   console.log(`router serve listening on http://${config.serve.listen}`);
   console.log(`router board on http://${config.serve.board}`);
+  // A first run binds the sessions and picks up what waited across the
+  // restart, and arms the wake loop if anything still does.
+  enqueue(null).catch((error: unknown) =>
+    console.error(error instanceof Error ? error.message : String(error)),
+  );
+  // The CLI on this host writes the record without passing through serve:
+  // when the journal grows, read it (no lock) and arm the loop if something
+  // now waits for a session. Serve's own appends land here too; arming is
+  // idempotent.
+  const waits = waitsReader(config);
+  let settle: NodeJS.Timeout | null = null;
+  const watcher = watch(config.home, (_kind, name) => {
+    if (name !== "journal.jsonl") return;
+    if (settle) clearTimeout(settle);
+    settle = setTimeout(() => {
+      settle = null;
+      try {
+        wake.after(waits());
+      } catch (error: unknown) {
+        console.error(
+          `wake: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }, 500);
+  });
   await new Promise<void>((resolve) => {
     const stop = (): void => {
+      watcher.close();
+      if (settle) clearTimeout(settle);
+      wake.stop();
       board.close();
       events.close(() => resolve());
     };

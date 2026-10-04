@@ -428,6 +428,26 @@ export function noticeWaits(
 }
 type NoticeWait = Exclude<BlockedReason, "closed" | "not_pending">;
 
+// Whether anything waits only for a session to be seen idle: a delivery or a
+// notice blocked on readiness or on an unconfirmed send, which a later look
+// at the session can release without any event. Everything else blocked
+// waits on a person or an event, and looking again would not move it.
+export function waitsOnSessions(
+  state: State,
+  served: (placement: string) => boolean = () => true,
+): boolean {
+  const wakes = (why: string | null): boolean =>
+    why === "not_ready" || why === "in_flight";
+  for (const delivery of allDeliveries(state))
+    if (served(delivery.placement) && wakes(blockedReason(state, delivery)))
+      return true;
+  for (const task of state.tasks)
+    if (task.via !== null && served(task.via))
+      for (const due of dueNotices(state, task))
+        if (wakes(noticeBlockedReason(state, task, due.key))) return true;
+  return false;
+}
+
 // One Choice over the participants the sender could address when it asked,
 // plus an abstention.
 export function judgmentQuestion(state: State, task: Task): JudgmentQuestion {

@@ -12,6 +12,8 @@ import {
   eventsListener,
   sameSite,
   sessionReader,
+  waitsReader,
+  wakeLoop,
   type Bindable,
   type BindOptions,
   type Run,
@@ -20,11 +22,13 @@ import {
 import { BOARD_VERSION } from "./board.ts";
 import {
   config as fixture,
+  extend,
   journal,
   NOW,
   replacedJournal,
 } from "./board-fixture.ts";
 import type { RouterConfig } from "./config.ts";
+import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
 
@@ -38,6 +42,7 @@ const config: RouterConfig = {
     listen: "127.0.0.1:0",
     board: "127.0.0.1:0",
     identities: { "me@example.com": ["you", "operator"] },
+    wake: 0,
   },
   jev: { model: "jev-latest" },
 };
@@ -254,6 +259,111 @@ test("sessionReader: reads the record without the journal lock and tells a curre
     replacedJournal.length + 1,
   );
   assert.ok(!existsSync(join(record, "journal.lock")));
+});
+
+test("waitsReader: reads the record without the lock and says whether a served session is worth looking at again", () => {
+  const record = mkdtempSync(join(tmpdir(), "server-waits-"));
+  const write = (entries: Entry[]): void =>
+    writeFileSync(
+      join(record, "journal.jsonl"),
+      entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+    );
+  const waits = waitsReader({ ...fixture, home: record });
+  // The fixture: a question open, a session working, a placement held.
+  // Nothing there moves by looking again.
+  write(journal);
+  assert.equal(waits(), false);
+  // A request queued for the busy knowledge session does.
+  write(
+    extend({
+      type: "submit",
+      by: "you",
+      messageId: "M9",
+      text: "Later",
+      to: "knowledge",
+    }),
+  );
+  assert.equal(waits(), true);
+  // The same request to a placement this router does not serve does not.
+  write(
+    extend({
+      type: "submit",
+      by: "you",
+      messageId: "M9",
+      text: "Later",
+      to: "incus",
+    }),
+  );
+  assert.equal(waits(), false);
+  assert.ok(!existsSync(join(record, "journal.lock")));
+});
+
+test("wakeLoop: arms one timer while work waits, runs once per interval, stops when nothing waits or on stop", async () => {
+  // Fake timers: the test fires them by hand.
+  const pending: { fn: () => void; ms: number }[] = [];
+  const timers = {
+    set: (fn: () => void, ms: number) => {
+      const handle = { fn, ms };
+      pending.push(handle);
+      return handle;
+    },
+    clear: (handle: unknown) => {
+      const at = pending.indexOf(handle as { fn: () => void; ms: number });
+      if (at >= 0) pending.splice(at, 1);
+    },
+  };
+  const fire = async (): Promise<void> => {
+    const next = pending.shift();
+    assert.ok(next, "a timer was armed");
+    next.fn();
+    // Let the run and its continuation settle.
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+  };
+  let runs = 0;
+  let stillWaiting = true;
+  const loop = wakeLoop(
+    () => {
+      runs++;
+      return Promise.resolve(stillWaiting);
+    },
+    20_000,
+    timers,
+  );
+  // Nothing waits: nothing armed.
+  loop.after(false);
+  assert.equal(pending.length, 0);
+  // Work waits: one timer, however often it is told.
+  loop.after(true);
+  loop.after(true);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0]?.ms, 20_000);
+  // It fires, runs once, and re-arms while work still waits.
+  await fire();
+  assert.equal(runs, 1);
+  assert.equal(pending.length, 1);
+  // The run that finds nothing waiting leaves the loop quiet.
+  stillWaiting = false;
+  await fire();
+  assert.equal(runs, 2);
+  assert.equal(pending.length, 0);
+  // A failing run is retried rather than ending the loop.
+  const failing = wakeLoop(
+    () => Promise.reject(new Error("ssh flake")),
+    5_000,
+    timers,
+  );
+  failing.after(true);
+  await fire();
+  assert.equal(pending.length, 1);
+  // stop() clears the armed timer and refuses to arm again.
+  failing.stop();
+  assert.equal(pending.length, 0);
+  failing.after(true);
+  assert.equal(pending.length, 0);
+  // A zero interval disables the loop.
+  const off = wakeLoop(() => Promise.resolve(true), 0, timers);
+  off.after(true);
+  assert.equal(pending.length, 0);
 });
 
 test("sameSite: browsers must come from the page; other clients pass", () => {

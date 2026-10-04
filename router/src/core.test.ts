@@ -1388,6 +1388,7 @@ test("a participant sender hears a question, then the final word, once each, at 
   // hold or a send in flight to the same placement; a refused send is
   // retried, an unknown one only through a deduplicating adapter.
   assert.equal(Core.noticeBlockedReason(s, task(s), "final"), "not_ready");
+  assert.equal(Core.waitsOnSessions(s), true, "a look could release it");
   s = idle(s);
   const held = expectOk(s, {
     type: "observe",
@@ -1403,6 +1404,20 @@ test("a participant sender hears a question, then the final word, once each, at 
     "in_flight",
   );
   assert.deepEqual(notifies(idle(sending)), []);
+  // Only readiness and an unconfirmed send are worth looking again for: a
+  // hold waits on a person, and a notice told or withdrawn waits on nothing.
+  assert.equal(Core.waitsOnSessions(sending), true);
+  assert.equal(Core.waitsOnSessions(held), false);
+  assert.equal(
+    Core.waitsOnSessions(s),
+    false,
+    "the sender is idle: sendable now",
+  );
+  assert.equal(
+    Core.waitsOnSessions(sending, (p) => p !== "orchestrator@mbp"),
+    false,
+    "only placements this router serves count",
+  );
   s = tell(s, "final", "not_sent");
   assert.equal(notice(s, "final").outcome, "pending");
   assert.equal(Core.noticeBlockedReason(s, task(s), "final"), "not_ready");
