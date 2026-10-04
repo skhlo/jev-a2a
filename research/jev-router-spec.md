@@ -40,8 +40,8 @@ works in it natively while a task runs: reads, redirects, answers a question in
 the conversation. None of that goes through the router. The router only needs
 three things to stay true while someone is in a session:
 
-1. It sends only to a session it has just seen idle, so it does not interrupt
-   a turn it can see. A turn a person starts between that observation and the
+1. It sends only to a session it has just seen idle (or closed, which a
+   prompt resumes), so it does not interrupt a turn it can see. A turn a person starts between that observation and the
    send is the one race left, and the hold is what closes it.
 2. A person can **hold** a placement: while held, the router does not send to
    it even when idle. Holding is how a person says "I am typing here". A hold
@@ -79,7 +79,7 @@ and the design does not try to route it.
   text that Jev reads in full, one or more hosts, and an `idempotent` flag
   saying whether its adapter deduplicates by the router's message key.
 - **Placement:** a participant on one host, with one current **session**, a
-  `ready` flag (observed idle since the router's last send) and a `hold` flag
+  `ready` flag (observed idle or closed since the router's last send) and a `hold` flag
   (a person has it). Each delivery is pinned to the session it was sent to.
 - **View:** any surface through which a person submits and reads the record.
   A view authenticates as a requester.
@@ -197,7 +197,7 @@ simply not told again and finds the item in `needsYou` and `status`.
 
 | Rule                                                                                                                                                                                                | Why                                                                                                                                                                                           |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Send only to an idle, unheld session; never while another router send to it is unconfirmed. An attempt marks the session busy until a newer observation; a replaced session is busy until observed. | A Paseo send to a running agent cancels its turn, and Paseo has no inbox. A stale "idle" would let the next send interrupt a turn.                                                            |
+| Send only to an idle (or closed, resumed by the prompt), unheld session; never while another router send to it is unconfirmed. An attempt marks the session busy until a newer observation; a replaced session is busy until observed. | A Paseo send to a running agent cancels its turn, and Paseo has no inbox. A stale "idle" would let the next send interrupt a turn.                                                            |
 | Open tasks do not block new ones. The participant decides serial or parallel.                                                                                                                       | An agent can hand work to subagents, end its turn, take the next task and reply per task. Correlation by task and message ID keeps interleaved replies apart.                                 |
 | One recipient per request; an addressed request may name several hosts of that recipient, one delivery each. Never fan out on ambiguity.                                                            | Lets one service be asked on several machines while keeping "never send to multiple suggestions".                                                                                             |
 | Jev: one Choice over the sender's permitted participants plus `none`, full responsibility text; dispatch only if the chosen probability meets the threshold (0.75; decision 1).                     | TypeSafe's Choice docs advise the full list over a shortlist for small rosters; staged context is for hundreds of options. Addressed requests use zero judgments.                             |
@@ -294,10 +294,21 @@ the packaged 0.9.2 source:
 
 Therefore:
 
-- `ready` requires a fresh `idle` status and no pending permissions, observed
-  after the router's last send to that session. Agent status is
-  `initializing | idle | running | error | closed`; pending permissions come
-  from inspect or wait results.
+- `ready` requires a fresh `idle` or `closed` status and no pending
+  permissions, observed after the router's last send to that session. Agent
+  status is `initializing | idle | running | error | closed`; pending
+  permissions come from inspect or wait results. `closed` is a persisted
+  session whose process is not running (every agent after a daemon restart):
+  verified in the 0.10.2 daemon, a prompt to it resumes the session before
+  delivery (`sendPromptToAgent` → `ensureAgentLoaded`, the same path a view
+  of the agent takes), while the refresh the router observes with does not,
+  so without this rule a closed session waits until a person opens it (found
+  2026-10-04: dotfiles-host@mbp read closed for three days and became idle
+  the moment it was viewed). An archived agent reads `closed` as well and a
+  prompt would unarchive it (`sendPromptToAgent` defaults `unarchive` to
+  true), so an archived session is not ready. A daemon that crashed rather
+  than shut down may leave a stored status of `running`; that session stays
+  not ready until a person opens it.
 - The router is the only **automatic** sender to a registered session. A person
   in the session is not a race the router can see, which is what the hold is
   for. How a hold is raised from a view or from Paseo's own UI is not designed

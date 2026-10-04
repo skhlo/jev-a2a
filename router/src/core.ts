@@ -1171,7 +1171,7 @@ const handlers: Handlers = {
     );
   },
 
-  // ready: the adapter saw the session idle. hold: a person is using the
+  // ready: the adapter saw a session it may send to. hold: a person is using the
   // session and the router must not send to it, idle or not.
   observe(state, { placement, ready, hold, session }) {
     const entry = state.placements[placement];

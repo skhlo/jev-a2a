@@ -7,7 +7,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaseoAgent } from "@getpaseo/client";
-import { snapshotOf } from "./paseo.ts";
+import { isReady, snapshotOf } from "./paseo.ts";
 import {
   agentLine,
   emptySnapshot,
@@ -214,5 +214,30 @@ test("agentLine says what matters in one line", () => {
       usage: { input: 1, cached: 0, output: 0, costUsd: null },
     }),
     `idle · seen ${SEEN}`,
+  );
+});
+
+test("a session is ready when idle or closed with nothing pending: a prompt resumes a closed one, but must not unarchive one", () => {
+  const statuses = [
+    "idle",
+    "closed",
+    "running",
+    "initializing",
+    "error",
+  ] as const;
+  assert.deepEqual(
+    statuses.map((status) => [
+      status,
+      isReady(status, 0),
+      isReady(status, 1),
+      isReady(status, 0, true),
+    ]),
+    [
+      ["idle", true, false, true],
+      ["closed", true, false, false],
+      ["running", false, false, false],
+      ["initializing", false, false, false],
+      ["error", false, false, false],
+    ],
   );
 });

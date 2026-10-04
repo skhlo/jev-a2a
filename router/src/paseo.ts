@@ -3,7 +3,13 @@
 // source: the daemon keeps a receipt per (agentId, messageId); a repeat with
 // the same key and text is a no-op after a completed send, and answers
 // agent_request_outcome_unknown while a receipt is still pending; a send to a
-// running agent interrupts its turn, so the router sends only to idle agents.
+// running agent interrupts its turn, so the router sends only to agents it
+// has seen idle or closed. Verified in the 0.10.2 daemon: a `closed` agent is
+// a persisted session whose process is not running (every agent after a
+// daemon restart), and a prompt to it resumes the session first
+// (sendPromptToAgent calls ensureAgentLoaded), while the refresh the router
+// observes with does not; an archived agent reads closed too, and a prompt
+// would unarchive it, so readiness excludes it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { createPaseoClient } from "@getpaseo/client";
@@ -12,7 +18,7 @@ import type { AgentSnapshot } from "./telemetry.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
-  // The agent exists; ready when idle with no permission waiting.
+  // The agent exists; ready as `isReady` says.
   ready: boolean;
   status: string;
   pendingPermissions: number;
@@ -51,6 +57,18 @@ export function sendFailure(
   if (/^Agent not found: |^Agent identifier /.test(message)) return "not_sent";
   return "unknown";
 }
+
+// A session the router may send to now: idle, or closed (the send resumes
+// it) unless archived (the send would unarchive what a person put away),
+// with no permission waiting. Running would be interrupted; error and
+// initializing are not a session yet.
+export const isReady = (
+  status: PaseoAgent["status"],
+  pendingPermissions: number,
+  archived = false,
+): boolean =>
+  (status === "idle" || (status === "closed" && !archived)) &&
+  pendingPermissions === 0;
 
 // The daemon's agent snapshot (protocol 0.10.1: status, activeTurn,
 // lastUserMessageAt, pendingPermissions, attentionReason and its
@@ -120,7 +138,11 @@ export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
       return {
-        ready: status === "idle" && pendingPermissions.length === 0,
+        ready: isReady(
+          status,
+          pendingPermissions.length,
+          Boolean(result.agent.archivedAt),
+        ),
         status,
         pendingPermissions: pendingPermissions.length,
         snapshot: snapshotOf(result.agent, seen),

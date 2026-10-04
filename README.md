@@ -250,7 +250,9 @@ committed sample matches.
   - `agent`: what the router last saw of the session beyond its readiness,
     from the telemetry file (below), or `null` when the file has no entry
     for the placement: `seen` (when), `status` (Paseo's `idle`, `running`,
-    `initializing`, `error` or `closed`, or the router's `missing` when the
+    `initializing`, `error` or `closed` (a persisted session whose process
+    is not running; a send resumes it, so it counts as ready unless the
+    agent is archived), or the router's `missing` when the
     daemon does not know the agent and `unreachable` when the host could
     not be reached, with the failure in `error`), `attention` (`finished`,
     `error` or `permission`) with `attentionAt` (when it was raised: for
@@ -406,7 +408,8 @@ fails if the run changed `package.json` or the lockfile.
   that holds it can reply, submit, answer or choose as any participant
   session the record knows (not as a person, and a replaced session may
   only reply or answer).
-- A session is only sent to when the router has just seen it idle. A turn a
+- A session is only sent to when the router has just seen it idle, or closed
+  (a persisted session with no process; the prompt resumes it). A turn a
   person starts in between is the one race left; holding the session closes
   it.
 - The board trusts the login header Tailscale Serve sets, so anything that
