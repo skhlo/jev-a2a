@@ -74,10 +74,12 @@ records it.
   covers the session's whole history; `subagents.running` is the open ones,
   oldest first, at most twenty, with `title` the harness's type,
   `description` the brief's first line and `parent` another subagent's id
-  or `null`. `activity.items` is the last eight timeline entries, oldest
-  first, `text` cut to its first line and 160 characters, `tool` and
-  `status` set for a tool call; `activity.turns` counts the user messages
-  among those eight, not the whole timeline; the whole timeline's counts
+  or `null`. `activity.items` is the last eight timeline entries that are
+  the session's own (the harness's calls to itself, such as a background
+  command's completion notice, are left out, so fewer than eight can come
+  back), oldest first, `text` cut to its first line and 160 characters,
+  `tool` and `status` set for a tool call; `activity.turns` counts the
+  user messages among those items, not the whole timeline; the whole timeline's counts
   and the subagents' own timelines are not held. `subagents` and
   `activity` are read only for a session seen `idle` or `running`: in
   Paseo 0.10 a timeline fetch resumes a closed session, and observing must

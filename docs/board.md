@@ -49,10 +49,10 @@ with the host and session. Three sections follow:
 - **Subagents**: the non-zero counts, then the running ones as a tree one
   level deep (a child under its parent; a child whose parent is not running
   sits at the top); "none running" with counts alone, "none" with neither.
-- **Activity**: the last eight timeline entries oldest first, each with its
-  clock (hh:mm:ss), kind word, tool and status, and text, the last one
-  marked current when it is a running tool; the heading counts the turns
-  among them.
+- **Activity**: the session's last eight timeline entries (the harness's
+  own notices left out) oldest first, each with its clock (hh:mm:ss), kind
+  word, tool and status, and text, the last one marked current when it is
+  a running tool; the heading counts the turns among them.
 
 A field the router did not read says "not read"; subagents and activity add
 "session not live" when the session is not idle or running. Every
@@ -112,8 +112,8 @@ The page reads and acts without a script. Its script adds:
   columns and the sheets. It keeps the selected task, the collapsed groups
   (in `localStorage`), typed drafts (in `sessionStorage`, by their form's
   `data-path`), the open peek, the open sheet (its element, scroll and all)
-  and the filter, and it leaves alone a column you are typing in or a sheet
-  holding the focus;
+  and the filter, and it leaves alone a column or a sheet that holds the
+  focus or a text selection, so what you are typing or reading stays put;
 - the palettes: Flexoki, light or dark with the system, and One Dark. The
   choice is kept in `localStorage` and in a `router-theme` cookie, so the
   server paints it before the script runs;

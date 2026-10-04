@@ -417,12 +417,12 @@
       ],
       "log": [
         {
-          "n": 33,
+          "n": 23,
           "actor": "Router",
           "text": "T4 recorded for you/M4. The caller may disconnect."
         },
         {
-          "n": 34,
+          "n": 24,
           "actor": "Jev",
           "text": "T4: Jev selected knowledge at 0.94."
         }
@@ -503,12 +503,12 @@
       ],
       "log": [
         {
-          "n": 8,
+          "n": 6,
           "actor": "Router",
           "text": "T2 recorded for you/M2. The caller may disconnect."
         },
         {
-          "n": 16,
+          "n": 11,
           "actor": "Router",
           "text": "T2: answer A1m queued for the pinned session A1."
         }
@@ -555,12 +555,12 @@
       "deliveries": [],
       "log": [
         {
-          "n": 5,
+          "n": 4,
           "actor": "Router",
           "text": "T1 recorded for you/M1. The caller may disconnect."
         },
         {
-          "n": 6,
+          "n": 5,
           "actor": "Jev",
           "text": "T1: no confident owner (orchestrator 0.6). The sender must choose."
         }
@@ -676,37 +676,37 @@
       ],
       "log": [
         {
-          "n": 40,
+          "n": 28,
           "actor": "Router",
           "text": "T5 recorded for orchestrator/M5. The caller may disconnect."
         },
         {
-          "n": 41,
+          "n": 29,
           "actor": "Jev",
           "text": "T5: no confident owner (incus 0.55). The sender must choose."
         },
         {
-          "n": 44,
+          "n": 31,
           "actor": "Router",
           "text": "T5: sender chose incus."
         },
         {
-          "n": 45,
+          "n": 32,
           "actor": "Router",
           "text": "T5 notice choose/1 withdrawn: the choice no longer stands."
         },
         {
-          "n": 52,
+          "n": 38,
           "actor": "Router",
           "text": "Recorded notice T5/question/D4/Q5 as attempting to A1 before calling the adapter."
         },
         {
-          "n": 53,
+          "n": 39,
           "actor": "Adapter",
           "text": "T5/question/D4/Q5: notice accepted."
         },
         {
-          "n": 55,
+          "n": 40,
           "actor": "Router",
           "text": "T5: answer A5 queued for the pinned session L1."
         }
@@ -777,7 +777,7 @@
       ],
       "log": [
         {
-          "n": 14,
+          "n": 10,
           "actor": "Router",
           "text": "T3 recorded for you/M3. The caller may disconnect."
         }
@@ -802,104 +802,104 @@
   },
   "log": [
     {
-      "n": 44,
+      "n": 27,
+      "actor": "Participant",
+      "text": "D3: Reading the notes."
+    },
+    {
+      "n": 28,
+      "actor": "Router",
+      "text": "T5 recorded for orchestrator/M5. The caller may disconnect."
+    },
+    {
+      "n": 29,
+      "actor": "Jev",
+      "text": "T5: no confident owner (incus 0.55). The sender must choose."
+    },
+    {
+      "n": 30,
+      "actor": "Adapter",
+      "text": "orchestrator@mbp: not ready, session A1."
+    },
+    {
+      "n": 31,
       "actor": "Router",
       "text": "T5: sender chose incus."
     },
     {
-      "n": 45,
+      "n": 32,
       "actor": "Router",
       "text": "T5 notice choose/1 withdrawn: the choice no longer stands."
     },
     {
-      "n": 46,
+      "n": 33,
       "actor": "Adapter",
       "text": "incus@lab01: ready, session L1."
     },
     {
-      "n": 47,
+      "n": 34,
       "actor": "Router",
       "text": "Recorded D4/M5 as attempting to L1 before calling the adapter."
     },
     {
-      "n": 48,
+      "n": 35,
       "actor": "Adapter",
       "text": "D4/M5: adapter reported accepted."
     },
     {
-      "n": 49,
-      "actor": "Router",
-      "text": "Clock at 1790761470000."
-    },
-    {
-      "n": 50,
+      "n": 36,
       "actor": "Participant",
       "text": "D4 asks: Which image?"
     },
     {
-      "n": 51,
+      "n": 37,
       "actor": "Adapter",
       "text": "orchestrator@mbp: ready, session A1."
     },
     {
-      "n": 52,
+      "n": 38,
       "actor": "Router",
       "text": "Recorded notice T5/question/D4/Q5 as attempting to A1 before calling the adapter."
     },
     {
-      "n": 53,
+      "n": 39,
       "actor": "Adapter",
       "text": "T5/question/D4/Q5: notice accepted."
     },
     {
-      "n": 54,
-      "actor": "Router",
-      "text": "Clock at 1790761480000."
-    },
-    {
-      "n": 55,
+      "n": 40,
       "actor": "Router",
       "text": "T5: answer A5 queued for the pinned session L1."
     },
     {
-      "n": 56,
+      "n": 41,
       "actor": "Adapter",
       "text": "orchestrator@mbp: not ready, session A1."
     },
     {
-      "n": 57,
+      "n": 42,
       "actor": "Adapter",
       "text": "incus@lab01: ready, session L1."
     },
     {
-      "n": 58,
+      "n": 43,
       "actor": "Router",
       "text": "Recorded D4/A5 as attempting to L1 before calling the adapter."
     },
     {
-      "n": 59,
+      "n": 44,
       "actor": "Adapter",
       "text": "D4/A5: adapter reported accepted."
     },
     {
-      "n": 60,
-      "actor": "Router",
-      "text": "Clock at 1790761490000."
-    },
-    {
-      "n": 61,
+      "n": 45,
       "actor": "Participant",
       "text": "D4: completed result stored."
     },
     {
-      "n": 62,
+      "n": 46,
       "actor": "Adapter",
       "text": "orchestrator@mbp: not ready, session A1."
-    },
-    {
-      "n": 63,
-      "actor": "Router",
-      "text": "Clock at 1790761500000."
     }
   ],
   "telemetryAt": "2026-09-30T09:44:51.000Z"
