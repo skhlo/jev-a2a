@@ -4,6 +4,11 @@
 // the same key and text is a no-op after a completed send, and answers
 // agent_request_outcome_unknown while a receipt is still pending; a send to a
 // running agent interrupts its turn, so the router sends only to idle agents.
+// Verified in the 0.10.2 daemon: a `closed` agent is a persisted session
+// whose process is not running (every agent after a daemon restart), and a
+// prompt to it resumes the session first (sendPromptToAgent calls
+// ensureAgentLoaded), while the refresh the router observes with does not;
+// so `closed` is as ready as `idle`.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { createPaseoClient } from "@getpaseo/client";
@@ -12,7 +17,7 @@ import type { AgentSnapshot } from "./telemetry.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
-  // The agent exists; ready when idle with no permission waiting.
+  // The agent exists; ready when idle or closed with no permission waiting.
   ready: boolean;
   status: string;
   pendingPermissions: number;
@@ -51,6 +56,12 @@ export function sendFailure(
   if (/^Agent not found: |^Agent identifier /.test(message)) return "not_sent";
   return "unknown";
 }
+
+// A session the router may send to now: idle, or closed (the send resumes
+// it), with no permission waiting. Running would be interrupted; error and
+// initializing are not a session yet.
+export const isReady = (status: string, pendingPermissions: number): boolean =>
+  (status === "idle" || status === "closed") && pendingPermissions === 0;
 
 // The daemon's agent snapshot (protocol 0.10.1: status, activeTurn,
 // lastUserMessageAt, pendingPermissions, attentionReason and its
@@ -120,7 +131,7 @@ export async function createPaseoAdapter(endpoint: string): Promise<Adapter> {
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
       return {
-        ready: status === "idle" && pendingPermissions.length === 0,
+        ready: isReady(status, pendingPermissions.length),
         status,
         pendingPermissions: pendingPermissions.length,
         snapshot: snapshotOf(result.agent, seen),

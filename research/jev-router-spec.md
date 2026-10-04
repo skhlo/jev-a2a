@@ -294,10 +294,17 @@ the packaged 0.9.2 source:
 
 Therefore:
 
-- `ready` requires a fresh `idle` status and no pending permissions, observed
-  after the router's last send to that session. Agent status is
-  `initializing | idle | running | error | closed`; pending permissions come
-  from inspect or wait results.
+- `ready` requires a fresh `idle` or `closed` status and no pending
+  permissions, observed after the router's last send to that session. Agent
+  status is `initializing | idle | running | error | closed`; pending
+  permissions come from inspect or wait results. `closed` is a persisted
+  session whose process is not running (every agent after a daemon restart):
+  verified in the 0.10.2 daemon, a prompt to it resumes the session before
+  delivery (`sendPromptToAgent` → `ensureAgentLoaded`, the same path a view
+  of the agent takes), while the refresh the router observes with does not,
+  so without this rule a closed session waits until a person opens it (found
+  2026-10-04: dotfiles-host@mbp read closed for three days and became idle
+  the moment it was viewed).
 - The router is the only **automatic** sender to a registered session. A person
   in the session is not a race the router can see, which is what the hold is
   for. How a hold is raised from a view or from Paseo's own UI is not designed

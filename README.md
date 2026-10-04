@@ -250,7 +250,9 @@ committed sample matches.
   - `agent`: what the router last saw of the session beyond its readiness,
     from the telemetry file (below), or `null` when the file has no entry
     for the placement: `seen` (when), `status` (Paseo's `idle`, `running`,
-    `initializing`, `error` or `closed`, or the router's `missing` when the
+    `initializing`, `error` or `closed` (a persisted session whose process
+    is not running; a send resumes it, so it counts as ready), or the
+    router's `missing` when the
     daemon does not know the agent and `unreachable` when the host could
     not be reached, with the failure in `error`), `attention` (`finished`,
     `error` or `permission`) with `attentionAt` (when it was raised: for
