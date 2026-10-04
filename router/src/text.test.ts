@@ -202,7 +202,10 @@ test("client: submit, answer and choose post as the participant session", async 
     });
     out = await run(url, ["status"]);
     assert.equal(out.code, 2);
-    assert.match(out.stderr, /router submit \[--to <participant>\]/);
+    assert.match(
+      out.stderr,
+      /router submit \[--to <participant> \[--hosts a,b\]\]/,
+    );
     assert.equal(posted.length, 4);
   } finally {
     server.close();
