@@ -173,14 +173,17 @@ delivery waits for the same placement.
 A task whose sender is a participant session hears back at `via`, the
 placement it sent from, through the same adapter and gate as a delivery. What
 is **due** is derived from the record, keyed so each is told once: an open
-question on a live delivery (`question/<id>`), a hand-back to choose while it
+question on a live delivery (`question/<delivery>/<id>`: two deliveries of one
+fan-out may ask under the same message id), a hand-back to choose while it
 stands (`choose/<judgment count>`), and the end (`final`). A notice is
 **eligible** when it is due and not yet accepted; not `attempting`, and not
 `unknown` unless the sender's adapter deduplicates (recorded on the notice at
 its first attempt); and the sender's placement is not busy by the delivery
-rule above. A question or choice that stops standing before it was accepted
-is `withdrawn` with a log line and never told late; `final` is never
-withdrawn. An `unknown` notice does not hold its session: nothing waits on it
+rule above, and an `unknown` one only at the session that may have it. A
+question or choice that stops standing before it was accepted
+is `withdrawn` with a log line and never told late (a notice is recorded as
+`pending` the moment it is due, so one never attempted is withdrawn too);
+`final` is never withdrawn. An `unknown` notice does not hold its session: nothing waits on it
 and there is no reconciliation for it, so a non-deduplicating sender is
 simply not told again and finds the item in `needsYou` and `status`.
 
@@ -222,9 +225,10 @@ the task.
 
 ## Invariants
 
-Checked by the oracle in `router-core.test.js` after every event of every test,
-including 400 random sequences of 90 events each, half with a non-deduplicating
-participant. The oracle derives eligibility, in-flight, status, judgment
+Checked by the oracle in `router/src/core.test.ts` (the prototype's
+`router-core.test.js` keeps the pre-notice subset) after every event of every
+test, including 400 random sequences of 120 events each, half with a
+non-deduplicating participant. The oracle derives eligibility, in-flight, status, judgment
 validity, the verdict and the needs-you lists itself rather than calling the
 core. That catches a core rule that drifts from the spec, not an oracle that
 restates the core's mistake: the review of this redo found the verdict oracle
@@ -350,11 +354,14 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
    wrong ones, at the top of a plateau and with a margin of about 0.2 over
    the worst wrong choice seen. Re-run when the roster or a text changes,
    and before moving the pin.
-2. Authentication of participant replies: a local reply is trusted on
-   `PASEO_AGENT_ID`; a reply over HTTP is trusted on the shared
-   `ROUTER_TOKEN`, so any holder of the token can reply as any participant.
-   Board actions are authenticated by Tailscale identity and
-   are not affected.
+2. Authentication of participant events: a local reply is trusted on
+   `PASEO_AGENT_ID`; over HTTP, a reply, answer, request or choice is
+   trusted on the shared `ROUTER_TOKEN`, so any holder of the token can act
+   as any participant session. `serve` refuses a `by` that is not a session
+   the record knows, and a replaced session's request or choice; a replaced
+   session's reply still reaches the core, which knows whether it holds the
+   delivery. Board actions are authenticated by Tailscale identity and are
+   not affected.
 3. Raising a hold from where the person is typing: today a hold is set by
    hand, from the CLI or the board. Detecting that the person has taken
    over a session is not built.
@@ -385,11 +392,11 @@ recovery with the same key and one prompt in the agent's transcript;
 questions and answers pinned to a session; Jev dispatch, abstention and
 low-confidence hand-back with latency of 250 to 300 ms; the board and its
 actions over the tailnet. Not exercised live: a host that is down for a
-whole run, token rotation, `resolve` from the board, throughput. Added
-2026-10-04: a participant session submits, chooses and answers through the
-client, and is told questions, hand-backs and the end as notices at the
-placement it sent from (`via`), once per key, through the same adapter and
-idle gate as a send.
+whole run, token rotation, `resolve` from the board, throughput. Built
+2026-10-04 and not yet run live: a participant session submits, chooses and
+answers through the client, and is told questions, hand-backs and the end
+as notices at the placement it sent from (`via`), once per key, through the
+same adapter and idle gate as a send.
 
 ## Example deployment
 

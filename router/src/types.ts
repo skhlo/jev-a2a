@@ -113,15 +113,22 @@ export type Final = {
 // must answer, a recipient it must choose, or the final word. Keyed by
 // what it reports, so each is sent once; the outcome follows a send's.
 export type NoticeKind = "question" | "choose" | "final";
-export type NoticeDue = { key: string; kind: NoticeKind };
+// A notice is recorded as pending when it becomes due, before any attempt.
+export type NoticeDue = {
+  key: string;
+  kind: NoticeKind;
+  // The question to answer, for a question notice.
+  questionId?: string;
+};
 export type Notice = NoticeDue & {
   // The text of the first attempt; a repeat sends the same text under the
-  // same key, as a send does.
-  text: string;
+  // same key, as a send does. Null until attempted.
+  text: string | null;
   // Whether the sender's adapter deduplicates by key, as configured when
-  // the notice was first attempted; decides whether unknown is repeated.
+  // the notice became due; decides whether unknown is repeated.
   idempotent: boolean;
-  // The session the notice went to, set at the attempt.
+  // The session the notice went to, set at the attempt. An unknown notice
+  // is repeated only at this session.
   session: string | null;
   // withdrawn: the question or choice stopped standing before it was told.
   outcome: SendOutcome;

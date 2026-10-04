@@ -7,12 +7,11 @@ import {
   blockedReason,
   commands,
   currentSend,
-  dueNotices,
   findDelivery,
   findNotice,
   findTask,
   initial,
-  noticeBlockedReason,
+  noticeWaits,
   reduce,
   validateConfig,
 } from "./core.ts";
@@ -25,7 +24,7 @@ import type {
   Config,
   Event,
   JudgmentQuestion,
-  NoticeKind,
+  NoticeDue,
   Outcome,
   State,
   Task,
@@ -218,14 +217,15 @@ export async function openShell(
   // it: `--as` names the session, which the CLI on the router host needs
   // and the client ignores (it is always $PASEO_AGENT_ID). A final notice
   // carries each delivery's last word.
-  function noticeText(task: Task, key: string, kind: NoticeKind): string {
+  function noticeText(task: Task, due: NoticeDue): string {
+    const { key, kind } = due;
     const placement = state.placements[task.via ?? ""];
     const command =
       config.hosts[placement?.host ?? ""]?.replyCommand ?? "router";
     const as = `--as ${placement?.session ?? "<session>"}`;
     const head = `[router ${task.id} ${key}]`;
     if (kind === "question") {
-      const id = key.slice("question/".length);
+      const id = due.questionId ?? "";
       const delivery = task.deliveries.find((d) => d.question?.id === id);
       return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --question ${id} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
     }
@@ -264,9 +264,7 @@ export async function openShell(
         break;
       }
       // A repeat sends the first attempt's text under the same key.
-      const text =
-        findNotice(task, next.key)?.text ??
-        noticeText(task, next.key, next.kind);
+      const text = findNotice(task, next.key)?.text ?? noticeText(task, next);
       const attempted = apply({
         type: "noticeAttempt",
         taskId: task.id,
@@ -298,13 +296,8 @@ export async function openShell(
     }
     for (const task of state.tasks) {
       if (task.via === null || !isServed(task.via)) continue;
-      for (const due of dueNotices(state, task)) {
-        const why = noticeBlockedReason(state, task, due.key);
-        if (why && why !== "told" && why !== "closed" && why !== "not_pending")
-          report.push(
-            `${task.id} notice ${due.key} waits: ${why.replaceAll("_", " ")}`,
-          );
-      }
+      for (const { key, why } of noticeWaits(state, task))
+        report.push(`${task.id} notice ${key} waits: ${why}`);
     }
   }
 

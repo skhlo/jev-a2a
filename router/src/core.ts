@@ -359,7 +359,11 @@ export function dueNotices(state: State, task: Task): NoticeDue[] {
         delivery.question &&
         !sessionReplaced(state, delivery)
       )
-        due.push({ key: `question/${delivery.question.id}`, kind: "question" });
+        due.push({
+          key: `question/${delivery.id}/${delivery.question.id}`,
+          kind: "question",
+          questionId: delivery.question.id,
+        });
   }
   return due;
 }
@@ -368,7 +372,8 @@ export const findNotice = (task: Task, key: string): Notice | undefined =>
   task.notices.find((n) => n.key === key);
 
 // Why a due notice cannot go to the sender now, or null if it can: it was
-// told (or an attempt is unresolved and cannot be repeated); the sender's
+// told (or an attempt is unresolved and cannot be repeated); an unknown one
+// may only be repeated at the session that may have it; the sender's
 // placement is gone, held, busy with a send or a notice, or not idle.
 export function noticeBlockedReason(
   state: State,
@@ -380,10 +385,29 @@ export function noticeBlockedReason(
     if (notice.outcome === "accepted") return "told";
     if (notice.outcome === "attempting" || notice.outcome === "withdrawn")
       return "not_pending";
-    if (notice.outcome === "unknown" && !notice.idempotent)
-      return "not_pending";
+    if (notice.outcome === "unknown") {
+      if (!notice.idempotent) return "not_pending";
+      if (state.placements[task.via ?? ""]?.session !== notice.session)
+        return "session_replaced";
+    }
   }
   return task.via === null ? "closed" : placementBusy(state, task.via);
+}
+
+// What a sender is still owed and why it waits, for the shell's report and
+// `router status`: told, withdrawn and never-to-be-repeated notices are
+// not waiting.
+export function noticeWaits(
+  state: State,
+  task: Task,
+): { key: string; why: string }[] {
+  const waits: { key: string; why: string }[] = [];
+  for (const due of dueNotices(state, task)) {
+    const why = noticeBlockedReason(state, task, due.key);
+    if (why && why !== "told" && why !== "closed" && why !== "not_pending")
+      waits.push({ key: due.key, why: why.replaceAll("_", " ") });
+  }
+  return waits;
 }
 
 // One Choice over the participants the sender could address when it asked,
@@ -1060,18 +1084,9 @@ const handlers: Handlers = {
       );
     const placement = state.placements[task.via ?? ""];
     if (!placement) return reject("not_found", "No such placement.");
-    let notice = findNotice(task, key);
-    if (!notice) {
-      notice = {
-        ...due,
-        text,
-        idempotent: participant(state, task.source)?.idempotent ?? false,
-        session: null,
-        outcome: "pending",
-        trail: [],
-      };
-      task.notices.push(notice);
-    } else if (notice.text !== text)
+    const notice = findNotice(task, key) ?? recordNotice(state, task, due);
+    if (notice.text === null) notice.text = text;
+    else if (notice.text !== text)
       return reject(
         "conflict",
         `${task.id} notice ${key} was first attempted with different text.`,
@@ -1093,7 +1108,7 @@ const handlers: Handlers = {
       return reject("invalid", "Outcome is accepted, not_sent or unknown.");
     if (!notice || notice.outcome !== "attempting")
       return reject(
-        "not_attempting",
+        "stale_ack",
         `${task.id} notice ${key} has no attempt in progress.`,
       );
     notice.trail.push(outcome);
@@ -1229,6 +1244,19 @@ function verdict(task: Task, reason = "delivery"): Final {
   };
 }
 
+function recordNotice(state: State, task: Task, due: NoticeDue): Notice {
+  const notice: Notice = {
+    ...due,
+    text: null,
+    idempotent: participant(state, task.source)?.idempotent ?? false,
+    session: null,
+    outcome: "pending",
+    trail: [],
+  };
+  task.notices.push(notice);
+  return notice;
+}
+
 // Close what can no longer happen, then derive status. Returns a log line
 // for each notice withdrawn: a question or a choice that stopped standing
 // before the sender was told is never told late.
@@ -1241,12 +1269,17 @@ function settle(state: State, task: Task): string[] {
   } else if (task.deliveries.length && task.deliveries.every((d) => !isOpen(d)))
     task.final = verdict(task);
   task.status = status(task);
-  const due = dueNotices(state, task).map((d) => d.key);
+  // What the sender is owed is recorded as soon as it is due, so a notice
+  // that is never sent still shows, and its withdrawal is logged.
+  const due = dueNotices(state, task);
+  for (const d of due)
+    if (!findNotice(task, d.key)) recordNotice(state, task, d);
+  const dueKeys = due.map((d) => d.key);
   const withdrawn: string[] = [];
   for (const notice of task.notices)
     if (
       ["pending", "unknown"].includes(notice.outcome) &&
-      !due.includes(notice.key)
+      !dueKeys.includes(notice.key)
     ) {
       notice.outcome = "withdrawn";
       notice.trail.push("withdrawn");

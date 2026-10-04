@@ -84,7 +84,7 @@ them under "Notices to".
 # As the design agent on mba:
 router submit --to orchestrator "The board's log panel clips its last line at 1280 wide."
 # The design agent's session hears back, for example:
-# [router T41 question/R2] orchestrator asks about your request. Answer with:
+# [router T41 question/D7/R2] orchestrator asks about your request. Answer with:
 #   router answer --as <session> --task T41 --question R2 --text "<answer>" ...
 ```
 
@@ -251,10 +251,19 @@ committed sample matches.
     the operator who resolved it), and `waits`: why the send has not gone
     out, or `null` when nothing holds it back (it has gone, it ended, or
     it goes on the router's next run). `reason` is `session_replaced`,
-    `in_flight` (another send to the placement is unconfirmed), `held`,
+    `in_flight` (another send to the placement, or a notice to its
+    session, is unconfirmed), `held`,
     `not_ready` or `queued_behind`; for `queued_behind`, `behind` is the
     id of the delivery at the head of the placement's queue, the one that
     goes next, and otherwise `null`.
+  - `via`: the placement a participant sender submitted from, where it is
+    told about its request; `null` for a person's request.
+  - `notices`: what that sender is owed or was told, each with its `key`
+    (`question/<delivery>/<id>`, `choose/<n>` or `final`), `kind`, the
+    `session` it went to (`null` before an attempt) and its `outcome`
+    (`pending`, `attempting`, `accepted`, `unknown` or `withdrawn`). Empty
+    for a person's request. The sample has none; the fixture `viaJournal`
+    in `router/src/board-fixture.ts` shows one.
   - `log`: the task's own log lines, as `router status <task>` shows them.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its
@@ -345,7 +354,8 @@ fails if the run changed `package.json` or the lockfile.
 
 - Events from other hosts are authenticated by one shared token, so any host
   that holds it can reply, submit, answer or choose as any participant
-  session.
+  session the record knows (not as a person, and a replaced session may
+  only reply or answer).
 - A session is only sent to when the router has just seen it idle. A turn a
   person starts in between is the one race left; holding the session closes
   it.
@@ -354,8 +364,10 @@ fails if the run changed `package.json` or the lockfile.
 - A participant sender is told once per key. A notice whose adapter call
   was interrupted or whose host was unreachable is marked unknown and, for
   a participant whose adapter does not deduplicate, is not repeated; there
-  is no operator form for it. The sender still finds the question or the
-  choice in its needs-you list and the end in `router status`.
+  is no operator form for it. On the router host the sender still finds the
+  item with `router needs-you --as <session>` and `router status`; the
+  client on another host has no query command, so a person relays it. Mark
+  a Paseo participant `idempotent: true`, as its sends are keyed.
 - Not exercised live: a host that is down for a whole run, token rotation,
   and throughput. The spec keeps the full list.
 

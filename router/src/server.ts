@@ -23,6 +23,7 @@ import {
 import { renderBoard } from "./board-page.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
+import { fold } from "./shell.ts";
 import type { Event, Outcome } from "./types.ts";
 
 export type Run = { outcome: Outcome; report: string[] };
@@ -31,16 +32,34 @@ export type ServerDeps = {
   config: RouterConfig;
   // Applies one event as one shell run; callers serialize.
   handle(event: Event): Promise<Run>;
-  // The events endpoint is the agents' door: it takes an event only from
-  // the current session of a placement, so the shared token cannot act as
-  // a person or as a replaced session. Absent, every `by` passes.
-  isCurrentSession?(by: string): Promise<boolean>;
+  // The events endpoint is the agents' door: `by` must be a participant
+  // session, so the shared token cannot act as a person, and for a request
+  // or a choice the session a placement binds now. A reply or an answer
+  // from a replaced session still reaches the core, which knows whether
+  // that session holds the delivery.
+  sessionOf(by: string): SessionStatus;
   log?: (line: string) => void;
   // The board's clock; a test fixes it to read a fixture's record.
   now?: () => number;
 };
 
 const EVENT_TYPES = ["submit", "choose", "update", "answer"];
+const NEEDS_CURRENT = ["submit", "choose"];
+
+export type SessionStatus = "current" | "replaced" | null;
+
+// Whether `by` is a session the record knows, read without the journal
+// lock, as the board reads it: the events endpoint must not contend with
+// the run it is about to queue.
+export const sessionReader =
+  (config: RouterConfig) =>
+  (by: string): SessionStatus => {
+    const state = fold(config, readJournal(config.home));
+    if (!state.sessions[by]) return null;
+    return Object.values(state.placements).some((p) => p.session === by)
+      ? "current"
+      : "replaced";
+  };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -93,22 +112,31 @@ export function eventsListener(
           code: "error",
           message: error instanceof Error ? error.message : String(error),
         });
-      const by = typeof event.by === "string" ? event.by : "";
-      (deps.isCurrentSession?.(by) ?? Promise.resolve(true)).then((current) => {
-        if (!current)
-          return reply(403, {
-            ok: false,
-            code: "unauthenticated",
-            message: "serve takes events from a current participant session.",
-          });
-        // The core validates everything else and rejects what it does not know.
-        deps
-          .handle(event as Event)
-          .then(
-            ({ outcome, report }) => reply(200, { ...outcome, report }),
-            failed,
-          );
-      }, failed);
+      let session: SessionStatus;
+      try {
+        session = deps.sessionOf(typeof event.by === "string" ? event.by : "");
+      } catch (error: unknown) {
+        return failed(error);
+      }
+      if (
+        session === null ||
+        (session === "replaced" && NEEDS_CURRENT.includes(String(event.type)))
+      )
+        return reply(403, {
+          ok: false,
+          code: "unauthenticated",
+          message:
+            session === null
+              ? "serve takes events from a participant session."
+              : "A replaced session cannot submit or choose.",
+        });
+      // The core validates everything else and rejects what it does not know.
+      deps
+        .handle(event as Event)
+        .then(
+          ({ outcome, report }) => reply(200, { ...outcome, report }),
+          failed,
+        );
     });
   };
 }

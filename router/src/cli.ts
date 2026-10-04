@@ -9,14 +9,14 @@ import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import {
   A2A_STATE,
   currentSend,
-  dueNotices,
   findTask,
   needsYou,
-  noticeBlockedReason,
+  noticeWaits,
   responsibilityTexts,
 } from "./core.ts";
 import { describeNeed, newMessageId, taskLog } from "./board.ts";
 import {
+  sessionReader,
   bind,
   BindError,
   boardListener,
@@ -178,22 +178,10 @@ async function serve(config: RouterConfig): Promise<void> {
     queue = run.catch(() => undefined);
     return run;
   };
-  // Whether `by` is the session a placement binds now, read from the
-  // record without a run.
-  const isCurrentSession = async (by: string): Promise<boolean> => {
-    const shell = await open();
-    try {
-      return Object.values(shell.state.placements).some(
-        (p) => p.session === by,
-      );
-    } finally {
-      await shell.close();
-    }
-  };
   const deps = {
     config,
     handle,
-    isCurrentSession,
+    sessionOf: sessionReader(config),
     log: (line: string) => console.log(line),
   };
   const events = createServer(eventsListener(deps, token));
@@ -399,12 +387,8 @@ function describe(task: Task, state: State): string[] {
       lines.push(
         `  notice ${n.key} → ${task.via} · session ${n.session ?? "none"} · ${n.outcome}`,
       );
-    for (const due of dueNotices(state, task)) {
-      const why = noticeBlockedReason(state, task, due.key);
-      // Told, or never to be told again: nothing waits.
-      if (why && why !== "told" && why !== "not_pending" && why !== "closed")
-        lines.push(`  notice ${due.key} waits: ${why.replaceAll("_", " ")}`);
-    }
+    for (const { key, why } of noticeWaits(state, task))
+      lines.push(`  notice ${key} waits: ${why}`);
   }
   for (const entry of taskLog(state.log, task.id))
     lines.push(`  ${entry.n}. ${entry.actor}: ${entry.text}`);

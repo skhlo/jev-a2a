@@ -318,13 +318,13 @@ test("a participant sender is told a question and the end through the adapter, e
   let report = await shell.deliver();
   assert.deepEqual(
     sent.map((s) => s.key),
-    ["N/T1/question/Q1"],
+    ["N/T1/question/D1/Q1"],
   );
   assert.match(
     sent[0]?.text ?? "",
-    /^\[router T1 question\/Q1\] environment asks about your request\. Answer with: router answer --as A1 --task T1 --question Q1 --text "<answer>" \(or --text-file <path>\)\.\n\nLogin shell or interactive\?$/,
+    /^\[router T1 question\/D1\/Q1\] environment asks about your request\. Answer with: router answer --as A1 --task T1 --question Q1 --text "<answer>" \(or --text-file <path>\)\.\n\nLogin shell or interactive\?$/,
   );
-  assert.match(report.join("\n"), /T1\/question\/Q1: notice accepted/);
+  assert.match(report.join("\n"), /T1\/question\/D1\/Q1: notice accepted/);
   // Told once: another run with nothing new sends nothing.
   report = await shell.deliver();
   assert.equal(sent.length, 1);
@@ -375,7 +375,7 @@ test("a participant sender is told a question and the end through the adapter, e
   report = await shell.deliver();
   assert.deepEqual(
     sent.map((s) => s.key),
-    ["N/T1/question/Q1", "N/T1/final"],
+    ["N/T1/question/D1/Q1", "N/T1/final"],
   );
   assert.match(
     sent[1]?.text ?? "",
@@ -387,7 +387,7 @@ test("a participant sender is told a question and the end through the adapter, e
   assert.deepEqual(
     shell.state.tasks[0]?.notices.map((n) => [n.key, n.outcome, n.trail]),
     [
-      ["question/Q1", "accepted", ["attempting", "accepted"]],
+      ["question/D1/Q1", "accepted", ["attempting", "accepted"]],
       [
         "final",
         "accepted",
@@ -485,6 +485,90 @@ test("a run that dies inside a notice's send is recovered like a send: unknown o
   assert.equal(submitted.ok, true, submitted.message);
   await shell.deliver();
   assert.equal(sent.at(-1)?.key, "D2/M2");
+  await shell.close();
+});
+
+test("a hand-back is told with the choice to make, and a failed end with each delivery's last word", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const config = configFor(home);
+  const sent: { key: string; text: string }[] = [];
+  const unsure = {
+    ...scripted({
+      send: (key: string, text: string) => {
+        sent.push({ key, text });
+        return Promise.resolve("accepted" as const);
+      },
+    }),
+    // Jev leans to the service but not enough to dispatch.
+    judge: () =>
+      Promise.resolve({
+        ok: true as const,
+        choice: "environment",
+        probabilities: { environment: 0.6, incus: 0.4, none: 0 },
+        confidence: 0.6,
+        model: "jev-test",
+        usage: null,
+        ms: 1,
+      }),
+  };
+  const shell = await openShell(config, unsure);
+  await shell.deliver();
+  let outcome = shell.apply({
+    type: "submit",
+    by: "A1",
+    messageId: "M1",
+    text: "Which shell is active on mbp?",
+  });
+  assert.equal(outcome.ok, true, outcome.message);
+  let report = await shell.deliver();
+  assert.equal(shell.state.tasks[0]?.status, "needs_recipient");
+  assert.deepEqual(
+    sent.map((s) => s.key),
+    ["N/T1/choose/1"],
+  );
+  assert.equal(
+    sent[0]?.text,
+    "[router T1 choose/1] The router could not pick a recipient for your request (low confidence; suggested environment, incus). Choose with: router choose --as A1 --task T1 --to <participant>, one of: environment, incus.\n\nWhich shell is active on mbp?",
+  );
+  assert.match(report.join("\n"), /T1\/choose\/1: notice accepted/);
+  // The sender chooses; the choice notice is settled, the service on this
+  // host fails, and the end names each delivery's word.
+  for (const event of [
+    { type: "choose", by: "A1", taskId: "T1", to: "environment" },
+    {
+      type: "observe",
+      placement: "environment@mbp",
+      session: "E1",
+      ready: true,
+    },
+    { type: "attempt", deliveryId: "D2" },
+    {
+      type: "adapterResult",
+      deliveryId: "D2",
+      messageId: "M1",
+      outcome: "accepted",
+    },
+    {
+      type: "update",
+      by: "E1",
+      taskId: "T1",
+      messageId: "R1",
+      inReplyTo: "M1",
+      kind: "failed",
+      text: "no such host",
+    },
+    { type: "tick", now: 2_000 },
+  ] satisfies Event[]) {
+    outcome = shell.apply(event);
+    assert.equal(outcome.ok, true, outcome.message);
+  }
+  assert.equal(shell.state.tasks[0]?.status, "failed");
+  report = await shell.deliver();
+  assert.equal(sent.length, 2);
+  assert.match(
+    sent[1]?.text ?? "",
+    /^\[router T1 final\] Your request is failed \(deadline\)\. No reply is needed\.\n\nenvironment@mba expired\n\nenvironment@mbp failed:\nno such host\n\nenvironment@mini expired$/,
+  );
   await shell.close();
 });
 

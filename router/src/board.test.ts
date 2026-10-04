@@ -263,7 +263,7 @@ test("a task a participant sent names the placement it hears back at and what it
   assert.equal(t5?.via, "orchestrator@mbp");
   assert.deepEqual(t5?.notices, [
     {
-      key: "question/Q5",
+      key: "question/D4/Q5",
       kind: "question",
       session: "A1",
       outcome: "accepted",

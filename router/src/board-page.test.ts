@@ -624,7 +624,7 @@ test("a task a participant sent lists the notices it was told; a person's task h
   assert.equal(textOf(html, "open[0].source"), "orchestrator/M5");
   assert.equal(textOf(html, "open[0].via"), "orchestrator@mbp");
   assert.match(strip(html), /Notices to\s*orchestrator@mbp/);
-  assert.equal(textOf(html, "open[0].notices[0].key"), "question/Q5");
+  assert.equal(textOf(html, "open[0].notices[0].key"), "question/D4/Q5");
   assert.equal(textOf(html, "open[0].notices[0].kind"), "question");
   assert.equal(textOf(html, "open[0].notices[0].session"), "A1");
   assert.equal(textOf(html, "open[0].notices[0].outcome"), "accepted");
@@ -639,15 +639,19 @@ test("a task a participant sent lists the notices it was told; a person's task h
       event: {
         type: "noticeResult",
         taskId: "T5",
-        key: "question/Q5",
+        key: "question/D4/Q5",
         outcome: "not_sent",
       },
     },
     { at, event: { type: "observe", placement: "incus@lab01", session: "L2" } },
   ]);
   assert.equal(textOf(moved, "open[0].notices[0].outcome"), "withdrawn");
-  // Before anything was told the table is a hint; a person's task has none.
-  const quiet = page(ME, { task: "T5" }, viaJournal.slice(0, -2));
+  // A notice is listed from the moment it is owed, before any attempt;
+  // with nothing owed yet the table is a hint. A person's task has none.
+  const owed = page(ME, { task: "T5" }, viaJournal.slice(0, -2));
+  assert.equal(textOf(owed, "open[0].notices[0].outcome"), "pending");
+  assert.equal(textOf(owed, "open[0].notices[0].session"), "—");
+  const quiet = page(ME, { task: "T5" }, viaJournal.slice(0, -3));
   assert.match(
     strip(quiet),
     /Notices to\s*orchestrator@mbp\s*Nothing told yet\./,

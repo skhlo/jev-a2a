@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,9 +11,11 @@ import {
   boardListener,
   eventsListener,
   sameSite,
+  sessionReader,
   type Bindable,
   type BindOptions,
   type Run,
+  type SessionStatus,
 } from "./server.ts";
 import { BOARD_VERSION } from "./board.ts";
 import {
@@ -39,6 +41,9 @@ const config: RouterConfig = {
   },
   jev: { model: "jev-latest" },
 };
+
+// Every caller is a current session unless a test says otherwise.
+const sessionOf = (): SessionStatus => "current";
 
 const handled: Event[] = [];
 const handle = (event: Event): Promise<Run> => {
@@ -75,7 +80,9 @@ const taskIds = (list: unknown): unknown[] => {
 };
 
 test("events: health is open, everything else needs the exact token", async () => {
-  const server = createServer(eventsListener({ config, handle }, "secret"));
+  const server = createServer(
+    eventsListener({ config, handle, sessionOf }, "secret"),
+  );
   const url = await serve(server);
   try {
     assert.equal((await fetch(`${url}/health`)).status, 200);
@@ -153,7 +160,7 @@ test("events: health is open, everything else needs the exact token", async () =
   }
 });
 
-test("events: only the current session of a placement gets through; a person or a replaced session is refused before the core", async () => {
+test("events: a person is refused; a replaced session may reply and answer but not submit or choose", async () => {
   const seen: Event[] = [];
   const server = createServer(
     eventsListener(
@@ -163,7 +170,8 @@ test("events: only the current session of a placement gets through; a person or 
           seen.push(event);
           return handle(event);
         },
-        isCurrentSession: (by) => Promise.resolve(by === "A1"),
+        sessionOf: (by) =>
+          by === "A1" ? "current" : by === "A0" ? "replaced" : null,
       },
       "secret",
     ),
@@ -177,26 +185,19 @@ test("events: only the current session of a placement gets through; a person or 
     });
   try {
     const refused = [
-      // The shared token acting as the person.
+      // The shared token acting as the person, or as nobody.
       { type: "submit", by: "you", messageId: "m", text: "x" },
-      // A session that was replaced.
-      { type: "choose", by: "A0", taskId: "T1", to: "incus" },
       {
         type: "answer",
-        by: "A0",
+        by: "you",
         taskId: "T1",
         messageId: "m",
         questionId: "Q",
       },
-      {
-        type: "update",
-        by: "A0",
-        taskId: "T1",
-        messageId: "m",
-        inReplyTo: "M",
-        kind: "working",
-      },
       { type: "submit", messageId: "m", text: "x" },
+      // A replaced session asking for new work.
+      { type: "choose", by: "A0", taskId: "T1", to: "incus" },
+      { type: "submit", by: "A0", messageId: "m", text: "x" },
     ];
     for (const event of refused) {
       const res = await post(event);
@@ -207,18 +208,52 @@ test("events: only the current session of a placement gets through; a person or 
       });
     }
     assert.equal(seen.length, 0);
-    const ok = await post({
-      type: "submit",
-      by: "A1",
-      messageId: "m",
-      text: "x",
-      to: "incus",
-    });
-    assert.equal(ok.status, 200);
-    assert.equal(seen.length, 1);
+    // A replaced session finishing its work still reaches the core, which
+    // knows whether that session holds the delivery.
+    const passed = [
+      {
+        type: "update",
+        by: "A0",
+        taskId: "T1",
+        messageId: "m",
+        inReplyTo: "M",
+        kind: "completed",
+      },
+      {
+        type: "answer",
+        by: "A0",
+        taskId: "T1",
+        messageId: "m",
+        questionId: "Q",
+      },
+      { type: "submit", by: "A1", messageId: "m", text: "x", to: "incus" },
+    ];
+    for (const event of passed)
+      assert.equal((await post(event)).status, 200, JSON.stringify(event));
+    assert.equal(seen.length, 3);
   } finally {
     server.close();
   }
+});
+
+test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", () => {
+  const record = mkdtempSync(join(tmpdir(), "server-sessions-"));
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const sessionOf = sessionReader({ ...fixture, home: record });
+  assert.equal(sessionOf("A1"), "current");
+  assert.equal(sessionOf("K2"), "current");
+  assert.equal(sessionOf("K1"), "replaced");
+  assert.equal(sessionOf("you"), null);
+  assert.equal(sessionOf(""), null);
+  // Nothing was written: the record is as long as the fixture.
+  assert.equal(
+    readFileSync(join(record, "journal.jsonl"), "utf8").split("\n").length,
+    replacedJournal.length + 1,
+  );
+  assert.ok(!existsSync(join(record, "journal.lock")));
 });
 
 test("sameSite: browsers must come from the page; other clients pass", () => {
@@ -256,7 +291,12 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
   );
   const logged: string[] = [];
   const server = createServer(
-    boardListener({ config, handle, log: (line) => logged.push(line) }),
+    boardListener({
+      config,
+      handle,
+      sessionOf,
+      log: (line) => logged.push(line),
+    }),
   );
   const url = await serve(server);
   const before = handled.length;
@@ -356,6 +396,7 @@ test("board: asked for JSON, the board serves its model, identified as the page 
   );
   const server = createServer(
     boardListener({
+      sessionOf,
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -476,6 +517,7 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
   );
   const server = createServer(
     boardListener({
+      sessionOf,
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -596,7 +638,7 @@ test("board: a record the code cannot replay is a 500, not a crash", async () =>
     `${JSON.stringify({ at: "t", event: { type: "attempt", deliveryId: "D9" } })}\n`,
   );
   const server = createServer(
-    boardListener({ config: { ...config, home: broken }, handle }),
+    boardListener({ config: { ...config, home: broken }, handle, sessionOf }),
   );
   const url = await serve(server);
   try {

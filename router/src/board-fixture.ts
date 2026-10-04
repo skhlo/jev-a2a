@@ -315,13 +315,13 @@ export const viaJournal = extend(
   {
     type: "noticeAttempt",
     taskId: "T5",
-    key: "question/Q5",
-    text: "[router T5 question/Q5] incus asks about your request.",
+    key: "question/D4/Q5",
+    text: "[router T5 question/D4/Q5] incus asks about your request.",
   },
   {
     type: "noticeResult",
     taskId: "T5",
-    key: "question/Q5",
+    key: "question/D4/Q5",
     outcome: "accepted",
   },
 );
