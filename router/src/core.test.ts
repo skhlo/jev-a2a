@@ -2085,9 +2085,12 @@ test("deadline fails the task; an unconfirmed send still blocks its session unti
     to: "orchestrator",
   });
   s = deliver(s, "D1", "unknown");
+  const lines = s.log.length;
   s = expectOk(s, { type: "tick", now: 50 });
+  assert.equal(s.log.length, lines, "a clock that ends nothing logs nothing");
   s = submit(s, { messageId: "M2", text: "Next job", to: "orchestrator" });
   s = expectOk(s, { type: "tick", now: 100 });
+  assert.match(s.log.at(-1)?.text ?? "", /^Deadline passed: T1 failed/);
   assert.equal(task(s).status, "failed");
   assert.equal(task(s, "T2").status, "queued");
   s = idle(s);

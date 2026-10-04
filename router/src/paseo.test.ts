@@ -282,6 +282,34 @@ const entry = (
   collapsed: [],
 });
 
+test("activityOf drops the harness's own tool calls and keeps the last `limit` of what is left", () => {
+  const tool = (at: string, name: string) =>
+    entry(at, {
+      type: "tool_call",
+      callId: `c-${at}`,
+      name,
+      detail: { type: "plain_text", text: at },
+      status: "completed",
+      error: null,
+    });
+  const activity = activityOf(
+    [
+      entry("t0", { type: "user_message", text: "go" }),
+      tool("t1", "Bash"),
+      tool("t2", "task_notification"),
+      tool("t3", "Bash"),
+      tool("t4", "task_notification"),
+      tool("t5", "Read"),
+    ],
+    3,
+  );
+  assert.deepEqual(
+    activity.items.map((i) => i.at),
+    ["t1", "t3", "t5"],
+  );
+  assert.equal(activity.turns, 0, "turns count the kept window");
+});
+
 test("activityOf cuts each entry to a line and counts the user messages", () => {
   const long = "x".repeat(200);
   assert.deepEqual(
@@ -426,14 +454,15 @@ test("a live session gets the whole sheet; the workspace list is read once per a
   });
   assert.equal(first?.notes, undefined);
   assert.equal(second?.snapshot.checkout?.branch, "feat/x");
+  // The tail is fetched with room for the harness's own calls (four more).
   assert.deepEqual(calls, [
     "refresh A1",
     "workspaces",
     "subagents A1",
-    "tail A1 3",
+    "tail A1 7",
     "refresh A2",
     "subagents A2",
-    "tail A2 3",
+    "tail A2 7",
   ]);
 });
 

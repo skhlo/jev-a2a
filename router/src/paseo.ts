@@ -258,13 +258,19 @@ export function subagentsOf(list: ProviderSubagent[], limit = 20): Subagents {
   return { counts, running };
 }
 
+// Tool calls the harness makes to itself (a background command's
+// completion notice), not the session's work: the tail leaves them out.
+const HARNESS_TOOLS = new Set(["task_notification"]);
+
 // A timeline tail, each entry cut to a line: what it was, its first line
-// of text, and for a tool call its name and state.
-export function activityOf(entries: TimelineEntry[]): Activity {
+// of text, and for a tool call its name and state. `limit` keeps the last
+// so many after the harness's own calls are dropped.
+export function activityOf(entries: TimelineEntry[], limit?: number): Activity {
   const items = entries.flatMap((e): ActivityItem[] => {
     const item = e.item;
     const kind = oneOf(ACTIVITY_KINDS, item.type);
     if (!kind) return [];
+    if (item.type === "tool_call" && HARNESS_TOOLS.has(item.name)) return [];
     const base = { at: e.timestamp, kind, tool: null, status: null };
     switch (item.type) {
       case "user_message":
@@ -296,9 +302,10 @@ export function activityOf(entries: TimelineEntry[]): Activity {
         return [{ ...base, text: null }];
     }
   });
+  const kept = limit === undefined ? items : items.slice(-limit);
   return {
-    turns: items.filter((i) => i.kind === "user_message").length,
-    items,
+    turns: kept.filter((i) => i.kind === "user_message").length,
+    items: kept,
   };
 }
 
@@ -385,7 +392,8 @@ export function adapterOver(
           snapshot.activity = await attempt(
             "activity",
             agentId,
-            async () => activityOf(await daemon.tail(agentId, tail)),
+            // Fetched with room for the harness's own calls, cut to the tail.
+            async () => activityOf(await daemon.tail(agentId, tail + 4), tail),
             notes,
           );
         }
