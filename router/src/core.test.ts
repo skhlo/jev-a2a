@@ -227,6 +227,7 @@ function needsYouViolations(state: State): string[] {
               taskId: item.taskId,
               messageId: "oracle-answer",
               questionId: item.questionId,
+              deliveryId: item.deliveryId,
               text: "oracle",
             };
       const next = reduce(state, event);
@@ -458,7 +459,7 @@ function noticeViolations(state: State): string[] {
     }
     for (const n of task.notices) {
       // Repeating an unknown notice is safe only through an adapter that
-      // deduplicates, as recorded when the notice was first attempted.
+      // deduplicates, as recorded when the notice fell due.
       const safeBefore = n.idempotent ? ["not_sent", "unknown"] : ["not_sent"];
       if (n.kind === "final" && !task.final)
         out.push(`${task.id}/${n.key}: final notice before the end`);
@@ -1307,10 +1308,16 @@ test("a participant sender hears a question, then the final word, once each, at 
   // The question is due at the sender's placement and recorded as owed; it
   // goes out like a send.
   assert.deepEqual(Core.dueNotices(s, task(s)), [
-    { key: "question/D1/Q1", kind: "question", questionId: "Q1" },
+    {
+      key: "question/D1/Q1",
+      kind: "question",
+      deliveryId: "D1",
+      questionId: "Q1",
+    },
   ]);
   assert.partialDeepStrictEqual(notice(s, "question/D1/Q1"), {
     kind: "question",
+    deliveryId: "D1",
     questionId: "Q1",
     text: null,
     session: null,
@@ -1557,6 +1564,117 @@ test("notices follow the record: no sender session, no notice; a dropped questio
   });
   assert.equal(task(s, "T2").via, "orchestrator@mbp");
   assert.deepEqual(stateViolations(s), []);
+});
+
+test("two deliveries of one fan-out asking under the same id are told and answered apart; a replaced session may not choose", () => {
+  // The orchestrator asks the service on two hosts; both ask back as Q1.
+  let s = idle(idle(initial(config)), "environment@mbp");
+  s = expectOk(s, {
+    type: "observe",
+    placement: "environment@mba",
+    ready: true,
+    session: "environment@mba#1",
+  });
+  s = expectOk(s, {
+    type: "submit",
+    by: ORCH,
+    messageId: "M1",
+    text: "Which shell is active?",
+    to: "environment",
+    hosts: ["mba", "mbp"],
+  });
+  s = deliver(deliver(s, "D1"), "D2");
+  for (const [by, text] of [
+    ["environment@mba#1", "mba: login or interactive?"],
+    ["environment@mbp#1", "mbp: login or interactive?"],
+  ] as const)
+    s = expectOk(s, {
+      type: "update",
+      by,
+      taskId: "T1",
+      messageId: "Q1",
+      inReplyTo: "M1",
+      kind: "question",
+      text,
+    });
+  // Each question is its own notice, naming its delivery.
+  assert.deepEqual(Core.dueNotices(s, task(s)), [
+    {
+      key: "question/D1/Q1",
+      kind: "question",
+      deliveryId: "D1",
+      questionId: "Q1",
+    },
+    {
+      key: "question/D2/Q1",
+      kind: "question",
+      deliveryId: "D2",
+      questionId: "Q1",
+    },
+  ]);
+  assert.deepEqual(notifies(s), ["T1/question/D1/Q1", "T1/question/D2/Q1"]);
+  // An answer by question id alone is ambiguous; naming the delivery is not.
+  expectReject(
+    s,
+    {
+      type: "answer",
+      by: ORCH,
+      taskId: "T1",
+      messageId: "A1",
+      questionId: "Q1",
+      text: "interactive",
+    },
+    "ambiguous",
+  );
+  s = expectOk(s, {
+    type: "answer",
+    by: ORCH,
+    taskId: "T1",
+    messageId: "A1",
+    questionId: "Q1",
+    deliveryId: "D2",
+    text: "interactive",
+  });
+  assert.equal(must(Core.findDelivery(s, "D2")).question, null);
+  assert.equal(must(Core.findDelivery(s, "D1")).question?.id, "Q1");
+  assert.deepEqual(
+    Core.dueNotices(s, task(s)).map((d) => d.key),
+    ["question/D1/Q1"],
+  );
+  assert.equal(notice(s, "question/D2/Q1").outcome, "withdrawn");
+  // With one left, the id alone is enough again.
+  s = expectOk(s, {
+    type: "answer",
+    by: ORCH,
+    taskId: "T1",
+    messageId: "A2",
+    questionId: "Q1",
+    text: "login",
+  });
+  assert.equal(must(Core.findDelivery(s, "D1")).question, null);
+  // A replaced sender session may neither submit nor choose.
+  let r = idle(initial(strictConfig));
+  r = expectOk(r, { type: "submit", by: ORCH, messageId: "M1", text: "vague" });
+  r = judge(r, "T1", "incus", 0.5);
+  r = expectOk(r, {
+    type: "observe",
+    placement: "orchestrator@mbp",
+    ready: true,
+    session: "orchestrator@mbp#2",
+  });
+  expectReject(
+    r,
+    { type: "choose", by: ORCH, taskId: "T1", to: "incus" },
+    "unauthenticated",
+  );
+  r = expectOk(r, {
+    type: "choose",
+    by: "orchestrator@mbp#2",
+    taskId: "T1",
+    to: "incus",
+  });
+  assert.equal(task(r).recipient, "incus");
+  assert.deepEqual(stateViolations(r), []);
 });
 
 test("without deduplication, restart keeps uncertainty; duplicates and wrong replies change nothing; a matching late reply resolves", () => {
@@ -2783,7 +2901,7 @@ test("random event sequences never violate the contract", () => {
         if (
           outcome.message.endsWith("held.") &&
           // Only an attempt is refused as held, and it names its delivery.
-          "deliveryId" in event &&
+          event.type === "attempt" &&
           must(Core.findDelivery(s, event.deliveryId)).session !== null
         )
           reached.add("held pinned");

@@ -162,6 +162,8 @@ test("client: submit, answer and choose post as the participant session", async 
       "answer",
       "--task",
       "T3",
+      "--delivery",
+      "D4",
       "--question",
       "Q1",
       "--text",
@@ -173,6 +175,7 @@ test("client: submit, answer and choose post as the participant session", async 
       by: "A1",
       taskId: "T3",
       questionId: "Q1",
+      deliveryId: "D4",
       text: "ubuntu",
     });
     out = await run(url, ["answer", "--task", "T3", "--text", "x"]);

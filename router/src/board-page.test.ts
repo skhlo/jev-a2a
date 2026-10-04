@@ -368,6 +368,7 @@ test("forms and levers follow the viewer's principals and roles", () => {
   assert.deepEqual(answer?.fields, {
     action: "answer",
     task: "T2",
+    delivery: "D1",
     question: "Q2",
   });
   assert.deepEqual(answer?.inputs, ["text"]);
@@ -501,6 +502,7 @@ test("a login with two principals in one role gets forms for the one its posts a
   assert.deepEqual(formFor(youFirst, "answer")?.fields, {
     action: "answer",
     task: "T2",
+    delivery: "D1",
     question: "Q2",
   });
   assert.ok(formFor(youFirst, "cancel"));

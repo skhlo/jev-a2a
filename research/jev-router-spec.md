@@ -142,7 +142,7 @@ Events (`reduce(state, event) → state`, with `state.last` = `{ ok, code?, mess
 | `attempt { deliveryId }`                                             | shell                                        | Commits `attempting`, pins the session and marks it busy **before** the adapter call. Rejected unless eligible.                                                                                                                                                                 |
 | `adapterResult { deliveryId, messageId, outcome }`                   | shell                                        | `accepted`, `unknown`, or `not_sent`. `not_sent` re-queues; the request may move to another session only if no earlier attempt on this one could have arrived. `unknown` is retried with the same key only for a deduplicating adapter. Applies only to an attempt in progress. |
 | `update { by, taskId, messageId, inReplyTo, kind, text }`            | pinned session                               | `working`, `question`, `completed`, `failed`. Proves receipt. `working` after a question settles the question. A reply to the message before an unsent queued answer withdraws that answer. Other replies to earlier messages are kept as history only.                         |
-| `answer { by, taskId, messageId, questionId, text }`                 | original sender                              | Consumes the open question and queues the answer to the same session. Rejected once the question was settled in the session.                                                                                                                                                    |
+| `answer { by, taskId, messageId, questionId, deliveryId?, text }`    | original sender                              | Consumes the open question and queues the answer to the same session. Rejected once the question was settled in the session, and as `ambiguous` when two deliveries ask under the same id and none is named.                                                                   |
 | `cancel { by, taskId }`                                              | original sender                              | Only while nothing may have reached the participant.                                                                                                                                                                                                                            |
 | `resolve { by: operator, deliveryId, messageId, outcome, evidence }` | operator                                     | Closes an open pinned delivery as `finished` or `not_sent`. Never resends.                                                                                                                                                                                                      |
 | `noticeAttempt { taskId, key, text }`                                | shell                                        | Like `attempt`, for a notice to a participant sender (below): recorded `attempting` with the sender's session before the adapter call; rejected unless the notice is due and eligible; a repeat must carry the first text.                                                      |
@@ -177,10 +177,10 @@ question on a live delivery (`question/<delivery>/<id>`: two deliveries of one
 fan-out may ask under the same message id), a hand-back to choose while it
 stands (`choose/<judgment count>`), and the end (`final`). A notice is
 **eligible** when it is due and not yet accepted; not `attempting`, and not
-`unknown` unless the sender's adapter deduplicates (recorded on the notice at
-its first attempt); and the sender's placement is not busy by the delivery
-rule above, and an `unknown` one only at the session that may have it. A
-question or choice that stops standing before it was accepted
+`unknown` unless the sender's adapter deduplicates (recorded on the notice
+when it falls due) and the session that may have it is still the
+placement's; and the sender's placement is not busy by the delivery rule
+above. A question or choice that stops standing before it was accepted
 is `withdrawn` with a log line and never told late (a notice is recorded as
 `pending` the moment it is due, so one never attempted is withdrawn too);
 `final` is never withdrawn. An `unknown` notice does not hold its session: nothing waits on it
@@ -248,7 +248,7 @@ occur, so the run cannot pass vacuously.
 7. Terminal states, recipients, closed deliveries and send histories never change.
 8. A delivery that may have reached a session stays pinned to it; the pin is released only when every attempt on it was definitely `not_sent`.
 9. A rejected event changes nothing but the log.
-10. Canceled tasks never had a possibly-delivered attempt; terminal tasks have no sendable work.
+10. Canceled tasks never had a possibly-delivered attempt; terminal tasks have no sendable work (a final notice is not work: it goes to the sender, not to a participant).
 11. Only a task with `via` has notices; each key once; an `attempting` notice went to the sender's own session and is the only thing in flight there; a notice is repeated under the rule of 3 by its recorded deduplication; a notice no longer due is never left `pending` or `unknown`.
 
 Mutation checks are run by hand while a rule is added and are not kept in the

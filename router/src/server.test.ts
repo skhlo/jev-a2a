@@ -291,12 +291,7 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
   );
   const logged: string[] = [];
   const server = createServer(
-    boardListener({
-      config,
-      handle,
-      sessionOf,
-      log: (line) => logged.push(line),
-    }),
+    boardListener({ config, handle, log: (line) => logged.push(line) }),
   );
   const url = await serve(server);
   const before = handled.length;
@@ -396,7 +391,6 @@ test("board: asked for JSON, the board serves its model, identified as the page 
   );
   const server = createServer(
     boardListener({
-      sessionOf,
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -517,7 +511,6 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
   );
   const server = createServer(
     boardListener({
-      sessionOf,
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -638,7 +631,7 @@ test("board: a record the code cannot replay is a 500, not a crash", async () =>
     `${JSON.stringify({ at: "t", event: { type: "attempt", deliveryId: "D9" } })}\n`,
   );
   const server = createServer(
-    boardListener({ config: { ...config, home: broken }, handle, sessionOf }),
+    boardListener({ config: { ...config, home: broken }, handle }),
   );
   const url = await serve(server);
   try {

@@ -322,7 +322,7 @@ test("a participant sender is told a question and the end through the adapter, e
   );
   assert.match(
     sent[0]?.text ?? "",
-    /^\[router T1 question\/D1\/Q1\] environment asks about your request\. Answer with: router answer --as A1 --task T1 --question Q1 --text "<answer>" \(or --text-file <path>\)\.\n\nLogin shell or interactive\?$/,
+    /^\[router T1 question\/D1\/Q1\] environment asks about your request\. Answer with: router answer --as A1 --task T1 --delivery D1 --question Q1 --text "<answer>" \(or --text-file <path>\)\.\n\nLogin shell or interactive\?$/,
   );
   assert.match(report.join("\n"), /T1\/question\/D1\/Q1: notice accepted/);
   // Told once: another run with nothing new sends nothing.

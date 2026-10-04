@@ -114,12 +114,11 @@ export type Final = {
 // what it reports, so each is sent once; the outcome follows a send's.
 export type NoticeKind = "question" | "choose" | "final";
 // A notice is recorded as pending when it becomes due, before any attempt.
-export type NoticeDue = {
-  key: string;
-  kind: NoticeKind;
-  // The question to answer, for a question notice.
-  questionId?: string;
-};
+// A question notice names its delivery: two deliveries of one fan-out may
+// ask under the same message id.
+export type NoticeDue =
+  | { key: string; kind: "choose" | "final" }
+  | { key: string; kind: "question"; deliveryId: string; questionId: string };
 export type Notice = NoticeDue & {
   // The text of the first attempt; a repeat sends the same text under the
   // same key, as a send does. Null until attempted.
@@ -236,6 +235,8 @@ export type Event =
       taskId: string;
       messageId: string;
       questionId: string;
+      // Names the delivery when two of them ask under the same id.
+      deliveryId?: string | null;
       text: string;
     }
   | { type: "cancel"; by: string; taskId: string }

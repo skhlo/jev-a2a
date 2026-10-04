@@ -626,7 +626,12 @@ ${model.placements
     const open = `<a class="btn sm ghost" href="${href(item.taskId)}">Open task</a>`;
     const reply = it.act
       ? form(
-          { action: "answer", task: item.taskId, question: item.questionId },
+          {
+            action: "answer",
+            task: item.taskId,
+            delivery: item.deliveryId,
+            question: item.questionId,
+          },
           `<textarea name="text" required placeholder="Reply here without opening the task" aria-label="Your answer to ${esc(item.taskId)}"></textarea>
         <div class="row"><span class="hint"><kbd class="k">↵</kbd> send · <kbd class="k">→</kbd> open task · <kbd class="k">esc</kbd> close</span><span class="spacer"></span>${open}<button class="btn sm accent">Send</button></div>`,
         )
@@ -792,7 +797,12 @@ ${group(
         const to = `Answer <b>${esc(d?.placement ?? t?.recipient ?? DASH)}</b> on ${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}, question ${slot(`${it.path}.questionId`, esc(item.questionId), "mono")}${as}`;
         if (!it.act) return readOnly(to);
         return `  ${form(
-          { action: "answer", task: item.taskId, question: item.questionId },
+          {
+            action: "answer",
+            task: item.taskId,
+            delivery: item.deliveryId,
+            question: item.questionId,
+          },
           `
     <div class="to">${to}</div>
     <textarea name="text" required placeholder="Your answer reaches the session as its next turn" aria-label="Your answer to ${esc(item.taskId)}"></textarea>

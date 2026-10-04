@@ -420,6 +420,8 @@ export function actionEvent(
             taskId: field("task"),
             messageId: newMessageId(),
             questionId: field("question"),
+            // The form names the delivery; an older page may not.
+            deliveryId: field("delivery") || null,
             text: field("text"),
           },
         }

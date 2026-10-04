@@ -311,10 +311,10 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
 - **Secrets:** copy `router/secrets.env.example` to
   `~/.config/jev-router/secrets.env`, mode 600. The router host needs
   `TYPESAFE_API_KEY`, and `ROUTER_TOKEN` for `router serve`: a secret you
-  choose, which reply hosts present.
+  choose, which the other hosts' clients present.
 - **Reachable address:** `serve.listen` defaults to `127.0.0.1:7677`. Set it
   to an address the other hosts can reach, such as the host's tailnet
-  address, if agents on other hosts reply.
+  address, if participants on other hosts take part.
 - **Record:** the journal lives in `~/.local/state/jev-router/`, or wherever
   `home` in the config points.
 - **Service:** `router/jev-router.service` runs `router serve` as a systemd
@@ -362,12 +362,15 @@ fails if the run changed `package.json` or the lockfile.
 - The board trusts the login header Tailscale Serve sets, so anything that
   can reach its loopback port can claim a login.
 - A participant sender is told once per key. A notice whose adapter call
-  was interrupted or whose host was unreachable is marked unknown and, for
-  a participant whose adapter does not deduplicate, is not repeated; there
-  is no operator form for it. On the router host the sender still finds the
-  item with `router needs-you --as <session>` and `router status`; the
-  client on another host has no query command, so a person relays it. Mark
-  a Paseo participant `idempotent: true`, as its sends are keyed.
+  was interrupted or whose host was unreachable is marked unknown and is
+  not repeated when the participant's adapter does not deduplicate, or when
+  its session was replaced since; there is no operator form for it. On the
+  router host the sender still finds the item with
+  `router needs-you --as <participant>` and `router status`; the client on
+  another host has no query command, so a person relays it. Mark a Paseo
+  participant `idempotent: true`, as its sends are keyed.
+- When two deliveries of one request ask under the same message id, an
+  answer must name its delivery (`--delivery`); the notices do.
 - Not exercised live: a host that is down for a whole run, token rotation,
   and throughput. The spec keeps the full list.
 

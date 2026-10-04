@@ -50,7 +50,7 @@ const USAGE = `router: a prompt with an envelope and a record
   router status [<task>]                       the record
   router needs-you [--as <principal>]          decisions waiting on a person
   router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ... | --text-file <path>] [--message <id>]
-  router answer --task <T> --question <Q> (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
+  router answer --task <T> --question <Q> [--delivery <D>] (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
   router observe <participant@host> --hold | --release
   router resolve --delivery <D> --message <M> --outcome finished|not_sent --evidence ... [--as <operator>]
   router cancel <task> [--as <principal>]
@@ -303,6 +303,7 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
         taskId: need("task"),
         messageId: values.message ?? newMessageId(),
         questionId: need("question"),
+        deliveryId: values.delivery ?? null,
         text: textArg() || fail("An answer needs text that is not empty."),
       });
     case "observe": {
@@ -388,7 +389,7 @@ function describe(task: Task, state: State): string[] {
         `  notice ${n.key} → ${task.via} · session ${n.session ?? "none"} · ${n.outcome}`,
       );
     for (const { key, why } of noticeWaits(state, task))
-      lines.push(`  notice ${key} waits: ${why}`);
+      lines.push(`  notice ${key} waits: ${why.replaceAll("_", " ")}`);
   }
   for (const entry of taskLog(state.log, task.id))
     lines.push(`  ${entry.n}. ${entry.actor}: ${entry.text}`);

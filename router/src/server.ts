@@ -2,7 +2,8 @@
 // their dependencies, so the guards can be tested without a process; and
 // `bind`, which puts a listener on its address or says why it cannot.
 //
-// Events: replies and answers from other hosts, behind the bearer token.
+// Events: replies, answers, requests and choices from other hosts, behind
+// the bearer token.
 // Board: the page, its view model as JSON, and its actions, on loopback
 // behind Tailscale Serve, which stamps the viewer's login on each request.
 // Serve strips its mount path, so board routes match by suffix.
@@ -200,7 +201,9 @@ function wantsJson(accept: string | undefined): boolean {
   );
 }
 
-export function boardListener(deps: ServerDeps): RequestListener {
+export function boardListener(
+  deps: Omit<ServerDeps, "sessionOf">,
+): RequestListener {
   const { config } = deps;
   const log = deps.log ?? ((): void => undefined);
   const now = deps.now ?? Date.now;

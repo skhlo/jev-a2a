@@ -224,10 +224,9 @@ export async function openShell(
       config.hosts[placement?.host ?? ""]?.replyCommand ?? "router";
     const as = `--as ${placement?.session ?? "<session>"}`;
     const head = `[router ${task.id} ${key}]`;
-    if (kind === "question") {
-      const id = due.questionId ?? "";
-      const delivery = task.deliveries.find((d) => d.question?.id === id);
-      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --question ${id} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
+    if (due.kind === "question") {
+      const delivery = task.deliveries.find((d) => d.id === due.deliveryId);
+      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --delivery ${due.deliveryId} --question ${due.questionId} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
     }
     if (kind === "choose") {
       const routing =
@@ -297,7 +296,9 @@ export async function openShell(
     for (const task of state.tasks) {
       if (task.via === null || !isServed(task.via)) continue;
       for (const { key, why } of noticeWaits(state, task))
-        report.push(`${task.id} notice ${key} waits: ${why}`);
+        report.push(
+          `${task.id} notice ${key} waits: ${why.replaceAll("_", " ")}`,
+        );
     }
   }
 

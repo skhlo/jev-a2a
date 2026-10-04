@@ -26,7 +26,7 @@ try {
 const USAGE = `This host's router client supports:
   router reply --task T --in-reply-to M --kind K (--text ... | --text-file <path>)
   router submit [--to <participant>] [--hosts a,b] [--message <id>] (<text...> | --text-file <path>)
-  router answer --task T --question Q (--text ... | --text-file <path>) [--message <id>]
+  router answer --task T --question Q [--delivery D] (--text ... | --text-file <path>) [--message <id>]
   router choose --task T --to <participant>
 Every command acts as the participant session $PASEO_AGENT_ID.`;
 
@@ -43,6 +43,7 @@ const { values, positionals } = parseArgs({
     to: { type: "string" },
     hosts: { type: "string" },
     question: { type: "string" },
+    delivery: { type: "string" },
     // Named in the router's notices for the CLI on the router host; here
     // the session is always $PASEO_AGENT_ID.
     as: { type: "string" },
@@ -121,6 +122,7 @@ switch (command) {
       taskId: values.task,
       messageId: messageId(),
       questionId: values.question,
+      deliveryId: values.delivery ?? null,
       text: textOf(),
     };
     break;

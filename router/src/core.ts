@@ -195,6 +195,22 @@ const noticeInFlight = (state: State, session: string): boolean =>
     t.notices.some((n) => n.outcome === "attempting" && n.session === session),
   );
 
+// A session that a placement no longer binds may finish its work but not
+// start any: no new request, no choice of recipient.
+function replacedSession(state: State, by: string): Rejected | null {
+  const session = state.sessions[by];
+  if (
+    session &&
+    state.placements[placementKey(session.participant, session.host)]
+      ?.session !== by
+  )
+    return reject(
+      "unauthenticated",
+      "A replaced session cannot submit new work or choose a recipient.",
+    );
+  return null;
+}
+
 // Authenticated caller -> principal: a configured principal id, or the
 // participant that owns the calling session.
 function principalOf(state: State, by: unknown): string | null {
@@ -362,6 +378,7 @@ export function dueNotices(state: State, task: Task): NoticeDue[] {
         due.push({
           key: `question/${delivery.id}/${delivery.question.id}`,
           kind: "question",
+          deliveryId: delivery.id,
           questionId: delivery.question.id,
         });
   }
@@ -400,12 +417,12 @@ export function noticeBlockedReason(
 export function noticeWaits(
   state: State,
   task: Task,
-): { key: string; why: string }[] {
-  const waits: { key: string; why: string }[] = [];
+): { key: string; why: BlockedReason }[] {
+  const waits: { key: string; why: BlockedReason }[] = [];
   for (const due of dueNotices(state, task)) {
     const why = noticeBlockedReason(state, task, due.key);
     if (why && why !== "told" && why !== "closed" && why !== "not_pending")
-      waits.push({ key: due.key, why: why.replaceAll("_", " ") });
+      waits.push({ key: due.key, why });
   }
   return waits;
 }
@@ -671,15 +688,9 @@ const handlers: Handlers = {
         "unauthenticated",
         "Only the user or a current participant session can submit.",
       );
+    const replaced = replacedSession(state, by);
+    if (replaced) return replaced;
     const session = state.sessions[by];
-    if (
-      session &&
-      state.placements[placementKey(source, session.host)]?.session !== by
-    )
-      return reject(
-        "unauthenticated",
-        "A replaced session cannot submit new work.",
-      );
     const invalid = badMessageId(messageId) ?? badText(state, text);
     if (invalid) return invalid;
     if (
@@ -802,7 +813,7 @@ const handlers: Handlers = {
   choose(state, { by, taskId, to }) {
     const task = findTask(state, taskId);
     if (!task) return reject("not_found", "No such request.");
-    const forbidden = notSender(state, by, task);
+    const forbidden = notSender(state, by, task) ?? replacedSession(state, by);
     if (forbidden) return forbidden;
     if (isTerminal(task) || task.routing?.state !== "needs_recipient")
       return reject(
@@ -970,7 +981,10 @@ const handlers: Handlers = {
     });
   },
 
-  answer(state, { by, taskId, messageId, questionId, text }) {
+  answer(
+    state,
+    { by, taskId, messageId, questionId, deliveryId = null, text },
+  ) {
     const task = findTask(state, taskId);
     if (!task) return reject("not_found", "No such request.");
     const invalid =
@@ -987,9 +1001,18 @@ const handlers: Handlers = {
         "terminal",
         `${task.id} is ${task.final.status} and accepts no further messages.`,
       );
-    const delivery = task.deliveries.find(
-      (d) => isOpen(d) && d.question?.id === questionId,
+    const asking = task.deliveries.filter(
+      (d) =>
+        isOpen(d) &&
+        d.question?.id === questionId &&
+        (deliveryId === null || d.id === deliveryId),
     );
+    if (asking.length > 1)
+      return reject(
+        "ambiguous",
+        `${asking.map((d) => d.id).join(" and ")} both ask under ${questionId}; pass the delivery.`,
+      );
+    const delivery = asking[0];
     if (!delivery)
       return reject(
         "no_question",
