@@ -1,19 +1,19 @@
-// The board's page: the v0.10 console of the board design (skhlo/designs, tag
-// jev-a2a-v0.10, scripts/gen-jev-a2a-board.py), drawn on the server from the
+// The board's page: the v0.11 console of the board design (skhlo/designs, tag
+// jev-a2a-v0.11, scripts/gen-jev-a2a-board.py), drawn on the server from the
 // view model and the viewer. The template translates the generator's HTML
 // functions and carries its CSS: every slot keeps the data-path the design
 // gives it, rows keep data-task and groups data-group, so the live page can
 // be compared with the design mechanically. Forms post to the board's
 // actions endpoint with its own fields. The page reads and posts without a
 // script; the script keeps a person's state across refreshes and adds the
-// theme switch, the filter, the keys and the peek.
+// theme switch, the filter, the keys, the peek and the sheet.
 import type {
   BoardModel,
   DeliveryView,
   PlacementView,
   TaskView,
 } from "./board.ts";
-import { checkoutParts, type AgentStatus } from "./telemetry.ts";
+import type { AgentSnapshot, AgentStatus, Checkout } from "./telemetry.ts";
 import type {
   Judgment,
   NeedsYouItem,
@@ -65,6 +65,31 @@ export const age = (iso: string | null | undefined, at: string): string =>
 export const percent = (used: number, max: number): number =>
   Math.round((100 * used) / max);
 
+// hms(t): the clock with its seconds, HH:MM:SSZ, for activity rows, where
+// several items share a minute (v0.11).
+export const hms = (iso: string | null | undefined): string => {
+  const at = instant(iso);
+  return at ? `${at.toISOString().slice(11, 19)}Z` : DASH;
+};
+
+const n = (value: number): string => value.toLocaleString("en-US");
+
+// diff(additions, deletions): "+a −d", the minus sign U+2212.
+export const diff = (additions: number, deletions: number): string =>
+  `+${n(additions)} −${n(deletions)}`;
+
+// counts(obj): the non-zero counts with their key names as words, in the
+// object's order, joined by " · ".
+export const counts = (obj: Record<string, number>): string =>
+  Object.entries(obj)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${n(value)} ${label(key)}`)
+    .join(" · ");
+
+// The router reads subagents and activity only for a live session.
+const live = (a: AgentSnapshot | null): boolean =>
+  a !== null && (a.status === "idle" || a.status === "running");
+
 // left(deadline, at): the countdown to the deadline, or how far past it.
 export const left = (deadline: string, at: string): string => {
   const ms = Date.parse(deadline) - Date.parse(at);
@@ -111,6 +136,35 @@ const STATUS_NOTE: Partial<Record<AgentStatus, string>> = {
   error: "the session reported an error",
   missing: "the daemon does not know this agent",
   unreachable: "the host could not be reached",
+};
+// The sheet's words for a pull request's checks and review, with the role
+// that colours them (v0.11).
+const CHECKS: Record<
+  NonNullable<NonNullable<Checkout["pr"]>["checks"]> | "null",
+  [string, string]
+> = {
+  failure: ["checks failing", "role-err"],
+  pending: ["checks pending", "muted"],
+  success: ["checks passing", "role-ok"],
+  none: ["no checks", "muted"],
+  null: ["checks unknown", "muted"],
+};
+const REVIEW: Record<string, string> = {
+  changes_requested: "changes requested",
+  approved: "approved",
+  pending: "review pending",
+};
+// Activity kinds as the feed words them; the quiet ones read muted.
+const KIND: Record<string, string> = {
+  user_message: "user",
+  assistant_message: "assistant",
+  tool_call: "tool",
+};
+const QUIET = ["compaction", "notification", "plugin"];
+const STATUS_CLS: Record<string, string> = {
+  running: "running",
+  failed: "role-err",
+  canceled: "muted",
 };
 const shortId = (id: string): string => (UUID.test(id) ? id.slice(0, 8) : id);
 const fullId = (id: string): string =>
@@ -421,14 +475,16 @@ ${body}
   // line is the first that applies: pending permissions in the accent;
   // error, missing and unreachable dotted with the error as tooltip (a
   // sentence when there is none); running with the turn's age; idle with
-  // the last turn's end; any other status as words. A null agent reads
-  // "no telemetry".
+  // the last turn's end; any other status as words; v0.11 adds "· n
+  // subagents" while any run. A null agent reads "no telemetry". The card
+  // joins the status and the seen age into one line; the sheet shows them
+  // apart.
   const health = (
     path: string,
     a: PlacementView["agent"],
-  ): { line: string; meter: string } => {
+  ): { line: string; seen: string; meter: string } => {
     const ap = `${path}.agent`;
-    if (!a) return { line: slot(ap, "no telemetry", "k"), meter: "" };
+    if (!a) return { line: slot(ap, "no telemetry", "k"), seen: "", meter: "" };
     const errTip = ` title="${esc(a.error ?? STATUS_NOTE[a.status] ?? "")}"`;
     let line: string;
     if (a.permissions.length) {
@@ -460,7 +516,15 @@ ${body}
     }
     if (a.attention === "error" && !(a.status in STATUS_NOTE))
       line += ` · ${slot(`${ap}.attention, ${ap}.error`, "error", "err", "span", errTip)}`;
-    line += ` · ${ago(`age(${ap}.seen, at)`, a.seen, "seen num", `seen ${age(a.seen, at)}`)}`;
+    const running = a.subagents?.running.length ?? 0;
+    if (running)
+      line += ` · ${slot(`count(${ap}.subagents.running)`, count(running, "subagent"))}`;
+    const seen = ago(
+      `age(${ap}.seen, at)`,
+      a.seen,
+      "seen num",
+      `seen ${age(a.seen, at)}`,
+    );
     let meter = "";
     const c = a.context;
     if (c) {
@@ -475,77 +539,7 @@ ${body}
       }
       meter = `<span class="meter${pct >= 80 ? " full" : ""}" data-path="${ap}.context, ${ap}.usage" title="${esc(tip)}"><span class="bar"><i style="width: ${pct}%"></i></span>${slot(`percent(${ap}.context.used, ${ap}.context.max)`, `${pct}%`, "num")}</span>`;
     }
-    return { line, meter };
-  };
-  // The health sheet, plain until v0.11 binds it, above the health row:
-  // the checkout as the sidebar's row (branch starred when dirty, diff,
-  // pull request with its checks, the title as tooltip), the subagents
-  // counted with the open briefs as tooltip, and the activity tail as one
-  // line per entry. A field the router did not read is left out; no field,
-  // no row.
-  const sheet = (path: string, a: PlacementView["agent"]): string => {
-    if (!a || (!a.checkout && !a.subagents && !a.activity)) return "";
-    const ap = `${path}.agent`;
-    const rows: string[] = [];
-    const c = a.checkout;
-    if (c) {
-      const [branch, ...rest] = checkoutParts(c);
-      const parts = [
-        slot(
-          `${ap}.checkout.branch, ${ap}.checkout.dirty`,
-          esc(branch),
-          "",
-          "span",
-          ` title="${esc(`${c.project} · ${c.workspace} · ${c.directory}`)}"`,
-        ),
-      ];
-      if (c.diff)
-        parts.push(slot(`${ap}.checkout.diff`, esc(rest.shift()), "num"));
-      // The pull request links out when its URL is a web address; the
-      // router shows what the daemon said, it does not run it.
-      if (c.pr) {
-        const web = /^https:\/\//.test(c.pr.url);
-        parts.push(
-          slot(
-            `${ap}.checkout.pr`,
-            esc(rest.shift()),
-            c.pr.checks === "failure" ? "err" : "",
-            web ? "a" : "span",
-            `${web ? ` href="${esc(c.pr.url)}"` : ""} title="${esc(c.pr.title)}"`,
-          ),
-        );
-      }
-      rows.push(parts.join(" · "));
-    }
-    const sub = a.subagents;
-    if (sub) {
-      const total = Object.values(sub.counts).reduce((n, k) => n + k, 0);
-      rows.push(
-        slot(
-          `${ap}.subagents.counts`,
-          `${count(total, "subagent")} (${sub.counts.running} running)`,
-          sub.counts.running ? "" : "k",
-          "span",
-          sub.running.length
-            ? ` title="${esc(sub.running.map((r) => `${r.title ?? "subagent"}: ${r.description ?? r.id}`).join("\n"))}"`
-            : "",
-        ),
-      );
-    }
-    const act = a.activity;
-    if (act)
-      rows.push(
-        act.items.length
-          ? act.items
-              .map(
-                (it, j) =>
-                  `<div data-path="${ap}.activity.items[${j}]"${dated(it.at)}><b>${esc(it.tool ?? label(it.kind))}</b>${it.status ? ` <span class="k">${esc(it.status)}</span>` : ""}${it.text ? ` ${esc(it.text)}` : ""}</div>`,
-              )
-              .join("")
-          : slot(`${ap}.activity.items`, "no activity", "k"),
-      );
-    return `        <div class="sheet" data-path="${ap}.checkout, ${ap}.subagents, ${ap}.activity">${rows.map((r) => `<div>${r}</div>`).join("")}</div>
-`;
+    return { line, seen, meter };
   };
   // provider/model, thinking and mode as tags; a null field is left out.
   const harnessTags = (path: string, a: PlacementView["agent"]): string => {
@@ -567,22 +561,283 @@ ${body}
     return `${pm ? slot(`${ap}.provider, ${ap}.model`, esc(pm), "tag") : ""}${tag("thinking")}${tag("mode")}`;
   };
 
-  const card = (p: PlacementView, i: number): string => {
-    const path = `placements[${i}]`;
-    const d = p.delivery;
-    const latest = d?.latest ?? null;
-    const dot = dotOf(p);
-    const asks = dot === "ask";
-    // A hold says a person is typing in the session, so any identified
-    // viewer may set it (v0.9).
+  // The card's levers: Answer T while the placement asks the viewer; Hold
+  // or Release for an identified viewer, since a hold says a person is
+  // typing in the session (v0.9).
+  const leversOf = (p: PlacementView, path: string): string[] => {
     const holdLever = actor
       ? form(
           { action: "hold", placement: p.key, hold: p.hold ? "0" : "1" },
           slot(`${path}.hold`, p.hold ? "Release" : "Hold", "btn sm", "button"),
         )
       : "";
-    const name = slot(`${path}.key`, esc(p.key));
-    const { line, meter } = health(path, p.agent);
+    return [
+      ...(p.delivery
+        ? answers(p.delivery.id)
+            .filter((it) => it.act)
+            .map((it) =>
+              slot(
+                it.path,
+                `Answer ${esc(it.item.taskId)}`,
+                "btn sm accent",
+                "a",
+                ` href="${href(it.item.taskId, `#answer-${it.item.deliveryId}`)}"`,
+              ),
+            )
+        : []),
+      holdLever,
+    ].filter(Boolean);
+  };
+  // The tags after ready and held: provider/model, thinking and mode (v0.10)
+  // on a busy card; the sheet shows them with the host and the session.
+  const sessionTags = (p: PlacementView, path: string): string =>
+    slot(`${path}.host`, esc(p.host), "tag") +
+    slot(
+      `${path}.session`,
+      `session ${esc(shortId(p.session))}`,
+      "tag",
+      "span",
+      fullId(p.session),
+    );
+
+  // ---- The sheet (v0.11) ----
+
+  // One placement's health, over the tasks column, opened from its card's
+  // name or the s key; every placement's sheet is in the page, hidden, and
+  // the script shows one by its key, keeping it open across refreshes. The
+  // head repeats the card's dot, name, meter, status line with the seen age
+  // and levers, then the tags. Checkout is a key-value grid; Subagents the
+  // counts and a tree one level deep of the running ones; Activity the last
+  // eight timeline items. A null section reads "<name> not read", adding
+  // "session not live" when the router would not read it.
+  const section = (kicker: string, body: string, extra = ""): string =>
+    `    <section>
+      <h3><span class="kicker">${kicker}</span>${extra}</h3>
+      ${body}
+    </section>`;
+  const notRead = (path: string, name: string, a: AgentSnapshot | null) =>
+    slot(
+      path,
+      `${name} not read${live(a) ? "" : " · session not live"}`,
+      "none",
+      "p",
+    );
+  const sep = '<span class="muted">·</span>';
+  const checkoutSection = (ap: string, c: Checkout | null): string => {
+    const cp = `${ap}.checkout`;
+    if (!c)
+      return section("Checkout", slot(cp, "checkout not read", "none", "p"));
+    const rows: [string, string][] = [
+      ["project", slot(`${cp}.project`, esc(c.project))],
+      [
+        "workspace",
+        slot(`${cp}.workspace`, esc(c.workspace)) +
+          slot(`${cp}.kind`, esc(label(c.kind)), "muted"),
+      ],
+      [
+        "directory",
+        slot(
+          `${cp}.directory`,
+          esc(c.directory),
+          "mono path",
+          "span",
+          ` title="${esc(c.directory)}"`,
+        ),
+      ],
+    ];
+    let branch = c.branch
+      ? slot(`${cp}.branch`, esc(c.branch), "mono")
+      : slot(`${cp}.branch`, "detached", "muted");
+    if (c.remote) branch += slot(`${cp}.remote`, esc(c.remote), "mono muted");
+    if (c.dirty) branch += slot(`${cp}.dirty`, "dirty", "role-warn");
+    const ahead = c.ahead ?? 0;
+    const behind = c.behind ?? 0;
+    if (ahead || behind)
+      branch += slot(
+        `${cp}.ahead, ${cp}.behind`,
+        `ahead ${ahead} · behind ${behind}`,
+        "muted num",
+      );
+    rows.push(["branch", branch]);
+    rows.push([
+      "diff",
+      c.diff
+        ? slot(
+            `diff(${cp}.diff.additions, ${cp}.diff.deletions)`,
+            diff(c.diff.additions, c.diff.deletions),
+            "num",
+          )
+        : slot(`${cp}.diff`, "no diff", "muted"),
+    ]);
+    const pr = c.pr;
+    if (pr) {
+      const pp = `${cp}.pr`;
+      const title = `#${pr.number ?? "?"} ${pr.title}`;
+      const state = pr.draft ? "draft" : pr.merged ? "merged" : label(pr.state);
+      // The title keeps its own row; checks and review take the next one,
+      // so a long title is not squeezed. The link needs a web address.
+      const web = /^https:\/\//.test(pr.url);
+      rows.push([
+        "pull request",
+        slot(
+          `${pp}.number, ${pp}.title, ${pp}.url`,
+          esc(title),
+          "pr",
+          web ? "a" : "span",
+          `${web ? ` href="${esc(pr.url)}"` : ""} title="${esc(title)}"`,
+        ) +
+          slot(`${pp}.state, ${pp}.draft, ${pp}.merged`, esc(state), "muted") +
+          (pr.mergeable === "CONFLICTING"
+            ? slot(`${pp}.mergeable`, "conflicts", "role-warn")
+            : ""),
+      ]);
+      const [word, role] = CHECKS[pr.checks ?? "null"];
+      let checks = slot(`${pp}.checks`, word, role);
+      if (pr.review)
+        checks +=
+          sep +
+          slot(`${pp}.review`, esc(REVIEW[pr.review] ?? label(pr.review)));
+      rows.push(["checks", checks]);
+    } else
+      rows.push(["pull request", slot(`${cp}.pr`, "no pull request", "muted")]);
+    let status = slot(`${cp}.status`, esc(label(c.status)));
+    if (c.activityAt)
+      status += ago(
+        `age(${cp}.activityAt, at)`,
+        c.activityAt,
+        "muted num",
+        `active ${age(c.activityAt, at)}`,
+      );
+    rows.push(["status", status]);
+    return section(
+      "Checkout",
+      `<dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`,
+    );
+  };
+  const subagentsSection = (ap: string, a: AgentSnapshot | null): string => {
+    const sp = `${ap}.subagents`;
+    const sub = a?.subagents ?? null;
+    if (!sub) return section("Subagents", notRead(sp, "subagents", a));
+    const tally = counts(sub.counts);
+    const running = sub.running;
+    if (!tally && !running.length)
+      return section("Subagents", slot(sp, "none", "none", "p"));
+    const body = tally
+      ? slot(`counts(${sp}.counts)`, esc(tally), "counts-line", "p")
+      : "";
+    if (!running.length)
+      return section(
+        "Subagents",
+        body + slot(`${sp}.running`, "none running", "none", "p"),
+      );
+    const row = (k: number): string => {
+      const x = running[k];
+      if (!x) return "";
+      const rp = `${sp}.running[${k}]`;
+      const desc = x.description ?? "";
+      return `<div class="subagent" data-path="${rp}"><span class="dot ${x.status === "running" ? "work" : "done"}" data-path="${rp}.status" title="${esc(x.status)}"></span>${slot(`${rp}.title`, esc(x.title ?? "subagent"), "title", "span", ` title="${esc(x.id)}"`)}${slot(`${rp}.description`, esc(desc), "desc", "span", ` title="${esc(desc)}"`)}${ago(`age(${rp}.startedAt, at)`, x.startedAt, "when", `started ${age(x.startedAt, at)}`)}${ago(`age(${rp}.updatedAt, at)`, x.updatedAt, "when", `updated ${age(x.updatedAt, at)}`)}</div>`;
+    };
+    // A tree one level deep: top-level rows first, each followed by its
+    // children; a child whose parent is not in running[] has no row to hang
+    // under and sits at the top level.
+    const ids = new Set(running.map((x) => x.id));
+    const rows: string[] = [];
+    running.forEach((x, k) => {
+      if (x.parent !== null && ids.has(x.parent)) return;
+      rows.push(row(k));
+      const kids = running.flatMap((y, j) =>
+        y.parent === x.id ? [row(j)] : [],
+      );
+      if (kids.length)
+        rows.push(
+          `<div class="kids" data-path="${sp}.running[].parent">${kids.join("")}</div>`,
+        );
+    });
+    return section(
+      "Subagents",
+      `${body}<div class="subs">${rows.join("")}</div>`,
+    );
+  };
+  const activitySection = (ap: string, a: AgentSnapshot | null): string => {
+    const acp = `${ap}.activity`;
+    const act = a?.activity ?? null;
+    if (!act) return section("Activity · last 8", notRead(acp, "activity", a));
+    const turns = slot(`${acp}.turns`, count(act.turns, "turn"), "n");
+    if (!act.items.length)
+      return section(
+        "Activity · last 8",
+        slot(`${acp}.items`, "none", "none", "p"),
+        turns,
+      );
+    const rows = act.items.map((it, k) => {
+      const ip = `${acp}.items[${k}]`;
+      const call = it.kind === "tool_call";
+      const now = k === act.items.length - 1 && call && it.status === "running";
+      const cls = `item${now ? " now" : ""}${it.kind === "error" ? " error" : QUIET.includes(it.kind) ? " quiet" : ""}`;
+      let what = "";
+      if (call) {
+        what += slot(`${ip}.tool`, esc(it.tool ?? "tool"), "tool");
+        if (it.status)
+          what += slot(
+            `${ip}.status`,
+            esc(it.status),
+            `status ${STATUS_CLS[it.status] ?? ""}`.trim(),
+          );
+      }
+      if (it.text)
+        what += slot(
+          `${ip}.text`,
+          esc(it.text),
+          "text",
+          "span",
+          ` title="${esc(it.text)}"`,
+        );
+      return `<div class="${cls}" data-path="${ip}"${now ? ' aria-current="true"' : ""}><span class="mark"></span>${slot(`hms(${ip}.at)`, hms(it.at), "at", "span", dated(it.at))}${slot(`${ip}.kind`, esc(KIND[it.kind] ?? label(it.kind)), "kind")}<span class="what">${what}</span></div>`;
+    });
+    return section(
+      "Activity · last 8",
+      `<div class="feed">${rows.join("")}</div>`,
+      turns,
+    );
+  };
+  const sheetOf = (p: PlacementView, i: number): string => {
+    const path = `placements[${i}]`;
+    const a = p.agent;
+    const ap = `${path}.agent`;
+    const { line: status, seen, meter } = health(path, p.agent);
+    const line = seen ? `${status} · ${seen}` : status;
+    return `<aside class="sheet" role="dialog" aria-label="${esc(p.key)}" data-path="${path}" data-key="${esc(p.key)}" hidden>
+  <div class="head">
+    <div class="name"><span class="dot ${dotOf(p)}" data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"></span><h2>${slot(`${path}.key`, esc(p.key))}</h2>${meter}<button class="close" type="button" aria-label="Close" title="Close (esc)">×</button></div>
+    <div class="tele"><span class="line">${line}</span>${lever(leversOf(p, path))}</div>
+    <div class="rig">${harnessTags(path, a)}${sessionTags(p, path)}</div>
+  </div>
+  <div class="body">
+${checkoutSection(ap, a?.checkout ?? null)}
+${subagentsSection(ap, a)}
+${activitySection(ap, a)}
+  </div>
+</aside>`;
+  };
+
+  const card = (p: PlacementView, i: number): string => {
+    const path = `placements[${i}]`;
+    const d = p.delivery;
+    const latest = d?.latest ?? null;
+    const dot = dotOf(p);
+    const asks = dot === "ask";
+    const levers = leversOf(p, path);
+    // The name opens the placement's health sheet, as s does on the
+    // focused card (v0.11).
+    const name = slot(
+      `${path}.key`,
+      esc(p.key),
+      "key",
+      "span",
+      ' role="button" aria-haspopup="dialog" title="Open the sheet (s)"',
+    );
+    const { line: status, seen, meter } = health(path, p.agent);
+    const line = seen ? `${status} · ${seen}` : status;
     if (!d) {
       // Idle: no delivery pinned to the session. The card collapses to its
       // name, dot, state and lever.
@@ -598,7 +853,7 @@ ${body}
         dot,
         `        <div class="name">${name}</div>
         <div class="what">${what}</div>
-${sheet(path, p.agent)}${tele(line, meter, holdLever ? [holdLever] : [])}`,
+${tele(line, meter, levers)}`,
       );
     }
     const task = slot(
@@ -638,14 +893,7 @@ ${sheet(path, p.agent)}${tele(line, meter, holdLever ? [holdLever] : [])}`,
       ? ` · ${slot(`${path}.delivery.question.text`, esc(d.question.text))}`
       : ` · ${slot(`${path}.delivery.excerpt`, esc(d.excerpt))}`;
     const rig =
-      slot(`${path}.host`, esc(p.host), "tag") +
-      slot(
-        `${path}.session`,
-        `session ${esc(shortId(p.session))}`,
-        "tag",
-        "span",
-        fullId(p.session),
-      ) +
+      sessionTags(p, path) +
       slot(`${path}.ready`, p.ready ? "ready" : "not ready", "tag") +
       (p.hold ? slot(`${path}.hold`, "held", "tag") : "") +
       harnessTags(path, p.agent);
@@ -667,20 +915,6 @@ ${sheet(path, p.agent)}${tele(line, meter, holdLever ? [holdLever] : [])}`,
           : latest?.at
             ? ago(`age(${latestAt}, at)`, latest.at, "age num")
             : "";
-    const levers = [
-      ...answers(d.id)
-        .filter((it) => it.act)
-        .map((it) =>
-          slot(
-            it.path,
-            `Answer ${esc(it.item.taskId)}`,
-            "btn sm accent",
-            "a",
-            ` href="${href(it.item.taskId, `#answer-${it.item.deliveryId}`)}"`,
-          ),
-        ),
-      holdLever,
-    ].filter(Boolean);
     return cardShell(
       path,
       asks ? " warm" : "",
@@ -689,7 +923,7 @@ ${sheet(path, p.agent)}${tele(line, meter, holdLever ? [holdLever] : [])}`,
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
         <div class="rig">${rig}</div>
         <div class="stats">${stats}</div>
-${sheet(path, p.agent)}${tele(line, "", levers)}`,
+${tele(line, "", levers)}`,
     );
   };
 
@@ -1166,9 +1400,9 @@ ${
 <style>${STYLE}</style></head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
-     what it reads, as in the board design v0.10: a plain path indexes the
-     model, and time(), age(), left(), count() and percent() are formats
-     over it. -->
+     what it reads, as in the board design v0.11: a plain path indexes the
+     model, and time(), hms(), age(), left(), count(), percent(), diff() and
+     counts() are formats over it. -->
 ${notice}
 <div id="app" data-refresh="${refreshSeconds}">
 ${nav}
@@ -1176,9 +1410,10 @@ ${nav}
 ${agents}
 ${tasksPanel}
 ${detail()}
+${model.placements.map((p, i) => sheetOf(p, i)).join("\n")}
 </main>
 <footer class="keys">
-  <span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>
+  <span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>
   <span class="spacer"></span>
   <span>refreshes every ${refreshSeconds}s</span>
 </footer>
@@ -1188,12 +1423,13 @@ ${detail()}
   <dt>space</dt><dd>Peek at a row's question and reply beside it</dd>
   <dt>↵</dt><dd>Open the task; in the peek, send the reply (⇧↵ breaks the line)</dd>
   <dt>→</dt><dd>Open the task of the open peek</dd>
+  <dt>s</dt><dd>Open the health sheet of the focused agent, or the selected task's</dd>
   <dt>a</dt><dd>Answer the open question</dd>
   <dt>c</dt><dd>Cancel the selected task</dd>
   <dt>h</dt><dd>Hold or release the focused agent, or the selected task's</dd>
   <dt>/</dt><dd>Filter the task rows</dd>
   <dt>⌘↩ or Ctrl ↩</dt><dd>Send the form you are typing in</dd>
-  <dt>esc</dt><dd>Close the peek or this list</dd>
+  <dt>esc</dt><dd>Close the peek, the sheet or this list</dd>
 </dl></div>
 <script>${SCRIPT}</script>
 </body></html>
@@ -1214,6 +1450,7 @@ const STYLE = `
 :root, html[data-theme="flexoki"] {
   --canvas: #100F0F; --surface: #1C1B1A; --surface-2: #282726; --text: #CECDC3; --text-2: #878580; --text-3: #575653;
   --hair: #282726; --hair-soft: #1F1E1D; --hair-strong: #403E3C;
+  --ok: #879A39; --warn: #DA702C; --err: #D14D41;
   --wash: rgba(206,205,195,.05); --press: rgba(206,205,195,.10);
   --accent: #4385BE; --accent-soft: rgba(67,133,190,.16); --accent-line: rgba(67,133,190,.4); --on-accent: #FFFCF0;
   --shadow: rgba(0,0,0,.45);
@@ -1223,6 +1460,7 @@ const STYLE = `
   html[data-theme="flexoki"] {
     --canvas: #FFFCF0; --surface: #F2F0E5; --surface-2: #E6E4D9; --text: #100F0F; --text-2: #6F6E69; --text-3: #B7B5AC;
     --hair: #E6E4D9; --hair-soft: #ECEAE0; --hair-strong: #CECDC3;
+    --ok: #66800B; --warn: #BC5215; --err: #AF3029;
     --wash: rgba(16,15,15,.04); --press: rgba(16,15,15,.08);
     --accent: #205EA6; --accent-soft: rgba(32,94,166,.10); --accent-line: rgba(32,94,166,.35); --on-accent: #FFFCF0;
     --shadow: rgba(16,15,15,.18);
@@ -1232,6 +1470,7 @@ const STYLE = `
 html[data-theme="one-dark"] {
   --canvas: #282C33; --surface: #2F343E; --surface-2: #363C46; --text: #DCE0E5; --text-2: #A9AFBC; --text-3: #878A98;
   --hair: #363C46; --hair-soft: #30353F; --hair-strong: #464B57;
+  --ok: #A1C181; --warn: #DEC184; --err: #D07277;
   --wash: rgba(220,224,229,.05); --press: #454A56;
   --accent: #74ADE8; --accent-soft: rgba(116,173,232,.14); --accent-line: rgba(116,173,232,.4); --on-accent: #282C33;
   --shadow: rgba(0,0,0,.45);
@@ -1315,6 +1554,8 @@ h1, h2, h3, p { margin: 0; }
 .card.focused { outline: 2px solid var(--text); outline-offset: 2px; }
 .card .body { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .card .name { font-weight: 500; font-size: var(--fs); letter-spacing: -.1px; display: flex; align-items: baseline; gap: 8px; }
+.card .name .key { cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color var(--t-fast) var(--std); }
+.card .name .key:hover { text-decoration-color: var(--hair-strong); }
 .card .name .age { margin-left: auto; font-family: var(--mono); font-weight: 500; font-size: var(--fs-mono); color: var(--text-3); }
 .card .what { font-size: var(--fs-small); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .what.ask { color: var(--accent); }
@@ -1335,14 +1576,70 @@ h1, h2, h3, p { margin: 0; }
 .card .tele .ask { color: var(--accent); font-weight: 500; }
 .card .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
 .card .tele .seen, .card .tele .k { color: var(--text-3); }
-/* Sheet (telemetry part 2, unbound until v0.11): the checkout row, the subagent count and the activity tail,
-   each line clipped; a failing check is dotted like an error. */
-.card .sheet { grid-column: 1 / -1; display: grid; gap: 1px; font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.5; color: var(--text-2); min-width: 0; }
-.card .sheet div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card .sheet .k { color: var(--text-3); }
-.card .sheet a { color: inherit; }
-.card .sheet .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; }
-.card .sheet b { font-weight: 500; color: var(--text); }
+/* The sheet (v0.11): one placement's health, laid over the tasks column from the rail's right edge; the
+   detail stays whole and nothing dims. Positioned in the tasks panel's grid area, it spans the board's full
+   height and takes the column's width (at most 560px), so it never cuts into the detail. */
+.bento { position: relative; }
+.bento > .sheet { grid-area: 1 / 2 / 2 / 3; position: absolute; inset: 0 auto 0 0; z-index: 50; width: 100%; max-width: 560px; background: var(--surface); border: 1px solid var(--hair-strong); border-radius: 12px; box-shadow: 0 24px 48px var(--shadow); display: flex; flex-direction: column; overflow: hidden; animation: slide var(--t-mid) var(--emph) both; }
+.bento > .sheet[hidden] { display: none; }
+@keyframes slide { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.sheet .head { padding: 14px 18px 12px; border-bottom: 1px solid var(--hair); display: grid; gap: 6px; }
+.sheet .head .name { display: flex; align-items: center; gap: 10px; }
+.sheet .head .name .dot { margin-top: 0; }
+.sheet .head h2 { margin: 0; flex: 1; min-width: 0; font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
+.sheet .close { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--text-3); font-size: 18px; line-height: 1; cursor: pointer; transition: background var(--t-fast) var(--std), color var(--t-fast) var(--std); }
+.sheet .close:hover { background: var(--wash); color: var(--text); }
+.sheet .head .tele { display: flex; gap: 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
+.sheet .head .tele .line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .head .tele .ask { color: var(--accent); font-weight: 500; }
+.sheet .head .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
+.sheet .head .tele .k, .sheet .head .tele .seen { color: var(--text-3); }
+.sheet .head .rig { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.sheet .body { min-height: 0; overflow-y: auto; padding: 4px 18px 18px; display: grid; align-content: start; gap: 4px; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
+.sheet section { padding: 12px 0 8px; border-bottom: 1px solid var(--hair-soft); display: grid; gap: 6px; }
+.sheet section:last-child { border-bottom: 0; }
+.sheet section > h3 { margin: 0; display: flex; align-items: baseline; gap: 10px; }
+.sheet section > h3 .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-3); }
+.sheet p { margin: 0; }
+.sheet .none { font-size: var(--fs-small); color: var(--text-3); }
+.sheet .muted { color: var(--text-3); }
+.sheet .mono { font-family: var(--mono); font-size: var(--fs-mono); }
+/* Roles colour words, never fills. */
+.role-ok { color: var(--ok); }
+.role-warn { color: var(--warn); }
+.role-err { color: var(--err); }
+/* Checkout: label, value; the value is one line and ellipsizes. */
+.kv { margin: 0; display: grid; grid-template-columns: 84px 1fr; font-size: var(--fs-small); }
+.kv > dt, .kv > dd { margin: 0; padding: 5px 0; border-bottom: 1px solid var(--hair-soft); min-width: 0; }
+.kv > dt { color: var(--text-3); }
+.kv > dd { display: flex; gap: 8px; align-items: baseline; color: var(--text); overflow: hidden; white-space: nowrap; }
+.kv > dt:nth-last-of-type(1), .kv > dd:last-of-type { border-bottom: 0; }
+.kv > dd > * { flex: none; }
+.kv > dd > .path, .kv > dd > .pr { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kv > dd > a.pr { color: inherit; text-decoration: underline; text-decoration-color: var(--hair-strong); text-underline-offset: 3px; }
+/* Subagents: a tree one level deep; a child hangs under its parent from a hairline guide. */
+.counts-line { font-size: var(--fs-small); color: var(--text-2); }
+.subs { display: grid; gap: 2px; }
+.subs .kids { margin-left: 3px; padding-left: 16px; border-left: 1px solid var(--hair-strong); display: grid; gap: 2px; }
+.subagent { display: grid; grid-template-columns: 8px auto 1fr 84px 84px; column-gap: 10px; align-items: center; padding: 5px 0; font-size: var(--fs-small); }
+.subagent .dot { margin-top: 0; }
+.subagent .title { font-weight: 500; color: var(--text); white-space: nowrap; }
+.subagent .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.subagent .when { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; text-align: right; }
+/* Activity: the last eight, oldest first; the current row carries the accent dot. */
+.feed { display: grid; }
+.feed .item { display: grid; grid-template-columns: 8px 70px 76px 1fr; column-gap: 10px; align-items: baseline; padding: 4px 0; font-size: var(--fs-small); color: var(--text); }
+.feed .item .mark { align-self: center; width: 6px; height: 6px; border-radius: 50%; }
+.feed .item.now .mark { width: 8px; height: 8px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.feed .item .at { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.feed .item .kind { color: var(--text-2); }
+.feed .item .what { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.feed .item .tool { font-weight: 500; white-space: nowrap; }
+.feed .item .status { white-space: nowrap; color: var(--text-2); }
+.feed .item .status.running { color: var(--accent); }
+.feed .item .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.feed .item.error, .feed .item.error .kind, .feed .item.error .text { color: var(--err); }
+.feed .item.quiet, .feed .item.quiet .kind, .feed .item.quiet .text { color: var(--text-3); }
 .meter { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); }
 .meter .bar { width: 44px; height: 4px; border-radius: 2px; background: var(--hair-strong); overflow: hidden; }
 .meter .bar i { display: block; height: 100%; background: var(--text-2); }
@@ -1464,6 +1761,8 @@ a.btn, .card a.id { text-decoration: none; }
   .nav, .keys { flex-wrap: wrap; padding: 8px 14px; }
   .bento { grid-template-columns: 1fr; }
   .panel, .scroll { overflow: visible; }
+  /* One column: the sheet takes the screen. */
+  .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
 }
 `;
 
@@ -1538,10 +1837,35 @@ const closePeek = () => {
   $("a.id", p.parentElement)?.focus();
 };
 
+// The sheet: one placement's health over the tasks column. Every
+// placement's sheet is in the page, hidden; a card's name or the s key
+// shows one by its key, esc or its close button hides it, and a refresh
+// keeps it open by key while the placement is still there.
+const sheet = () => $(".bento > .sheet:not([hidden])");
+const sheetOf = (key) => $('.bento > .sheet[data-key="' + CSS.escape(key) + '"]');
+const closeSheet = () => {
+  const s = sheet();
+  if (!s) return;
+  s.hidden = true;
+  $('.card .name .key[data-path="' + CSS.escape(s.dataset.path) + '.key"]')?.closest(".card")?.focus();
+};
+const openSheet = (key) => {
+  const s = sheetOf(key);
+  if (!s) return false;
+  if (sheet() !== s) sheet()?.setAttribute("hidden", "");
+  s.hidden = false;
+  return true;
+};
+document.addEventListener("click", (e) => {
+  const key = e.target.closest(".card .name .key");
+  if (key) openSheet(key.textContent);
+  else if (e.target.closest(".sheet .close")) closeSheet();
+});
+
 // Every few seconds the page fetches itself for the selected task and swaps
-// the nav counts and the three panels. A panel holding the focus stays as
-// it is, unless the focus is on a row or a card the new panel has too. The
-// notice is outside the swapped parts.
+// the nav counts, the three panels and the sheets. A panel holding the
+// focus stays as it is, unless the focus is on a row or a card the new
+// panel has too. The notice is outside the swapped parts.
 const PARTS = [".nav .counts", ".nav .tick", ".agents", ".tasks", ".detail"];
 const refresh = async (id = selected()) => {
   if (document.hidden) return;
@@ -1556,6 +1880,7 @@ const refresh = async (id = selected()) => {
   const card = focus?.matches(".card") ? focus.dataset.path : null;
   const open = peek();
   const peeked = open && '.task[data-task="' + CSS.escape(open.parentElement.dataset.task) + '"] .peek[data-path="' + CSS.escape(open.dataset.path) + '"]';
+  const shown = sheet()?.dataset.key ?? null;
   const words = $(".filter input")?.value ?? "";
   for (const part of PARTS) {
     const old = $(part);
@@ -1569,6 +1894,12 @@ const refresh = async (id = selected()) => {
   if (row) $('.task[data-task="' + CSS.escape(row) + '"] a.id')?.focus();
   if (card) $('.card[data-path="' + CSS.escape(card) + '"]')?.focus();
   if (peeked && !peek() && $(peeked)) openPeek($(peeked));
+  // The sheets are swapped whole unless the focus is inside the open one.
+  if (!sheet()?.contains(focus)) {
+    $$(".bento > .sheet").forEach((s) => s.remove());
+    $$(".bento > .sheet", doc).forEach((s) => $(".bento").append(s));
+    if (shown) openSheet(shown);
+  }
   const input = $(".filter input");
   if (input && input !== focus) input.value = words;
   if (selected() && selected() !== new URLSearchParams(location.search).get("task")) history.replaceState(null, "", "?task=" + encodeURIComponent(selected()));
@@ -1622,6 +1953,12 @@ const press = (el) => {
   el?.click();
   return Boolean(el);
 };
+// The focused agent's card, the open sheet's, or the card of the agent
+// working on the selected task.
+const agentCard = (el) =>
+  el?.closest(".card") ??
+  (sheet() && $('.card[data-path="' + CSS.escape(sheet().dataset.path) + '"]')) ??
+  $$(".card").find((c) => $("a.id", c)?.textContent === selected());
 const KEYS = {
   j: () => move(1),
   k: () => move(-1),
@@ -1643,9 +1980,12 @@ const KEYS = {
   },
   c: () => press($(".detail .actions button")),
   // The focused agent, or the one working on the selected task.
-  h: (row, el) => {
-    const card = el?.closest(".card") ?? $$(".card").find((c) => $("a.id", c)?.textContent === selected());
-    return press(card && $("button[data-path$='.hold']", card));
+  h: (row, el) => press(agentCard(el) && $("button[data-path$='.hold']", agentCard(el))),
+  s: (row, el) => {
+    const key = agentCard(el) && $(".name .key", agentCard(el))?.textContent;
+    if (!key) return false;
+    if (sheet()?.dataset.key === key) closeSheet(); else openSheet(key);
+    return true;
   },
   "/": () => { $(".filter input")?.focus(); return true; },
   "?": () => { $(".help").hidden = !$(".help").hidden; return true; },
@@ -1658,6 +1998,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!$(".help").hidden) $(".help").hidden = true;
     else if (peek()) closePeek();
+    else if (sheet()) closeSheet();
     else if (typing(el)) el.blur();
     return;
   }

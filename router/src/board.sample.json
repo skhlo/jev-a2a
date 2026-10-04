@@ -115,7 +115,7 @@
             "state": "OPEN",
             "draft": false,
             "merged": false,
-            "mergeable": "MERGEABLE",
+            "mergeable": "CONFLICTING",
             "checks": "failure",
             "review": "pending"
           },

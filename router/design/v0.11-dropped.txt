@@ -1,6 +1,6 @@
-# The data-paths of v0.10-paths.txt that the board page does not render,
+# The data-paths of v0.11-paths.txt that the board page does not render,
 # one per line as "<path> | <reason>", with indexes blanked as the test
 # compares them (open[].deliveries[].latest). The board page test accepts a
-# v0.10 path only when the page renders it for the board fixture or this list
+# v0.11 path only when the page renders it for the board fixture or this list
 # names it with a reason, and it fails on an entry the page renders after
 # all.
