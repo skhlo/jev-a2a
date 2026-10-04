@@ -191,9 +191,27 @@ test("a quiet run records nothing: the tick is held until an event follows it, a
     "tick",
     "submit",
   ]);
-  shell = await openShell(config, at(6_000));
+  shell = await openShell(config, at(5_050));
   assert.equal(shell.state.tasks[0]?.deadline, deadline, "replay agrees");
   await shell.close();
+  const sofar = types().length;
+  // Run 6: the deadline passes with nothing else happening. The tick that
+  // ends the task is recorded on its own, so a replay ends it too.
+  shell = await openShell(config, at(5_000 + base.policy.deadline));
+  await shell.deliver();
+  assert.equal(shell.state.tasks[0]?.final?.reason, "deadline");
+  await shell.close();
+  assert.deepEqual(types().slice(sofar), ["tick"]);
+  shell = await openShell(config, at(5_001 + base.policy.deadline));
+  assert.equal(shell.state.tasks[0]?.final?.reason, "deadline", "replayed");
+  await shell.close();
+  // Run 7: a hold on a placement whose readiness does not change is a
+  // change of the placement, and is recorded.
+  shell = await openShell(config, at(7_000));
+  shell.apply({ type: "observe", placement: "orchestrator@mbp", hold: true });
+  await shell.deliver();
+  await shell.close();
+  assert.deepEqual(types().slice(sofar + 1), ["tick", "observe"]);
 });
 
 test("a key conflict aborts the run with the send left attempting", async () => {

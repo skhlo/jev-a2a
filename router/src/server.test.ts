@@ -308,6 +308,8 @@ function fakeRunner(script: {
   waits: () => boolean;
   recordWaits?: () => boolean;
   fail?: () => Error | null;
+  // Whether the core rejects the next event.
+  reject?: () => boolean;
   delayMs?: number;
   pollMs?: number;
   // The run's report; the default has an observation, a wait and a change.
@@ -336,7 +338,9 @@ function fakeRunner(script: {
       return Promise.resolve({
         apply: (event: Event) => {
           runs.push(event.type);
-          return { ok: true as const, message: `applied ${event.type}` };
+          return script.reject?.()
+            ? { ok: false as const, code: "invalid", message: "no" }
+            : { ok: true as const, message: `applied ${event.type}` };
         },
         deliver: async () => {
           // A run holds until the test releases it, so a journal change
@@ -575,10 +579,10 @@ test("runner: the poll runs after any run whether or not anything waits, is meas
   assert.deepEqual(f.timers(), []);
   await f.finishRun();
   assert.deepEqual(f.timers().sort(), [20_000, 30_000]);
-  // A failed poll still re-arms the poll (and the wake retry).
   f.runner.stop();
   assert.deepEqual(f.timers(), []);
 
+  // A run that fails to open still arms the poll, and a look to retry.
   let fail: Error | null = new Error("paseo down");
   const g = fakeRunner({
     waits: () => false,
@@ -595,6 +599,57 @@ test("runner: the poll runs after any run whether or not anything waits, is meas
   g.runner.stop();
   await g.finishRun();
   assert.deepEqual(g.timers(), []);
+});
+
+test("runner: a failed event run leaves a look armed, and a rejected event leaves the timers as they were", async () => {
+  // Work waits and a look is armed; an event run that cannot open the
+  // journal must not lose it.
+  let fail: Error | null = null;
+  const f = fakeRunner({ waits: () => true, fail: () => fail });
+  const first = f.runner.handle({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "x",
+  });
+  await f.finishRun();
+  await first;
+  assert.deepEqual(f.timers(), [20_000]);
+  fail = new Error("Another router run has held the journal");
+  await assert.rejects(
+    f.runner.handle({ type: "submit", by: "you", messageId: "M2", text: "y" }),
+    /held the journal/,
+  );
+  assert.deepEqual(f.timers(), [20_000], "the look survives the failure");
+  fail = null;
+  f.runner.stop();
+
+  // A rejected event is no look: the armed look and poll keep their time.
+  let reject = false;
+  const g = fakeRunner({
+    waits: () => true,
+    pollMs: 30_000,
+    reject: () => reject,
+  });
+  const ok = g.runner.handle({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "x",
+  });
+  await g.finishRun();
+  await ok;
+  const before = [...g.pending];
+  reject = true;
+  const run = await g.runner.handle({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "x",
+  });
+  assert.equal(run.outcome.ok, false);
+  assert.deepEqual(g.pending, before, "same handles, same delays");
+  g.runner.stop();
 });
 
 test("sameSite: browsers must come from the page; other clients pass", () => {

@@ -24,14 +24,14 @@ session) waits on an event, and a quiet router arms nothing.
 that long after the end of any run, whatever started it, so while `serve`
 is up the board's telemetry (session status, permissions, the sheet) is at
 most that plus one run old. A poll run is an ordinary run: it observes,
-ends tasks whose deadline has passed, and delivers what is eligible. It
-costs one Paseo call per placement, a workspace list per host and, with
-the sheet on, two more calls per live session; it appends nothing to the
-journal unless something changed, since a run records its clock only when
-an event follows it and an observation only when readiness, the session or
-the hold changed. The tasks column does not need the poll: a request, a
-reply or an answer is an event and runs at once. `0`, the default, polls
-nothing.
+ends tasks whose deadline has passed, and delivers what is eligible, at
+the cost of the Paseo calls described under the telemetry file below. It
+appends nothing to the journal unless something changed: a run records
+its clock only when it ended a task or a recorded event follows it, and an
+observation only when readiness, the session or the hold changed. The
+tasks column needs the poll only for deadlines: a request, a reply or an
+answer is an event and runs at once, while a task past its deadline is
+ended by the next run's clock. `0`, the default, polls nothing.
 
 A session is sent to only when the router has just seen it idle, or closed
 (a persisted session with no process; the prompt resumes it) and not
@@ -44,14 +44,16 @@ board) closes it, and `--release` opens it again.
 
 `home` (default `~/.local/state/jev-router/`) holds:
 
-- `journal.jsonl`: every event, appended. The CLI on the router host writes
-  it directly; `serve` watches it. `router status` reads it.
+- `journal.jsonl`: every event that changed the record, appended. The CLI
+  on the router host writes it directly; `serve` watches it.
+  `router status` reads it.
 - `telemetry.json`: one snapshot per served placement from the last run,
   written whole by rename after the run's observations and before its
   sends. It is not part of the record: an observation is journaled only
   when readiness, the session or the hold changes, while a snapshot
-  changes every run. The board shows each snapshot with its age (the nav tick dates the
-  file); `router status` prints one line per placement with the time,
+  changes every run. The board shows each snapshot with its age (the nav
+  tick dates the file); `router status` prints one line per placement
+  with the time,
   branch, diff and pull request. A missing file is "no telemetry" and
   never a fault; an unreadable one is logged once by `serve`; a damaged
   entry drops its placement, named in the log; a damaged sheet field reads

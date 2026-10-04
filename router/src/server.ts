@@ -126,7 +126,7 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   let stopped = false;
   let watcher: { close(): void } | null = null;
 
-  const arm = (waiting: boolean): void => {
+  const armWake = (waiting: boolean): void => {
     if (!waiting || stopped || deps.delayMs <= 0 || armed !== null) return;
     armed = timers.set(() => {
       armed = null;
@@ -135,41 +135,48 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   };
   // The poll is measured from the end of the last run, whatever started
   // it, so runs never overlap and an active router polls no extra.
-  const repoll = (): void => {
+  const armPoll = (): void => {
     if (stopped || deps.pollMs <= 0 || polled !== null) return;
     polled = timers.set(() => {
       polled = null;
       void unattended("poll");
     }, deps.pollMs);
   };
-  // A run that starts disarms both timers: it is the look they were for,
-  // and its end arms them again from its own state.
+  // A run that is about to look disarms both timers: it is the look they
+  // were for, and its end arms them again from its own state. A rejected
+  // event looks at nothing and leaves them be.
   const disarm = (): void => {
     if (armed !== null) timers.clear(armed);
     if (polled !== null) timers.clear(polled);
     armed = null;
     polled = null;
   };
-  // One run: the event, if any, then every deliverable command; the loop
-  // is armed from the run's own state before the shell closes.
+  // One run: the event, if any, then every deliverable command; the look
+  // is armed from the run's own state before the shell closes, the poll
+  // after it. A run that fails leaves a look armed, so waiting work is
+  // tried again at the interval rather than stalled until the next event.
   const runOnce = async (event: Event | null): Promise<Run> => {
     busy = true;
-    disarm();
     try {
       const shell = await deps.open();
       try {
         const outcome: Outcome = event
           ? shell.apply(event)
           : { ok: true, message: "run" };
-        const report = outcome.ok ? await shell.deliver() : [];
-        arm(shell.waits());
+        if (!outcome.ok) return { outcome, report: [] };
+        disarm();
+        const report = await shell.deliver();
+        armWake(shell.waits());
         return { outcome, report };
       } finally {
         await shell.close();
       }
+    } catch (error: unknown) {
+      armWake(true);
+      throw error;
     } finally {
       busy = false;
-      repoll();
+      armPoll();
     }
   };
   const enqueue = (event: Event | null): Promise<Run> => {
@@ -197,7 +204,6 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       deps.log(
         `${label}: ${error instanceof Error ? error.message : String(error)}`,
       );
-      arm(true);
     }
   };
   const onChange = (): void => {
@@ -206,7 +212,7 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       settle = null;
       if (busy || stopped) return;
       try {
-        arm(deps.waits());
+        armWake(deps.waits());
       } catch (error: unknown) {
         deps.log(
           `watch: ${error instanceof Error ? error.message : String(error)}`,

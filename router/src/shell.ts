@@ -39,7 +39,9 @@ import type {
 
 export type Shell = {
   readonly state: State;
-  // Applies an event; appends it to the journal only when the core accepts it.
+  // Applies an event; appends it to the journal when the core accepts it
+  // and it changed the record (a tick that ended nothing and an
+  // observation that changed nothing are applied, not appended).
   apply(event: Event): Outcome;
   // Performs every deliverable command for this host, returning what happened.
   deliver(): Promise<string[]>;
@@ -147,12 +149,12 @@ export async function openShell(
 
   // Every run applies a tick and one observation per placement, and a quiet
   // router's journal must not grow with them. A tick that ended nothing is
-  // held back and appended only when a later event follows it in this run,
-  // since a later submit's deadline is measured from it; an observation is
-  // appended only when it changed the placement's readiness, session or
-  // hold. In memory the run sees every event.
+  // held back and appended only when a recorded event follows it in this
+  // run, since a later submit's deadline is measured from it; an
+  // observation is appended only when it changed the placement's
+  // readiness, session or hold. In memory the run sees every event.
   let heldTick: Event | null = null;
-  const repeats = (event: Event, next: State): boolean => {
+  const alreadyRecorded = (event: Event, next: State): boolean => {
     if (event.type === "tick")
       return state.tasks.every(
         (task, i) => Boolean(task.final) === Boolean(next.tasks[i]?.final),
@@ -173,7 +175,7 @@ export async function openShell(
     const outcome = next.last;
     if (!outcome) throw new Error("reduce left no outcome");
     if (outcome.ok) {
-      if (!repeats(event, next)) {
+      if (!alreadyRecorded(event, next)) {
         if (heldTick) journal.append(heldTick);
         heldTick = null;
         journal.append(event);
