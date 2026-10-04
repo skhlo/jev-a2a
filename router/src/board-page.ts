@@ -105,6 +105,13 @@ const headline = (text: string): string =>
 // id in the title attribute of the element that shows it. Other ids (the
 // fixture's A1, an operator's login in an end line) are unchanged.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The health row's sentence for a status that carries no error text (v0.10).
+const STATUS_NOTE: Partial<Record<AgentStatus, string>> = {
+  error: "the session reported an error",
+  missing: "the daemon does not know this agent",
+  unreachable: "the host could not be reached",
+};
 const shortId = (id: string): string => (UUID.test(id) ? id.slice(0, 8) : id);
 const fullId = (id: string): string =>
   UUID.test(id) ? ` title="${esc(id)}"` : "";
@@ -375,7 +382,7 @@ export function renderBoard(
   }</span>
   <span class="counts">${pill("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${pill("count(open[] not in needsYou)", flight.length, "in flight")}${pill("count(placements[].hold)", held, "held")}${pill("count(placements)", agentCount, noun(agentCount, "agent"))}</span>
   <span class="spacer"></span>
-  <span class="tick">built ${clock("time(at)", at, "")} · ${model.telemetryAt ? slot("time(telemetryAt)", `telemetry ${time(model.telemetryAt)}`, "", "span", ` title="${esc(model.telemetryAt)}"`) : slot("telemetryAt", "no telemetry")} · ${slot("version", esc(model.version))}</span>
+  <span class="tick">built ${clock("time(at)", at, "")} · ${model.telemetryAt ? slot("time(telemetryAt)", `telemetry ${time(model.telemetryAt)}`, "", "span", dated(model.telemetryAt)) : slot("telemetryAt", "no telemetry")} · ${slot("version", esc(model.version))}</span>
   <span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span>
   <nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>
 </header>`;
@@ -409,8 +416,6 @@ ${body}
   // the lever at its end.
   const tele = (line: string, meter: string, levers: string[]): string =>
     `        <div class="tele"><span class="line">${line}</span>${meter}${lever(levers)}</div>`;
-  // What the router last saw of the session, from the telemetry file: a
-  // plain line until the design binds it. Nothing without telemetry.
   // v0.10: placements[].agent closes each card as a health row (the status
   // line, the snapshot's age, the lever) and a context meter. The status
   // line is the first that applies: pending permissions in the accent;
@@ -418,11 +423,6 @@ ${body}
   // sentence when there is none); running with the turn's age; idle with
   // the last turn's end; any other status as words. A null agent reads
   // "no telemetry".
-  const STATUS_NOTE: Partial<Record<AgentStatus, string>> = {
-    error: "the session reported an error",
-    missing: "the daemon does not know this agent",
-    unreachable: "the host could not be reached",
-  };
   const health = (
     path: string,
     a: PlacementView["agent"],
@@ -450,27 +450,28 @@ ${body}
     } else {
       line = slot(`${ap}.status`, esc(label(a.status)));
       if (a.status === "running" && a.turnStartedAt)
-        line += ` ${slot(`age(${ap}.turnStartedAt, at)`, age(a.turnStartedAt, at), "num", "span", ` title="turn started ${esc(a.turnStartedAt)}"`)}`;
+        line += ` ${ago(`age(${ap}.turnStartedAt, at)`, a.turnStartedAt, "num")}`;
       else if (
         a.status === "idle" &&
         a.attention === "finished" &&
         a.attentionAt
       )
-        line += ` ${slot(`age(${ap}.attentionAt, at)`, age(a.attentionAt, at), "num", "span", ` title="last turn ended ${esc(a.attentionAt)}"`)}`;
+        line += ` ${ago(`age(${ap}.attentionAt, at)`, a.attentionAt, "num")}`;
     }
     if (a.attention === "error" && !(a.status in STATUS_NOTE))
       line += ` · ${slot(`${ap}.attention, ${ap}.error`, "error", "err", "span", errTip)}`;
-    line += ` · ${slot(`age(${ap}.seen, at)`, `seen ${age(a.seen, at)}`, "seen num", "span", ` title="${esc(a.seen)}"`)}`;
+    line += ` · ${ago(`age(${ap}.seen, at)`, a.seen, "seen num", `seen ${age(a.seen, at)}`)}`;
     let meter = "";
     const c = a.context;
     if (c) {
       const pct = percent(c.used, c.max);
-      let tip = `${c.used.toLocaleString("en-US")} of ${c.max.toLocaleString("en-US")} tokens in context`;
+      const n = (count: number): string => count.toLocaleString("en-US");
+      let tip = `${n(c.used)} of ${n(c.max)} tokens in context`;
       const u = a.usage;
       if (u) {
         const cost =
           u.costUsd === null ? "no cost reported" : `$${u.costUsd.toFixed(2)}`;
-        tip += ` · since the session started: input ${u.input.toLocaleString("en-US")}, cached ${u.cached.toLocaleString("en-US")}, output ${u.output.toLocaleString("en-US")} · ${cost}`;
+        tip += ` · since the session started: input ${n(u.input)}, cached ${n(u.cached)}, output ${n(u.output)} · ${cost}`;
       }
       meter = `<span class="meter${pct >= 80 ? " full" : ""}" data-path="${ap}.context, ${ap}.usage" title="${esc(tip)}"><span class="bar"><i style="width: ${pct}%"></i></span>${slot(`percent(${ap}.context.used, ${ap}.context.max)`, `${pct}%`, "num")}</span>`;
     }
@@ -481,27 +482,19 @@ ${body}
     if (!a) return "";
     const ap = `${path}.agent`;
     const pm = [a.provider, a.model].filter(Boolean).join("/");
-    return (
-      (pm ? slot(`${ap}.provider, ${ap}.model`, esc(pm), "tag") : "") +
-      (a.thinking
+    const tag = (field: "thinking" | "mode"): string => {
+      const value = a[field];
+      return value
         ? slot(
-            `${ap}.thinking`,
-            esc(a.thinking),
+            `${ap}.${field}`,
+            esc(value),
             "tag",
             "span",
-            ` title="thinking ${esc(a.thinking)}"`,
+            ` title="${field} ${esc(value)}"`,
           )
-        : "") +
-      (a.mode
-        ? slot(
-            `${ap}.mode`,
-            esc(a.mode),
-            "tag",
-            "span",
-            ` title="mode ${esc(a.mode)}"`,
-          )
-        : "")
-    );
+        : "";
+    };
+    return `${pm ? slot(`${ap}.provider, ${ap}.model`, esc(pm), "tag") : ""}${tag("thinking")}${tag("mode")}`;
   };
 
   const card = (p: PlacementView, i: number): string => {
@@ -1103,8 +1096,9 @@ ${
 <style>${STYLE}</style></head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
-     what it reads, as in the board design v0.9: a plain path indexes the
-     model, and time(), age(), left() and count() are formats over it. -->
+     what it reads, as in the board design v0.10: a plain path indexes the
+     model, and time(), age(), left(), count() and percent() are formats
+     over it. -->
 ${notice}
 <div id="app" data-refresh="${refreshSeconds}">
 ${nav}

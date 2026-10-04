@@ -107,12 +107,14 @@ the server from the view model below, in three columns:
   name and state. Each card closes with the session's health from the
   router's telemetry: a pending permission by name, or the status with the
   turn's age (running) or the last turn's end (idle), with `error`,
-  `missing` and `unreachable` dotted and the reason as a tooltip; the
-  snapshot's age; the lever. A context meter sits in the name row (the
-  health row on an idle card) with the token counts and cost as its
-  tooltip, and provider/model, thinking and mode join the tags. Without a
-  snapshot the row reads "no telemetry". The router's last twenty log lines
-  fill the rest of the column, newest at the bottom.
+  `missing` and `unreachable` dotted and the reason as a tooltip, and a
+  dotted "error" added when the session's attention is an error under
+  another status; the snapshot's age; the lever. A context meter sits in
+  the name row (the health row on an idle card) with the token counts and
+  cost as its tooltip, and on a busy card provider/model, thinking and mode
+  join the tags. Without a snapshot the row reads "no telemetry", and the
+  nav tick, which otherwise dates the telemetry, says so too. The router's
+  last twenty log lines fill the rest of the column, newest at the bottom.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
   send; In flight holds the other open tasks, and Done the last finished
@@ -314,8 +316,7 @@ per served placement, from the same Paseo call that reads readiness,
 stamped with the run's clock). A write that fails is a line in the run's
 report, and the run goes on to its sends. The board reads the file without
 a lock and shows each snapshot with its age (the nav tick dates the file);
-`router status` prints one
-line per placement with the time. A missing or unreadable file is no
+`router status` prints one line per placement with the time. A missing or unreadable file is no
 telemetry, logged once by serve, never a fault; a damaged entry drops its
 placement, named in the log. Not held yet: the subagent tree, the session's
 last activity, turn and tool counts and the worktree, which need other

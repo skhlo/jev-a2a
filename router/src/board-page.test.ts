@@ -1188,7 +1188,7 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   // The nav tick dates the snapshots.
   assert.ok(
     seen.includes(
-      '<span data-path="time(telemetryAt)" title="2026-09-30T09:44:51.000Z">telemetry 09:44Z</span>',
+      '<span data-path="time(telemetryAt)" title="2026-09-30 09:44Z">telemetry 09:44Z</span>',
     ),
   );
   // Without telemetry: "no telemetry" on each card and in the tick; the
@@ -1240,4 +1240,68 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
       '<span data-path="placements[0].agent.status">idle</span> · <span class="err" data-path="placements[0].agent.attention, placements[0].agent.error" title="context overflow">error</span>',
     ),
   );
+  // A placement the file lacks reads "no telemetry" while the others have
+  // a snapshot.
+  const some = renderBoard(
+    model(ME, journal, NOW, {
+      ...telemetry,
+      placements: { "knowledge@mini": emptySnapshot(telemetry.at, "missing") },
+    }),
+  );
+  assert.ok(
+    some.includes(
+      '<span class="k" data-path="placements[0].agent">no telemetry</span>',
+    ),
+  );
+  assert.ok(some.includes('data-path="placements[1].agent.status, '));
+  // Edges: a permission wins over an error status; running without a turn
+  // start has no age; no cost reported and no usage shape the tooltip; no
+  // context, no meter; exactly 80% fills the meter.
+  const idle = telemetry.placements["environment@mbp"];
+  assert.ok(idle?.usage);
+  const usage = idle.usage;
+  const edges = renderBoard(
+    model(ME, journal, NOW, {
+      ...telemetry,
+      placements: {
+        "orchestrator@mbp": {
+          ...idle,
+          status: "error",
+          error: "boom",
+          permissions: [{ id: "p", name: "Edit", title: null, kind: "tool" }],
+          context: { used: 160_000, max: 200_000 },
+          usage: { ...usage, costUsd: null },
+        },
+        "knowledge@mini": {
+          ...idle,
+          status: "running",
+          attention: null,
+          turnStartedAt: null,
+          context: { used: 10, max: 100 },
+          usage: null,
+        },
+        "environment@mbp": { ...idle, context: null },
+      },
+    }),
+  );
+  assert.ok(
+    edges.includes(
+      '<span class="ask" data-path="placements[0].agent.permissions[].name" title="Edit">asks permission: Edit</span>',
+    ),
+  );
+  assert.ok(
+    edges.includes(
+      '<span class="meter full" data-path="placements[0].agent.context, placements[0].agent.usage" title="160,000 of 200,000 tokens in context · since the session started: input 880, cached 1,204,000, output 44,120 · no cost reported">',
+    ),
+  );
+  assert.match(
+    edges,
+    /<span data-path="placements\[1\]\.agent\.status">running<\/span> · <span class="seen num"/,
+  );
+  assert.ok(
+    edges.includes(
+      '<span class="meter" data-path="placements[1].agent.context, placements[1].agent.usage" title="10 of 100 tokens in context">',
+    ),
+  );
+  assert.ok(!edges.includes('data-path="placements[2].agent.context'));
 });
