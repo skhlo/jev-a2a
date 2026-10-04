@@ -11,7 +11,9 @@ import {
   boardListener,
   eventsListener,
   sameSite,
+  serveRunner,
   sessionReader,
+  waitsReader,
   type Bindable,
   type BindOptions,
   type Run,
@@ -20,11 +22,13 @@ import {
 import { BOARD_VERSION } from "./board.ts";
 import {
   config as fixture,
+  extend,
   journal,
   NOW,
   replacedJournal,
 } from "./board-fixture.ts";
 import type { RouterConfig } from "./config.ts";
+import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
 
@@ -38,6 +42,7 @@ const config: RouterConfig = {
     listen: "127.0.0.1:0",
     board: "127.0.0.1:0",
     identities: { "me@example.com": ["you", "operator"] },
+    wake: 0,
   },
   jev: { model: "jev-latest" },
 };
@@ -254,6 +259,230 @@ test("sessionReader: reads the record without the journal lock and tells a curre
     replacedJournal.length + 1,
   );
   assert.ok(!existsSync(join(record, "journal.lock")));
+});
+
+test("waitsReader: reads the record without the lock and says whether a served session is worth looking at again", () => {
+  const record = mkdtempSync(join(tmpdir(), "server-waits-"));
+  const write = (entries: Entry[]): void =>
+    writeFileSync(
+      join(record, "journal.jsonl"),
+      entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+    );
+  const waits = waitsReader({ ...fixture, home: record });
+  // The fixture: a question open, a session working, a placement held.
+  // Nothing there moves by looking again.
+  write(journal);
+  assert.equal(waits(), false);
+  // A request queued for the busy knowledge session does.
+  write(
+    extend({
+      type: "submit",
+      by: "you",
+      messageId: "M9",
+      text: "Later",
+      to: "knowledge",
+    }),
+  );
+  assert.equal(waits(), true);
+  // The same request to a placement this router does not serve does not.
+  write(
+    extend({
+      type: "submit",
+      by: "you",
+      messageId: "M9",
+      text: "Later",
+      to: "incus",
+    }),
+  );
+  assert.equal(waits(), false);
+  assert.ok(!existsSync(join(record, "journal.lock")));
+});
+
+// A runner over fake timers, a fake watcher and a scripted shell: what each
+// run does is a list of strings, and `waits` scripts the state after it.
+function fakeRunner(script: {
+  waits: () => boolean;
+  recordWaits?: () => boolean;
+  fail?: () => Error | null;
+  delayMs?: number;
+}) {
+  const pending: { fn: () => void; ms: number }[] = [];
+  const timers = {
+    set: (fn: () => void, ms: number) => {
+      const handle = { fn, ms };
+      pending.push(handle);
+      return handle;
+    },
+    clear: (handle: { fn: () => void; ms: number }) => {
+      const at = pending.indexOf(handle);
+      if (at >= 0) pending.splice(at, 1);
+    },
+  };
+  const log: string[] = [];
+  const runs: (string | null)[] = [];
+  let release: (() => void) | null = null;
+  let change: (() => void) | null = null;
+  const runner = serveRunner({
+    open: () => {
+      const failure = script.fail?.() ?? null;
+      if (failure) return Promise.reject(failure);
+      return Promise.resolve({
+        apply: (event: Event) => {
+          runs.push(event.type);
+          return { ok: true as const, message: `applied ${event.type}` };
+        },
+        deliver: async () => {
+          // A run holds until the test releases it, so a journal change
+          // during a run can be simulated.
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          release = null;
+          return [
+            "orchestrator@mbp: idle",
+            "D1 waits: not ready",
+            "Recorded D2/M2 as attempting to A1 before calling the adapter.",
+          ];
+        },
+        waits: script.waits,
+        close: () => Promise.resolve(),
+      });
+    },
+    delayMs: script.delayMs ?? 20_000,
+    waits: script.recordWaits ?? (() => false),
+    log: (line) => log.push(line),
+    watch: (onChange) => {
+      change = onChange;
+      return { close: () => (change = null) };
+    },
+    timers,
+    settleMs: 500,
+  });
+  // Lets the queued promise chain advance.
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+  };
+  const finishRun = async (): Promise<void> => {
+    await settle();
+    assert.ok(release, "a run is in progress");
+    (release as () => void)();
+    await settle();
+  };
+  // Fires the next armed timer, which is the wake or the watcher's settle.
+  const fire = async (ms?: number): Promise<void> => {
+    const at = ms === undefined ? 0 : pending.findIndex((t) => t.ms === ms);
+    const next = pending.splice(at, 1)[0];
+    assert.ok(next, "a timer was armed");
+    next.fn();
+    await settle();
+  };
+  return {
+    runner,
+    pending,
+    log,
+    settle,
+    timers: () => pending.map((t) => t.ms),
+    inRun: () => release !== null,
+    finishRun,
+    fire,
+    journalChanged: () => {
+      assert.ok(change, "the watcher is in place");
+      (change as () => void)();
+    },
+  };
+}
+
+test("runner: an event run arms one look while work waits; the look runs deliver only and re-arms until nothing waits", async () => {
+  let waiting = true;
+  const f = fakeRunner({ waits: () => waiting });
+  const handled = f.runner.handle({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "x",
+  });
+  await f.finishRun();
+  const run = await handled;
+  assert.equal(run.outcome.message, "applied submit");
+  assert.deepEqual(f.timers(), [20_000], "one look armed");
+  // The look: no event, deliver, logs only what changed.
+  await f.fire();
+  assert.ok(f.inRun());
+  assert.deepEqual(f.timers(), [], "nothing armed while the look runs");
+  await f.finishRun();
+  assert.deepEqual(f.log, [
+    "wake: Recorded D2/M2 as attempting to A1 before calling the adapter.",
+  ]);
+  assert.deepEqual(f.timers(), [20_000], "armed again from the run's end");
+  // The run that finds nothing waiting leaves the loop quiet.
+  waiting = false;
+  await f.fire();
+  await f.finishRun();
+  assert.deepEqual(f.timers(), []);
+  f.runner.stop();
+});
+
+test("runner: the journal watcher arms a look from the record when idle, and is ignored while a run is in progress", async () => {
+  let recordWaits = false;
+  const f = fakeRunner({ waits: () => false, recordWaits: () => recordWaits });
+  f.runner.start();
+  await f.settle();
+  // The first run is in progress; it writes the journal too.
+  assert.ok(f.inRun());
+  f.journalChanged();
+  assert.deepEqual(f.timers(), [500]);
+  await f.fire(500);
+  assert.deepEqual(f.timers(), [], "a change during a run does not arm");
+  await f.finishRun();
+  assert.deepEqual(f.log, [
+    "start: Recorded D2/M2 as attempting to A1 before calling the adapter.",
+  ]);
+  assert.deepEqual(f.timers(), []);
+  // The CLI appends: the record now waits, and the look is armed.
+  recordWaits = true;
+  f.journalChanged();
+  f.journalChanged();
+  assert.deepEqual(f.timers(), [500], "one settle timer for a burst");
+  await f.fire(500);
+  assert.deepEqual(f.timers(), [20_000]);
+  f.journalChanged();
+  await f.fire(500);
+  assert.deepEqual(f.timers(), [20_000], "never two looks");
+  // stop clears everything and the watcher is closed.
+  f.runner.stop();
+  assert.deepEqual(f.timers(), []);
+  assert.throws(() => f.journalChanged(), /watcher/);
+});
+
+test("runner: a look that fails is logged and tried again at the interval; a zero interval never looks", async () => {
+  let fail: Error | null = null;
+  const f = fakeRunner({ waits: () => true, fail: () => fail });
+  const handled = f.runner.handle({
+    type: "choose",
+    by: "you",
+    taskId: "T1",
+    to: "x",
+  });
+  await f.finishRun();
+  await handled;
+  assert.deepEqual(f.timers(), [20_000]);
+  fail = new Error("Another router run has held the journal");
+  await f.fire();
+  assert.deepEqual(f.log, ["wake: Another router run has held the journal"]);
+  assert.deepEqual(f.timers(), [20_000], "armed again after the failure");
+  f.runner.stop();
+
+  const off = fakeRunner({ waits: () => true, delayMs: 0 });
+  const h = off.runner.handle({
+    type: "choose",
+    by: "you",
+    taskId: "T1",
+    to: "x",
+  });
+  await off.finishRun();
+  await h;
+  assert.deepEqual(off.timers(), []);
+  off.runner.stop();
 });
 
 test("sameSite: browsers must come from the page; other clients pass", () => {

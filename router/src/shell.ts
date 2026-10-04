@@ -14,6 +14,7 @@ import {
   noticeWaits,
   reduce,
   validateConfig,
+  waitsOnSessions,
 } from "./core.ts";
 import type { RouterConfig } from "./config.ts";
 import { openJournal, type Entry } from "./journal.ts";
@@ -36,6 +37,9 @@ export type Shell = {
   apply(event: Event): Outcome;
   // Performs every deliverable command for this host, returning what happened.
   deliver(): Promise<string[]>;
+  // Whether a later look at this host's sessions could release something
+  // without any event: work waiting on an idle or an unconfirmed send.
+  waits(): boolean;
   close(): Promise<void>;
 };
 
@@ -73,6 +77,18 @@ const canonical = (value: unknown): string =>
         )
       : v,
   );
+
+// Placements this router serves: a configured agent on a configured host.
+export const servedBy =
+  (config: RouterConfig, state: State) =>
+  (placement: string): boolean => {
+    const host = state.placements[placement]?.host;
+    return (
+      config.agents[placement] !== undefined &&
+      host !== undefined &&
+      config.hosts[host] !== undefined
+    );
+  };
 
 // A record that predates its first `configured` line was written under that
 // configuration, not under today's: start from it, so the rules of the time
@@ -161,13 +177,8 @@ export async function openShell(
     apply({ type: "restart" });
   apply({ type: "tick", now: now() });
 
-  // Placements this router serves: a configured agent on a configured host.
-  const served = Object.entries(config.agents).filter(([key]) => {
-    const host = state.placements[key]?.host;
-    return host !== undefined && config.hosts[host] !== undefined;
-  });
-  const isServed = (placement: string): boolean =>
-    served.some(([key]) => key === placement);
+  const isServed = servedBy(config, state);
+  const served = Object.entries(config.agents).filter(([key]) => isServed(key));
 
   async function observeAll(report: string[]): Promise<void> {
     for (const [key, agentId] of served) {
@@ -236,14 +247,24 @@ export async function openShell(
         : "";
       return `${head} The router could not pick a recipient for your request (${(routing?.reason ?? "unknown").replaceAll("_", " ")}${suggested}). Choose with: ${command} choose ${as} --task ${task.id} --to <participant>, one of: ${task.permitted.join(", ")}.\n\n${task.text}`;
     }
+    // Each delivery's last word, with the session and message it came
+    // from, so the prompt alone says who answered.
+    const short = (id: string): string =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(id) ? id.slice(0, 8) : id;
     const words = task.deliveries
       .map((d) => {
         const end = d.end;
         if (!end) return `${d.participant}@${d.host}: no result`;
-        return `${d.participant}@${d.host} ${end.reason}${end.text ? `:\n${end.text}` : ""}`;
+        const from = [
+          end.by ? `session ${short(end.by)}` : "",
+          end.messageId ?? "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return `${d.participant}@${d.host} ${end.reason}${from ? ` (${from})` : ""}${end.text ? `:\n${end.text}` : ""}`;
       })
       .join("\n\n");
-    return `${head} Your request is ${task.final?.status ?? "closed"}${task.final?.reason ? ` (${task.final.reason})` : ""}. No reply is needed.\n\n${words}`;
+    return `${head} Your request is ${task.final?.status ?? "closed"}${task.final?.reason ? ` (${task.final.reason})` : ""}, told at ${new Date(now()).toISOString()}. No reply is needed.\n\n${words}`;
   }
 
   // Each due notice for a sender this router can reach, through the same
@@ -403,6 +424,7 @@ export async function openShell(
     },
     apply,
     deliver,
+    waits: () => waitsOnSessions(state, isServed),
     async close() {
       try {
         await Promise.all([...adapters.values()].map((a) => a.close()));

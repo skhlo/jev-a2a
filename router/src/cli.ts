@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { mkdirSync, watch } from "node:fs";
 import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import {
   A2A_STATE,
@@ -16,7 +17,9 @@ import {
 } from "./core.ts";
 import { describeNeed, newMessageId, taskLog } from "./board.ts";
 import {
+  serveRunner,
   sessionReader,
+  waitsReader,
   bind,
   BindError,
   boardListener,
@@ -164,21 +167,27 @@ if (command === "serve") {
 async function serve(config: RouterConfig): Promise<void> {
   const token = process.env.ROUTER_TOKEN;
   if (!token) fail("ROUTER_TOKEN is not set; add it to secrets.env.");
-  let queue: Promise<unknown> = Promise.resolve();
-  const handle = (event: Event): Promise<Run> => {
-    const run = queue.then(async () => {
-      const shell = await open();
-      try {
-        const outcome = shell.apply(event);
-        const report = outcome.ok ? await shell.deliver() : [];
-        return { outcome, report };
-      } finally {
-        await shell.close();
-      }
-    });
-    queue = run.catch(() => undefined);
-    return run;
-  };
+  // Runs are serialized by the runner; while anything waits only for a
+  // session, it looks again every serve.wake seconds. The CLI on this host
+  // writes the record without passing through serve, so the runner also
+  // watches the journal file.
+  mkdirSync(config.home, { recursive: true });
+  const runner = serveRunner({
+    open,
+    delayMs: config.serve.wake * 1000,
+    waits: waitsReader(config),
+    log: (line) => console.log(line),
+    watch: (onChange) => {
+      const watcher = watch(config.home, (_kind, name) => {
+        if (name === "journal.jsonl") onChange();
+      });
+      watcher.on("error", (error: Error) =>
+        console.error(`watch: ${error.message}; wake runs follow events only`),
+      );
+      return watcher;
+    },
+  });
+  const handle = runner.handle;
   const deps = {
     config,
     handle,
@@ -199,8 +208,12 @@ async function serve(config: RouterConfig): Promise<void> {
   }
   console.log(`router serve listening on http://${config.serve.listen}`);
   console.log(`router board on http://${config.serve.board}`);
+  // A first run binds the sessions and picks up what waited across the
+  // restart; the watcher arms the loop for what the CLI adds later.
+  runner.start();
   await new Promise<void>((resolve) => {
     const stop = (): void => {
+      runner.stop();
       board.close();
       events.close(() => resolve());
     };

@@ -22,7 +22,12 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
   home,
   hosts: { mbp: { paseo: "fake://mbp", replyCommand: "router" } },
   agents: { "orchestrator@mbp": "A1" },
-  serve: { listen: "127.0.0.1:0", board: "127.0.0.1:0", identities: {} },
+  serve: {
+    listen: "127.0.0.1:0",
+    board: "127.0.0.1:0",
+    identities: {},
+    wake: 0,
+  },
   jev: { model: "jev-latest" },
 });
 
@@ -86,6 +91,8 @@ test("a failed observation records not ready: an earlier idle does not send this
   assert.equal(shell.state.placements["orchestrator@mbp"]?.ready, false);
   assert.match(report.join("\n"), /unreachable \(ssh flake\); not ready/);
   assert.match(report.join("\n"), /D1 waits: not ready/);
+  // Worth looking again: the next observation may release it.
+  assert.equal(shell.waits(), true);
   await shell.close();
   // Run 3: the agent is seen idle again and the request goes out.
   shell = await openShell(
@@ -99,6 +106,8 @@ test("a failed observation records not ready: an earlier idle does not send this
   );
   await shell.deliver();
   assert.deepEqual(sent, ["D1/M1"]);
+  // Sent and accepted: the reply is an event, so no look is owed.
+  assert.equal(shell.waits(), false);
   await shell.close();
 });
 
@@ -406,7 +415,7 @@ test("a participant sender is told a question and the end through the adapter, e
   );
   assert.match(
     sent[2]?.text ?? "",
-    /^\[router T1 final\] Your request is completed\. No reply is needed\.\n\nenvironment@mbp completed:\nzsh from the baseline$/,
+    /^\[router T1 final\] Your request is completed, told at 1970-01-01T00:00:01\.000Z\. No reply is needed\.\n\nenvironment@mbp completed \(session E1 R1\):\nzsh from the baseline$/,
   );
   await shell.close();
   // The record carries the notices; a new run has nothing more to tell.
@@ -595,7 +604,7 @@ test("a hand-back is told with the choice to make, and a failed end with each de
   assert.equal(sent.length, 2);
   assert.match(
     sent[1]?.text ?? "",
-    /^\[router T1 final\] Your request is failed \(deadline\)\. No reply is needed\.\n\nenvironment@mba expired\n\nenvironment@mbp failed:\nno such host\n\nenvironment@mini expired$/,
+    /^\[router T1 final\] Your request is failed \(deadline\), told at 1970-01-01T00:00:01\.000Z\. No reply is needed\.\n\nenvironment@mba expired\n\nenvironment@mbp failed \(session E1 R1\):\nno such host\n\nenvironment@mini expired$/,
   );
   await shell.close();
 });

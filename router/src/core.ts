@@ -428,6 +428,28 @@ export function noticeWaits(
 }
 type NoticeWait = Exclude<BlockedReason, "closed" | "not_pending">;
 
+// Whether anything waits only for a session to be seen idle, which a later
+// look can release without any event. Only `not_ready` qualifies: a hold
+// waits on a person, a queue on the delivery ahead, a replaced session on
+// the operator, and `in_flight` on the send that holds the placement, whose
+// own reason says whether a look would move it (a retryable unknown reads
+// `not_ready` itself; a stuck one waits on the operator).
+export function waitsOnSessions(
+  state: State,
+  served: (placement: string) => boolean = () => true,
+): boolean {
+  const wakes = (why: BlockedReason | null): boolean => why === "not_ready";
+  for (const delivery of allDeliveries(state))
+    if (served(delivery.placement) && wakes(blockedReason(state, delivery)))
+      return true;
+  return state.tasks.some(
+    (task) =>
+      task.via !== null &&
+      served(task.via) &&
+      noticeWaits(state, task).some((w) => wakes(w.why)),
+  );
+}
+
 // One Choice over the participants the sender could address when it asked,
 // plus an abstention.
 export function judgmentQuestion(state: State, task: Task): JudgmentQuestion {

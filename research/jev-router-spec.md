@@ -87,8 +87,14 @@ and the design does not try to route it.
 The core is a functional core: the shell authenticates callers, calls Jev and
 adapters, and feeds their results back as events. `commands(state)` tells the
 shell what to do next (`judge`, `deliver` or `notify`); the core performs no
-I/O.
-`initial(config)` validates the configuration and refuses an invalid one.
+I/O. `initial(config)` validates the configuration and refuses an invalid
+one. The shell runs on events and on `router run`; `router serve` also runs
+again after a short interval while `waitsOnSessions(state)` says something is
+blocked only on a session being seen idle or on an unconfirmed send there
+(`not_ready`, `in_flight`), so an exchange between two agents needs no person
+to nudge it. Anything else that waits (a hold, a hand-back, an open
+question, a replaced session) waits on an event, and a quiet router arms
+nothing.
 
 ## Configuration
 
@@ -136,13 +142,13 @@ Events (`reduce(state, event) → state`, with `state.last` = `{ ok, code?, mess
 
 | Event                                                                | Who                                          | Effect                                                                                                                                                                                                                                                                          |
 | -------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `submit { by, messageId, text, to?, hosts? }`                        | a requester or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev; without it, a sender permitted to address nobody is refused. A participant sender's task records `via`, the placement it sent from. |
+| `submit { by, messageId, text, to?, hosts? }`                        | a requester or a current participant session | Records a task under `source/messageId`. Same key and content returns the same receipt; different content is a `conflict`. `to` skips Jev; without it, a sender permitted to address nobody is refused. A participant sender's task records `via`, the placement it sent from.  |
 | `judged { taskId, choice, probabilities, model }` / `judgeFailed`    | shell, after Jev                             | One judgment per request. Selects the recipient, or asks the sender (`no_owner`, `low_confidence`, `invalid_judgment`, `routing_unavailable`) with the permitted participants ranked in Jev's order as suggestions.                                                             |
 | `choose { by, taskId, to }`                                          | original sender, from a current session      | Resolves a pending recipient choice once. A replaced session may not choose, as it may not submit.                                                                                                                                                                              |
 | `attempt { deliveryId }`                                             | shell                                        | Commits `attempting`, pins the session and marks it busy **before** the adapter call. Rejected unless eligible.                                                                                                                                                                 |
 | `adapterResult { deliveryId, messageId, outcome }`                   | shell                                        | `accepted`, `unknown`, or `not_sent`. `not_sent` re-queues; the request may move to another session only if no earlier attempt on this one could have arrived. `unknown` is retried with the same key only for a deduplicating adapter. Applies only to an attempt in progress. |
 | `update { by, taskId, messageId, inReplyTo, kind, text }`            | pinned session                               | `working`, `question`, `completed`, `failed`. Proves receipt. `working` after a question settles the question. A reply to the message before an unsent queued answer withdraws that answer. Other replies to earlier messages are kept as history only.                         |
-| `answer { by, taskId, messageId, questionId, deliveryId?, text }`    | original sender                              | Consumes the open question and queues the answer to the same session. Rejected once the question was settled in the session, and as `ambiguous` when two deliveries ask under the same id and none is named.                                                                   |
+| `answer { by, taskId, messageId, questionId, deliveryId?, text }`    | original sender                              | Consumes the open question and queues the answer to the same session. Rejected once the question was settled in the session, and as `ambiguous` when two deliveries ask under the same id and none is named.                                                                    |
 | `cancel { by, taskId }`                                              | original sender                              | Only while nothing may have reached the participant.                                                                                                                                                                                                                            |
 | `resolve { by: operator, deliveryId, messageId, outcome, evidence }` | operator                                     | Closes an open pinned delivery as `finished` or `not_sent`. Never resends.                                                                                                                                                                                                      |
 | `noticeAttempt { taskId, key, text }`                                | shell                                        | Like `attempt`, for a notice to a participant sender (below): recorded `attempting` with the sender's session before the adapter call; rejected unless the notice is due and eligible; a repeat must carry the first text.                                                      |
@@ -433,8 +439,10 @@ Deployment decisions taken on 2026-09-30, outside the contract:
   logs to journald, starts at boot under linger. It binds the tailnet
   address, which at boot arrives after the service; `serve` waits for it
   instead of failing. One instance per host: the second finds the port taken
-  and says so. Deliveries still happen only on events and runs; the service
-  adds no schedule.
+  and says so. Deliveries happen on events and runs, and `serve` looks again
+  every `serve.wake` seconds while the record has work waiting only for a
+  session to be seen idle; it watches the journal file so a CLI run on the
+  router host, which does not pass through `serve`, arms that look too.
 - The vault participant's responsibility text is authored next to the vault's
   `AGENTS.md`, from its role section and the `CONTEXT.md` glossary, with
   example requests in Korean, and is refreshed when those change. The router
