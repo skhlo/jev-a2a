@@ -2174,6 +2174,12 @@ test("v0.12 log and help: the log collapses to its newest line and l opens it; t
       ".agents .foot:not(.open) .tail > div:not(:last-child) { display: none; }",
     ),
   );
+  // Without a script, l cannot open it, so all the lines show.
+  assert.ok(
+    html.includes(
+      "<noscript><style>.agents .foot:not(.open) .tail > div:not(:last-child) { display: block; }</style></noscript></head>",
+    ),
+  );
   assert.ok(
     html.includes(
       "<span><kbd>h</kbd> hold</span><span><kbd>l</kbd> log</span>",

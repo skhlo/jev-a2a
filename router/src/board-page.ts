@@ -1587,7 +1587,8 @@ ${
 <html lang="en" data-theme="${theme}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Router</title>
-<style>${STYLE}</style></head>
+<style>${STYLE}</style>
+<noscript><style>${NOSCRIPT_STYLE}</style></noscript></head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
      what it reads, as in the board design v0.12: a plain path indexes the
@@ -1962,6 +1963,10 @@ a.btn, .card a.id { text-decoration: none; }
   .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
 }
 `;
+
+// Without a script, l cannot open the router log, so the log shows all its
+// lines under the cards.
+const NOSCRIPT_STYLE = `.agents .foot:not(.open) .tail > div:not(:last-child) { display: block; }`;
 
 // ---- Script: reads the rendered page and its data attributes only ----
 
