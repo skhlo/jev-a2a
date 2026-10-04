@@ -16,6 +16,7 @@ import {
   TELEMETRY_VERSION,
   telemetryPath,
   writeTelemetry,
+  type AgentSnapshot,
   type Telemetry,
 } from "./telemetry.ts";
 
@@ -90,6 +91,10 @@ test("snapshotOf reads every field, and nulls what the daemon left out", () => {
     error: "boom",
     title: "router orchestrator",
     cwd: "/work",
+    // The sheet is the adapter's to fill, after the rail.
+    checkout: null,
+    subagents: null,
+    activity: null,
   });
   const bare: PaseoAgent = {
     id: "A1",
@@ -195,6 +200,120 @@ test("the file round-trips, is replaced whole, and anything else reads as no tel
     "telemetry.json: the entry for bad is not a snapshot",
     "telemetry.json: the entry for worse is not a snapshot",
   ]);
+});
+
+test("the sheet round-trips, and a damaged sheet field reads as not read while the rail stays", () => {
+  const home = mkdtempSync(join(tmpdir(), "telemetry-"));
+  const sheet: AgentSnapshot = {
+    ...emptySnapshot(SEEN, "missing"),
+    status: "running",
+    checkout: {
+      project: "A2A",
+      workspace: "feat-x",
+      directory: "/work/.paseo/worktrees/feat-x",
+      kind: "worktree",
+      branch: "feat/x",
+      remote: "git@github.com:me/a2a.git",
+      dirty: true,
+      ahead: 2,
+      behind: 0,
+      diff: { additions: 10, deletions: 3 },
+      pr: {
+        number: 7,
+        url: "https://github.com/me/a2a/pull/7",
+        title: "feat: x",
+        state: "OPEN",
+        draft: false,
+        merged: false,
+        mergeable: "MERGEABLE",
+        checks: "failure",
+        review: null,
+      },
+      status: "running",
+      activityAt: SEEN,
+    },
+    subagents: {
+      counts: { running: 1, completed: 2, failed: 0, canceled: 0 },
+      running: [
+        {
+          id: "s1",
+          title: "worker",
+          description: "Review the diff.",
+          status: "running",
+          startedAt: SEEN,
+          updatedAt: SEEN,
+          parent: null,
+        },
+      ],
+    },
+    activity: {
+      turns: 1,
+      items: [
+        {
+          at: SEEN,
+          kind: "user_message",
+          text: "go",
+          tool: null,
+          status: null,
+        },
+        {
+          at: SEEN,
+          kind: "tool_call",
+          text: "pnpm test",
+          tool: "Bash",
+          status: "running",
+        },
+      ],
+    },
+  };
+  const telemetry: Telemetry = {
+    version: TELEMETRY_VERSION,
+    at: SEEN,
+    placements: { "orchestrator@mbp": sheet },
+  };
+  writeTelemetry(home, telemetry);
+  assert.deepEqual(readTelemetry(home), telemetry);
+  // A sheet field that does not parse is null; the snapshot is kept, and
+  // a checkout with no git facts keeps its nulls.
+  const parsed = parseTelemetry({
+    version: TELEMETRY_VERSION,
+    at: SEEN,
+    placements: {
+      a: {
+        ...sheet,
+        checkout: { ...sheet.checkout, kind: "tarball" },
+        subagents: { counts: {}, running: [{ id: "s1" }] },
+        activity: { turns: "many", items: [{ kind: "song" }] },
+      },
+      b: {
+        ...sheet,
+        checkout: { ...sheet.checkout, pr: { number: 1 }, diff: {} },
+        subagents: { counts: {}, running: [] },
+        activity: { items: [] },
+      },
+    },
+  });
+  assert.deepEqual(parsed?.placements.a, {
+    ...sheet,
+    checkout: null,
+    subagents: null,
+    activity: null,
+  });
+  assert.deepEqual(parsed?.placements.b, {
+    ...sheet,
+    checkout: { ...sheet.checkout, pr: null, diff: null },
+    subagents: {
+      counts: { running: 0, completed: 0, failed: 0, canceled: 0 },
+      running: [],
+    },
+    activity: { turns: 0, items: [] },
+  });
+  // The status line carries the branch, the diff, the pull request and the
+  // open subagents.
+  assert.equal(
+    agentLine(sheet),
+    `running · feat/x* · +10 −3 · PR #7 failure · 1 subagent(s) running · seen ${SEEN}`,
+  );
 });
 
 test("agentLine says what matters in one line", () => {

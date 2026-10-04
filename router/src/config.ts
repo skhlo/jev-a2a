@@ -35,6 +35,9 @@ export type RouterConfig = Config & {
   };
   // Jev for unaddressed requests. The API key comes from TYPESAFE_API_KEY.
   jev: { model: string; url?: string; timeoutMs?: number };
+  // Whether each run reads the health sheet (checkout, subagents, activity)
+  // beyond the rail; off, a run costs one call per placement.
+  telemetry: { sheet: boolean };
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -108,6 +111,9 @@ export function loadConfig(path: string): RouterConfig {
       }
   }
   const jev = isRecord(extra.jev) ? extra.jev : {};
+  const telemetry = isRecord(extra.telemetry) ? extra.telemetry : {};
+  if (telemetry.sheet !== undefined && typeof telemetry.sheet !== "boolean")
+    return fail("telemetry.sheet is true or false");
   return {
     ...config,
     home:
@@ -133,6 +139,7 @@ export function loadConfig(path: string): RouterConfig {
         ? { timeoutMs: jev.timeoutMs }
         : {}),
     },
+    telemetry: { sheet: telemetry.sheet ?? true },
   };
 }
 

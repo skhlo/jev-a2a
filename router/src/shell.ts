@@ -222,6 +222,10 @@ export async function openShell(
           : `${key}: agent ${agentId} not found on this daemon`,
       );
       if (!outcome.ok) report.push(`${key}: ${outcome.message}`);
+      // A sheet read that failed cost one field, not the observation; the
+      // line is a telemetry line, which a wake run logs.
+      for (const note of seen?.notes ?? [])
+        report.push(`telemetry: ${key}: ${note}`);
     }
     // Telemetry is a side file: a failure to write it is reported, and the
     // run goes on to its sends.

@@ -37,6 +37,7 @@ export const config: RouterConfig = {
     wake: 0,
   },
   jev: { model: "jev-latest" },
+  telemetry: { sheet: true },
 };
 
 // When the board is read: after the last event and before any deadline.
@@ -438,8 +439,16 @@ export const sampleJournal: Entry[] = [
 // What the shell last saw of the sample's sessions, taken at the end of its
 // last run: the orchestrator's session mid-turn (it is answering incus's
 // question), knowledge@mini working on T4 and stopped at a permission
-// prompt, environment@mbp idle with most of its window used. Together with
-// `sampleJournal` it is what the published sample is built from.
+// prompt, environment@mbp idle with most of its window used. The sheet:
+// the orchestrator on a dirty worktree with an open pull request whose
+// checks fail, its tail ending in a running shell call, its subagents all
+// done; knowledge@mini with two subagents open, one under the other, in a
+// plain checkout with no pull request; environment@mbp's per-session reads
+// failed that run (the run's report said so), so it has its checkout and
+// nothing else, which is also how a closed session's sheet reads (the
+// sample has no card with all three null: that is the no-sheet rendering of
+// part 1). Together with `sampleJournal` it is what the published sample is
+// built from.
 export const telemetry: Telemetry = {
   version: "jev-router-telemetry/1",
   at: "2026-09-30T09:44:51.000Z",
@@ -460,7 +469,76 @@ export const telemetry: Telemetry = {
       usage: { input: 1_240, cached: 418_900, output: 9_870, costUsd: 4.18 },
       error: null,
       title: "router orchestrator",
-      cwd: "/home/me/Projects/jev-a2a",
+      cwd: "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices",
+      checkout: {
+        project: "A2A",
+        workspace: "feat-notices",
+        directory: "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices",
+        kind: "worktree",
+        branch: "feat/notices",
+        remote: "git@github.com:me/jev-a2a.git",
+        dirty: true,
+        ahead: 3,
+        behind: 0,
+        diff: { additions: 412, deletions: 96 },
+        pr: {
+          number: 21,
+          url: "https://github.com/me/jev-a2a/pull/21",
+          title: "feat(router): notices to participant senders",
+          state: "OPEN",
+          draft: false,
+          merged: false,
+          mergeable: "MERGEABLE",
+          checks: "failure",
+          review: "pending",
+        },
+        status: "running",
+        activityAt: "2026-09-30T09:44:40.000Z",
+      },
+      subagents: {
+        counts: { running: 0, completed: 3, failed: 0, canceled: 0 },
+        running: [],
+      },
+      activity: {
+        turns: 1,
+        items: [
+          {
+            at: "2026-09-30T09:44:31.000Z",
+            kind: "user_message",
+            text: "[router T5 N1] incus asks about your request. Answer with: router answer …",
+            tool: null,
+            status: null,
+          },
+          {
+            at: "2026-09-30T09:44:33.000Z",
+            kind: "reasoning",
+            text: "The question is which kernel the lab image should boot.",
+            tool: null,
+            status: null,
+          },
+          {
+            at: "2026-09-30T09:44:35.000Z",
+            kind: "tool_call",
+            text: "research/lab-images.md",
+            tool: "Read",
+            status: "completed",
+          },
+          {
+            at: "2026-09-30T09:44:39.000Z",
+            kind: "assistant_message",
+            text: "The lab image boots 6.12 LTS; answering incus with that.",
+            tool: null,
+            status: null,
+          },
+          {
+            at: "2026-09-30T09:44:40.000Z",
+            kind: "tool_call",
+            text: "router answer --as A1 --task T5 --delivery D5 --question Q1 --text '6.12 LTS'",
+            tool: "Bash",
+            status: "running",
+          },
+        ],
+      },
     },
     "knowledge@mini": {
       seen: "2026-09-30T09:44:50.000Z",
@@ -486,6 +564,71 @@ export const telemetry: Telemetry = {
       error: null,
       title: "vault curator",
       cwd: "/Users/agent/vault",
+      checkout: {
+        project: "vault",
+        workspace: "main",
+        directory: "/Users/agent/vault",
+        kind: "local_checkout",
+        branch: "main",
+        remote: null,
+        dirty: false,
+        ahead: null,
+        behind: null,
+        diff: null,
+        pr: null,
+        status: "needs_input",
+        activityAt: "2026-09-30T09:40:48.000Z",
+      },
+      subagents: {
+        counts: { running: 2, completed: 5, failed: 0, canceled: 1 },
+        running: [
+          {
+            id: "toolu_01sweep",
+            title: "worker",
+            description:
+              "Sweep the vault for notes that cite the retired runbook.",
+            status: "running",
+            startedAt: "2026-09-30T09:40:10.000Z",
+            updatedAt: "2026-09-30T09:40:47.000Z",
+            parent: null,
+          },
+          {
+            id: "toolu_01grep",
+            title: "Explore",
+            description: "List every note under ops/ that links runbook-2024.",
+            status: "running",
+            startedAt: "2026-09-30T09:40:22.000Z",
+            updatedAt: "2026-09-30T09:40:47.000Z",
+            parent: "toolu_01sweep",
+          },
+        ],
+      },
+      activity: {
+        turns: 1,
+        items: [
+          {
+            at: "2026-09-30T09:40:04.000Z",
+            kind: "user_message",
+            text: "[router T4 M4] Task from the router. When done, run: router reply …",
+            tool: null,
+            status: null,
+          },
+          {
+            at: "2026-09-30T09:40:10.000Z",
+            kind: "tool_call",
+            text: "Sweep the vault for notes that cite the retired runbook.",
+            tool: "Agent",
+            status: "running",
+          },
+          {
+            at: "2026-09-30T09:40:48.000Z",
+            kind: "tool_call",
+            text: "rg -l runbook-2024 /Users/agent/vault/ops",
+            tool: "Bash",
+            status: "running",
+          },
+        ],
+      },
     },
     "environment@mbp": {
       seen: "2026-09-30T09:44:51.000Z",
@@ -504,6 +647,23 @@ export const telemetry: Telemetry = {
       error: null,
       title: "environment",
       cwd: "/home/me",
+      checkout: {
+        project: "home",
+        workspace: "main",
+        directory: "/home/me",
+        kind: "directory",
+        branch: null,
+        remote: null,
+        dirty: null,
+        ahead: null,
+        behind: null,
+        diff: null,
+        pr: null,
+        status: "done",
+        activityAt: "2026-09-30T09:23:40.000Z",
+      },
+      subagents: null,
+      activity: null,
     },
   },
 };

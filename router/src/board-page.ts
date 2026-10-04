@@ -13,7 +13,7 @@ import type {
   PlacementView,
   TaskView,
 } from "./board.ts";
-import type { AgentStatus } from "./telemetry.ts";
+import { checkoutParts, type AgentStatus } from "./telemetry.ts";
 import type {
   Judgment,
   NeedsYouItem,
@@ -477,6 +477,76 @@ ${body}
     }
     return { line, meter };
   };
+  // The health sheet, plain until v0.11 binds it, above the health row:
+  // the checkout as the sidebar's row (branch starred when dirty, diff,
+  // pull request with its checks, the title as tooltip), the subagents
+  // counted with the open briefs as tooltip, and the activity tail as one
+  // line per entry. A field the router did not read is left out; no field,
+  // no row.
+  const sheet = (path: string, a: PlacementView["agent"]): string => {
+    if (!a || (!a.checkout && !a.subagents && !a.activity)) return "";
+    const ap = `${path}.agent`;
+    const rows: string[] = [];
+    const c = a.checkout;
+    if (c) {
+      const [branch, ...rest] = checkoutParts(c);
+      const parts = [
+        slot(
+          `${ap}.checkout.branch, ${ap}.checkout.dirty`,
+          esc(branch),
+          "",
+          "span",
+          ` title="${esc(`${c.project} · ${c.workspace} · ${c.directory}`)}"`,
+        ),
+      ];
+      if (c.diff)
+        parts.push(slot(`${ap}.checkout.diff`, esc(rest.shift()), "num"));
+      // The pull request links out when its URL is a web address; the
+      // router shows what the daemon said, it does not run it.
+      if (c.pr) {
+        const web = /^https:\/\//.test(c.pr.url);
+        parts.push(
+          slot(
+            `${ap}.checkout.pr`,
+            esc(rest.shift()),
+            c.pr.checks === "failure" ? "err" : "",
+            web ? "a" : "span",
+            `${web ? ` href="${esc(c.pr.url)}"` : ""} title="${esc(c.pr.title)}"`,
+          ),
+        );
+      }
+      rows.push(parts.join(" · "));
+    }
+    const sub = a.subagents;
+    if (sub) {
+      const total = Object.values(sub.counts).reduce((n, k) => n + k, 0);
+      rows.push(
+        slot(
+          `${ap}.subagents.counts`,
+          `${count(total, "subagent")} (${sub.counts.running} running)`,
+          sub.counts.running ? "" : "k",
+          "span",
+          sub.running.length
+            ? ` title="${esc(sub.running.map((r) => `${r.title ?? "subagent"}: ${r.description ?? r.id}`).join("\n"))}"`
+            : "",
+        ),
+      );
+    }
+    const act = a.activity;
+    if (act)
+      rows.push(
+        act.items.length
+          ? act.items
+              .map(
+                (it, j) =>
+                  `<div data-path="${ap}.activity.items[${j}]"${dated(it.at)}><b>${esc(it.tool ?? label(it.kind))}</b>${it.status ? ` <span class="k">${esc(it.status)}</span>` : ""}${it.text ? ` ${esc(it.text)}` : ""}</div>`,
+              )
+              .join("")
+          : slot(`${ap}.activity.items`, "no activity", "k"),
+      );
+    return `        <div class="sheet" data-path="${ap}.checkout, ${ap}.subagents, ${ap}.activity">${rows.map((r) => `<div>${r}</div>`).join("")}</div>
+`;
+  };
   // provider/model, thinking and mode as tags; a null field is left out.
   const harnessTags = (path: string, a: PlacementView["agent"]): string => {
     if (!a) return "";
@@ -528,7 +598,7 @@ ${body}
         dot,
         `        <div class="name">${name}</div>
         <div class="what">${what}</div>
-${tele(line, meter, holdLever ? [holdLever] : [])}`,
+${sheet(path, p.agent)}${tele(line, meter, holdLever ? [holdLever] : [])}`,
       );
     }
     const task = slot(
@@ -619,7 +689,7 @@ ${tele(line, meter, holdLever ? [holdLever] : [])}`,
         <div class="what${asks ? " ask" : ""}">${what}${excerpt}</div>
         <div class="rig">${rig}</div>
         <div class="stats">${stats}</div>
-${tele(line, "", levers)}`,
+${sheet(path, p.agent)}${tele(line, "", levers)}`,
     );
   };
 
@@ -1265,6 +1335,14 @@ h1, h2, h3, p { margin: 0; }
 .card .tele .ask { color: var(--accent); font-weight: 500; }
 .card .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
 .card .tele .seen, .card .tele .k { color: var(--text-3); }
+/* Sheet (telemetry part 2, unbound until v0.11): the checkout row, the subagent count and the activity tail,
+   each line clipped; a failing check is dotted like an error. */
+.card .sheet { grid-column: 1 / -1; display: grid; gap: 1px; font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.5; color: var(--text-2); min-width: 0; }
+.card .sheet div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .sheet .k { color: var(--text-3); }
+.card .sheet a { color: inherit; }
+.card .sheet .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; }
+.card .sheet b { font-weight: 500; color: var(--text); }
 .meter { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); }
 .meter .bar { width: 44px; height: 4px; border-radius: 2px; background: var(--hair-strong); overflow: hidden; }
 .meter .bar i { display: block; height: 100%; background: var(--text-2); }

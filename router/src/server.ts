@@ -106,6 +106,11 @@ export type Runner = {
 const changed = (line: string): boolean =>
   !/^[^\s:]+@[^\s:]+: /.test(line) && !/ waits: /.test(line);
 
+// A telemetry complaint (a sheet read that failed, a file not written) is
+// the same every interval while its cause lasts: each is logged once, and
+// heard again after a run without it.
+const telemetryLine = (line: string): boolean => line.startsWith("telemetry");
+
 export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   const timers = (deps.timers ?? nodeTimers) as Timers<H>;
   let queue: Promise<unknown> = Promise.resolve();
@@ -149,11 +154,20 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   };
   // A run nobody asked for: its failure is logged and tried again at the
   // interval rather than lost.
+  const complained = new Set<string>();
   const unattended = async (label: string): Promise<void> => {
     try {
       const { report } = await enqueue(null);
-      for (const line of report)
-        if (changed(line)) deps.log(`${label}: ${line}`);
+      const complaints = report.filter(telemetryLine);
+      for (const line of report) {
+        if (!changed(line)) continue;
+        if (telemetryLine(line)) {
+          if (complained.has(line)) continue;
+          complained.add(line);
+        }
+        deps.log(`${label}: ${line}`);
+      }
+      if (complaints.length === 0) complained.clear();
     } catch (error: unknown) {
       deps.log(
         `${label}: ${error instanceof Error ? error.message : String(error)}`,

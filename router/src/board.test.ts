@@ -494,6 +494,35 @@ test("the sample holds a snapshot per placement in the states the design binds",
   );
 });
 
+test("the sample's sheet holds the states the design binds: a dirty worktree with a failing pull request and a tail ending in a running call; open subagents, one nested; a checkout alone", () => {
+  const agents = Object.fromEntries(
+    sampleModel().placements.map((p) => [p.key, p.agent]),
+  );
+  const o = agents["orchestrator@mbp"];
+  assert.equal(o?.checkout?.kind, "worktree");
+  assert.equal(o?.checkout?.dirty, true);
+  assert.ok(o?.checkout?.diff && o.checkout.diff.additions > 0);
+  assert.equal(o?.checkout?.pr?.state, "OPEN");
+  assert.equal(o?.checkout?.pr?.checks, "failure");
+  assert.deepEqual(o?.subagents?.running, []);
+  assert.ok(o?.subagents && o.subagents.counts.completed > 0);
+  assert.deepEqual(o?.activity?.items.at(-1)?.status, "running");
+  assert.equal(o?.activity?.items.at(-1)?.tool, "Bash");
+  const k = agents["knowledge@mini"];
+  assert.equal(k?.checkout?.pr, null);
+  assert.equal(k?.subagents?.counts.running, 2);
+  assert.deepEqual(
+    k?.subagents?.running.map((r) => r.parent !== null),
+    [false, true],
+  );
+  assert.equal(k?.subagents?.running[1]?.parent, k?.subagents?.running[0]?.id);
+  assert.equal(k?.activity?.items.at(-1)?.status, "running");
+  const e = agents["environment@mbp"];
+  assert.equal(e?.checkout?.kind, "directory");
+  assert.equal(e?.subagents, null);
+  assert.equal(e?.activity, null);
+});
+
 test("messageTimes maps submit, update and answer ids to their journal time", () => {
   assert.deepEqual(
     messageTimes(journal),

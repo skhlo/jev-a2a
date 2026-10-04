@@ -139,7 +139,8 @@ const crash = process.env.ROUTER_CRASH;
 const apiKey = process.env.TYPESAFE_API_KEY;
 const open = (): Promise<Shell> =>
   openShell(config, {
-    adapter: createPaseoAdapter,
+    adapter: (endpoint) =>
+      createPaseoAdapter(endpoint, { sheet: config.telemetry.sheet }),
     judge: apiKey
       ? (question) => judge(question, { ...config.jev, apiKey })
       : null,

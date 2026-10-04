@@ -30,6 +30,7 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
     wake: 0,
   },
   jev: { model: "jev-latest" },
+  telemetry: { sheet: true },
 });
 
 // An adapter whose next observation and send are scripted per run.
@@ -57,6 +58,9 @@ const snapshot = (status: "idle" | "running"): AgentSnapshot => ({
   error: null,
   title: null,
   cwd: "/work",
+  checkout: null,
+  subagents: null,
+  activity: null,
 });
 const idle: Observation = {
   ready: true,
@@ -791,5 +795,45 @@ test("a telemetry write that fails is reported and the run still sends", async (
   assert.ok(
     report.some((line) => line.startsWith("telemetry not written: EISDIR")),
     report.join("\n"),
+  );
+});
+
+test("a sheet read the adapter could not make is one telemetry line of the report; the observation stands and the run still sends", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const sent: string[] = [];
+  const shell = await openShell(
+    configFor(home),
+    scripted({
+      observe: (seen) =>
+        Promise.resolve({
+          ready: true,
+          status: "idle",
+          pendingPermissions: 0,
+          snapshot: { ...snapshot("idle"), seen },
+          notes: ["activity of A1 not read: timeline gone"],
+        }),
+      send: (key) => {
+        sent.push(key);
+        return Promise.resolve("accepted");
+      },
+    }),
+  );
+  shell.apply({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "Fix it",
+    to: "orchestrator",
+  });
+  const report = await shell.deliver();
+  await shell.close();
+  // The send happened, so the observation read ready despite the note.
+  assert.deepEqual(sent, ["D1/M1"]);
+  assert.deepEqual(
+    report.filter((line) => /orchestrator@mbp/.test(line)),
+    [
+      "orchestrator@mbp: idle",
+      "telemetry: orchestrator@mbp: activity of A1 not read: timeline gone",
+    ],
   );
 });

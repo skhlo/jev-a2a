@@ -273,7 +273,8 @@ handler order.
 
 ## Adapters (verified against installed tools)
 
-Evidence: Paseo 0.9.2 and herdr 0.8.2 help, schema and packaged source, read-only.
+Evidence: Paseo 0.9.2 and herdr 0.8.2 help, schema and packaged source, read-only;
+the 0.10.2 daemon bundle and protocol 0.10.1 types for the facts marked so.
 
 **Paseo: use the SDK.** The adapter calls `@getpaseo/client`
 `sendAgentMessage(agentId, text, { messageId })`, never the CLI, which
@@ -319,6 +320,18 @@ Therefore:
 - A receipt left `pending` by a daemon crash, or by a run that never reported
   starting, answers `unknown` forever. The operator path covers it.
 - The pinned Paseo agent ID is the deep link from a task to its session.
+- Observing must not change what it observes. `fetch_agent` (the client's
+  `refresh`) returns the stored status without loading the agent; the
+  timeline fetch and the provider subagent list call `ensureAgentLoaded`
+  in the 0.10.2 daemon and resume a `closed` session, so the telemetry
+  sheet's per-session reads are made only for a session seen `idle` or
+  `running`. The subagent list is not on the public `PaseoClient`; it is on
+  the `DaemonClient` under `@getpaseo/client/internal/daemon-client`, the
+  same class `createPaseoClient` builds on, so the adapter builds that pair
+  itself and names the dependence in its header. An agent snapshot carries
+  no workspace id; the refresh result and each `fetch_workspaces` entry
+  carry `project {projectKey, workspaceName, checkout.cwd}`, which is the
+  join.
 
 This applies to the router's adapter. It is separate from the host rule that
 agents operating Paseo interactively use the CLI rather than Paseo MCP.
@@ -415,6 +428,17 @@ run, so journaling it would bury the record; it is not folded, not replayed
 and not locked on read; a failed write is a line in the run's report, not a
 stopped run; and a board view or `router status` shows what the file holds
 with its time, or nothing.
+
+The sheet (telemetry part 2) rides in the same snapshot from three more
+reads, under the adapter rules above: the host's workspace list once per
+run (`fetch_workspaces`: the project placement, `gitRuntime`, `diffStat`,
+`githubRuntime.pullRequest`), joined to the agent by project key and
+workspace name, else the directory; and, for a session seen `idle` or
+`running`, the provider subagent list (the whole history, so counts plus
+the open ones) and the timeline tail (`fetch_agent_timeline`, direction
+`tail`, eight entries). Each read fails alone: the field is `null`, the
+run's report gets a `telemetry:` line, which serve logs once while it
+lasts. `telemetry.sheet: false` turns the three off.
 
 ## Verified live, and not
 

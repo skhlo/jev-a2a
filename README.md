@@ -113,8 +113,14 @@ the server from the view model below, in three columns:
   the name row (the health row on an idle card) with the token counts and
   cost as its tooltip, and on a busy card provider/model, thinking and mode
   join the tags. Without a snapshot the row reads "no telemetry", and the
-  nav tick, which otherwise dates the telemetry, says so too. The router's
-  last twenty log lines fill the rest of the column, newest at the bottom.
+  nav tick, which otherwise dates the telemetry, says so too. Above the
+  health row, when the router read any of it, the session's sheet in plain
+  form (the design's v0.11 binds it): the checkout as Paseo's sidebar shows
+  it (branch, starred when dirty, the diff size, the pull request with its
+  checks, linked, its title as tooltip), the subagents counted with the
+  open ones' briefs as tooltip, and the last eight timeline entries, each
+  a line. The router's last twenty log lines fill the rest of the column,
+  newest at the bottom.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
   send; In flight holds the other open tasks, and Done the last finished
@@ -190,8 +196,8 @@ ready, behind an unconfirmed send, or on a replaced session) says what it
 waits for where the design shows only the send's outcome, and the "from
 <placement>" on an open row that another agent sent shows to every viewer,
 since a person is never a participant (the design spares the sender its own
-placement). What remains open: the design's health sheet, whose fields the
-router does not collect yet (see the telemetry note below); a post does not
+placement). What remains open: the design's health sheet is rendered plain
+until v0.11 binds it; a post does not
 name its principal, so a login that holds two principals in one role acts as
 the first one `serve.identities` lists, and the other's items show without a
 form; a draft is keyed by its form's `data-path`, which shifts when an
@@ -266,7 +272,30 @@ committed sample matches.
     `status` and `permissions` is `null` when the daemon reported nothing
     for it (a token count the daemon left out of a reported usage is 0);
     `missing` and `unreachable` snapshots carry only `seen`, `status` and,
-    for the latter, `error`.
+    for the latter, `error`. The sheet, each field `null` when the router
+    did not read it (`telemetry.sheet` off in the config, the session not
+    live, or that read failed) and empty when it read nothing: `checkout`
+    (the session's workspace from Paseo's list, joined by project key and
+    workspace name, else by directory; `null` too when the list has no
+    workspace for the agent: `project`, `workspace`, `directory`,
+    `kind` (`local_checkout`, `worktree`, `checkout` or `directory`),
+    `branch`, `remote`, `dirty`, `ahead`, `behind`, `diff` (`additions`,
+    `deletions`), `pr` (`number`, `url`, `title`, `state`, `draft`,
+    `merged`, `mergeable`, `checks` as `success`, `pending`, `none` or
+    `failure`, `review` as `pending`, `approved` or `changes_requested`),
+    the workspace `status` and `activityAt`); `subagents` (`counts` by
+    `running`, `completed`, `failed` and `canceled` over the session's
+    whole history, and `running`: the open ones, oldest first, at most
+    twenty, each `id`, `title` (the harness's type), `description` (the
+    brief's first line), `status`, `startedAt`, `updatedAt` and `parent`,
+    another subagent's id or `null`); `activity` (`turns`: user messages
+    among the items; `items`: the last eight timeline entries oldest
+    first, each `at`, `kind` (`user_message`, `assistant_message`,
+    `reasoning`, `tool_call`, `todo`, `error`, `notification`, `compaction`
+    or `plugin`), `text` (the first line, at most 160 characters), and for
+    a tool call its `tool` name and `status`). `subagents` and `activity`
+    are read only for a session seen `idle` or `running`: in Paseo 0.10 a
+    timeline fetch resumes a closed session, and observing must not.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
@@ -314,15 +343,24 @@ Telemetry is not part of the record: an observation is journaled only when
 readiness or the session changes, and a snapshot changes every run. After
 each run's observations the shell writes `telemetry.json` beside the
 journal, whole, by rename (`jev-router-telemetry/1`: `at` and one snapshot
-per served placement, from the same Paseo call that reads readiness,
-stamped with the run's clock). A write that fails is a line in the run's
-report, and the run goes on to its sends. The board reads the file without
+per served placement, the rail from the same Paseo call that reads
+readiness and the sheet from the reads below, stamped with the run's
+clock). A write that fails is a line in the run's report, and the run goes
+on to its sends. The board reads the file without
 a lock and shows each snapshot with its age (the nav tick dates the file);
-`router status` prints one line per placement with the time. A missing or unreadable file is no
-telemetry, logged once by serve, never a fault; a damaged entry drops its
-placement, named in the log. Not held yet: the subagent tree, the session's
-last activity, turn and tool counts and the worktree, which need other
-daemon calls per run.
+`router status` prints one line per placement with the time, the branch,
+diff and pull request on it. A missing or unreadable file is no telemetry,
+logged once by serve, never a fault; a damaged entry drops its placement,
+named in the log, and a damaged sheet field reads as not read. The sheet
+costs, per run, one workspace list per host and two calls per live session
+(the subagent list, which is not on the public client and comes from the
+`DaemonClient` under `@getpaseo/client/internal/daemon-client`, and the
+timeline tail); a read that fails is a `telemetry:` line in the run's
+report, which serve logs once while the cause lasts, and a `null` field.
+`telemetry.sheet: false` in the config keeps a run to the one call per
+placement that reads readiness. Not held: a session's total
+turn and tool counts (the whole timeline), and the subagents' own
+timelines.
 
 ## Participants and responsibility texts
 
@@ -359,7 +397,8 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
   host's Paseo endpoint), `agents` (the Paseo agent ID for each
   `participant@host`), `serve` (`listen`, `board`, `identities`, and `wake`:
   seconds between looks while work waits for a busy session, `0` to look
-  only on events) and `jev`.
+  only on events), `jev`, and `telemetry` (`sheet`, default `true`: read the
+  checkout, subagents and activity along with readiness).
 - **Secrets:** copy `router/secrets.env.example` to
   `~/.config/jev-router/secrets.env`, mode 600. The router host needs
   `TYPESAFE_API_KEY`, and `ROUTER_TOKEN` for `router serve`: a secret you
