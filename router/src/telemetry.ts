@@ -31,6 +31,8 @@ export type AgentSnapshot = {
   seen: string;
   status: AgentStatus;
   attention: Attention | null;
+  // When the attention was raised: for `finished`, when the last turn ended.
+  attentionAt: string | null;
   turnStartedAt: string | null;
   lastUserMessageAt: string | null;
   permissions: {
@@ -76,6 +78,7 @@ export function emptySnapshot(
     seen,
     status,
     attention: null,
+    attentionAt: null,
     turnStartedAt: null,
     lastUserMessageAt: null,
     permissions: [],
@@ -207,6 +210,7 @@ function parseSnapshot(value: unknown): AgentSnapshot | null {
     seen: value.seen,
     status,
     attention,
+    attentionAt: str(value.attentionAt),
     turnStartedAt: str(value.turnStartedAt),
     lastUserMessageAt: str(value.lastUserMessageAt),
     permissions,

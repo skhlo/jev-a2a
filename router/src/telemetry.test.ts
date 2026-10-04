@@ -66,6 +66,7 @@ const full: PaseoAgent = {
   title: "router orchestrator",
   labels: {},
   attentionReason: "permission",
+  attentionTimestamp: "2026-09-30T09:44:40.000Z",
 };
 
 test("snapshotOf reads every field, and nulls what the daemon left out", () => {
@@ -73,6 +74,7 @@ test("snapshotOf reads every field, and nulls what the daemon left out", () => {
     seen: SEEN,
     status: "running",
     attention: "permission",
+    attentionAt: "2026-09-30T09:44:40.000Z",
     turnStartedAt: "2026-09-30T09:44:31.000Z",
     lastUserMessageAt: "2026-09-30T09:44:31.000Z",
     permissions: [

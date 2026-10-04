@@ -243,7 +243,9 @@ committed sample matches.
     `initializing`, `error` or `closed`, or the router's `missing` when the
     daemon does not know the agent and `unreachable` when the host could
     not be reached, with the failure in `error`), `attention` (`finished`,
-    `error` or `permission`), `turnStartedAt` (the current turn's start)
+    `error` or `permission`) with `attentionAt` (when it was raised: for
+    `finished`, when the last turn ended), `turnStartedAt` (the current
+    turn's start)
     and `lastUserMessageAt`, `permissions` pending (each with `id`, `name`,
     `title` and `kind`; empty when none), `provider`, `model`, `thinking`
     and `mode`, `context` (`used` and `max` tokens, `max` above zero),

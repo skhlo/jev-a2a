@@ -448,6 +448,7 @@ export const telemetry: Telemetry = {
       seen: "2026-09-30T09:44:50.000Z",
       status: "running",
       attention: null,
+      attentionAt: null,
       turnStartedAt: "2026-09-30T09:44:31.000Z",
       lastUserMessageAt: "2026-09-30T09:44:31.000Z",
       permissions: [],
@@ -465,6 +466,7 @@ export const telemetry: Telemetry = {
       seen: "2026-09-30T09:44:50.000Z",
       status: "running",
       attention: "permission",
+      attentionAt: "2026-09-30T09:40:48.000Z",
       turnStartedAt: "2026-09-30T09:40:05.000Z",
       lastUserMessageAt: "2026-09-30T09:40:04.000Z",
       permissions: [
@@ -489,6 +491,7 @@ export const telemetry: Telemetry = {
       seen: "2026-09-30T09:44:51.000Z",
       status: "idle",
       attention: "finished",
+      attentionAt: "2026-09-30T09:23:40.000Z",
       turnStartedAt: null,
       lastUserMessageAt: "2026-09-30T09:21:12.000Z",
       permissions: [],

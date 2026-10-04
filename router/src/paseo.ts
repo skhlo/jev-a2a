@@ -53,7 +53,8 @@ export function sendFailure(
 }
 
 // The daemon's agent snapshot (protocol 0.10.1: status, activeTurn,
-// lastUserMessageAt, pendingPermissions, attentionReason, lastUsage with
+// lastUserMessageAt, pendingPermissions, attentionReason and its
+// timestamp, lastUsage with
 // the context window, lastError, model and mode ids) reduced to the
 // board's fields. What the daemon left out reads as null; a context window
 // needs both bounds.
@@ -65,6 +66,7 @@ export function snapshotOf(agent: PaseoAgent, seen: string): AgentSnapshot {
     seen,
     status: agent.status,
     attention: agent.attentionReason ?? null,
+    attentionAt: agent.attentionTimestamp ?? null,
     turnStartedAt: agent.activeTurn?.startedAt ?? null,
     lastUserMessageAt: agent.lastUserMessageAt ?? null,
     permissions: agent.pendingPermissions.map((p) => ({
