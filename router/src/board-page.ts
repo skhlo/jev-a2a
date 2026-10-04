@@ -1957,7 +1957,9 @@ a.btn, .card a.id { text-decoration: none; }
   body { overflow: auto; }
   #app { height: auto; min-height: 100vh; grid-template-rows: auto 1fr auto; }
   .nav, .keys { flex-wrap: wrap; padding: 8px 14px; }
-  .bento { grid-template-columns: 1fr; }
+  /* minmax(0, ...) lets the column be narrower than an ellipsized line's
+     full text, so the line ellipsizes instead of widening the page. */
+  .bento { grid-template-columns: minmax(0, 1fr); }
   .panel, .scroll { overflow: visible; }
   /* One column: the sheet takes the screen. */
   .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
