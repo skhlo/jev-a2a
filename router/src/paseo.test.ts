@@ -454,7 +454,7 @@ test("a live session gets the whole sheet; the workspace list is read once per a
   });
   assert.equal(first?.notes, undefined);
   assert.equal(second?.snapshot.checkout?.branch, "feat/x");
-  // The tail is fetched with room for the harness's own calls (four more).
+  // The tail is fetched with HARNESS_ROOM extra entries.
   assert.deepEqual(calls, [
     "refresh A1",
     "workspaces",

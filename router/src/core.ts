@@ -1224,8 +1224,8 @@ const handlers: Handlers = {
         task.final = verdict(task, "deadline");
         expired.push(`${task.id} ${task.final.status}`);
       }
-    // A clock that ended nothing is not news: no log line, so a polling
-    // router's log stays what happened.
+    // A clock that ended nothing is not news: no log line, or a polling
+    // router would fill its log with them.
     return ok(
       expired.length
         ? `Deadline passed: ${expired.join(", ")}. Unconfirmed sends keep holding their sessions until they end or are reconciled.`

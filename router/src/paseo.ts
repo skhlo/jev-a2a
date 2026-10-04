@@ -74,7 +74,8 @@ export type AdapterOptions = {
   // Whether to read the health sheet (checkout, subagents, activity) along
   // with the rail. Default on.
   sheet?: boolean;
-  // Timeline entries per session.
+  // Activity items kept per session (the timeline is fetched with room for
+  // the harness's own calls, HARNESS_ROOM more).
   tail?: number;
 };
 
@@ -259,8 +260,10 @@ export function subagentsOf(list: ProviderSubagent[], limit = 20): Subagents {
 }
 
 // Tool calls the harness makes to itself (a background command's
-// completion notice), not the session's work: the tail leaves them out.
+// completion notice), not the session's work: the tail leaves them out,
+// and is fetched with this many extra entries so it usually stays full.
 const HARNESS_TOOLS = new Set(["task_notification"]);
+const HARNESS_ROOM = 4;
 
 // A timeline tail, each entry cut to a line: what it was, its first line
 // of text, and for a tool call its name and state. `limit` keeps the last
@@ -392,8 +395,8 @@ export function adapterOver(
           snapshot.activity = await attempt(
             "activity",
             agentId,
-            // Fetched with room for the harness's own calls, cut to the tail.
-            async () => activityOf(await daemon.tail(agentId, tail + 4), tail),
+            async () =>
+              activityOf(await daemon.tail(agentId, tail + HARNESS_ROOM), tail),
             notes,
           );
         }

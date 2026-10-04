@@ -1863,10 +1863,10 @@ document.addEventListener("click", (e) => {
 });
 
 // Every few seconds the page fetches itself for the selected task and swaps
-// the nav counts, the three panels and the sheets. A panel holding the
-// focus stays as it is, unless the focus is on a row or a card the new
-// panel has too; so does one holding a text selection, so a request being
-// read or copied is not pulled away mid-sentence. The notice is outside
+// the nav counts, the three panels and the sheets. A panel or the open
+// sheet stays as it is while it holds the focus (unless the focus is on a
+// row or a card the new panel has too) or a text selection, so what is
+// being typed, read or copied is not pulled away. The notice is outside
 // the swapped parts.
 const PARTS = [".nav .counts", ".nav .tick", ".agents", ".tasks", ".detail"];
 const refresh = async (id = selected()) => {
@@ -1879,7 +1879,9 @@ const refresh = async (id = selected()) => {
   } catch { return; }
   const focus = document.activeElement;
   const sel = document.getSelection();
-  const marked = sel && !sel.isCollapsed ? sel.anchorNode : null;
+  const range = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null;
+  // Whether a part holds a selection (either end, or the span between).
+  const selectedIn = (el) => range !== null && range.intersectsNode(el);
   const row = focus?.matches(".task a.id") ? focus.closest(".task").dataset.task : null;
   const card = focus?.matches(".card") ? focus.dataset.path : null;
   const open = peek();
@@ -1889,7 +1891,7 @@ const refresh = async (id = selected()) => {
   for (const part of PARTS) {
     const old = $(part);
     const next = $(part, doc);
-    if (!old || !next || (old.contains(focus) && !row && !card) || (marked && old.contains(marked))) continue;
+    if (!old || !next || (old.contains(focus) && !row && !card) || selectedIn(old)) continue;
     const top = $(".scroll", old)?.scrollTop ?? 0;
     old.replaceWith(next);
     const scroll = $(".scroll", next);
@@ -1900,13 +1902,13 @@ const refresh = async (id = selected()) => {
   if (peeked && !peek() && $(peeked)) openPeek($(peeked));
   // The hidden sheets are swapped whole; the open one keeps its element,
   // its scroll and its slide, and takes the new head and body, unless it
-  // holds the focus. It goes when its placement is gone.
+  // holds the focus or a selection. It goes when its placement is gone.
   const kept = sheet();
   $$(".bento > .sheet").forEach((s) => s !== kept && s.remove());
   $$(".bento > .sheet", doc).forEach((s) => s.dataset.key !== shown && $(".bento").append(s));
   const fresh = shown && sheetFor(shown, doc);
   if (kept && !fresh) kept.remove();
-  else if (kept && fresh && !kept.contains(focus) && !(marked && kept.contains(marked))) {
+  else if (kept && fresh && !kept.contains(focus) && !selectedIn(kept)) {
     const top = $(".body", kept).scrollTop;
     kept.dataset.path = fresh.dataset.path;
     kept.replaceChildren(...fresh.children);

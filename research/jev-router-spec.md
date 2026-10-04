@@ -441,7 +441,8 @@ run (`fetch_workspaces`: the project placement, `gitRuntime`, `diffStat`,
 workspace name, else the directory; and, for a session seen `idle` or
 `running`, the provider subagent list (the whole history, so counts plus
 the open ones) and the timeline tail (`fetch_agent_timeline`, direction
-`tail`, eight entries). Each read fails alone: the field is `null`, the
+`tail`, twelve entries, cut to the last eight after the harness's own tool
+calls are dropped). Each read fails alone: the field is `null`, the
 run's report gets a `telemetry:` line, which serve logs once while it
 lasts. `telemetry.sheet: false` turns the three off.
 
