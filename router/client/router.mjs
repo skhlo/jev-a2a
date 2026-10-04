@@ -25,7 +25,7 @@ try {
 
 const USAGE = `This host's router client supports:
   router reply --task T --in-reply-to M --kind K (--text ... | --text-file <path>)
-  router submit [--to <participant>] [--hosts a,b] [--message <id>] (<text...> | --text-file <path>)
+  router submit [--to <participant> [--hosts a,b]] [--message <id>] (<text...> | --text-file <path>)
   router answer --task T --question Q [--delivery D] (--text ... | --text-file <path>) [--message <id>]
   router choose --task T --to <participant>
 Every command acts as the participant session $PASEO_AGENT_ID.`;

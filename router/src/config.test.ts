@@ -122,3 +122,18 @@ test("secrets: KEY=VALUE lines fill the environment without overriding it", () =
   assert.equal(process.env.CONFIG_TEST_C, undefined);
   loadSecrets(join(dir, "missing.env"));
 });
+
+// The example the README's quick start copies loads as it is, and the one
+// unit the schema cannot carry reads as hours.
+test("config.example.json is a valid configuration", () => {
+  const config = loadConfig(
+    join(import.meta.dirname, "..", "config.example.json"),
+  );
+  assert.equal(config.policy.deadline, 6 * 60 * 60_000);
+  assert.deepEqual(Object.keys(config.hosts), ["laptop"]);
+  assert.deepEqual(Object.keys(config.agents).sort(), [
+    "coder@laptop",
+    "notes@laptop",
+  ]);
+  assert.deepEqual(config.permissions?.you, ["coder", "notes"]);
+});

@@ -1,467 +1,232 @@
 # Jev router
 
-A small router for sending work between coding agents that run in
-[Paseo](https://paseo.sh) sessions on several machines.
+A small router that sends work between coding agents running in
+[Paseo](https://paseo.sh) sessions on several machines, and keeps one record
+of what was asked, who took it, and what came back.
 
-Agent-to-agent messaging is prompt sending. The router sends the same prompt a
-person would type into an agent's session, and adds the two things that person
-would otherwise carry in their head:
+> [!NOTE]
+> A personal prototype, built for one person's machines and published as a
+> worked example. It is not a product: no releases, no support, and the
+> contracts can change between commits.
 
-- **An envelope.** A task ID, the command the agent runs to reply, a key so
-  nothing runs twice, and a check that the session is idle so nothing already
-  running is interrupted.
-- **A record.** One journal of what was sent to which session, what came back,
-  and what is still waiting on someone.
-
-When a request names no recipient, Jev (a TypeSafe System One model) reads each
-participant's responsibility text and picks one. If no owner is clear or the
-probability is under the threshold, the router hands the choice back to the
-sender instead of guessing.
-
-The router does not orchestrate, run workflows, or hold a session until a task
-finishes. How the work gets done belongs to the agents.
-
-This is a personal prototype, built for one person's machines. It is public as
-a worked example, not as a product.
-
-## How a request travels
+![The board: agents, open tasks, and the selected task's exchange](router/design/screenshots/board.png)
 
 ```sh
 router submit "Is this machine current with merged main of the dotfiles baseline?"
 ```
 
-1. The router records the request as a task.
-2. Jev chooses a participant among those the sender may address.
-3. The router sends the prompt to that participant's session on each of its
-   hosts, if the session is idle. A busy session gets it the next time the
-   router looks and finds it idle: when it handles something (a request, a
-   reply, an answer, or `router run`), and, while anything waits only for a
-   session to come free, every `serve.wake` seconds (default 20); `serve`
-   watches the journal, so a request made with the CLI on the router host
-   counts too. An idle router runs nothing on a schedule.
-4. The agent does the work and replies with the command from the envelope:
-   `router reply --task T27 --in-reply-to <message> --kind completed --text "..."`.
-5. `router status T27` shows the result: here, `2 of 2 completed`, one reply
-   per host.
+Agent-to-agent messaging is prompt sending. The router sends the same prompt
+a person would type into an agent's session, and adds the two things that
+person would otherwise carry in their head:
 
-Use `--to <participant>` to skip Jev. With `--to`, `--hosts a,b` narrows a
-participant that runs on several hosts.
+- **An envelope.** A task ID, the command the agent runs to reply, a key so
+  nothing runs twice, and a check that the session is idle so nothing
+  already running is interrupted.
+- **A record.** One journal of what was sent to which session, what came
+  back, and what is still waiting on someone.
+
+Five words carry the rest of this file. A **participant** is an agent or a
+service with a stable id, one or more hosts and a **responsibility text**:
+an ownership rule with examples, and all that Jev reads. A **placement** is
+a participant on one host (`coder@laptop`), with one current Paseo session.
+A **principal** is who acts on the record. A person is a requester, who
+submits, or an operator, who settles what the router cannot confirm; a
+participant acts through its session. A **delivery** is one request on its
+way to one placement. The [spec's vocabulary](research/jev-router-spec.md#vocabulary)
+has more.
+
+When a request names no recipient, Jev (a
+[TypeSafe](https://typesafe.ai) System One model) reads each participant's
+responsibility text and picks one. If no owner is clear, the router hands
+the choice back to the sender instead of guessing. This is where the router
+earns its place: requests that name nobody; sends nobody is watching, from a
+laptop that will be asleep when the answer comes; and "what did I start,
+where is it, what needs me" from any device.
+
+The router does not orchestrate, run workflows, or hold a session until a
+task finishes. How the work gets done belongs to the agents. Typing into a
+session you are already looking at needs none of this.
+
+## How a request travels
+
+1. The router records the request as a task.
+2. Jev chooses a participant among those the sender may address, or `--to`
+   names one.
+3. The router sends the prompt to that participant's session on each of its
+   hosts, when the session is idle. A busy session gets it the next time the
+   router looks and finds it idle ([when it looks](docs/operating.md#when-the-router-looks)).
+4. The agent does the work and replies with the command from the envelope:
+   `router reply --task T1 --in-reply-to <message> --kind completed --text "..."`.
+5. `router status T1` shows the result: here, `1 of 1 completed`, with the
+   reply.
+
+## Quick start
+
+On the host that runs the router you need Node 26 (it runs the TypeScript
+directly), pnpm, and a Paseo daemon with at least one agent. A TypeSafe API
+key is needed only for requests that name no recipient.
+
+```sh
+git clone https://github.com/skhlo/jev-a2a && cd jev-a2a/router
+pnpm install
+printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
+  > ~/.local/bin/router && chmod +x ~/.local/bin/router   # ~/.local/bin exists and is on PATH
+
+mkdir -p ~/.config/jev-router
+cp config.example.json ~/.config/jev-router/config.json
+cp secrets.env.example ~/.config/jev-router/secrets.env && chmod 600 ~/.config/jev-router/secrets.env
+```
+
+The example is one host, `laptop`, with two agents, `coder` and `notes`.
+Edit it to match yours:
+
+- `hosts`: your host's name, with its daemon's websocket URL;
+- `participants`: your agents, each with a responsibility text, and the
+  same names under `permissions`, which say who may address whom;
+- `agents`: the Paseo agent id of each `participant@host`, from
+  `paseo agent ls -g --json`;
+- `secrets.env`: a `ROUTER_TOKEN` you choose, and `TYPESAFE_API_KEY` if
+  you have one.
+
+Every key, its default and what is refused is in
+[docs/configuration.md](docs/configuration.md); `policy.deadline` is in
+milliseconds. Then send something to a named participant and read the
+record:
+
+```sh
+router submit --to coder "Reply with the word pong."
+router status            # T1 ... → coder · Reply with the word pong.
+router status T1         # the delivery, the session it went to, and the reply when it comes
+```
+
+The agent's session receives the prompt with its envelope and answers with
+`router reply ...`; once it has, `router status T1` shows `1 of 1
+completed` and the reply text. If the session was busy, the task waits and
+`router run` makes another pass by hand.
+
+For the board, run the daemon:
+
+```sh
+router serve             # events on 127.0.0.1:7677, board on http://127.0.0.1:7678
+```
+
+Other machines join through `hosts` entries of the form `ssh://<host>`,
+with `serve.listen` on an address they can reach. Their agents reply
+through the client:
+
+```sh
+install -m 755 router/client/router.mjs ~/.local/bin/router   # on each other host; needs only Node
+```
+
+It reads `ROUTER_URL` and the same `ROUTER_TOKEN` from that host's
+`~/.config/jev-router/secrets.env`. To keep `serve` running, install it as a
+user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 
 ## Commands
 
-| Command                                                         | What it does                                                   |
-| --------------------------------------------------------------- | -------------------------------------------------------------- |
-| `router submit [--to P [--hosts a,b]] <text>`                   | Record a request and deliver it                                |
-| `router status [<task>]`                                        | Show the record                                                |
-| `router needs-you`                                              | List decisions waiting on a person                             |
-| `router choose --task T --to P`                                 | Name the recipient when the router handed the choice back      |
-| `router answer --task T --question Q [--delivery D] --text ...` | Answer a question an agent asked                               |
-| `router reply --task T --in-reply-to M --kind ...`              | An agent's reply: `working`, `question`, `completed`, `failed` |
-| `router run`                                                    | Observe the sessions and deliver what is eligible              |
-| `router serve`                                                  | Accept events from other hosts over HTTP; serve the board      |
-| `router eval`                                                   | Judge a labeled request set with the configured texts          |
-| `router cancel <task>`                                          | Cancel a task                                                  |
+| Command                                          | What it does                                                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `router submit [--to P [--hosts a,b]] <text>`    | Record a request and deliver it; without `--to`, Jev picks; `--hosts` narrows a participant on several hosts |
+| `router status [<task>]`                         | The record: every task, or one task with its deliveries and log                                              |
+| `router needs-you`                               | Decisions waiting on you                                                                                     |
+| `router choose --task T --to P`                  | Name the recipient when the router handed the choice back                                                    |
+| `router answer --task T --question Q --text ...` | Answer a question an agent asked                                                                             |
+| `router cancel <task>`                           | Cancel a task whose work has not reached anyone yet                                                          |
+| `router run`                                     | Observe the sessions and deliver what is eligible, once                                                      |
+| `router serve`                                   | Accept events from other hosts; serve the board; keep looking                                                |
 
-`reply`, `answer` and `submit` also take `--text-file <path>` in place of
-`--text`, for text that a shell cannot quote in one argument. `router` with
-no arguments prints the full usage.
+Agents use `router reply`. `router observe <placement> --hold` keeps the
+router from sending to a session a person is typing in; `router resolve`
+lets an operator settle a send the router could not confirm; `router eval`
+judges a labeled request set. `router --help` lists every flag, including
+`--as` (which principal acts), `--text-file` for text a shell cannot quote,
+and `--config`.
 
-### A participant as the sender
-
-An agent's session may submit work too, with the same `submit`, `choose` and
-`answer` commands, as far as `permissions` lets its participant address
-others. On another host the client acts as the session `$PASEO_AGENT_ID`;
-on the router host the CLI acts as a person unless told `--as <session>`,
-since an agent there also submits on a person's behalf. The
-router then tells the sender what a person would read on the board, at the
-placement it sent from and only when that session is idle, like any
-delivery: the recipient's question, with the `answer` command that settles
-it; the choice when Jev handed the request back, with the `choose` command;
-and the final word, which needs no reply. Each is told once per key, through
-the same adapter and with the same record of attempting, accepted and
-unknown, so a restart or a dropped call is retried under the same rules as
-a send. `router status T` lists them, and the board's task detail shows
-them under "Notices to".
-
-```sh
-# As the design agent on mba:
-router submit --to orchestrator "The board's log panel clips its last line at 1280 wide."
-# The design agent's session hears back, for example:
-# [router T41 question/D7/R2] orchestrator asks about your request. Answer with:
-#   router answer --as <session> --task T41 --delivery D7 --question R2 --text "<answer>" ...
-```
+An agent's own session may submit, choose and answer too, within
+`permissions`; it is told the recipient's questions, Jev's hand-backs and
+the final word at the placement it sent from. That path is built and
+unit-tested but has not yet run live:
+[docs/participants.md](docs/participants.md#a-participant-as-the-sender).
 
 ## The board
 
-`router serve` also serves a page, the board, on `127.0.0.1:7678` by default
-(`serve.board`). It reads the same record as the CLI. The page is the v0.11
-console of the board design (`skhlo/designs`, tag `jev-a2a-v0.11`), drawn on
-the server from the view model below, in three columns:
-
-![The board: agents, tasks and the selected task's detail](router/design/screenshots/board.png)
+`router serve` serves a page on loopback (`serve.board`, `127.0.0.1:7678`)
+from the same record: a card per placement with what its session is doing,
+its pending permissions and health; the tasks that need you, in flight and
+done; and the selected task's exchange. A card's name, or `s`, opens the
+placement's sheet: branch, diff and pull request, running subagents, the
+last tool calls.
 
 ![The health sheet of one agent over the tasks column](router/design/screenshots/board-sheet.png)
 
-The pictures are the sample board (`router/src/board.sample.json`, no live
-request text), the second with orchestrator@mbp's sheet open;
-`pnpm exec node src/board-shots.ts` in `router/` redraws them with a
-Chromium on `PATH`.
+Opened directly, the page is read-only. Put it behind Tailscale Serve
+(`tailscale serve --bg --set-path /router http://127.0.0.1:7678`) to reach
+it from another device and to act: the board reads the login Serve reports
+(`/whoami` shows the headers), and a login listed in `serve.identities`
+answers, chooses, cancels, resolves and holds as its principals. The page
+works without JavaScript; with it, it refreshes every ten seconds and `?`
+lists the keys. The same address serves the page's data as JSON
+(`board.json`), the contract `jev-router-board/1`.
 
-- **Agents**: a card per placement the router serves, saying what its
-  session is doing (asks on a task, with the question; works on one,
-  including after a question was answered, with the answer's time;
-  delivered and not yet replied; a send still attempting, unknown or
-  pending; held; ready; not ready) and when it last updated. Cards come in
-  that order, asking first; a card with no open delivery collapses to its
-  name and state. Each card closes with the session's health from the
-  router's telemetry: a pending permission by name, or the status with the
-  turn's age (running) or the last turn's end (idle), with `error`,
-  `missing` and `unreachable` dotted and the reason as a tooltip, and a
-  dotted "error" added when the session's attention is an error under
-  another status; the snapshot's age; the lever. A context meter sits in
-  the name row (the health row on an idle card) with the token counts and
-  cost as its tooltip, and on a busy card provider/model, thinking and mode
-  join the tags; while subagents run, the status line counts them. Without
-  a snapshot the row reads "no telemetry", and the nav tick, which
-  otherwise dates the telemetry, says so too. The router's last twenty log
-  lines fill the rest of the column, newest at the bottom.
-- **The sheet** (v0.11): a card's name, or `s` on the focused card, opens
-  the placement's health over the tasks column, the detail left whole. Its
-  head repeats the card's dot, name, meter, status line with the seen age
-  and levers, then the tags with the host and session. Checkout is a
-  key-value grid: project; workspace with its kind; directory; branch with
-  the remote, "dirty" and "ahead n · behind n" when either is non-zero;
-  the diff as `+a −d` or "no diff"; the pull request as "#n title" linked
-  to its URL (when it is a web address) with its state word (draft,
-  merged, else the state) and "conflicts" when Paseo reports
-  `CONFLICTING`, then checks (failing, pending, passing, no checks, or
-  unknown) and the review word; the workspace status with "active <age>".
-  Subagents is the non-zero counts, then the running ones as a tree one
-  level deep (a child under its parent; a child whose parent is not
-  running sits at the top), "none running" with counts alone, "none" with
-  neither. Activity is the last eight timeline entries oldest first, each
-  with its seconds, kind word, tool and status, and text, the last one
-  marked current when it is a running tool; the heading counts the turns
-  among them. A field the router did not read says "not read"; subagents
-  and activity add "session not live" when the session is not idle or
-  running. Every placement's sheet is in the page, hidden; `esc` or its
-  close button closes it, a refresh keeps it open by key, and a lever
-  pressed in it brings it back with the page.
-- **Tasks**, in three groups. Needs you holds the tasks that wait on one of
-  your principals, a finished task too when an operator must resolve its
-  send; In flight holds the other open tasks, and Done the last finished
-  ones. A row says what its task waits for: the open question, the recipient
-  Jev was unsure of, the delivery it is queued behind or the session it is
-  held on, a send not yet accepted, a delivery that has no reply yet, the
-  answer it was just given, or who canceled it.
-- **The selected task**: how its recipient was chosen and, for a task
-  another agent sent, the placement it came from, its deadline with a
-  countdown while it is open, the form that clears what waits on you, the
-  exchange in time order, and its deliveries, the notices its sender was
-  told, Jev's judgments and log.
+More: [docs/board.md](docs/board.md) (what every part shows),
+[docs/board-model.md](docs/board-model.md) (the JSON).
 
-Blue marks what needs you and nothing else: a question already answered, or
-one that waits on another principal, is not blue. The selected task is in
-the URL (`?task=T2`), so a reload or a shared link opens it; without one the
-page opens the first task that needs you, else the newest open one, else the
-newest finished one.
+## Routing quality
 
-The board listens on loopback only, and a browser that opens it directly gets
-a read-only page: every principal's waiting items, and no forms. Put it
-behind Tailscale Serve to reach it from another device and to act: the board
-takes the tailnet login Serve reports, and a login listed in
-`serve.identities` acts as its principals. A requester answers, chooses a
-recipient and cancels; an operator resolves a delivery the router cannot
-confirm (the form offers only the outcomes the router accepts: a send the
-session accepted can only be marked finished, and the form says so); any
-identified login holds or releases a session (a hold says a person is
-typing in the session, so the router does not send there). Each form posts
-to the board's `actions` endpoint and comes back to the page with the
-outcome.
-Cancel shows on each of your open tasks; the router refuses one whose work
-may have reached a participant, and the outcome says so.
+Jev sees only the responsibility texts, so they decide the routing, and a
+choice is dispatched only when its probability reaches `policy.threshold`.
+Each participant's owner writes its text next to that agent's own
+`AGENTS.md`; the router config copies it. Before a text, a permission or
+the threshold changes, `router eval` judges a labeled set of requests with
+the candidate config, and the rule is that a change goes live only with no
+wrong dispatch at the configured threshold. How to write the text, the
+set's format and the procedure: [docs/participants.md](docs/participants.md).
 
-The page reads and acts without a script. Its script adds:
+## Limits
 
-- a refresh every ten seconds: the page fetches itself for the selected task
-  and swaps the nav counts, the three columns and the sheets. It keeps the
-  selected task, the collapsed groups (in `localStorage`), typed drafts (in
-  `sessionStorage`, by their form's `data-path`), the open peek, the open
-  sheet (its element, scroll and all) and the filter, and it leaves alone
-  a column you are typing in or a sheet holding the focus.
-- the palettes: Flexoki, light or dark with the system, and One Dark. The
-  choice is kept in `localStorage` and in a `router-theme` cookie, so the
-  server paints it before the script runs.
-- the keys the footer names: `j` and `k` move between task rows; space opens
-  the peek, the row's open question with a reply box beside the row; `↵`
-  opens the task, or in the peek sends the reply (`⇧↵` breaks the line); `→`
-  opens the peeked task; `s` opens or closes the sheet of the focused
-  agent, else the open sheet's, else the selected task's; `a` goes to the
-  answer box; `c` cancels the selected task; `h` holds or releases the
-  focused agent, the open sheet's, or the selected task's; `/` filters the rows by text, id, recipient or state; `?` lists
-  the keys; `esc` closes; `⌘↩` or `Ctrl ↩` sends the form you are typing
-  in.
+- Events from other hosts are authenticated by one shared token, so any
+  host that holds it can reply, submit, answer or choose as any participant
+  session the record knows (not as a person).
+- A session is sent to only when the router has just seen it idle or closed
+  (not archived; the prompt resumes it), with no pending permission. A turn
+  a person starts in between is the one race left; holding the session
+  closes it.
+- The board trusts the login header Tailscale Serve sets, so anything that
+  can reach its loopback port can claim a login.
+- A participant that sends work is told each question, hand-back and end
+  once; a notice lost to an interrupted call is not repeated when the
+  participant's adapter does not deduplicate
+  ([docs/participants.md](docs/participants.md#a-participant-as-the-sender)).
+- What has and has not been exercised live is listed in the spec:
+  [Verified live, and not](research/jev-router-spec.md#verified-live-and-not).
 
-Each element the design binds keeps the `data-path` the design gives it, and
-rows and groups keep `data-task` and `data-group`, so the page can be
-compared with the design mechanically. `router/design/v0.11-paths.txt` lists
-the design's paths, as `router/src/design-paths.ts` extracts them, and a test
-fails when one is neither rendered for the board fixture nor named with a
-reason in `router/design/v0.11-dropped.txt`. The test compares paths with
-their indexes blanked (`open[].deliveries[].latest`), since the design's
-sample is larger than the fixture.
+## Documentation
 
-The page differs from v0.11 on purpose where the design was wrong for live
-data: counted nouns agree with their number, each clock carries its full
-date as a tooltip, the needs-you count counts tasks the same way in the nav
-and in the group, blue follows the viewer (the design colours every question
-and its badge, whoever it waits on), a finished task's verdict names the
-reason and who ended it, the forms post the router's own fields (resolving
-takes evidence), a narrow screen gets one scrolling column, a session id of
-any shape that is a UUID is shortened (the design shortens any id over
-twelve characters), a delivery that waits (queued, held, on a session not
-ready, behind an unconfirmed send, or on a replaced session) says what it
-waits for where the design shows only the send's outcome, and the "from
-<placement>" on an open row that another agent sent shows to every viewer,
-since a person is never a participant (the design spares the sender its own
-placement), every placement's sheet is rendered, hidden, so the script
-opens one without a round trip (the design renders the open one), a narrow
-screen's sheet takes the whole screen, and the Flexoki dark pin
-(`data-scheme`) is not carried, as the theme switch covers it. What remains
-open: a post does not
-name its principal, so a login that holds two principals in one role acts as
-the first one `serve.identities` lists, and the other's items show without a
-form; a draft is keyed by its form's `data-path`, which shifts when an
-earlier item goes, and such a draft stays in storage instead of filling the
-moved form; and the script's behaviour has no test in CI.
+- [research/jev-router-spec.md](research/jev-router-spec.md): the design
+  and the contract. Start here for the reasoning.
+- [docs/configuration.md](docs/configuration.md): every config key, its
+  default and what is refused.
+- [docs/operating.md](docs/operating.md): when the router looks, the
+  record, the service, the endpoints, what to check when nothing moves.
+- [docs/participants.md](docs/participants.md): responsibility texts,
+  `router eval`, agents as senders.
+- [docs/board.md](docs/board.md) and [docs/board-model.md](docs/board-model.md):
+  the board and its JSON.
+- [router/design/README.md](router/design/README.md): how the page is held
+  to its design.
 
-### The board's view model
+## Repository layout and development
 
-The page is one rendering of a view model, and the model is published so
-that a design can bind its template to the router's own field names. The
-board returns it as JSON to a client that asks for JSON: one whose Accept
-header ranks `application/json` above `text/html`, or ranks them equal and
-names JSON more exactly (`application/json, */*`). A browser gets the page.
-
-```sh
-curl -H 'Accept: application/json' http://127.0.0.1:7678/
-```
-
-`board.json` on the same address returns the same model. The JSON follows the
-page's identity rules: through Tailscale Serve it names the viewer, and
-without a known login it has no actor.
-
-The contract is the `BoardModel` type in `router/src/board.ts`, the sample
-in `router/src/board.sample.json`, and this section. The sample is the model
-built from the board's test fixture (`router/src/board-fixture.ts`,
-`sampleJournal`: the fixture plus one participant-sent task), so it holds no
-live request text. After changing the model or the fixture, run
-`pnpm exec node src/board-sample.ts` in `router/`; a test fails until the
-committed sample matches.
-
-- `version`: the contract and its major version, `jev-router-board/1`.
-  Removing or renaming a field raises it; adding one does not.
-- `at`: when the model was built. Every time in the model is an ISO string.
-- `actor`: the viewer's `login`, and its `principals`, each a `principal`
-  with its `role`. `null` when the request is not identified.
-- `needsYou`: for each principal, its `role` and the `items` that wait on
-  it. Each item has a `kind` and the `taskId` it belongs to:
-  - `choose`: the task needs a recipient. `reason` is `no_owner`,
-    `low_confidence`, `invalid_judgment` or `routing_unavailable`, and
-    `suggestions` lists the participants in Jev's order.
-  - `answer`: an agent asks the sender. `deliveryId`, `questionId` and the
-    question's `text`.
-  - `resolve`, for an operator: the router cannot confirm a send.
-    `deliveryId`, the send's `messageId`, and `reason`: `task_ended`,
-    `session_replaced` or `unknown_send`. The sample has none.
-- `placements`: each placement the router serves, with its `key`
-  (`participant@host`), `participant`, `host`, `session`, `ready` and
-  `hold`, and `delivery`: the newest open delivery pinned to the current
-  session, or `null`. A delivery carries its `id`, `taskId`, an `excerpt`
-  of the task text, the `messageId` and `outcome` of its current send (the
-  request, or the latest answer once one was sent; a delivery is pinned at
-  the attempt, so the outcome may still be `attempting`), the `question`
-  the session waits on with its `id`, `text` and `at` (`null` while no
-  question is open: answered, or never asked), and the `latest` update's
-  `kind` and `at`.
-  - `agent`: what the router last saw of the session beyond its readiness,
-    from the telemetry file (below), or `null` when the file has no entry
-    for the placement: `seen` (when), `status` (Paseo's `idle`, `running`,
-    `initializing`, `error` or `closed` (a persisted session whose process
-    is not running; a send resumes it, so it counts as ready unless the
-    agent is archived), or the router's `missing` when the
-    daemon does not know the agent and `unreachable` when the host could
-    not be reached, with the failure in `error`), `attention` (`finished`,
-    `error` or `permission`) with `attentionAt` (when it was raised: for
-    `finished`, when the last turn ended), `turnStartedAt` (the current
-    turn's start)
-    and `lastUserMessageAt`, `permissions` pending (each with `id`, `name`,
-    `title` and `kind`; empty when none), `provider`, `model`, `thinking`
-    and `mode`, `context` (`used` and `max` tokens, `max` above zero),
-    `usage` (`input`, `cached` and `output` tokens, `costUsd`), the last
-    `error`, the agent's `title` and `cwd`. Every field but `seen`,
-    `status` and `permissions` is `null` when the daemon reported nothing
-    for it (a token count the daemon left out of a reported usage is 0);
-    `missing` and `unreachable` snapshots carry only `seen`, `status` and,
-    for the latter, `error`. The sheet, each field `null` when the router
-    did not read it (`telemetry.sheet` off in the config, the session not
-    live, or that read failed) and empty when it read nothing: `checkout`
-    (the session's workspace from Paseo's list, joined by project key and
-    workspace name, else by directory; `null` too when the list has no
-    workspace for the agent: `project`, `workspace`, `directory`,
-    `kind` (`local_checkout`, `worktree`, `checkout` or `directory`),
-    `branch`, `remote`, `dirty`, `ahead`, `behind`, `diff` (`additions`,
-    `deletions`), `pr` (`number`, `url`, `title`, `state`, `draft`,
-    `merged`, `mergeable`, `checks` as `success`, `pending`, `none` or
-    `failure`, `review` as `pending`, `approved` or `changes_requested`),
-    the workspace `status` and `activityAt`); `subagents` (`counts` by
-    `running`, `completed`, `failed` and `canceled` over the session's
-    whole history, and `running`: the open ones, oldest first, at most
-    twenty, each `id`, `title` (the harness's type), `description` (the
-    brief's first line), `status`, `startedAt`, `updatedAt` and `parent`,
-    another subagent's id or `null`); `activity` (`turns`: user messages
-    among the items; `items`: the last eight timeline entries oldest
-    first, each `at`, `kind` (`user_message`, `assistant_message`,
-    `reasoning`, `tool_call`, `todo`, `error`, `notification`, `compaction`
-    or `plugin`), `text` (the first line, at most 160 characters), and for
-    a tool call its `tool` name and `status`). `subagents` and `activity`
-    are read only for a session seen `idle` or `running`: in Paseo 0.10 a
-    timeline fetch resumes a closed session, and observing must not.
-- `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
-  Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
-  `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
-  `deadline`, and:
-  - `routing`: while the router is finding a recipient, its `state`
-    (`judging` or `needs_recipient`), `suggestions` and `reason`; otherwise
-    `null`.
-  - `judgments`: each with its `choice`, the full `probabilities` table
-    (`null` when the judgment was not `valid`), the `model` version, whether
-    it was `valid`, and the `threshold` it was held to.
-  - `final`: `null` while the task is open; then its `status`, `reason`,
-    `completed` of `of` deliveries, and `by`: the principal who canceled
-    it (only the sender may cancel), or `null` when the router ended it.
-  - `deliveries`: each with its `id`, `placement`, `session`, the current
-    `send` (`kind`, `messageId`, `outcome`), every send in `sends` (with
-    its `text`), the open `question` (`id`, `text`) or `null`, the agent's
-    `updates` and the `latest` one (`messageId`, `inReplyTo`, `kind`,
-    `text`), `end`: `null` while open, then its `reason` and, when
-    recorded, `text`, `messageId` and `by` (the session that replied, or
-    the operator who resolved it), and `waits`: why the send has not gone
-    out, or `null` when nothing holds it back (it has gone, it ended, or
-    it goes on the router's next run). `reason` is `session_replaced`,
-    `in_flight` (another send to the placement, or a notice to its
-    session, is unconfirmed), `held`,
-    `not_ready` or `queued_behind`; for `queued_behind`, `behind` is the
-    id of the delivery at the head of the placement's queue, the one that
-    goes next, and otherwise `null`.
-  - `via`: the placement a participant sender submitted from, where it is
-    told about its request; `null` for a person's request.
-  - `notices`: what that sender is owed or was told, each with its `key`
-    (`question/<delivery>/<id>`, `choose/<n>` or `final`), `kind`, the
-    `session` it went to (`null` before an attempt) and its `outcome`
-    (`pending`, `attempting`, `accepted`, `unknown` or `withdrawn`). Empty
-    for a person's request. The sample's T5, in `finished`, is one the
-    orchestrator's session sent, with a withdrawn choice, an accepted
-    question and a pending end.
-  - `log`: the task's own log lines, as `router status <task>` shows them.
-- `times`: when each message was recorded, by message ID.
-- `log`: the router's last twenty log lines, each with its number `n`, its
-  `actor` and its `text`.
-- `telemetryAt`: when the placements' snapshots were taken, or `null`
-  without telemetry.
-
-Telemetry is not part of the record: an observation is journaled only when
-readiness or the session changes, and a snapshot changes every run. After
-each run's observations the shell writes `telemetry.json` beside the
-journal, whole, by rename (`jev-router-telemetry/1`: `at` and one snapshot
-per served placement, the rail from the same Paseo call that reads
-readiness and the sheet from the reads below, stamped with the run's
-clock). A write that fails is a line in the run's report, and the run goes
-on to its sends. The board reads the file without
-a lock and shows each snapshot with its age (the nav tick dates the file);
-`router status` prints one line per placement with the time, the branch,
-diff and pull request on it. A missing or unreadable file is no telemetry,
-logged once by serve, never a fault; a damaged entry drops its placement,
-named in the log, and a damaged sheet field reads as not read. The sheet
-costs, per run, one workspace list per host and two calls per live session
-(the subagent list, which is not on the public client and comes from the
-`DaemonClient` under `@getpaseo/client/internal/daemon-client`, and the
-timeline tail); a read that fails is a `telemetry:` line in the run's
-report, which serve logs once while the cause lasts, and a `null` field.
-`telemetry.sheet: false` in the config keeps a run to the one call per
-placement that reads readiness. Not held: a session's total
-turn and tool counts (the whole timeline), and the subagents' own
-timelines.
-
-## Participants and responsibility texts
-
-A participant is an agent or a service with a stable ID, one or more hosts, and a
-responsibility text: an ownership rule, what it is not for, and a few example
-requests. The text is all Jev sees, so it decides the routing. Each
-participant's owner keeps the text next to that agent's own `AGENTS.md`; the
-router's config copies it.
-
-Before a text or the threshold changes, `router eval` judges a labeled set of
-requests (`router/eval/requests.jsonl`) and prints how many would be
-dispatched, how many of those wrongly, and how many handed back. Nothing
-enforces it, but the rule is: a change goes live only with no wrong dispatch
-at the configured threshold.
-
-## Setup
-
-Needs Node 26 (it runs the TypeScript directly), pnpm, a Paseo daemon on each
-host, and a TypeSafe API key.
-
-On the host that runs the router:
-
-```sh
-cd router && pnpm install
-printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
-  > ~/.local/bin/router && chmod +x ~/.local/bin/router
-```
-
-`~/.local/bin` must exist and be on the PATH.
-
-- **Config:** `~/.config/jev-router/config.json` holds the policy, principals,
-  participants and permissions described in the
-  [spec](research/jev-router-spec.md), plus `hosts` (each
-  host's Paseo endpoint), `agents` (the Paseo agent ID for each
-  `participant@host`), `serve` (`listen`, `board`, `identities`, and `wake`:
-  seconds between looks while work waits for a busy session, `0` to look
-  only on events), `jev`, and `telemetry` (`sheet`, default `true`: read the
-  checkout, subagents and activity along with readiness).
-- **Secrets:** copy `router/secrets.env.example` to
-  `~/.config/jev-router/secrets.env`, mode 600. The router host needs
-  `TYPESAFE_API_KEY`, and `ROUTER_TOKEN` for `router serve`: a secret you
-  choose, which the other hosts' clients present.
-- **Reachable address:** `serve.listen` defaults to `127.0.0.1:7677`. Set it
-  to an address the other hosts can reach, such as the host's tailnet
-  address, if participants on other hosts take part.
-- **Record:** the journal lives in `~/.local/state/jev-router/`, or wherever
-  `home` in the config points, with `telemetry.json` beside it.
-- **Service:** `router/jev-router.service` runs `router serve` as a systemd
-  user service; the install steps are at the top of that file. Its `PATH`
-  line assumes Node comes from mise or `/usr/bin`; edit it otherwise.
-
-On a host that does not run the router, install `router/client/router.mjs`
-as `router` on the PATH. It carries `reply`, `submit`, `answer` and `choose`,
-each acting as the session `$PASEO_AGENT_ID`. In the same secrets file give
-it `ROUTER_URL`, the router host's `serve.listen` address as an `http://`
-URL, and the same `ROUTER_TOKEN`.
-
-## Repository layout
-
-| Path                          | Contents                                                        |
-| ----------------------------- | --------------------------------------------------------------- |
-| `router/src/`                 | The router: a pure core (`core.ts`) and the shell around it     |
-| `router/client/`              | The client for hosts that do not run the router                 |
-| `router/eval/`                | The labeled request set                                         |
-| `router/design/`              | The board design's data-paths, and the ones the page drops      |
-| `router/design/screenshots/`  | The README's pictures of the board, drawn from the sample       |
-| `research/jev-router-spec.md` | The design and the contract. Start here for the reasoning       |
-| `research/`                   | The executable model the design was verified on, and background |
-
-## Development
+| Path                         | Contents                                                              |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `router/src/`                | The router: a pure core (`core.ts`) and the shell around it           |
+| `router/config.example.json` | A one-host configuration that loads as it is; a test keeps it valid   |
+| `router/client/`             | The client for hosts that do not run the router                       |
+| `router/eval/`               | The maintainer's labeled request set                                  |
+| `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
+| `router/jev-router.service`  | The systemd user unit for `router serve`                              |
+| `docs/`                      | Reference pages                                                       |
+| `research/`                  | The spec, the executable model it was verified on, and background     |
 
 ```sh
 cd router
@@ -471,32 +236,10 @@ pnpm fmt:check
 ```
 
 CI runs these plus `node --test router-core.test.js` in `research/`, and
-fails if the run changed `package.json` or the lockfile.
-
-## Limits
-
-- Events from other hosts are authenticated by one shared token, so any host
-  that holds it can reply, submit, answer or choose as any participant
-  session the record knows (not as a person, and a replaced session may
-  only reply or answer).
-- A session is only sent to when the router has just seen it idle, or closed
-  (a persisted session with no process; the prompt resumes it). A turn a
-  person starts in between is the one race left; holding the session closes
-  it.
-- The board trusts the login header Tailscale Serve sets, so anything that
-  can reach its loopback port can claim a login.
-- A participant sender is told once per key. A notice whose adapter call
-  was interrupted or whose host was unreachable is marked unknown and is
-  not repeated when the participant's adapter does not deduplicate, or when
-  its session was replaced since; there is no operator form for it. On the
-  router host the sender still finds the item with
-  `router needs-you --as <participant>` and `router status`; the client on
-  another host has no query command, so a person relays it. Mark a Paseo
-  participant `idempotent: true`, as its sends are keyed.
-- When two deliveries of one request ask under the same message id, an
-  answer must name its delivery (`--delivery`); the notices do.
-- Not exercised live: a host that is down for a whole run, token rotation,
-  and throughput. The spec keeps the full list.
+fails if the run changed `package.json` or the lockfile. Regenerating the
+sample and the screenshots after a view-model change:
+[docs/board-model.md](docs/board-model.md#the-contract) and
+[router/design/README.md](router/design/README.md#files).
 
 ## License
 

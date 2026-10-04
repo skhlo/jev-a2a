@@ -1,17 +1,6 @@
-# `router serve` as a systemd user service. Install on the router host:
-#
-#   cp router/jev-router.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now jev-router
-#   loginctl enable-linger            # start at boot, before any login
-#
-# The wrapper ~/.local/bin/router owns the checkout path; if it is missing:
-#
-#   printf '#!/bin/sh\nexec node --no-warnings %s/router/src/cli.ts "$@"\n' \
-#     "$PWD" > ~/.local/bin/router && chmod +x ~/.local/bin/router
-#
-# Logs: journalctl --user -u jev-router. After a code change:
-# systemctl --user restart jev-router. secrets.env is read by the CLI itself.
+# `router serve` as a systemd user service. ExecStart expects the wrapper
+# ~/.local/bin/router from the README's quick start. Install steps, logs and
+# the exit codes: docs/operating.md.
 [Unit]
 Description=Jev router: replies over HTTP and the board
 
@@ -22,8 +11,9 @@ Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:/usr/bin
 Restart=on-failure
 RestartSec=5
 # Exit 2 is a reason that a restart cannot change: the port is taken, the
-# configuration or the token is wrong. It stays down with the message in
-# `systemctl --user status`. Exit 75 (address not up yet) restarts.
+# configuration is invalid or ROUTER_TOKEN is not set. It stays down with
+# the message in `systemctl --user status`. Exit 75 (address not up yet)
+# restarts.
 RestartPreventExitStatus=2
 
 [Install]

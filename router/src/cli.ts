@@ -43,7 +43,7 @@ import type { Event, Role, State, Task } from "./types.ts";
 
 const USAGE = `router: a prompt with an envelope and a record
 
-  router submit [--to <participant>] [--hosts a,b] [--message <id>] [--as <principal>] (<text...> | --text-file <path>)
+  router submit [--to <participant> [--hosts a,b]] [--message <id>] [--as <principal>] (<text...> | --text-file <path>)
                                                without --to, Jev picks the recipient
   router choose --task <T> --to <participant> [--as <principal>]
                                                answer a needs_recipient
@@ -101,7 +101,15 @@ const configPath =
   values.config ??
   process.env.ROUTER_CONFIG ??
   join(homedir(), ".config", "jev-router", "config.json");
-const config = loadConfig(configPath);
+// An invalid configuration is a reason a restart cannot change: exit 2, so
+// the service unit stays down with the message.
+const config = ((): RouterConfig => {
+  try {
+    return loadConfig(configPath);
+  } catch (error: unknown) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+})();
 loadSecrets(join(configPath, "..", "secrets.env"));
 
 // The principal the caller acts as: --as, $ROUTER_AS, or the first
