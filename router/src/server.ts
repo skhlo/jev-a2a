@@ -86,6 +86,9 @@ export type RunnerShell = {
 export type RunnerDeps<H> = {
   open(): Promise<RunnerShell>;
   delayMs: number;
+  // A run this long after the last one, whether or not anything waits, so
+  // the telemetry is never older than this; 0 or absent runs on demand only.
+  pollMs?: number;
   // Whether the record has work waiting for a served session, without the lock.
   waits(): boolean;
   log(line: string): void;
@@ -116,6 +119,7 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   let queue: Promise<unknown> = Promise.resolve();
   let busy = false;
   let armed: H | null = null;
+  let polled: H | null = null;
   let settle: H | null = null;
   let stopped = false;
   let watcher: { close(): void } | null = null;
@@ -126,6 +130,17 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       armed = null;
       void unattended("wake");
     }, deps.delayMs);
+  };
+  // The poll is measured from the end of the last run, whatever started
+  // it, so runs never overlap and an active router polls no extra.
+  const repoll = (): void => {
+    if (polled !== null) timers.clear(polled);
+    polled = null;
+    if (stopped || !deps.pollMs || deps.pollMs <= 0) return;
+    polled = timers.set(() => {
+      polled = null;
+      void unattended("poll");
+    }, deps.pollMs);
   };
   // One run: the event, if any, then every deliverable command; the loop
   // is armed from the run's own state before the shell closes.
@@ -145,6 +160,7 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       }
     } finally {
       busy = false;
+      repoll();
     }
   };
   const enqueue = (event: Event | null): Promise<Run> => {
@@ -199,8 +215,10 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       stopped = true;
       watcher?.close();
       if (armed !== null) timers.clear(armed);
+      if (polled !== null) timers.clear(polled);
       if (settle !== null) timers.clear(settle);
       armed = null;
+      polled = null;
       settle = null;
     },
   };

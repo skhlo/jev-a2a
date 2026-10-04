@@ -31,6 +31,7 @@ test("a valid file gets its defaults", () => {
   assert.equal(config.serve.board, "127.0.0.1:7678");
   assert.deepEqual(config.serve.identities, {});
   assert.equal(config.serve.wake, 20);
+  assert.equal(config.serve.poll, 0);
   assert.equal(config.jev.model, "jev-latest");
   assert.deepEqual(config.telemetry, { sheet: true });
   assert.match(config.home, /jev-router$/);
@@ -44,6 +45,7 @@ test("a valid file gets its defaults", () => {
         board: "localhost:9000",
         identities: { "me@example.com": ["you"] },
         wake: 0,
+        poll: 45,
       },
       jev: { model: "jev-1.13.0", url: "https://x/y", timeoutMs: 5 },
     }),
@@ -52,9 +54,14 @@ test("a valid file gets its defaults", () => {
   assert.deepEqual(explicit.telemetry, { sheet: false });
   assert.equal(explicit.serve.board, "localhost:9000");
   assert.equal(explicit.serve.wake, 0);
+  assert.equal(explicit.serve.poll, 45);
   assert.throws(
     () => loadConfig(write({ ...valid, serve: { wake: -1 } })),
     /serve.wake is a number of seconds, 0 to 3600/,
+  );
+  assert.throws(
+    () => loadConfig(write({ ...valid, serve: { poll: 3601 } })),
+    /serve.poll is a number of seconds, 0 to 3600/,
   );
   assert.deepEqual(explicit.serve.identities, { "me@example.com": ["you"] });
   assert.deepEqual(explicit.jev, {

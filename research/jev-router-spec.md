@@ -94,7 +94,9 @@ blocked only on a session being seen idle or on an unconfirmed send there
 (`not_ready`, `in_flight`), so an exchange between two agents needs no person
 to nudge it. Anything else that waits (a hold, a hand-back, an open
 question, a replaced session) waits on an event, and a quiet router arms
-nothing.
+nothing, unless the deployment sets `serve.poll` (added 2026-10-05) and
+trades a run every so many seconds for a board whose telemetry is never
+older than that.
 
 ## Configuration
 

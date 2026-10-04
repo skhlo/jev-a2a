@@ -45,6 +45,7 @@ const config: RouterConfig = {
     board: "127.0.0.1:0",
     identities: { "me@example.com": ["you", "operator"] },
     wake: 0,
+    poll: 0,
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
@@ -308,6 +309,7 @@ function fakeRunner(script: {
   recordWaits?: () => boolean;
   fail?: () => Error | null;
   delayMs?: number;
+  pollMs?: number;
   // The run's report; the default has an observation, a wait and a change.
   report?: () => string[];
 }) {
@@ -356,6 +358,7 @@ function fakeRunner(script: {
       });
     },
     delayMs: script.delayMs ?? 20_000,
+    ...(script.pollMs === undefined ? {} : { pollMs: script.pollMs }),
     waits: script.recordWaits ?? (() => false),
     log: (line) => log.push(line),
     watch: (onChange) => {
@@ -526,6 +529,49 @@ test("runner: a look that fails is logged and tried again at the interval; a zer
   await h;
   assert.deepEqual(off.timers(), []);
   off.runner.stop();
+});
+
+test("runner: the poll runs after any run whether or not anything waits, measured from the run's end, and stops with the runner", async () => {
+  let waiting = false;
+  const f = fakeRunner({ waits: () => waiting, pollMs: 30_000 });
+  f.runner.start();
+  await f.settle();
+  assert.deepEqual(f.timers(), [], "nothing armed while the first run runs");
+  await f.finishRun();
+  assert.deepEqual(f.timers(), [30_000], "the poll, with nothing waiting");
+  // The poll runs deliver only and logs like a wake.
+  await f.fire(30_000);
+  assert.ok(f.inRun());
+  await f.finishRun();
+  assert.deepEqual(f.log, [
+    "start: Recorded D2/M2 as attempting to A1 before calling the adapter.",
+    "poll: Recorded D2/M2 as attempting to A1 before calling the adapter.",
+  ]);
+  assert.deepEqual(f.timers(), [30_000]);
+  // An event run in between restarts the poll from its own end; while work
+  // waits, the look and the poll are both armed, and the look's run
+  // restarts the poll too.
+  waiting = true;
+  const handled = f.runner.handle({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "x",
+  });
+  await f.settle();
+  assert.deepEqual(
+    f.timers(),
+    [30_000],
+    "the old poll stays until the run ends",
+  );
+  await f.finishRun();
+  await handled;
+  assert.deepEqual(f.timers().sort(), [20_000, 30_000]);
+  await f.fire(20_000);
+  await f.finishRun();
+  assert.deepEqual(f.timers().sort(), [20_000, 30_000], "one of each");
+  f.runner.stop();
+  assert.deepEqual(f.timers(), []);
 });
 
 test("sameSite: browsers must come from the page; other clients pass", () => {

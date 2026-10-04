@@ -6,8 +6,8 @@ does not move. Keys named here are described in
 
 ## When the router looks
 
-The router does nothing on a schedule of its own. It observes the sessions
-and delivers what is eligible:
+By default the router does nothing on a schedule of its own. It observes
+the sessions and delivers what is eligible:
 
 - when it handles something: a request, a reply, an answer, a choice, or
   `router run`;
@@ -19,6 +19,14 @@ and delivers what is eligible:
 
 Anything else that waits (a hold, a hand-back, an open question, a replaced
 session) waits on an event, and a quiet router arms nothing.
+
+`serve.poll` changes that: set to a number of seconds, `serve` runs again
+that long after any run, whatever started it, so the board's telemetry
+(session status, permissions, the sheet) is never older than that while
+`serve` is up. Each poll costs a run (one Paseo call per placement, plus
+the sheet's reads on live sessions); the record itself is event-fresh
+either way, so the poll buys freshness of the agents column, not of the
+tasks. `0`, the default, polls nothing.
 
 A session is sent to only when the router has just seen it idle, or closed
 (a persisted session with no process; the prompt resumes it) and not

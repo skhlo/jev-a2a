@@ -28,6 +28,7 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
     board: "127.0.0.1:0",
     identities: {},
     wake: 0,
+    poll: 0,
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
