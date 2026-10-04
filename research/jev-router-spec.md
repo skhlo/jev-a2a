@@ -363,9 +363,11 @@ recovery with the same key and one prompt in the agent's transcript;
 questions and answers pinned to a session; Jev dispatch, abstention and
 low-confidence hand-back with latency of 250 to 300 ms; the board and its
 actions over the tailnet. Not exercised live: a host that is down for a
-whole run, token rotation, `resolve` from the board, throughput. Not built:
-a participant on another host submitting work; the reply client only
-replies.
+whole run, token rotation, `resolve` from the board, throughput. Added
+2026-10-04: a participant session submits, chooses and answers through the
+client, and is told questions, hand-backs and the end as notices at the
+placement it sent from (`via`), once per key, through the same adapter and
+idle gate as a send.
 
 ## Example deployment
 

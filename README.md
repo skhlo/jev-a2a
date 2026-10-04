@@ -55,13 +55,38 @@ participant that runs on several hosts.
 | `router answer --task T --question Q --text ...`   | Answer a question an agent asked                               |
 | `router reply --task T --in-reply-to M --kind ...` | An agent's reply: `working`, `question`, `completed`, `failed` |
 | `router run`                                       | Observe the sessions and deliver what is eligible              |
-| `router serve`                                     | Accept replies from other hosts over HTTP; serve the board     |
+| `router serve`                                     | Accept events from other hosts over HTTP; serve the board      |
 | `router eval`                                      | Judge a labeled request set with the configured texts          |
 | `router cancel <task>`                             | Cancel a task                                                  |
 
-`reply` and `answer` also take `--text-file <path>` in place of `--text`, for
-text that a shell cannot quote in one argument. `router` with no arguments
-prints the full usage.
+`reply`, `answer` and `submit` also take `--text-file <path>` in place of
+`--text`, for text that a shell cannot quote in one argument. `router` with
+no arguments prints the full usage.
+
+### A participant as the sender
+
+An agent's session may submit work too, with the same `submit`, `choose` and
+`answer` commands, as far as `permissions` lets its participant address
+others. On another host the client acts as the session `$PASEO_AGENT_ID`;
+on the router host the CLI acts as a person unless told `--as <session>`,
+since an agent there also submits on a person's behalf. The
+router then tells the sender what a person would read on the board, at the
+placement it sent from and only when that session is idle, like any
+delivery: the recipient's question, with the `answer` command that settles
+it; the choice when Jev handed the request back, with the `choose` command;
+and the final word, which needs no reply. Each is told once per key, through
+the same adapter and with the same record of attempting, accepted and
+unknown, so a restart or a dropped call is retried under the same rules as
+a send. `router status T` lists them, and the board's task detail shows
+them under "Notices to".
+
+```sh
+# As the design agent on mba:
+router submit --to orchestrator "The board's log panel clips its last line at 1280 wide."
+# The orchestrator's session hears back, for example:
+# [router T41 question/R2] orchestrator asks about your request. Answer with:
+#   router answer --task T41 --question R2 --text "<answer>" ...
+```
 
 ## The board
 
@@ -287,9 +312,11 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
   user service; the install steps are at the top of that file. Its `PATH`
   line assumes Node comes from mise or `/usr/bin`; edit it otherwise.
 
-On a host that only replies, install `router/client/router.mjs` as `router` on
-the PATH. In the same secrets file give it `ROUTER_URL`, the router host's
-`serve.listen` address as an `http://` URL, and the same `ROUTER_TOKEN`.
+On a host that does not run the router, install `router/client/router.mjs`
+as `router` on the PATH. It carries `reply`, `submit`, `answer` and `choose`,
+each acting as the session `$PASEO_AGENT_ID`. In the same secrets file give
+it `ROUTER_URL`, the router host's `serve.listen` address as an `http://`
+URL, and the same `ROUTER_TOKEN`.
 
 ## Repository layout
 
@@ -316,15 +343,18 @@ fails if the run changed `package.json` or the lockfile.
 
 ## Limits
 
-- Replies from other hosts are authenticated by one shared token, so any host
-  that holds it can reply as any participant.
+- Events from other hosts are authenticated by one shared token, so any host
+  that holds it can reply, submit, answer or choose as any participant
+  session.
 - A session is only sent to when the router has just seen it idle. A turn a
   person starts in between is the one race left; holding the session closes
   it.
 - The board trusts the login header Tailscale Serve sets, so anything that
   can reach its loopback port can claim a login.
-- A participant on another host cannot submit work: the reply client only
-  replies.
+- A participant sender is told once per key. A notice whose adapter call
+  was interrupted is marked unknown and, for a participant whose adapter
+  does not deduplicate, is not repeated; the sender still finds the question
+  or the choice in its needs-you list and the end in `router status`.
 - Not exercised live: a host that is down for a whole run, token rotation,
   and throughput. The spec keeps the full list.
 

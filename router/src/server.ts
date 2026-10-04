@@ -36,7 +36,7 @@ export type ServerDeps = {
   now?: () => number;
 };
 
-const EVENT_TYPES = ["update", "answer"];
+const EVENT_TYPES = ["submit", "choose", "update", "answer"];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -81,7 +81,7 @@ export function eventsListener(
         return reply(400, {
           ok: false,
           code: "bad_event",
-          message: `serve accepts ${EVENT_TYPES.join(" and ")} events`,
+          message: `serve accepts ${EVENT_TYPES.slice(0, -1).join(", ")} and ${EVENT_TYPES.at(-1)} events`,
         });
       // The core validates everything else and rejects what it does not know.
       deps.handle(event as Event).then(

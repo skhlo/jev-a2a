@@ -96,9 +96,11 @@ test("events: health is open, everything else needs the exact token", async () =
     const auth = { authorization: "Bearer secret" };
     assert.equal((await post(auth, "{}", "/other")).status, 404);
     assert.equal((await post(auth, "{nope")).status, 400);
+    // Events the serve endpoint does not take: the core's own events that a
+    // client has no business sending, like a tick or a configuration.
     const forbidden = await post(
       auth,
-      JSON.stringify({ type: "submit", by: "you", text: "x" }),
+      JSON.stringify({ type: "tick", now: 1 }),
     );
     assert.equal(forbidden.status, 400);
     assert.equal(
@@ -124,6 +126,28 @@ test("events: health is open, everything else needs the exact token", async () =
       report: ["delivered"],
     });
     assert.equal(handled.length, 1);
+    // A participant's own requests and choices pass the same gate; the
+    // core decides whether the session may make them.
+    for (const event of [
+      { type: "submit", by: "A1", messageId: "m2", text: "x", to: "incus" },
+      { type: "choose", by: "A1", taskId: "T2", to: "incus" },
+    ]) {
+      const res = await post(auth, JSON.stringify(event));
+      assert.equal(res.status, 200);
+      assert.equal(handled.at(-1)?.type, event.type);
+    }
+    assert.equal(handled.length, 3);
+    // The shell's own events stay out, whoever signs them.
+    const attempt = await post(
+      auth,
+      JSON.stringify({ type: "attempt", deliveryId: "D1" }),
+    );
+    assert.equal(attempt.status, 400);
+    assert.match(
+      String(((await attempt.json()) as { message: string }).message),
+      /serve accepts submit, choose, update and answer events/,
+    );
+    assert.equal(handled.length, 3);
   } finally {
     server.close();
   }

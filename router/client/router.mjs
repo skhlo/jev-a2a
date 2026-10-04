@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Thin router client for a host that does not run the router: the same
-// `router reply` syntax as the CLI, posted to `router serve` over the tailnet.
-// Reads ROUTER_URL and ROUTER_TOKEN from the environment or from
+// Thin router client for a host that does not run the router: the CLI's
+// `reply`, `submit`, `answer` and `choose` syntax, posted to `router serve`
+// over the tailnet as the participant session $PASEO_AGENT_ID. Reads
+// ROUTER_URL and ROUTER_TOKEN from the environment or from
 // ~/.config/jev-router/secrets.env. No dependencies.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -22,6 +23,13 @@ try {
   // No secrets file: the environment must carry the values.
 }
 
+const USAGE = `This host's router client supports:
+  router reply --task T --in-reply-to M --kind K (--text ... | --text-file <path>)
+  router submit [--to <participant>] [--hosts a,b] [--message <id>] (<text...> | --text-file <path>)
+  router answer --task T --question Q (--text ... | --text-file <path>) [--message <id>]
+  router choose --task T --to <participant>
+Every command acts as the participant session $PASEO_AGENT_ID.`;
+
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
   allowPositionals: true,
@@ -32,6 +40,9 @@ const { values, positionals } = parseArgs({
     text: { type: "string" },
     "text-file": { type: "string" },
     message: { type: "string" },
+    to: { type: "string" },
+    hosts: { type: "string" },
+    question: { type: "string" },
   },
 });
 
@@ -44,39 +55,77 @@ const token = process.env.ROUTER_TOKEN;
 if (!url || !token)
   fail(`ROUTER_URL and ROUTER_TOKEN are required (see ${secrets}).`);
 
-const [command] = positionals;
-if (command !== "reply")
-  fail(
-    "This host's router client supports: router reply --task T --in-reply-to M --kind K [--text ... | --text-file <path>]",
-  );
+const [command, ...rest] = positionals;
+if (!["reply", "submit", "answer", "choose"].includes(command)) fail(USAGE);
 const by = process.env.PASEO_AGENT_ID;
 if (!by)
-  fail("Replies come from a participant session: $PASEO_AGENT_ID is unset.");
-for (const key of ["task", "in-reply-to", "kind"])
-  if (!values[key]) fail(`--${key} is required.`);
-
-// --text-file carries text that a shell cannot quote in one argument.
-let text = values.text ?? "";
-if (values["text-file"] !== undefined) {
-  if (values.text !== undefined) fail("Pass --text or --text-file, not both.");
-  try {
-    text = readFileSync(values["text-file"], "utf8").trimEnd();
-  } catch (error) {
-    fail(`--text-file: ${error instanceof Error ? error.message : error}`);
-  }
-}
-
-const event = {
-  type: "update",
-  by,
-  taskId: values.task,
-  messageId:
-    values.message ??
-    `m-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`,
-  inReplyTo: values["in-reply-to"],
-  kind: values.kind,
-  text,
+  fail("The client acts as a participant session: $PASEO_AGENT_ID is unset.");
+const required = (...keys) => {
+  for (const key of keys) if (!values[key]) fail(`--${key} is required.`);
 };
+
+// --text-file carries text that a shell cannot quote in one argument; a
+// submit may also take its text as the remaining arguments.
+const textOf = (positional = []) => {
+  let text = values.text ?? (positional.length ? positional.join(" ") : "");
+  if (values["text-file"] !== undefined) {
+    if (values.text !== undefined || positional.length)
+      fail("Pass --text or --text-file, not both (nor text arguments).");
+    try {
+      text = readFileSync(values["text-file"], "utf8").trimEnd();
+    } catch (error) {
+      fail(`--text-file: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  return text;
+};
+const messageId = () =>
+  values.message ??
+  `m-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+
+let event;
+switch (command) {
+  case "reply":
+    required("task", "in-reply-to", "kind");
+    event = {
+      type: "update",
+      by,
+      taskId: values.task,
+      messageId: messageId(),
+      inReplyTo: values["in-reply-to"],
+      kind: values.kind,
+      text: textOf(),
+    };
+    break;
+  case "submit": {
+    const text = textOf(rest);
+    if (!text) fail("A request needs text.");
+    event = {
+      type: "submit",
+      by,
+      messageId: messageId(),
+      text,
+      to: values.to ?? null,
+      hosts: values.hosts ? values.hosts.split(",").filter(Boolean) : null,
+    };
+    break;
+  }
+  case "answer":
+    required("task", "question");
+    event = {
+      type: "answer",
+      by,
+      taskId: values.task,
+      messageId: messageId(),
+      questionId: values.question,
+      text: textOf(),
+    };
+    break;
+  case "choose":
+    required("task", "to");
+    event = { type: "choose", by, taskId: values.task, to: values.to };
+    break;
+}
 
 const response = await fetch(new URL("/events", url), {
   method: "POST",

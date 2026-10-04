@@ -16,6 +16,7 @@ const question = judgmentQuestion(initial(config), {
   to: null,
   hosts: null,
   via: null,
+  notices: [],
   deadline: 100,
   permitted: ["orchestrator", "knowledge", "environment", "incus"],
   routing: { state: "judging", suggestions: [], reason: null },

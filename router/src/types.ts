@@ -109,6 +109,19 @@ export type Final = {
   of: number;
 };
 
+// What a participant sender has been told about its task: a question it
+// must answer, a recipient it must choose, or the final word. Keyed by
+// what it reports, so each is sent once; the outcome follows a send's.
+export type NoticeKind = "question" | "choose" | "final";
+export type Notice = {
+  key: string;
+  kind: NoticeKind;
+  // The session the notice went to, set at the attempt.
+  session: string | null;
+  outcome: Exclude<SendOutcome, "withdrawn">;
+  trail: TrailStep[];
+};
+
 export type Task = {
   id: string;
   source: string;
@@ -116,7 +129,10 @@ export type Task = {
   text: string;
   to: string | null;
   hosts: string[] | null;
+  // The placement a participant sender submitted from; notices go there.
+  // Null for a person.
   via: string | null;
+  notices: Notice[];
   deadline: number;
   // Participants the sender could address when it asked.
   permitted: string[];
@@ -171,7 +187,6 @@ export type Event =
       text: string;
       to?: string | null;
       hosts?: string[] | null;
-      via?: string | null;
     }
   | {
       type: "judged";
@@ -226,12 +241,20 @@ export type Event =
       hold?: boolean;
       session?: string;
     }
+  | { type: "noticeAttempt"; taskId: string; key: string }
+  | {
+      type: "noticeResult";
+      taskId: string;
+      key: string;
+      outcome: AdapterOutcome;
+    }
   | { type: "restart" }
   | { type: "tick"; now: number };
 
 export type Command =
   | { type: "judge"; taskId: string; question: JudgmentQuestion }
-  | { type: "deliver"; deliveryId: string; messageId: string };
+  | { type: "deliver"; deliveryId: string; messageId: string }
+  | { type: "notify"; taskId: string; key: string; kind: NoticeKind };
 
 export type JudgmentQuestion = {
   state: { request: string };

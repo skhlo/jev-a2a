@@ -104,3 +104,13 @@
 {"text": "After the baseline merge, is the mini's checkout on it, and did the apply leave anything pending?", "expect": "dotfiles-host", "lang": "en"}
 {"text": "라우터 설계 결정들을 볼트에 정리해서 보고서 초안 써줘.", "expect": "knowledge", "lang": "ko"}
 {"text": "Reply pong, this is only a delivery test for the router.", "expect": "none", "lang": "en"}
+{"text": "The log panel's last line is clipped at 1280 wide on the live board; the generator's CSS has a min-height on .lines that the port lacks.", "expect": "orchestrator", "lang": "en"}
+{"text": "Give me a mockup of a notices table under the task detail, four columns, both themes, and the data-paths you want bound.", "expect": "design", "lang": "en"}
+{"text": "Is there a note in the vault on how the router picks a recipient, and what does it say about the threshold?", "expect": "knowledge", "lang": "en"}
+{"text": "The vault's lint script wants a newer Python on the mini. Is the mini on the merged baseline, or does an apply still wait?", "expect": "dotfiles-host", "lang": "en"}
+{"text": "The baseline PR is merged; apply it on mba and mini and tell me the transaction paths.", "expect": "dotfiles-host", "lang": "en"}
+{"text": "My proofs workflow needs ImageMagick in the shared tooling list. Add it to the baseline and open the PR.", "expect": "dotfiles", "lang": "en"}
+{"text": "The rollout on mba failed on a Ghostty keybind the baseline no longer has; fix the source and send a PR.", "expect": "dotfiles", "lang": "en"}
+{"text": "A research memo needs a cover figure of the review pipeline as five stages; two options, dark, exported as PNG.", "expect": "design", "lang": "en"}
+{"text": "v0.9에 notices 필드를 바인딩할 건데, 샘플 JSON에 알림이 있는 작업을 하나 넣어 줄 수 있나요?", "expect": "orchestrator", "lang": "ko"}
+{"text": "지난 라운드의 디자인 결정 기록을 볼트 노트로 정리해 줄 수 있어?", "expect": "knowledge", "lang": "ko"}

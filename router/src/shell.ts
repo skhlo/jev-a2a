@@ -7,9 +7,11 @@ import {
   blockedReason,
   commands,
   currentSend,
+  dueNotices,
   findDelivery,
   findTask,
   initial,
+  noticeBlockedReason,
   reduce,
   validateConfig,
 } from "./core.ts";
@@ -22,8 +24,10 @@ import type {
   Config,
   Event,
   JudgmentQuestion,
+  NoticeKind,
   Outcome,
   State,
+  Task,
 } from "./types.ts";
 
 export type Shell = {
@@ -207,6 +211,95 @@ export async function openShell(
     return `${head} (use --kind question to ask the sender something, --kind working for progress, --kind failed if you cannot do it).\n\n${send.text}`;
   }
 
+  // What a participant sender is told, with the client command that answers
+  // it. A final notice carries each delivery's last word.
+  function noticeText(task: Task, key: string, kind: NoticeKind): string {
+    const host = task.via?.slice(task.via.indexOf("@") + 1) ?? "";
+    const command = config.hosts[host]?.replyCommand ?? "router";
+    const head = `[router ${task.id} ${key}]`;
+    if (kind === "question") {
+      const id = key.slice("question/".length);
+      const delivery = task.deliveries.find((d) => d.question?.id === id);
+      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer --task ${task.id} --question ${id} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
+    }
+    if (kind === "choose") {
+      const routing =
+        task.routing?.state === "needs_recipient" ? task.routing : null;
+      const suggested = routing?.suggestions.length
+        ? `; suggested ${routing.suggestions.join(", ")}`
+        : "";
+      return `${head} The router could not pick a recipient for your request (${(routing?.reason ?? "unknown").replaceAll("_", " ")}${suggested}). Choose with: ${command} choose --task ${task.id} --to <participant>, one of: ${task.permitted.join(", ")}.\n\n${task.text}`;
+    }
+    const words = task.deliveries
+      .map((d) => {
+        const end = d.end;
+        if (!end) return `${d.participant}@${d.host}: no result`;
+        return `${d.participant}@${d.host} ${end.reason}${end.text ? `:\n${end.text}` : ""}`;
+      })
+      .join("\n\n");
+    return `${head} Your request is ${task.final?.status ?? "closed"}${task.final?.reason ? ` (${task.final.reason})` : ""}. No reply is needed.\n\n${words}`;
+  }
+
+  // Each due notice for a sender this router can reach, through the same
+  // adapter and idle gate as a delivery.
+  async function notifyAll(report: string[]): Promise<void> {
+    for (;;) {
+      const next = commands(state).find(
+        (c): c is Extract<Command, { type: "notify" }> =>
+          c.type === "notify" && isServed(findTask(state, c.taskId)?.via ?? ""),
+      );
+      if (!next) break;
+      const task = findTask(state, next.taskId);
+      if (!task || task.via === null) break;
+      const agentId = config.agents[task.via];
+      if (!agentId) {
+        report.push(`${task.id}: no agent configured for ${task.via}`);
+        break;
+      }
+      const attempted = apply({
+        type: "noticeAttempt",
+        taskId: task.id,
+        key: next.key,
+      });
+      report.push(attempted.message);
+      if (!attempted.ok) break;
+      const host = task.via.slice(task.via.indexOf("@") + 1);
+      let outcome: Awaited<ReturnType<Adapter["send"]>>;
+      try {
+        outcome = await (
+          await adapterFor(host)
+        ).send(
+          agentId,
+          `N/${task.id}/${next.key}`,
+          noticeText(task, next.key, next.kind),
+        );
+      } catch (error: unknown) {
+        if (error instanceof RouterBug) throw error;
+        report.push(
+          `${task.id} notice ${next.key}: ${host} unreachable (${error instanceof Error ? error.message : String(error)})`,
+        );
+        outcome = "unknown";
+      }
+      const acked = apply({
+        type: "noticeResult",
+        taskId: task.id,
+        key: next.key,
+        outcome,
+      });
+      report.push(acked.message);
+    }
+    for (const task of state.tasks) {
+      if (task.via === null || !isServed(task.via)) continue;
+      for (const due of dueNotices(state, task)) {
+        const why = noticeBlockedReason(state, task, due.key);
+        if (why && why !== "told" && why !== "closed" && why !== "not_pending")
+          report.push(
+            `${task.id} notice ${due.key} waits: ${why.replaceAll("_", " ")}`,
+          );
+      }
+    }
+  }
+
   // One Jev call per unaddressed request. The event carries what the core
   // needs plus confidence, usage and latency for tuning the threshold later.
   async function judgeAll(report: string[]): Promise<void> {
@@ -298,6 +391,7 @@ export async function openShell(
       if (why && why !== "closed" && why !== "not_pending")
         report.push(`${d.id} waits: ${why.replaceAll("_", " ")}`);
     }
+    await notifyAll(report);
     return report;
   }
 

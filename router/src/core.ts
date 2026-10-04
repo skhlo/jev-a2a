@@ -21,6 +21,8 @@ import type {
   Final,
   JudgmentQuestion,
   NeedsYouItem,
+  Notice,
+  NoticeKind,
   Outcome,
   Participant,
   Rejected,
@@ -185,6 +187,13 @@ export const inFlight = (delivery: Delivery): boolean =>
   delivery.session !== null &&
   ["attempting", "unknown"].includes(currentSend(delivery).outcome);
 const isTerminal = (task: Task): boolean => task.final !== null;
+// A notice whose adapter call has not returned. It blocks the session like
+// an in-flight send. An unknown notice does not: nothing waits on it, and a
+// deduplicating adapter repeats it, so there is no reconciliation to wait for.
+const noticeInFlight = (state: State, session: string): boolean =>
+  state.tasks.some((t) =>
+    t.notices.some((n) => n.outcome === "attempting" && n.session === session),
+  );
 
 // Authenticated caller -> principal: a configured principal id, or the
 // participant that owns the calling session.
@@ -262,7 +271,7 @@ export function blockedReason(
       other.placement === delivery.placement &&
       inFlight(other),
   );
-  if (holder) return "in_flight";
+  if (holder || noticeInFlight(state, placement.session)) return "in_flight";
   if (placement.hold) return "held";
   if (!placement.ready) return "not_ready";
   if (delivery.session !== null) return null;
@@ -309,7 +318,72 @@ export function commands(state: State): Command[] {
         messageId: currentSend(delivery).messageId,
       });
   }
+  for (const task of state.tasks)
+    for (const due of dueNotices(state, task))
+      if (noticeBlockedReason(state, task, due.key) === null)
+        work.push({ type: "notify", taskId: task.id, ...due });
   return work;
+}
+
+// What a participant sender should be told about its task now, keyed so
+// each is told once: an open question on a delivery, a recipient to
+// choose while Jev's hand-back stands, and the final word. A question or a
+// choice that no longer stands is not due, so it is never sent late.
+export function dueNotices(
+  state: State,
+  task: Task,
+): { key: string; kind: NoticeKind }[] {
+  if (task.via === null) return [];
+  const due: { key: string; kind: NoticeKind }[] = [];
+  if (isTerminal(task)) due.push({ key: "final", kind: "final" });
+  else {
+    if (task.routing?.state === "needs_recipient")
+      due.push({
+        key: `choose/${task.judgments.length}`,
+        kind: "choose",
+      });
+    for (const delivery of task.deliveries)
+      if (
+        isOpen(delivery) &&
+        delivery.question &&
+        !sessionReplaced(state, delivery)
+      )
+        due.push({ key: `question/${delivery.question.id}`, kind: "question" });
+  }
+  return due;
+}
+
+export const findNotice = (task: Task, key: string): Notice | undefined =>
+  task.notices.find((n) => n.key === key);
+
+// Why a due notice cannot go to the sender now, or null if it can: it was
+// told (or an attempt is unresolved and cannot be repeated); the sender's
+// placement is gone, held, busy with a send or a notice, or not idle.
+export function noticeBlockedReason(
+  state: State,
+  task: Task,
+  key: string,
+): BlockedReason | "told" | null {
+  const notice = findNotice(task, key);
+  if (notice) {
+    if (notice.outcome === "accepted") return "told";
+    if (notice.outcome === "attempting") return "not_pending";
+    if (
+      notice.outcome === "unknown" &&
+      !participant(state, task.source)?.idempotent
+    )
+      return "not_pending";
+  }
+  const placement = task.via === null ? undefined : state.placements[task.via];
+  if (!placement) return "closed";
+  if (
+    allDeliveries(state).some((d) => d.placement === task.via && inFlight(d)) ||
+    noticeInFlight(state, placement.session)
+  )
+    return "in_flight";
+  if (placement.hold) return "held";
+  if (!placement.ready) return "not_ready";
+  return null;
 }
 
 // One Choice over the participants the sender could address when it asked,
@@ -564,7 +638,7 @@ const handlers: Handlers = {
     return ok("Configuration recorded.");
   },
 
-  submit(state, { by, messageId, text, to = null, hosts = null, via = null }) {
+  submit(state, { by, messageId, text, to = null, hosts = null }) {
     const source = principalOf(state, by);
     if (!source || roleOf(state, source) === "operator")
       return reject(
@@ -620,7 +694,9 @@ const handlers: Handlers = {
       text,
       to,
       hosts: wanted,
-      via,
+      // A participant sender hears back at the placement it sent from.
+      via: session ? placementKey(source, session.host) : null,
+      notices: [],
       deadline: state.now + state.config.policy.deadline,
       // Whom the sender could address when it asked; the judgment's options.
       permitted: [...(state.config.permissions[source] ?? [])],
@@ -964,6 +1040,61 @@ const handlers: Handlers = {
     );
   },
 
+  // Like attempt, for a notice: recorded before the adapter is called, with
+  // the sender's session so a later observer can tell whom it reached.
+  noticeAttempt(state, { taskId, key }) {
+    const task = findTask(state, taskId);
+    if (!task) return reject("not_found", "No such request.");
+    const due = dueNotices(state, task).find((d) => d.key === key);
+    if (!due)
+      return reject("not_due", `${task.id}: nothing to tell under ${key}.`);
+    const reason = noticeBlockedReason(state, task, key);
+    if (reason)
+      return reject(
+        "not_eligible",
+        `${task.id} notice ${key} cannot be sent: ${reason.replaceAll("_", " ")}.`,
+      );
+    const placement = state.placements[task.via ?? ""];
+    if (!placement) return reject("not_found", "No such placement.");
+    let notice = findNotice(task, key);
+    if (!notice) {
+      notice = {
+        key,
+        kind: due.kind,
+        session: null,
+        outcome: "pending",
+        trail: [],
+      };
+      task.notices.push(notice);
+    }
+    notice.session = placement.session;
+    notice.outcome = "attempting";
+    notice.trail.push("attempting");
+    placement.ready = false;
+    return ok(
+      `Recorded notice ${task.id}/${key} as attempting to ${placement.session} before calling the adapter.`,
+    );
+  },
+
+  noticeResult(state, { taskId, key, outcome }) {
+    const task = findTask(state, taskId);
+    if (!task) return reject("not_found", "No such request.");
+    const notice = findNotice(task, key);
+    if (!includes(ADAPTER_OUTCOMES, outcome))
+      return reject("invalid", "Outcome is accepted, not_sent or unknown.");
+    if (!notice || notice.outcome !== "attempting")
+      return reject(
+        "not_attempting",
+        `${task.id} notice ${key} has no attempt in progress.`,
+      );
+    notice.trail.push(outcome);
+    notice.outcome = outcome === "not_sent" ? "pending" : outcome;
+    return ok(
+      `${task.id}/${key}: notice ${outcome === "not_sent" ? "not sent; it will be retried" : outcome}.`,
+      { actor: "Adapter" },
+    );
+  },
+
   // ready: the adapter saw the session idle. hold: a person is using the
   // session and the router must not send to it, idle or not.
   observe(state, { placement, ready, hold, session }) {
@@ -996,6 +1127,13 @@ const handlers: Handlers = {
         if (send.outcome === "attempting") {
           send.outcome = "unknown";
           send.trail.push("unknown");
+          uncertain++;
+        }
+    for (const task of state.tasks)
+      for (const notice of task.notices)
+        if (notice.outcome === "attempting") {
+          notice.outcome = "unknown";
+          notice.trail.push("unknown");
           uncertain++;
         }
     return ok(

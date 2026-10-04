@@ -21,6 +21,8 @@ import type {
   Event,
   Final,
   NeedsYouItem,
+  Notice,
+  NoticeKind,
   Role,
   Send,
   SendOutcome,
@@ -79,6 +81,17 @@ export type TaskView = {
   // ended it.
   final: (Final & { by: string | null }) | null;
   deliveries: DeliveryView[];
+  // The placement a participant sender submitted from, and what it has
+  // been told there (a question to answer, a recipient to choose, the
+  // final word), each with the send outcome of the notice; both null and
+  // empty for a person's task.
+  via: string | null;
+  notices: {
+    key: string;
+    kind: NoticeKind;
+    session: string | null;
+    outcome: Notice["outcome"];
+  }[];
   // This task's lines in the router's log, as `router status <task>` shows
   // them, so a template never matches log text itself.
   log: State["log"];
@@ -284,6 +297,13 @@ function taskView(task: Task, state: State): TaskView {
       ...task.final,
       by: task.final.status === "canceled" ? task.source : null,
     },
+    via: task.via,
+    notices: task.notices.map(({ key, kind, session, outcome }) => ({
+      key,
+      kind,
+      session,
+      outcome,
+    })),
     deliveries: task.deliveries.map((d) => {
       const send = currentSend(d);
       const last = d.updates.at(-1);

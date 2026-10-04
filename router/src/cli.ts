@@ -9,8 +9,10 @@ import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
 import {
   A2A_STATE,
   currentSend,
+  dueNotices,
   findTask,
   needsYou,
+  noticeBlockedReason,
   responsibilityTexts,
 } from "./core.ts";
 import { describeNeed, newMessageId, taskLog } from "./board.ts";
@@ -366,6 +368,18 @@ function describe(task: Task, state: State): string[] {
       lines.push(`    question ${d.question.id}: ${d.question.text}`);
     for (const u of d.updates)
       lines.push(`    ${u.kind} ${u.messageId} ↩ ${u.inReplyTo}: ${u.text}`);
+  }
+  // What a participant sender was told, and what it is still owed.
+  if (task.via !== null) {
+    for (const n of task.notices)
+      lines.push(
+        `  notice ${n.key} → ${task.via} · session ${n.session ?? "none"} · ${n.outcome}`,
+      );
+    for (const due of dueNotices(state, task)) {
+      const why = noticeBlockedReason(state, task, due.key);
+      if (why && why !== "told")
+        lines.push(`  notice ${due.key} waits: ${why.replaceAll("_", " ")}`);
+    }
   }
   for (const entry of taskLog(state.log, task.id))
     lines.push(`  ${entry.n}. ${entry.actor}: ${entry.text}`);

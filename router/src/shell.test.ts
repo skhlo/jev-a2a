@@ -260,6 +260,147 @@ test("a record older than its first configured line replays under that configura
   await shell.close();
 });
 
+test("a participant sender is told a question and the end through the adapter, each once, at its idle session", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const config = configFor(home);
+  const sent: { key: string; text: string }[] = [];
+  let refuse = false;
+  const script = {
+    send: (key: string, text: string) => {
+      if (refuse) return Promise.reject(new Error("socket hang up"));
+      sent.push({ key, text });
+      return Promise.resolve("accepted" as const);
+    },
+  };
+  // Run 1 binds the orchestrator's session; it then asks the dotfiles
+  // service on this host for something, as a participant.
+  let shell = await openShell(config, scripted(script));
+  await shell.deliver();
+  const submitted = shell.apply({
+    type: "submit",
+    by: "A1",
+    messageId: "M1",
+    text: "Which shell config is active on mbp?",
+    to: "environment",
+    hosts: ["mbp"],
+  });
+  assert.equal(submitted.ok, true, submitted.message);
+  assert.equal(shell.state.tasks[0]?.via, "orchestrator@mbp");
+  // The service's placement is not served by this router: stand in for
+  // its adapter and its reply.
+  for (const event of [
+    {
+      type: "observe",
+      placement: "environment@mbp",
+      session: "E1",
+      ready: true,
+    },
+    { type: "attempt", deliveryId: "D1" },
+    {
+      type: "adapterResult",
+      deliveryId: "D1",
+      messageId: "M1",
+      outcome: "accepted",
+    },
+    {
+      type: "update",
+      by: "E1",
+      taskId: "T1",
+      messageId: "Q1",
+      inReplyTo: "M1",
+      kind: "question",
+      text: "Login shell or interactive?",
+    },
+  ] as const) {
+    const outcome = shell.apply(event);
+    assert.equal(outcome.ok, true, outcome.message);
+  }
+  let report = await shell.deliver();
+  assert.deepEqual(
+    sent.map((s) => s.key),
+    ["N/T1/question/Q1"],
+  );
+  assert.match(
+    sent[0]?.text ?? "",
+    /^\[router T1 question\/Q1\] environment asks about your request\. Answer with: router answer --task T1 --question Q1 --text "<answer>" \(or --text-file <path>\)\.\n\nLogin shell or interactive\?$/,
+  );
+  assert.match(report.join("\n"), /T1\/question\/Q1: notice accepted/);
+  // Told once: another run with nothing new sends nothing.
+  report = await shell.deliver();
+  assert.equal(sent.length, 1);
+  assert.doesNotMatch(report.join("\n"), /notice/);
+  // The sender answers and the service finishes; the end is told next run.
+  for (const event of [
+    {
+      type: "answer",
+      by: "A1",
+      taskId: "T1",
+      messageId: "A1-1",
+      questionId: "Q1",
+      text: "Interactive.",
+    },
+    { type: "observe", placement: "environment@mbp", ready: true },
+    { type: "attempt", deliveryId: "D1" },
+    {
+      type: "adapterResult",
+      deliveryId: "D1",
+      messageId: "A1-1",
+      outcome: "accepted",
+    },
+    {
+      type: "update",
+      by: "E1",
+      taskId: "T1",
+      messageId: "R1",
+      inReplyTo: "A1-1",
+      kind: "completed",
+      text: "zsh from the baseline",
+    },
+  ] as const) {
+    const outcome = shell.apply(event);
+    assert.equal(outcome.ok, true, outcome.message);
+  }
+  assert.equal(shell.state.tasks[0]?.status, "completed");
+  // The host drops the call: unknown, retried next run because the
+  // orchestrator's adapter deduplicates by key.
+  refuse = true;
+  report = await shell.deliver();
+  assert.match(
+    report.join("\n"),
+    /T1 notice final: mbp unreachable \(socket hang up\)/,
+  );
+  assert.match(report.join("\n"), /T1\/final: notice unknown/);
+  assert.equal(sent.length, 1);
+  refuse = false;
+  report = await shell.deliver();
+  assert.deepEqual(
+    sent.map((s) => s.key),
+    ["N/T1/question/Q1", "N/T1/final"],
+  );
+  assert.match(
+    sent[1]?.text ?? "",
+    /^\[router T1 final\] Your request is completed\. No reply is needed\.\n\nenvironment@mbp completed:\nzsh from the baseline$/,
+  );
+  await shell.close();
+  // The record carries the notices; a new run has nothing more to tell.
+  shell = await openShell(config, scripted(script));
+  assert.deepEqual(
+    shell.state.tasks[0]?.notices.map((n) => [n.key, n.outcome, n.trail]),
+    [
+      ["question/Q1", "accepted", ["attempting", "accepted"]],
+      [
+        "final",
+        "accepted",
+        ["attempting", "unknown", "attempting", "accepted"],
+      ],
+    ],
+  );
+  report = await shell.deliver();
+  assert.equal(sent.length, 2);
+  assert.doesNotMatch(report.join("\n"), /notice/);
+  await shell.close();
+});
+
 test("a failed send is not_sent only when the daemon refused before sending", () => {
   assert.equal(
     sendFailure(new Error("Agent not found: A1"), "A1", "D1/M1"),

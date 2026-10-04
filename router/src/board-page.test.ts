@@ -31,6 +31,7 @@ import {
   journal,
   NOW,
   replacedJournal,
+  viaJournal,
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
 import type { Entry } from "./journal.ts";
@@ -616,6 +617,28 @@ test("a delivery without a reply reads as delivered once its send was accepted, 
     strip(renderBoard(unlisted)),
     /environment@mbp\s*attempting on T5 · Rebuild/,
   );
+});
+
+test("a task a participant sent lists the notices it was told; a person's task has no such table", () => {
+  const html = page(ME, { task: "T5" }, viaJournal);
+  assert.equal(textOf(html, "open[0].source"), "orchestrator/M5");
+  assert.equal(textOf(html, "open[0].via"), "orchestrator@mbp");
+  assert.match(strip(html), /Notices to\s*orchestrator@mbp/);
+  assert.equal(textOf(html, "open[0].notices[0].key"), "question/Q5");
+  assert.equal(textOf(html, "open[0].notices[0].kind"), "question");
+  assert.equal(textOf(html, "open[0].notices[0].session"), "A1");
+  assert.equal(textOf(html, "open[0].notices[0].outcome"), "accepted");
+  // The requester is not asked to answer the sender's question.
+  assert.ok(!html.includes('name="questionId" value="Q5"'));
+  // Before anything was told the table is a hint; a person's task has none.
+  const quiet = page(ME, { task: "T5" }, viaJournal.slice(0, -2));
+  assert.match(
+    strip(quiet),
+    /Notices to\s*orchestrator@mbp\s*Nothing told yet\./,
+  );
+  const person = page(ME, { task: "T2" });
+  assert.ok(!person.includes("Notices to"));
+  assert.ok(!person.includes('data-path="open[1].via"'));
 });
 
 test("an answered question reads as working on the card and as the answer in the row", () => {
