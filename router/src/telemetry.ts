@@ -487,16 +487,11 @@ export function agentLine(agent: AgentSnapshot): string {
 // The sidebar's row in words: branch (starred when dirty), diff, PR and
 // its checks.
 export function checkoutLine(c: Checkout): string {
-  return checkoutParts(c).join(" · ");
-}
-
-// The row's words, one per part, for the page to wrap each in its slot.
-export function checkoutParts(c: Checkout): string[] {
   const parts = [`${c.branch ?? c.kind}${c.dirty ? "*" : ""}`];
   if (c.diff) parts.push(`+${c.diff.additions} −${c.diff.deletions}`);
   if (c.pr)
     parts.push(
       `PR #${c.pr.number ?? "?"}${c.pr.checks ? ` ${c.pr.checks}` : ""}`,
     );
-  return parts;
+  return parts.join(" · ");
 }

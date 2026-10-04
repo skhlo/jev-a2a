@@ -133,10 +133,11 @@ the server from the view model below, in three columns:
   neither. Activity is the last eight timeline entries oldest first, each
   with its seconds, kind word, tool and status, and text, the last one
   marked current when it is a running tool; the heading counts the turns
-  among them. A field the router did not read says "not read", adding
-  "session not live" when the session is not idle or running. Every
-  placement's sheet is in the page, hidden; `esc` or its close button
-  closes it, and a refresh keeps it open by key.
+  among them. A field the router did not read says "not read"; subagents
+  and activity add "session not live" when the session is not idle or
+  running. Every placement's sheet is in the page, hidden; `esc` or its
+  close button closes it, a refresh keeps it open by key, and a lever
+  pressed in it brings it back with the page.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
   send; In flight holds the other open tasks, and Done the last finished
@@ -177,8 +178,8 @@ The page reads and acts without a script. Its script adds:
   and swaps the nav counts, the three columns and the sheets. It keeps the
   selected task, the collapsed groups (in `localStorage`), typed drafts (in
   `sessionStorage`, by their form's `data-path`), the open peek, the open
-  sheet and the filter, and it leaves alone a column or a sheet you are
-  typing in.
+  sheet (its element, scroll and all) and the filter, and it leaves alone
+  a column you are typing in or a sheet holding the focus.
 - the palettes: Flexoki, light or dark with the system, and One Dark. The
   choice is kept in `localStorage` and in a `router-theme` cookie, so the
   server paints it before the script runs.
@@ -186,9 +187,9 @@ The page reads and acts without a script. Its script adds:
   the peek, the row's open question with a reply box beside the row; `↵`
   opens the task, or in the peek sends the reply (`⇧↵` breaks the line); `→`
   opens the peeked task; `s` opens or closes the sheet of the focused
-  agent, or the selected task's; `a` goes to the answer box; `c` cancels
-  the selected task; `h` holds or releases the focused agent, the open
-  sheet's, or the selected task's; `/` filters the rows by text, id, recipient or state; `?` lists
+  agent, else the open sheet's, else the selected task's; `a` goes to the
+  answer box; `c` cancels the selected task; `h` holds or releases the
+  focused agent, the open sheet's, or the selected task's; `/` filters the rows by text, id, recipient or state; `?` lists
   the keys; `esc` closes; `⌘↩` or `Ctrl ↩` sends the form you are typing
   in.
 
@@ -214,9 +215,11 @@ ready, behind an unconfirmed send, or on a replaced session) says what it
 waits for where the design shows only the send's outcome, and the "from
 <placement>" on an open row that another agent sent shows to every viewer,
 since a person is never a participant (the design spares the sender its own
-placement), and every placement's sheet is rendered, hidden, so the script
-opens one without a round trip (the design renders the open one). What
-remains open: a post does not
+placement), every placement's sheet is rendered, hidden, so the script
+opens one without a round trip (the design renders the open one), a narrow
+screen's sheet takes the whole screen, and the Flexoki dark pin
+(`data-scheme`) is not carried, as the theme switch covers it. What remains
+open: a post does not
 name its principal, so a login that holds two principals in one role acts as
 the first one `serve.identities` lists, and the other's items show without a
 form; a draft is keyed by its form's `data-path`, which shifts when an

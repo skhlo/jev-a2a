@@ -72,18 +72,18 @@ export const hms = (iso: string | null | undefined): string => {
   return at ? `${at.toISOString().slice(11, 19)}Z` : DASH;
 };
 
-const n = (value: number): string => value.toLocaleString("en-US");
+const thousands = (value: number): string => value.toLocaleString("en-US");
 
 // diff(additions, deletions): "+a −d", the minus sign U+2212.
 export const diff = (additions: number, deletions: number): string =>
-  `+${n(additions)} −${n(deletions)}`;
+  `+${thousands(additions)} −${thousands(deletions)}`;
 
 // counts(obj): the non-zero counts with their key names as words, in the
 // object's order, joined by " · ".
 export const counts = (obj: Record<string, number>): string =>
   Object.entries(obj)
     .filter(([, value]) => value)
-    .map(([key, value]) => `${n(value)} ${label(key)}`)
+    .map(([key, value]) => `${thousands(value)} ${label(key)}`)
     .join(" · ");
 
 // The router reads subagents and activity only for a live session.
@@ -139,7 +139,7 @@ const STATUS_NOTE: Partial<Record<AgentStatus, string>> = {
 };
 // The sheet's words for a pull request's checks and review, with the role
 // that colours them (v0.11).
-const CHECKS: Record<
+const CHECK_WORDS: Record<
   NonNullable<NonNullable<Checkout["pr"]>["checks"]> | "null",
   [string, string]
 > = {
@@ -476,15 +476,14 @@ ${body}
   // error, missing and unreachable dotted with the error as tooltip (a
   // sentence when there is none); running with the turn's age; idle with
   // the last turn's end; any other status as words; v0.11 adds "· n
-  // subagents" while any run. A null agent reads "no telemetry". The card
-  // joins the status and the seen age into one line; the sheet shows them
-  // apart.
+  // subagents" while any run; then the seen age. A null agent reads "no
+  // telemetry". The sheet's head shows the same line.
   const health = (
     path: string,
     a: PlacementView["agent"],
-  ): { line: string; seen: string; meter: string } => {
+  ): { line: string; meter: string } => {
     const ap = `${path}.agent`;
-    if (!a) return { line: slot(ap, "no telemetry", "k"), seen: "", meter: "" };
+    if (!a) return { line: slot(ap, "no telemetry", "k"), meter: "" };
     const errTip = ` title="${esc(a.error ?? STATUS_NOTE[a.status] ?? "")}"`;
     let line: string;
     if (a.permissions.length) {
@@ -519,27 +518,21 @@ ${body}
     const running = a.subagents?.running.length ?? 0;
     if (running)
       line += ` · ${slot(`count(${ap}.subagents.running)`, count(running, "subagent"))}`;
-    const seen = ago(
-      `age(${ap}.seen, at)`,
-      a.seen,
-      "seen num",
-      `seen ${age(a.seen, at)}`,
-    );
+    line += ` · ${ago(`age(${ap}.seen, at)`, a.seen, "seen num", `seen ${age(a.seen, at)}`)}`;
     let meter = "";
     const c = a.context;
     if (c) {
       const pct = percent(c.used, c.max);
-      const n = (count: number): string => count.toLocaleString("en-US");
-      let tip = `${n(c.used)} of ${n(c.max)} tokens in context`;
+      let tip = `${thousands(c.used)} of ${thousands(c.max)} tokens in context`;
       const u = a.usage;
       if (u) {
         const cost =
           u.costUsd === null ? "no cost reported" : `$${u.costUsd.toFixed(2)}`;
-        tip += ` · since the session started: input ${n(u.input)}, cached ${n(u.cached)}, output ${n(u.output)} · ${cost}`;
+        tip += ` · since the session started: input ${thousands(u.input)}, cached ${thousands(u.cached)}, output ${thousands(u.output)} · ${cost}`;
       }
       meter = `<span class="meter${pct >= 80 ? " full" : ""}" data-path="${ap}.context, ${ap}.usage" title="${esc(tip)}"><span class="bar"><i style="width: ${pct}%"></i></span>${slot(`percent(${ap}.context.used, ${ap}.context.max)`, `${pct}%`, "num")}</span>`;
     }
-    return { line, seen, meter };
+    return { line, meter };
   };
   // provider/model, thinking and mode as tags; a null field is left out.
   const harnessTags = (path: string, a: PlacementView["agent"]): string => {
@@ -588,8 +581,8 @@ ${body}
       holdLever,
     ].filter(Boolean);
   };
-  // The tags after ready and held: provider/model, thinking and mode (v0.10)
-  // on a busy card; the sheet shows them with the host and the session.
+  // The host and session tags, which open a busy card's rig and close the
+  // sheet's head.
   const sessionTags = (p: PlacementView, path: string): string =>
     slot(`${path}.host`, esc(p.host), "tag") +
     slot(
@@ -673,7 +666,11 @@ ${body}
     if (pr) {
       const pp = `${cp}.pr`;
       const title = `#${pr.number ?? "?"} ${pr.title}`;
-      const state = pr.draft ? "draft" : pr.merged ? "merged" : label(pr.state);
+      const state = pr.draft
+        ? "draft"
+        : pr.merged
+          ? "merged"
+          : label(pr.state.toLowerCase());
       // The title keeps its own row; checks and review take the next one,
       // so a long title is not squeezed. The link needs a web address.
       const web = /^https:\/\//.test(pr.url);
@@ -691,7 +688,7 @@ ${body}
             ? slot(`${pp}.mergeable`, "conflicts", "role-warn")
             : ""),
       ]);
-      const [word, role] = CHECKS[pr.checks ?? "null"];
+      const [word, role] = CHECK_WORDS[pr.checks ?? "null"];
       let checks = slot(`${pp}.checks`, word, role);
       if (pr.review)
         checks +=
@@ -804,8 +801,7 @@ ${body}
     const path = `placements[${i}]`;
     const a = p.agent;
     const ap = `${path}.agent`;
-    const { line: status, seen, meter } = health(path, p.agent);
-    const line = seen ? `${status} · ${seen}` : status;
+    const { line, meter } = health(path, p.agent);
     return `<aside class="sheet" role="dialog" aria-label="${esc(p.key)}" data-path="${path}" data-key="${esc(p.key)}" hidden>
   <div class="head">
     <div class="name"><span class="dot ${dotOf(p)}" data-path="${path}.delivery.latest.kind, ${path}.ready, ${path}.hold"></span><h2>${slot(`${path}.key`, esc(p.key))}</h2>${meter}<button class="close" type="button" aria-label="Close" title="Close (esc)">×</button></div>
@@ -836,8 +832,7 @@ ${activitySection(ap, a)}
       "span",
       ' role="button" aria-haspopup="dialog" title="Open the sheet (s)"',
     );
-    const { line: status, seen, meter } = health(path, p.agent);
-    const line = seen ? `${status} · ${seen}` : status;
+    const { line, meter } = health(path, p.agent);
     if (!d) {
       // Idle: no delivery pinned to the session. The card collapses to its
       // name, dot, state and lever.
@@ -1423,10 +1418,10 @@ ${model.placements.map((p, i) => sheetOf(p, i)).join("\n")}
   <dt>space</dt><dd>Peek at a row's question and reply beside it</dd>
   <dt>↵</dt><dd>Open the task; in the peek, send the reply (⇧↵ breaks the line)</dd>
   <dt>→</dt><dd>Open the task of the open peek</dd>
-  <dt>s</dt><dd>Open the health sheet of the focused agent, or the selected task's</dd>
+  <dt>s</dt><dd>Open or close the health sheet of the focused agent, the open sheet's, or the selected task's</dd>
   <dt>a</dt><dd>Answer the open question</dd>
   <dt>c</dt><dd>Cancel the selected task</dd>
-  <dt>h</dt><dd>Hold or release the focused agent, or the selected task's</dd>
+  <dt>h</dt><dd>Hold or release the focused agent, the open sheet's, or the selected task's</dd>
   <dt>/</dt><dd>Filter the task rows</dd>
   <dt>⌘↩ or Ctrl ↩</dt><dd>Send the form you are typing in</dd>
   <dt>esc</dt><dd>Close the peek, the sheet or this list</dd>
@@ -1570,9 +1565,11 @@ h1, h2, h3, p { margin: 0; }
    error is dotted and carries the error as its tooltip; a fuller window fills in the text colour. */
 .card .name .meter { margin-left: auto; align-self: center; }
 .card .name .meter + .age { margin-left: 0; }
-.card .tele { display: flex; gap: 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
+.card .tele { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
 .card.idle .tele { grid-column: 1 / -1; }
-.card .tele .line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .tele .line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A card whose status line cannot share its row wraps the levers under it (v0.11). */
+.card .tele .lever { margin-left: auto; }
 .card .tele .ask { color: var(--accent); font-weight: 500; }
 .card .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
 .card .tele .seen, .card .tele .k { color: var(--text-3); }
@@ -1603,20 +1600,18 @@ h1, h2, h3, p { margin: 0; }
 .sheet p { margin: 0; }
 .sheet .none { font-size: var(--fs-small); color: var(--text-3); }
 .sheet .muted { color: var(--text-3); }
-.sheet .mono { font-family: var(--mono); font-size: var(--fs-mono); }
 /* Roles colour words, never fills. */
 .role-ok { color: var(--ok); }
 .role-warn { color: var(--warn); }
 .role-err { color: var(--err); }
 /* Checkout: label, value; the value is one line and ellipsizes. */
-.kv { margin: 0; display: grid; grid-template-columns: 84px 1fr; font-size: var(--fs-small); }
+.kv { display: grid; grid-template-columns: 84px 1fr; font-size: var(--fs-small); }
 .kv > dt, .kv > dd { margin: 0; padding: 5px 0; border-bottom: 1px solid var(--hair-soft); min-width: 0; }
 .kv > dt { color: var(--text-3); }
 .kv > dd { display: flex; gap: 8px; align-items: baseline; color: var(--text); overflow: hidden; white-space: nowrap; }
 .kv > dt:nth-last-of-type(1), .kv > dd:last-of-type { border-bottom: 0; }
 .kv > dd > * { flex: none; }
 .kv > dd > .path, .kv > dd > .pr { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.kv > dd > a.pr { color: inherit; text-decoration: underline; text-decoration-color: var(--hair-strong); text-underline-offset: 3px; }
 /* Subagents: a tree one level deep; a child hangs under its parent from a hairline guide. */
 .counts-line { font-size: var(--fs-small); color: var(--text-2); }
 .subs { display: grid; gap: 2px; }
@@ -1769,7 +1764,8 @@ a.btn, .card a.id { text-decoration: none; }
 // ---- Script: reads the rendered page and its data attributes only ----
 
 // The page works without it. It keeps what a person is doing across
-// refreshes and adds the theme switch, the filter, the keys and the peek.
+// refreshes and adds the theme switch, the filter, the keys, the peek and
+// the sheet.
 const SCRIPT = `
 const root = document.documentElement;
 const $ = (selector, from = document) => from.querySelector(selector);
@@ -1842,15 +1838,17 @@ const closePeek = () => {
 // shows one by its key, esc or its close button hides it, and a refresh
 // keeps it open by key while the placement is still there.
 const sheet = () => $(".bento > .sheet:not([hidden])");
-const sheetOf = (key) => $('.bento > .sheet[data-key="' + CSS.escape(key) + '"]');
+const sheetFor = (key, root = document) => $('.bento > .sheet[data-key="' + CSS.escape(key) + '"]', root);
+// The card of a placement, by its key: indexes shift between refreshes.
+const cardFor = (key) => $$(".card").find((c) => $(".name .key", c)?.textContent === key);
 const closeSheet = () => {
   const s = sheet();
   if (!s) return;
   s.hidden = true;
-  $('.card .name .key[data-path="' + CSS.escape(s.dataset.path) + '.key"]')?.closest(".card")?.focus();
+  cardFor(s.dataset.key)?.focus();
 };
 const openSheet = (key) => {
-  const s = sheetOf(key);
+  const s = sheetFor(key);
   if (!s) return false;
   if (sheet() !== s) sheet()?.setAttribute("hidden", "");
   s.hidden = false;
@@ -1860,6 +1858,8 @@ document.addEventListener("click", (e) => {
   const key = e.target.closest(".card .name .key");
   if (key) openSheet(key.textContent);
   else if (e.target.closest(".sheet .close")) closeSheet();
+  // A lever in the sheet leaves the page; the sheet comes back with it.
+  else if (e.target.closest(".sheet a")) sessionStorage.setItem("router-sheet", sheet()?.dataset.key ?? "");
 });
 
 // Every few seconds the page fetches itself for the selected task and swaps
@@ -1880,7 +1880,7 @@ const refresh = async (id = selected()) => {
   const card = focus?.matches(".card") ? focus.dataset.path : null;
   const open = peek();
   const peeked = open && '.task[data-task="' + CSS.escape(open.parentElement.dataset.task) + '"] .peek[data-path="' + CSS.escape(open.dataset.path) + '"]';
-  const shown = sheet()?.dataset.key ?? null;
+  const shown = sheet()?.dataset.key ?? "";
   const words = $(".filter input")?.value ?? "";
   for (const part of PARTS) {
     const old = $(part);
@@ -1894,11 +1894,19 @@ const refresh = async (id = selected()) => {
   if (row) $('.task[data-task="' + CSS.escape(row) + '"] a.id')?.focus();
   if (card) $('.card[data-path="' + CSS.escape(card) + '"]')?.focus();
   if (peeked && !peek() && $(peeked)) openPeek($(peeked));
-  // The sheets are swapped whole unless the focus is inside the open one.
-  if (!sheet()?.contains(focus)) {
-    $$(".bento > .sheet").forEach((s) => s.remove());
-    $$(".bento > .sheet", doc).forEach((s) => $(".bento").append(s));
-    if (shown) openSheet(shown);
+  // The hidden sheets are swapped whole; the open one keeps its element,
+  // its scroll and its slide, and takes the new head and body, unless it
+  // holds the focus. It goes when its placement is gone.
+  const kept = sheet();
+  $$(".bento > .sheet").forEach((s) => s !== kept && s.remove());
+  $$(".bento > .sheet", doc).forEach((s) => s.dataset.key !== shown && $(".bento").append(s));
+  const fresh = shown && sheetFor(shown, doc);
+  if (kept && !fresh) kept.remove();
+  else if (kept && fresh && !kept.contains(focus)) {
+    const top = $(".body", kept).scrollTop;
+    kept.dataset.path = fresh.dataset.path;
+    kept.replaceChildren(...fresh.children);
+    $(".body", kept).scrollTop = top;
   }
   const input = $(".filter input");
   if (input && input !== focus) input.value = words;
@@ -1922,6 +1930,7 @@ document.addEventListener("submit", (e) => {
   if (e.defaultPrevented) return;
   $$("textarea, input[name=to]", e.target).forEach((field) => sessionStorage.removeItem(draftKey(field)));
   sessionStorage.setItem("router-task", selected() ?? "");
+  sessionStorage.setItem("router-sheet", sheet()?.dataset.key ?? "");
 });
 
 document.addEventListener("click", (e) => {
@@ -1957,7 +1966,7 @@ const press = (el) => {
 // working on the selected task.
 const agentCard = (el) =>
   el?.closest(".card") ??
-  (sheet() && $('.card[data-path="' + CSS.escape(sheet().dataset.path) + '"]')) ??
+  (sheet() && cardFor(sheet().dataset.key)) ??
   $$(".card").find((c) => $("a.id", c)?.textContent === selected());
 const KEYS = {
   j: () => move(1),
@@ -2019,6 +2028,9 @@ document.addEventListener("keydown", (e) => {
 // was taken on.
 const back = sessionStorage.getItem("router-task");
 sessionStorage.removeItem("router-task");
+const sheetBack = sessionStorage.getItem("router-sheet");
+sessionStorage.removeItem("router-sheet");
+if (sheetBack) openSheet(sheetBack);
 const params = new URLSearchParams(location.search);
 if (back && params.has("notice") && !params.has("task") && back !== selected() && $('.task[data-task="' + CSS.escape(back) + '"]')) {
   history.replaceState(null, "", "?task=" + encodeURIComponent(back) + "&notice=" + encodeURIComponent(params.get("notice")));

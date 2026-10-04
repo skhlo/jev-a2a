@@ -16,6 +16,9 @@ import {
 import {
   age,
   count,
+  counts,
+  diff,
+  hms,
   label,
   left,
   renderBoard,
@@ -205,6 +208,17 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
     ),
     ["needs recipient", "low confidence", "routing unavailable", "working"],
   );
+  // v0.11: seconds for activity rows; the diff with the minus sign and
+  // thousands; the non-zero counts as words in the object's order.
+  assert.equal(hms("2026-09-30T09:43:48.000Z"), "09:43:48Z");
+  assert.equal(hms(null), "—");
+  assert.equal(diff(4176, 1700), "+4,176 −1,700");
+  assert.equal(diff(0, 0), "+0 −0");
+  assert.equal(
+    counts({ running: 2, completed: 1200, failed: 0, canceled: 1 }),
+    "2 running · 1,200 completed · 1 canceled",
+  );
+  assert.equal(counts({ running: 0, completed: 0 }), "");
 });
 
 test("every data-path of the v0.11 design is rendered for the fixture or dropped with a reason", () => {
@@ -1361,7 +1375,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     ["diff", "+412 −96"],
     [
       "pull request",
-      "#21 feat(router): notices to participant sendersOPENconflicts",
+      "#21 feat(router): notices to participant sendersopenconflicts",
     ],
     ["checks", "checks failing·review pending"],
     ["status", "runningactive 20s"],
@@ -1537,8 +1551,11 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
         ...sharp,
         checkout: {
           ...sharp.checkout,
+          project: "<p>",
+          workspace: "<w>",
+          directory: "/tmp/<d>",
           branch: "<b>x</b>",
-          remote: null,
+          remote: "git@<r>",
           dirty: false,
           ahead: 0,
           behind: 2,
@@ -1547,7 +1564,8 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
             ...open,
             title: '"><i>',
             url: "javascript:alert(1)",
-            draft: true,
+            state: "<S>",
+            draft: false,
             mergeable: "CONFLICTING",
             checks: null,
             review: null,
@@ -1557,7 +1575,13 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
         subagents: {
           counts: { running: 1, completed: 0, failed: 0, canceled: 0 },
           running: [
-            { ...first, title: "<x>", description: '"', parent: "gone" },
+            {
+              ...first,
+              id: "<id>",
+              title: "<x>",
+              description: '"',
+              parent: "gone",
+            },
           ],
         },
         activity: {
@@ -1598,17 +1622,22 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     },
   });
   assert.ok(odd && quiet);
+  // The strip leaves the entities: the markup never became tags.
   assert.deepEqual(kv(odd), [
-    ["project", "A2A"],
-    ["workspace", "feat-noticesworktree"],
-    ["directory", "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices"],
-    // The strip leaves the entities: the markup never became tags.
-    ["branch", "&lt;b&gt;x&lt;/b&gt;ahead 0 · behind 2"],
+    ["project", "&lt;p&gt;"],
+    ["workspace", "&lt;w&gt;worktree"],
+    ["directory", "/tmp/&lt;d&gt;"],
+    ["branch", "&lt;b&gt;x&lt;/b&gt;git@&lt;r&gt;ahead 0 · behind 2"],
     ["diff", "no diff"],
-    ["pull request", "#21 &quot;&gt;&lt;i&gt;draftconflicts"],
+    ["pull request", "#21 &quot;&gt;&lt;i&gt;&lt;s&gt;conflicts"],
     ["checks", "checks unknown"],
     ["status", "running"],
   ]);
+  assert.ok(
+    odd.includes(
+      'data-path="placements[0].agent.checkout.directory" title="/tmp/&lt;d&gt;"',
+    ),
+  );
   assert.ok(!odd.includes("javascript:"));
   assert.ok(
     odd.includes(
@@ -1628,7 +1657,16 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
   assert.ok(!odd.includes('class="kids"'));
   assert.ok(
     odd.includes(
-      '<span class="title" data-path="placements[0].agent.subagents.running[0].title" title="toolu_01grep">&lt;x&gt;</span><span class="desc" data-path="placements[0].agent.subagents.running[0].description" title="&quot;">&quot;</span>',
+      '<span class="title" data-path="placements[0].agent.subagents.running[0].title" title="&lt;id&gt;">&lt;x&gt;</span><span class="desc" data-path="placements[0].agent.subagents.running[0].description" title="&quot;">&quot;</span>',
+    ),
+  );
+  // No hostile tag survives once the page's own tags are taken out.
+  assert.ok(
+    !/<(p|w|d|r|s|id|x)>/i.test(
+      odd.replace(
+        /<\/?(p|dd|dt|dl|div|span|a|h2|h3|section|aside|button|form|input)\b[^>]*>/g,
+        "",
+      ),
     ),
   );
   assert.ok(
