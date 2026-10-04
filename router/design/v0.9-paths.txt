@@ -2,6 +2,7 @@ actor.login
 actor.principals[]
 age(placements[0].delivery.latest.at, at)
 age(times[finished[0].messageId], at)
+age(times[finished[1].messageId], at)
 age(times[needsYou[0].items[1].questionId], at)
 age(times[open[0].messageId], at)
 age(times[open[1].messageId], at)
@@ -17,11 +18,50 @@ count(open[] not in needsYou)
 count(placements)
 count(placements[].hold)
 finished[0]
+finished[0].a2a
+finished[0].chosenBy
+finished[0].deliveries[0]
+finished[0].deliveries[0].end
+finished[0].deliveries[0].end.by
+finished[0].deliveries[0].end.reason
+finished[0].deliveries[0].id
+finished[0].deliveries[0].placement
+finished[0].deliveries[0].send
+finished[0].deliveries[0].sends[0]
+finished[0].deliveries[0].sends[1]
+finished[0].deliveries[0].session
+finished[0].deliveries[0].updates[0]
+finished[0].deliveries[0].updates[1]
 finished[0].final
 finished[0].id
+finished[0].log
+finished[0].notices[0]
+finished[0].notices[0].key
+finished[0].notices[0].kind
+finished[0].notices[0].outcome
+finished[0].notices[0].session
+finished[0].notices[1]
+finished[0].notices[1].key
+finished[0].notices[1].kind
+finished[0].notices[1].outcome
+finished[0].notices[1].session
+finished[0].notices[2]
+finished[0].notices[2].key
+finished[0].notices[2].kind
+finished[0].notices[2].outcome
+finished[0].notices[2].session
 finished[0].recipient
+finished[0].source
 finished[0].status
 finished[0].text
+finished[0].via
+finished[1]
+finished[1].final
+finished[1].id
+finished[1].recipient
+finished[1].status
+finished[1].text
+first_line(finished[0].text)
 first_line(open[0].text)
 first_line(open[1].text)
 first_line(open[3].text)
@@ -194,11 +234,14 @@ placements[4].hold
 placements[4].key
 placements[4].ready
 time(at)
+time(finished[0].deadline)
 time(open[0].deadline)
 time(open[1].deadline)
 time(open[3].deadline)
 time(open[4].deadline)
 time(placements[0].delivery.latest.at)
+time(times[finished[0].deliveries[0].latest.messageId])
+time(times[finished[0].messageId])
 time(times[open[0].messageId])
 time(times[open[1].messageId])
 time(times[open[2].deliveries[0].sends[1].messageId])

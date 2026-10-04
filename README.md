@@ -94,8 +94,8 @@ router submit --to orchestrator "The board's log panel clips its last line at 12
 ## The board
 
 `router serve` also serves a page, the board, on `127.0.0.1:7678` by default
-(`serve.board`). It reads the same record as the CLI. The page is the v0.8
-console of the board design (`skhlo/designs`, tag `jev-a2a-v0.8`), drawn on
+(`serve.board`). It reads the same record as the CLI. The page is the v0.9
+console of the board design (`skhlo/designs`, tag `jev-a2a-v0.9`), drawn on
 the server from the view model below, in three columns:
 
 - **Agents**: a card per placement the router serves, saying what its
@@ -157,10 +157,10 @@ The page reads and acts without a script. Its script adds:
 
 Each element the design binds keeps the `data-path` the design gives it, and
 rows and groups keep `data-task` and `data-group`, so the page can be
-compared with the design mechanically. `router/design/v0.8-paths.txt` lists
+compared with the design mechanically. `router/design/v0.9-paths.txt` lists
 the design's paths, as `router/src/design-paths.ts` extracts them, and a test
 fails when one is neither rendered for the board fixture nor named with a
-reason in `router/design/v0.8-dropped.txt`. The test compares paths with
+reason in `router/design/v0.9-dropped.txt`. The test compares paths with
 their indexes blanked (`open[].deliveries[].latest`), since the design's
 sample is larger than the fixture.
 
@@ -174,10 +174,12 @@ takes evidence), a narrow screen gets one scrolling column, a session id of
 any shape that is a UUID is shortened (the design shortens any id over
 twelve characters), and a delivery that waits (queued, held, on a session
 not ready, behind an unconfirmed send, or on a replaced session) says what
-it waits for where the design shows only the send's outcome. What remains
+it waits for where the design shows only the send's outcome; and the "from
+<placement>" on an open row that another agent sent shows to every viewer,
+since a person is never a participant (the design spares the sender its own
+placement). What remains
 open: the design's session telemetry and health sheet, which the record does
-not hold (see below); the hold lever shows for operators, as the design has
-it, although the router accepts a hold from any known login; a post does not
+not hold (see below); a post does not
 name its principal, so a login that holds two principals in one role acts as
 the first one `serve.identities` lists, and the other's items show without a
 form; a draft is keyed by its form's `data-path`, which shifts when an
