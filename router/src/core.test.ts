@@ -1404,9 +1404,10 @@ test("a participant sender hears a question, then the final word, once each, at 
     "in_flight",
   );
   assert.deepEqual(notifies(idle(sending)), []);
-  // Only readiness and an unconfirmed send are worth looking again for: a
-  // hold waits on a person, and a notice told or withdrawn waits on nothing.
-  assert.equal(Core.waitsOnSessions(sending), true);
+  // Only readiness is worth looking again for: a send in flight resolves
+  // by its adapter result, a hold waits on a person, and a notice told or
+  // withdrawn waits on nothing.
+  assert.equal(Core.waitsOnSessions(sending), false);
   assert.equal(Core.waitsOnSessions(held), false);
   assert.equal(
     Core.waitsOnSessions(s),
@@ -1718,6 +1719,71 @@ test("two deliveries of one fan-out asking under the same id are told and answer
   });
   assert.equal(task(r).recipient, "incus");
   assert.deepEqual(stateViolations(r), []);
+});
+
+test("a look again is owed only for work blocked on readiness; holds, queues, hand-backs and stuck sends wait on people or events", () => {
+  // Queued behind: the head waits on readiness, the second on the head.
+  let s = expectOk(initial(config), {
+    type: "observe",
+    placement: "orchestrator@mbp",
+    ready: false,
+  });
+  s = submit(s, { messageId: "M1", text: "a", to: "orchestrator" });
+  s = submit(s, { messageId: "M2", text: "b", to: "orchestrator" });
+  assert.equal(Core.waitsOnSessions(s), true, "the head waits for an idle");
+  s = idle(s);
+  assert.equal(Core.waitsOnSessions(s), false, "sendable now, no look owed");
+  s = deliver(s, "D1");
+  assert.equal(
+    Core.blockedReason(s, must(Core.findDelivery(s, "D2"))),
+    "not_ready",
+  );
+  assert.equal(Core.waitsOnSessions(s), true);
+  // A hand-back waits on the sender; a replaced session on the operator.
+  let h = submit(initial(config), { messageId: "M1", text: "vague" });
+  h = judge(h, "T1", "incus", 0.5);
+  assert.equal(Core.waitsOnSessions(h), false);
+  let r = idle(
+    submit(initial(config), { messageId: "M1", text: "a", to: "orchestrator" }),
+  );
+  r = deliver(r, "D1");
+  r = expectOk(r, {
+    type: "observe",
+    placement: "orchestrator@mbp",
+    ready: true,
+    session: "orchestrator@mbp#2",
+  });
+  assert.equal(Core.waitsOnSessions(r), false);
+  // A retryable unknown holds the placement; the holder itself reads
+  // not_ready, so a look is owed, unless a person holds the session.
+  let u = idle(
+    submit(initial(config), { messageId: "M1", text: "a", to: "orchestrator" }),
+  );
+  u = submit(u, { messageId: "M2", text: "b", to: "orchestrator" });
+  u = deliver(u, "D1", "unknown");
+  assert.equal(
+    Core.blockedReason(u, must(Core.findDelivery(u, "D2"))),
+    "in_flight",
+  );
+  assert.equal(Core.waitsOnSessions(u), true);
+  const held = expectOk(u, {
+    type: "observe",
+    placement: "orchestrator@mbp",
+    hold: true,
+  });
+  assert.equal(Core.waitsOnSessions(held), false);
+  // A stuck unknown (no deduplication) waits on the operator, and so does
+  // everything queued behind it.
+  let k = idle(
+    submit(initial(strictConfig), {
+      messageId: "M1",
+      text: "a",
+      to: "orchestrator",
+    }),
+  );
+  k = submit(k, { messageId: "M2", text: "b", to: "orchestrator" });
+  k = deliver(k, "D1", "unknown");
+  assert.equal(Core.waitsOnSessions(k), false);
 });
 
 test("without deduplication, restart keeps uncertainty; duplicates and wrong replies change nothing; a matching late reply resolves", () => {

@@ -1,6 +1,7 @@
-// The two HTTP surfaces of `router serve`, as request listeners that take
-// their dependencies, so the guards can be tested without a process; and
-// `bind`, which puts a listener on its address or says why it cannot.
+// `router serve` without the process: its two HTTP surfaces as request
+// listeners that take their dependencies, the runner that serializes runs
+// and looks again while work waits for a session, and `bind`, which puts a
+// listener on its address or says why it cannot.
 //
 // Events: replies, answers, requests and choices from other hosts, behind
 // the bearer token.
@@ -24,7 +25,7 @@ import {
 import { renderBoard } from "./board-page.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
-import { fold } from "./shell.ts";
+import { fold, servedBy } from "./shell.ts";
 import { waitsOnSessions } from "./core.ts";
 import type { Event, Outcome } from "./types.ts";
 
@@ -55,44 +56,137 @@ export type SessionStatus = "current" | "replaced" | null;
 // its own runs and whenever another writer (the CLI on this host) appends.
 export const waitsReader = (config: RouterConfig) => (): boolean => {
   const state = fold(config, readJournal(config.home));
-  return waitsOnSessions(
-    state,
-    (key) =>
-      config.agents[key] !== undefined &&
-      config.hosts[state.placements[key]?.host ?? ""] !== undefined,
-  );
+  return waitsOnSessions(state, servedBy(config, state));
 };
 
-// While work waits only for a session to be seen idle, serve looks again
-// after `delayMs` instead of waiting for the next event; an idle router arms
-// nothing. `run` performs one run and says whether work still waits. One
-// timer at a time, and a run never overlaps: the caller serializes `run`.
-export function wakeLoop(
-  run: () => Promise<boolean>,
-  delayMs: number,
-  timers: {
-    set: (fn: () => void, ms: number) => unknown;
-    clear: (handle: unknown) => void;
-  } = {
-    set: setTimeout,
-    clear: (handle) => clearTimeout(handle as NodeJS.Timeout),
-  },
-): { after(waiting: boolean): void; stop(): void } {
-  let armed: unknown = null;
+// The serve runner: one run at a time through a queue (so the journal lock
+// is never contended from inside the server), and a look again every
+// `delayMs` while the record has work waiting only for a session to be seen
+// idle. A quiet router arms nothing. Three things arm the loop: a run's own
+// state at its end, a first run at start, and the journal growing under
+// another writer (the CLI on this host), read without the lock. Serve's own
+// appends also move the journal, so a change seen while a run is in
+// progress is ignored: that run decides at its end, and the interval counts
+// from there.
+export type Timers<H> = {
+  set: (fn: () => void, ms: number) => H;
+  clear: (handle: H) => void;
+};
+export const nodeTimers: Timers<NodeJS.Timeout> = {
+  set: setTimeout,
+  clear: clearTimeout,
+};
+export type RunnerShell = {
+  apply(event: Event): Outcome;
+  deliver(): Promise<string[]>;
+  waits(): boolean;
+  close(): Promise<void>;
+};
+export type RunnerDeps<H> = {
+  open(): Promise<RunnerShell>;
+  delayMs: number;
+  // Whether the record has work waiting for a served session, without the lock.
+  waits(): boolean;
+  log(line: string): void;
+  // Calls back whenever the journal changes; null when nothing else writes.
+  watch?: ((onChange: () => void) => { close(): void }) | null;
+  timers?: Timers<H>;
+  settleMs?: number;
+};
+export type Runner = {
+  handle(event: Event): Promise<Run>;
+  // The first run and the watcher; returns when both are in place.
+  start(): void;
+  stop(): void;
+};
+
+// A wake run logs what it changed, not the observations and "waits" lines
+// that would repeat every interval.
+const changed = (line: string): boolean =>
+  !/^[^\s:]+@[^\s:]+: /.test(line) && !/ waits: /.test(line);
+
+export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
+  const timers = (deps.timers ?? nodeTimers) as Timers<H>;
+  let queue: Promise<unknown> = Promise.resolve();
+  let busy = false;
+  let armed: H | null = null;
+  let settle: H | null = null;
   let stopped = false;
-  const after = (waiting: boolean): void => {
-    if (!waiting || stopped || delayMs <= 0 || armed !== null) return;
+  let watcher: { close(): void } | null = null;
+
+  const arm = (waiting: boolean): void => {
+    if (!waiting || stopped || deps.delayMs <= 0 || armed !== null) return;
     armed = timers.set(() => {
       armed = null;
-      run().then(after, () => after(true));
-    }, delayMs);
+      void unattended("wake");
+    }, deps.delayMs);
+  };
+  // One run: the event, if any, then every deliverable command; the loop
+  // is armed from the run's own state before the shell closes.
+  const runOnce = async (event: Event | null): Promise<Run> => {
+    busy = true;
+    try {
+      const shell = await deps.open();
+      try {
+        const outcome: Outcome = event
+          ? shell.apply(event)
+          : { ok: true, message: "run" };
+        const report = outcome.ok ? await shell.deliver() : [];
+        arm(shell.waits());
+        return { outcome, report };
+      } finally {
+        await shell.close();
+      }
+    } finally {
+      busy = false;
+    }
+  };
+  const enqueue = (event: Event | null): Promise<Run> => {
+    const run = queue.then(() => runOnce(event));
+    queue = run.catch(() => undefined);
+    return run;
+  };
+  // A run nobody asked for: its failure is logged and tried again at the
+  // interval rather than lost.
+  const unattended = async (label: string): Promise<void> => {
+    try {
+      const { report } = await enqueue(null);
+      for (const line of report)
+        if (changed(line)) deps.log(`${label}: ${line}`);
+    } catch (error: unknown) {
+      deps.log(
+        `${label}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      arm(true);
+    }
+  };
+  const onChange = (): void => {
+    if (settle !== null) timers.clear(settle);
+    settle = timers.set(() => {
+      settle = null;
+      if (busy || stopped) return;
+      try {
+        arm(deps.waits());
+      } catch (error: unknown) {
+        deps.log(
+          `watch: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }, deps.settleMs ?? 500);
   };
   return {
-    after,
+    handle: (event) => enqueue(event),
+    start() {
+      watcher = deps.watch?.(onChange) ?? null;
+      void unattended("start");
+    },
     stop() {
       stopped = true;
+      watcher?.close();
       if (armed !== null) timers.clear(armed);
+      if (settle !== null) timers.clear(settle);
       armed = null;
+      settle = null;
     },
   };
 }

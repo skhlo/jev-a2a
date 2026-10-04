@@ -36,8 +36,9 @@ router submit "Is this machine current with merged main of the dotfiles baseline
    hosts, if the session is idle. A busy session gets it the next time the
    router looks and finds it idle: when it handles something (a request, a
    reply, an answer, or `router run`), and, while anything waits only for a
-   session to come free, every `serve.wake` seconds (default 20). An idle
-   router runs nothing on a schedule.
+   session to come free, every `serve.wake` seconds (default 20); `serve`
+   watches the journal, so a request made with the CLI on the router host
+   counts too. An idle router runs nothing on a schedule.
 4. The agent does the work and replies with the command from the envelope:
    `router reply --task T27 --in-reply-to <message> --kind completed --text "..."`.
 5. `router status T27` shows the result: here, `2 of 2 completed`, one reply

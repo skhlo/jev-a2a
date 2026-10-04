@@ -439,8 +439,10 @@ Deployment decisions taken on 2026-09-30, outside the contract:
   logs to journald, starts at boot under linger. It binds the tailnet
   address, which at boot arrives after the service; `serve` waits for it
   instead of failing. One instance per host: the second finds the port taken
-  and says so. Deliveries still happen only on events and runs; the service
-  adds no schedule.
+  and says so. Deliveries happen on events and runs, and `serve` looks again
+  every `serve.wake` seconds while the record has work waiting only for a
+  session to be seen idle; it watches the journal file so a CLI run on the
+  router host, which does not pass through `serve`, arms that look too.
 - The vault participant's responsibility text is authored next to the vault's
   `AGENTS.md`, from its role section and the `CONTEXT.md` glossary, with
   example requests in Korean, and is refreshed when those change. The router

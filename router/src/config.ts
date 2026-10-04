@@ -88,8 +88,8 @@ export function loadConfig(path: string): RouterConfig {
   if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(board))
     fail(`serve.board must be a loopback address, not ${board}`);
   const wake = serve.wake === undefined ? 20 : serve.wake;
-  if (typeof wake !== "number" || !Number.isFinite(wake) || wake < 0)
-    fail("serve.wake is a number of seconds, 0 or more");
+  if (typeof wake !== "number" || !(wake >= 0 && wake <= 3600))
+    return fail("serve.wake is a number of seconds, 0 to 3600");
   const identities: Record<string, string[]> = {};
   if (serve.identities !== undefined) {
     if (!isRecord(serve.identities))
@@ -123,7 +123,7 @@ export function loadConfig(path: string): RouterConfig {
           : "127.0.0.1:7677",
       board,
       identities,
-      wake: typeof wake === "number" && wake >= 0 ? wake : 20,
+      wake,
     },
     jev: {
       model:

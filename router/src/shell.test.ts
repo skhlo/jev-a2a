@@ -415,7 +415,7 @@ test("a participant sender is told a question and the end through the adapter, e
   );
   assert.match(
     sent[2]?.text ?? "",
-    /^\[router T1 final\] Your request is completed as of 1970-01-01T00:00:01\.000Z\. No reply is needed\.\n\nenvironment@mbp completed \(session E1 R1\):\nzsh from the baseline$/,
+    /^\[router T1 final\] Your request is completed, told at 1970-01-01T00:00:01\.000Z\. No reply is needed\.\n\nenvironment@mbp completed \(session E1 R1\):\nzsh from the baseline$/,
   );
   await shell.close();
   // The record carries the notices; a new run has nothing more to tell.
@@ -604,7 +604,7 @@ test("a hand-back is told with the choice to make, and a failed end with each de
   assert.equal(sent.length, 2);
   assert.match(
     sent[1]?.text ?? "",
-    /^\[router T1 final\] Your request is failed \(deadline\) as of 1970-01-01T00:00:01\.000Z\. No reply is needed\.\n\nenvironment@mba expired\n\nenvironment@mbp failed \(session E1 R1\):\nno such host\n\nenvironment@mini expired$/,
+    /^\[router T1 final\] Your request is failed \(deadline\), told at 1970-01-01T00:00:01\.000Z\. No reply is needed\.\n\nenvironment@mba expired\n\nenvironment@mbp failed \(session E1 R1\):\nno such host\n\nenvironment@mini expired$/,
   );
   await shell.close();
 });

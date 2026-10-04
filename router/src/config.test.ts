@@ -51,7 +51,7 @@ test("a valid file gets its defaults", () => {
   assert.equal(explicit.serve.wake, 0);
   assert.throws(
     () => loadConfig(write({ ...valid, serve: { wake: -1 } })),
-    /serve.wake is a number of seconds/,
+    /serve.wake is a number of seconds, 0 to 3600/,
   );
   assert.deepEqual(explicit.serve.identities, { "me@example.com": ["you"] });
   assert.deepEqual(explicit.jev, {

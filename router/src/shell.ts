@@ -78,6 +78,18 @@ const canonical = (value: unknown): string =>
       : v,
   );
 
+// Placements this router serves: a configured agent on a configured host.
+export const servedBy =
+  (config: RouterConfig, state: State) =>
+  (placement: string): boolean => {
+    const host = state.placements[placement]?.host;
+    return (
+      config.agents[placement] !== undefined &&
+      host !== undefined &&
+      config.hosts[host] !== undefined
+    );
+  };
+
 // A record that predates its first `configured` line was written under that
 // configuration, not under today's: start from it, so the rules of the time
 // hold for the whole record.
@@ -165,13 +177,8 @@ export async function openShell(
     apply({ type: "restart" });
   apply({ type: "tick", now: now() });
 
-  // Placements this router serves: a configured agent on a configured host.
-  const served = Object.entries(config.agents).filter(([key]) => {
-    const host = state.placements[key]?.host;
-    return host !== undefined && config.hosts[host] !== undefined;
-  });
-  const isServed = (placement: string): boolean =>
-    served.some(([key]) => key === placement);
+  const isServed = servedBy(config, state);
+  const served = Object.entries(config.agents).filter(([key]) => isServed(key));
 
   async function observeAll(report: string[]): Promise<void> {
     for (const [key, agentId] of served) {
@@ -257,7 +264,7 @@ export async function openShell(
         return `${d.participant}@${d.host} ${end.reason}${from ? ` (${from})` : ""}${end.text ? `:\n${end.text}` : ""}`;
       })
       .join("\n\n");
-    return `${head} Your request is ${task.final?.status ?? "closed"}${task.final?.reason ? ` (${task.final.reason})` : ""} as of ${new Date(now()).toISOString()}. No reply is needed.\n\n${words}`;
+    return `${head} Your request is ${task.final?.status ?? "closed"}${task.final?.reason ? ` (${task.final.reason})` : ""}, told at ${new Date(now()).toISOString()}. No reply is needed.\n\n${words}`;
   }
 
   // Each due notice for a sender this router can reach, through the same
