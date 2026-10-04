@@ -26,8 +26,10 @@ import {
   journal,
   NOW,
   replacedJournal,
+  telemetry,
 } from "./board-fixture.ts";
 import type { RouterConfig } from "./config.ts";
+import { writeTelemetry } from "./telemetry.ts";
 import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
@@ -979,3 +981,82 @@ test(
     assert.equal(never.attached(), 0);
   },
 );
+
+test("board: the model carries the telemetry file beside the record; a bad file is logged once and shown as none", async () => {
+  const record = mkdtempSync(join(tmpdir(), "server-telemetry-"));
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const logged: string[] = [];
+  const server = createServer(
+    boardListener({
+      config: { ...fixture, home: record },
+      handle,
+      now: () => NOW,
+      log: (line) => logged.push(line),
+    }),
+  );
+  const url = await serve(server);
+  const json = { accept: "application/json" };
+  const model = async (): Promise<Record<string, unknown>> =>
+    jsonObject(await fetch(`${url}/`, { headers: json }));
+  try {
+    // No file: no telemetry, nothing logged.
+    let m = await model();
+    assert.equal(m.telemetryAt, null);
+    assert.ok(
+      (m.placements as { agent: unknown }[]).every((p) => p.agent === null),
+    );
+    assert.equal(logged.length, 0);
+    // The file the shell writes: each served placement carries its snapshot.
+    writeTelemetry(record, telemetry);
+    m = await model();
+    assert.equal(m.telemetryAt, telemetry.at);
+    assert.deepEqual(
+      (m.placements as { key: string; agent: { status: string } }[]).map(
+        (p) => [p.key, p.agent.status],
+      ),
+      [
+        ["orchestrator@mbp", "running"],
+        ["knowledge@mini", "running"],
+        ["environment@mbp", "idle"],
+      ],
+    );
+    // A damaged file: none again, and one log line however often the page
+    // refreshes; a different damage is a new line; two damaged entries are
+    // two lines, once; after a clean read the same damage is news again.
+    writeFileSync(join(record, "telemetry.json"), "{");
+    for (let i = 0; i < 3; i += 1)
+      assert.equal((await model()).telemetryAt, null);
+    writeFileSync(join(record, "telemetry.json"), '{"version":"x"}');
+    await model();
+    await model();
+    writeFileSync(
+      join(record, "telemetry.json"),
+      JSON.stringify({ ...telemetry, placements: { a: 1, b: 2 } }),
+    );
+    for (let i = 0; i < 3; i += 1)
+      assert.equal((await model()).telemetryAt, telemetry.at);
+    writeTelemetry(record, telemetry);
+    await model();
+    writeFileSync(join(record, "telemetry.json"), "{");
+    await model();
+    assert.deepEqual(
+      logged.map((line) => line.split(":")[0]),
+      [
+        "telemetry.json is not JSON",
+        "telemetry.json is not a telemetry file",
+        "telemetry.json",
+        "telemetry.json",
+        "telemetry.json is not JSON",
+      ],
+    );
+    assert.deepEqual(logged.slice(2, 4), [
+      "telemetry.json: the entry for a is not a snapshot",
+      "telemetry.json: the entry for b is not a snapshot",
+    ]);
+  } finally {
+    server.close();
+  }
+});

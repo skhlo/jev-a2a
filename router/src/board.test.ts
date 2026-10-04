@@ -22,6 +22,7 @@ import {
   extend,
   journal,
   NOW,
+  telemetry,
   viaJournal,
 } from "./board-fixture.ts";
 import { boardSample, sampleModel, SAMPLE_PATH } from "./board-sample.ts";
@@ -145,6 +146,7 @@ test("the model names its contract and carries what a template binds to", () => 
         },
         latest: { kind: "question", at: "2026-09-30T09:31:00.000Z" },
       },
+      agent: null,
     },
     {
       key: "knowledge@mini",
@@ -162,6 +164,7 @@ test("the model names its contract and carries what a template binds to", () => 
         question: null,
         latest: { kind: "working", at: "2026-09-30T09:44:00.000Z" },
       },
+      agent: null,
     },
     {
       key: "environment@mbp",
@@ -171,8 +174,33 @@ test("the model names its contract and carries what a template binds to", () => 
       ready: true,
       hold: true,
       delivery: null,
+      agent: null,
     },
   ]);
+  // Without telemetry there is no time; with it, each served placement
+  // carries its snapshot and the model the time they were taken.
+  assert.equal(model.telemetryAt, null);
+  const seen = boardModel(state, config, NOW, times, null, telemetry);
+  assert.equal(seen.telemetryAt, telemetry.at);
+  assert.deepEqual(
+    seen.placements.map((p) => [p.key, p.agent?.status, p.agent?.model]),
+    [
+      ["orchestrator@mbp", "running", "claude-opus-5-5"],
+      ["knowledge@mini", "running", "gpt-5.5"],
+      ["environment@mbp", "idle", "claude-sonnet-5-5"],
+    ],
+  );
+  // A snapshot for a placement the router does not serve is not shown.
+  const environment = telemetry.placements["environment@mbp"];
+  assert.ok(environment);
+  const extra = boardModel(state, config, NOW, times, null, {
+    ...telemetry,
+    placements: { "scratch@mbp": environment },
+  });
+  assert.deepEqual(
+    extra.placements.map((p) => p.agent),
+    [null, null, null],
+  );
   const task = (id: string) => {
     const found = [...model.open, ...model.finished].find((t) => t.id === id);
     assert.ok(found, id);
@@ -443,6 +471,25 @@ test("the sample holds a participant-sent task with a notice in each state the d
           ["final", null, "pending"],
         ],
       ],
+    ],
+  );
+});
+
+test("the sample holds a snapshot per placement in the states the design binds", () => {
+  const model = sampleModel();
+  assert.equal(model.telemetryAt, telemetry.at);
+  assert.deepEqual(
+    model.placements.map((p) => [
+      p.key,
+      p.agent?.status,
+      p.agent?.turnStartedAt !== null,
+      p.agent?.permissions.map((q) => q.name),
+      p.agent?.attention,
+    ]),
+    [
+      ["orchestrator@mbp", "running", true, [], null],
+      ["knowledge@mini", "running", true, ["Bash"], "permission"],
+      ["environment@mbp", "idle", false, [], "finished"],
     ],
   );
 });

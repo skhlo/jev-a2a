@@ -2,7 +2,7 @@
 // misbehaves, and that the record survives a configuration change.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { coreConfig, openShell, type ShellOptions } from "./shell.ts";
@@ -13,6 +13,7 @@ import {
   type Adapter,
   type Observation,
 } from "./paseo.ts";
+import type { AgentSnapshot, Telemetry } from "./telemetry.ts";
 import type { RouterConfig } from "./config.ts";
 import type { Config, Event } from "./types.ts";
 import base from "./example-config.ts";
@@ -33,21 +34,41 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
 
 // An adapter whose next observation and send are scripted per run.
 type Script = {
-  observe?: () => Promise<Observation | null>;
+  observe?: (seen: string) => Promise<Observation | null>;
   send?: (
     key: string,
     text: string,
   ) => Promise<"accepted" | "not_sent" | "unknown">;
 };
+const snapshot = (status: "idle" | "running"): AgentSnapshot => ({
+  seen: "2026-01-01T00:00:01.000Z",
+  status,
+  attention: null,
+  attentionAt: null,
+  turnStartedAt: status === "running" ? "2026-01-01T00:00:00.000Z" : null,
+  lastUserMessageAt: null,
+  permissions: [],
+  provider: "claude",
+  model: "claude-opus-5-5",
+  thinking: "high",
+  mode: "auto",
+  context: { used: 1_000, max: 200_000 },
+  usage: null,
+  error: null,
+  title: null,
+  cwd: "/work",
+});
 const idle: Observation = {
   ready: true,
   status: "idle",
   pendingPermissions: 0,
+  snapshot: snapshot("idle"),
 };
 const scripted = (script: Script): ShellOptions => ({
   adapter: (): Promise<Adapter> =>
     Promise.resolve({
-      observe: script.observe ?? (() => Promise.resolve(idle)),
+      observe: (_agent, seen) =>
+        (script.observe ?? (() => Promise.resolve(idle)))(seen),
       send: (_agent, key, text) =>
         (script.send ?? (() => Promise.resolve("accepted" as const)))(
           key,
@@ -638,5 +659,137 @@ test("a failed send is not_sent only when the daemon refused before sending", ()
         "D1/M1",
       ),
     RouterBug,
+  );
+});
+
+test("each run hands the telemetry sink one snapshot per served placement, stamped with the run's clock: the daemon's, missing, or unreachable", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const config = configFor(home);
+  const written: Telemetry[] = [];
+  const options = (observe: NonNullable<Script["observe"]>): ShellOptions => ({
+    ...scripted({ observe }),
+    telemetry: (t) => written.push(t),
+  });
+  // A session the daemon knows, mid-turn; the adapter stamps the snapshot
+  // with the time the shell hands it.
+  let shell = await openShell(
+    config,
+    options((seen) =>
+      Promise.resolve({
+        ready: false,
+        status: "running",
+        pendingPermissions: 0,
+        snapshot: { ...snapshot("running"), seen },
+      }),
+    ),
+  );
+  await shell.deliver();
+  await shell.close();
+  // One the daemon does not know, then a host that cannot be reached.
+  shell = await openShell(
+    config,
+    options(() => Promise.resolve(null)),
+  );
+  await shell.deliver();
+  await shell.close();
+  shell = await openShell(
+    config,
+    options(() => Promise.reject(new Error("ssh flake"))),
+  );
+  await shell.deliver();
+  await shell.close();
+  assert.deepEqual(
+    written.map((t) => [
+      t.version,
+      t.at,
+      Object.entries(t.placements).map(([key, a]) => [
+        key,
+        a.seen,
+        a.status,
+        a.turnStartedAt,
+        a.error,
+      ]),
+    ]),
+    [
+      [
+        "jev-router-telemetry/1",
+        "1970-01-01T00:00:01.000Z",
+        [
+          [
+            "orchestrator@mbp",
+            "1970-01-01T00:00:01.000Z",
+            "running",
+            "2026-01-01T00:00:00.000Z",
+            null,
+          ],
+        ],
+      ],
+      [
+        "jev-router-telemetry/1",
+        "1970-01-01T00:00:01.000Z",
+        [
+          [
+            "orchestrator@mbp",
+            "1970-01-01T00:00:01.000Z",
+            "missing",
+            null,
+            null,
+          ],
+        ],
+      ],
+      [
+        "jev-router-telemetry/1",
+        "1970-01-01T00:00:01.000Z",
+        [
+          [
+            "orchestrator@mbp",
+            "1970-01-01T00:00:01.000Z",
+            "unreachable",
+            null,
+            "ssh flake",
+          ],
+        ],
+      ],
+    ],
+  );
+  // Telemetry is not part of the record.
+  assert.ok(
+    !readFileSync(join(home, "journal.jsonl"), "utf8").includes("telemetry"),
+  );
+  // Without a sink nothing is kept and nothing fails.
+  shell = await openShell(config, scripted({}));
+  await shell.deliver();
+  await shell.close();
+  assert.equal(written.length, 3);
+});
+
+test("a telemetry write that fails is reported and the run still sends", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const config = configFor(home);
+  const sent: string[] = [];
+  const shell = await openShell(config, {
+    ...scripted({
+      send: (key) => {
+        sent.push(key);
+        return Promise.resolve("accepted");
+      },
+    }),
+    telemetry: () => {
+      throw new Error("EISDIR: telemetry.json is a directory");
+    },
+  });
+  shell.apply({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "Fix it",
+    to: "orchestrator",
+  });
+  const report = await shell.deliver();
+  await shell.close();
+  assert.deepEqual(sent, ["D1/M1"]);
+  assert.ok(
+    report.some((line) => line.startsWith("telemetry not written: EISDIR")),
+    report.join("\n"),
   );
 });

@@ -19,6 +19,12 @@ import {
 import type { RouterConfig } from "./config.ts";
 import { openJournal, type Entry } from "./journal.ts";
 import { RouterBug, type Adapter } from "./paseo.ts";
+import {
+  emptySnapshot,
+  TELEMETRY_VERSION,
+  type AgentSnapshot,
+  type Telemetry,
+} from "./telemetry.ts";
 import type { JudgeResult } from "./jev.ts";
 import type {
   Command,
@@ -49,6 +55,9 @@ export type ShellOptions = {
   // Asks Jev; null when Jev is not configured, so unaddressed requests wait.
   judge: ((question: JudgmentQuestion) => Promise<JudgeResult>) | null;
   now?: () => number;
+  // Where each run's observations go beyond the record: the board's
+  // telemetry file. Absent, none is kept (tests).
+  telemetry?: (telemetry: Telemetry) => void;
   // Test hook for the crash-recovery acceptance: exit at a chosen point.
   crash?: "after_attempt" | "after_send" | undefined;
 };
@@ -181,21 +190,26 @@ export async function openShell(
   const served = Object.entries(config.agents).filter(([key]) => isServed(key));
 
   async function observeAll(report: string[]): Promise<void> {
+    const snapshots: Record<string, AgentSnapshot> = {};
     for (const [key, agentId] of served) {
       const placement = state.placements[key];
       if (!placement) continue;
+      const at = new Date(now()).toISOString();
       let seen: Awaited<ReturnType<Adapter["observe"]>>;
       try {
-        seen = await (await adapterFor(placement.host)).observe(agentId);
+        seen = await (await adapterFor(placement.host)).observe(agentId, at);
       } catch (error: unknown) {
         // Readiness is what this run saw; an earlier run's idle must not
         // carry over a failed look.
         apply({ type: "observe", placement: key, ready: false });
+        const message = error instanceof Error ? error.message : String(error);
+        snapshots[key] = emptySnapshot(at, "unreachable", message);
         report.push(
-          `${key}: ${placement.host} unreachable (${error instanceof Error ? error.message : String(error)}); not ready`,
+          `${key}: ${placement.host} unreachable (${message}); not ready`,
         );
         continue;
       }
+      snapshots[key] = seen?.snapshot ?? emptySnapshot(at, "missing");
       const ready = seen?.ready ?? false;
       const event: Event =
         placement.session === agentId
@@ -208,6 +222,19 @@ export async function openShell(
           : `${key}: agent ${agentId} not found on this daemon`,
       );
       if (!outcome.ok) report.push(`${key}: ${outcome.message}`);
+    }
+    // Telemetry is a side file: a failure to write it is reported, and the
+    // run goes on to its sends.
+    try {
+      options.telemetry?.({
+        version: TELEMETRY_VERSION,
+        at: new Date(now()).toISOString(),
+        placements: snapshots,
+      });
+    } catch (error: unknown) {
+      report.push(
+        `telemetry not written: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 

@@ -180,9 +180,9 @@ ready, behind an unconfirmed send, or on a replaced session) says what it
 waits for where the design shows only the send's outcome, and the "from
 <placement>" on an open row that another agent sent shows to every viewer,
 since a person is never a participant (the design spares the sender its own
-placement). What remains open: the design's session telemetry and health
-sheet, which the record does not hold (see below); a post does not name its
-principal, so a login that holds two principals in one role acts as
+placement). What remains open: the design's health sheet, whose fields the
+router does not collect yet (see the telemetry note below); a post does not
+name its principal, so a login that holds two principals in one role acts as
 the first one `serve.identities` lists, and the other's items show without a
 form; a draft is keyed by its form's `data-path`, which shifts when an
 earlier item goes, and such a draft stays in storage instead of filling the
@@ -237,6 +237,24 @@ committed sample matches.
   the session waits on with its `id`, `text` and `at` (`null` while no
   question is open: answered, or never asked), and the `latest` update's
   `kind` and `at`.
+  - `agent`: what the router last saw of the session beyond its readiness,
+    from the telemetry file (below), or `null` when the file has no entry
+    for the placement: `seen` (when), `status` (Paseo's `idle`, `running`,
+    `initializing`, `error` or `closed`, or the router's `missing` when the
+    daemon does not know the agent and `unreachable` when the host could
+    not be reached, with the failure in `error`), `attention` (`finished`,
+    `error` or `permission`) with `attentionAt` (when it was raised: for
+    `finished`, when the last turn ended), `turnStartedAt` (the current
+    turn's start)
+    and `lastUserMessageAt`, `permissions` pending (each with `id`, `name`,
+    `title` and `kind`; empty when none), `provider`, `model`, `thinking`
+    and `mode`, `context` (`used` and `max` tokens, `max` above zero),
+    `usage` (`input`, `cached` and `output` tokens, `costUsd`), the last
+    `error`, the agent's `title` and `cwd`. Every field but `seen`,
+    `status` and `permissions` is `null` when the daemon reported nothing
+    for it (a token count the daemon left out of a reported usage is 0);
+    `missing` and `unreachable` snapshots carry only `seen`, `status` and,
+    for the latter, `error`.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
@@ -277,11 +295,22 @@ committed sample matches.
 - `times`: when each message was recorded, by message ID.
 - `log`: the router's last twenty log lines, each with its number `n`, its
   `actor` and its `text`.
+- `telemetryAt`: when the placements' snapshots were taken, or `null`
+  without telemetry.
 
-The record does not hold adapter status, the number of permission requests
-pending in a session, or session telemetry (context use, turns, tool calls,
-cost, process, worktree, subagents, activity), so the model does not carry
-them. These are the gaps a later telemetry round fills.
+Telemetry is not part of the record: an observation is journaled only when
+readiness or the session changes, and a snapshot changes every run. After
+each run's observations the shell writes `telemetry.json` beside the
+journal, whole, by rename (`jev-router-telemetry/1`: `at` and one snapshot
+per served placement, from the same Paseo call that reads readiness,
+stamped with the run's clock). A write that fails is a line in the run's
+report, and the run goes on to its sends. The board reads the file without
+a lock and shows each snapshot with its age; `router status` prints one
+line per placement with the time. A missing or unreadable file is no
+telemetry, logged once by serve, never a fault; a damaged entry drops its
+placement, named in the log. Not held yet: the subagent tree, the session's
+last activity, turn and tool counts and the worktree, which need other
+daemon calls per run.
 
 ## Participants and responsibility texts
 
@@ -327,7 +356,7 @@ printf '#!/bin/sh\nexec node --no-warnings %s/src/cli.ts "$@"\n' "$PWD" \
   to an address the other hosts can reach, such as the host's tailnet
   address, if participants on other hosts take part.
 - **Record:** the journal lives in `~/.local/state/jev-router/`, or wherever
-  `home` in the config points.
+  `home` in the config points, with `telemetry.json` beside it.
 - **Service:** `router/jev-router.service` runs `router serve` as a systemd
   user service; the install steps are at the top of that file. Its `PATH`
   line assumes Node comes from mise or `/usr/bin`; edit it otherwise.
