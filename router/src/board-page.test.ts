@@ -389,7 +389,7 @@ test("forms and levers follow the viewer's principals and roles", () => {
   assert.ok(!guestT4.includes('value="resolve"'));
   assert.ok(guestT4.includes('class="form ro"'));
 
-  // An operator: the resolve form and the hold levers.
+  // An operator: the resolve form, next to the hold levers every login has.
   const me = page(ME, { task: "T4" }, replacedJournal);
   assert.deepEqual(groups(me)["needs-you"], ["T1", "T2", "T4"]);
   const resolve = formFor(me, "resolve");
@@ -500,7 +500,11 @@ test("a login with two principals in one role gets forms for the one its posts a
     task: "T2",
   });
   assert.deepEqual(groups(teamFirst)["needs-you"], ["T1", "T2"]);
-  assert.ok(!teamFirst.includes('<form class="form'));
+  // Only the hold levers, which any identified viewer gets.
+  assert.deepEqual(
+    formsIn(teamFirst).filter((f) => f.fields.action !== "hold"),
+    [],
+  );
   assert.match(strip(detailOf(teamFirst)), /question Q2 · waits on you/);
   const youFirst = renderBoard(modelFor(["you", "team"], roles), {
     task: "T2",

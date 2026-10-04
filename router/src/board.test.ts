@@ -529,6 +529,14 @@ test("actionEvent: each form becomes its event, signed by the principal the role
     ok: true,
     event: { type: "observe", placement: "orchestrator@mbp", hold: true },
   });
+  // A hold needs no role: a requester-only login may set one.
+  assert.deepEqual(
+    of("action=hold&placement=orchestrator%40mbp&hold=1", guest),
+    {
+      ok: true,
+      event: { type: "observe", placement: "orchestrator@mbp", hold: true },
+    },
+  );
   assert.deepEqual(of("action=hold&placement=orchestrator%40mbp&hold=0"), {
     ok: true,
     event: { type: "observe", placement: "orchestrator@mbp", hold: false },
