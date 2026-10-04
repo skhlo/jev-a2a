@@ -217,19 +217,27 @@ test("agentLine says what matters in one line", () => {
   );
 });
 
-test("a session is ready when idle or closed with nothing pending: a prompt resumes a closed one", () => {
+test("a session is ready when idle or closed with nothing pending: a prompt resumes a closed one, but must not unarchive one", () => {
+  const statuses = [
+    "idle",
+    "closed",
+    "running",
+    "initializing",
+    "error",
+  ] as const;
   assert.deepEqual(
-    ["idle", "closed", "running", "initializing", "error"].map((status) => [
+    statuses.map((status) => [
       status,
       isReady(status, 0),
       isReady(status, 1),
+      isReady(status, 0, true),
     ]),
     [
-      ["idle", true, false],
-      ["closed", true, false],
-      ["running", false, false],
-      ["initializing", false, false],
-      ["error", false, false],
+      ["idle", true, false, true],
+      ["closed", true, false, false],
+      ["running", false, false, false],
+      ["initializing", false, false, false],
+      ["error", false, false, false],
     ],
   );
 });
