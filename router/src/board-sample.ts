@@ -1,5 +1,6 @@
 // Writes board.sample.json: the board's view model built from the board
-// fixture at its fixed time, as the fixture's operator login sees it. The
+// fixture (with its participant-sent task) at its fixed time, as the
+// fixture's operator login sees it. The
 // sample is part of the published contract and is changed only by this
 // script; a board test fails when the committed file differs from what the
 // script writes. After changing the model or the fixture, run
@@ -7,7 +8,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { boardModel, boardState, identify, messageTimes } from "./board.ts";
-import { config, journal, NOW } from "./board-fixture.ts";
+import { config, NOW, sampleJournal as journal } from "./board-fixture.ts";
 
 export const SAMPLE_PATH = join(import.meta.dirname, "board.sample.json");
 

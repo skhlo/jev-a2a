@@ -9,6 +9,7 @@ import { join } from "node:path";
 import {
   actionEvent,
   BOARD_VERSION,
+  type BoardModel,
   boardModel,
   boardState,
   describeNeed,
@@ -419,6 +420,29 @@ test("the committed sample is what the generator writes from the fixture", () =>
     readFileSync(SAMPLE_PATH, "utf8"),
     boardSample(),
     "src/board.sample.json is stale: run `pnpm exec node src/board-sample.ts` in router/.",
+  );
+});
+
+test("the sample holds a participant-sent task with a notice in each state the design binds", () => {
+  const model = JSON.parse(boardSample()) as BoardModel;
+  const sent = [...model.open, ...model.finished].filter((t) => t.via);
+  assert.deepEqual(
+    sent.map((t) => [
+      t.id,
+      t.via,
+      t.notices.map((n) => [n.key, n.session, n.outcome]),
+    ]),
+    [
+      [
+        "T5",
+        "orchestrator@mbp",
+        [
+          ["choose/1", null, "withdrawn"],
+          ["question/D4/Q5", "A1", "accepted"],
+          ["final", null, "pending"],
+        ],
+      ],
+    ],
   );
 });
 

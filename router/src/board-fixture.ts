@@ -326,3 +326,80 @@ export const viaJournal = extend(
     outcome: "accepted",
   },
 );
+
+// The record the published sample is built from: the fixture plus a fifth
+// task the orchestrator's session sent, carrying each kind of notice in a
+// different state. Jev was unsure, so the sender was owed a choice; it
+// chose incus before the choice was told (withdrawn); incus asked and the
+// sender was told (accepted); the sender answered, incus finished, and the
+// end is owed while the sender is busy (pending).
+export const sampleJournal = extend(
+  {
+    type: "submit",
+    by: "A1",
+    messageId: "M5",
+    text: "Start a scratch VM for the router's tests.",
+  },
+  {
+    type: "judged",
+    taskId: "T5",
+    choice: "incus",
+    probabilities: { environment: 0.4, incus: 0.55, none: 0.05 },
+    model: "jev-1.13.0",
+  },
+  { type: "choose", by: "A1", taskId: "T5", to: "incus" },
+  { type: "observe", placement: "incus@lab01", session: "L1", ready: true },
+  { type: "attempt", deliveryId: "D4" },
+  {
+    type: "adapterResult",
+    deliveryId: "D4",
+    messageId: "M5",
+    outcome: "accepted",
+  },
+  {
+    type: "update",
+    by: "L1",
+    taskId: "T5",
+    messageId: "Q5",
+    inReplyTo: "M5",
+    kind: "question",
+    text: "Which image?",
+  },
+  {
+    type: "noticeAttempt",
+    taskId: "T5",
+    key: "question/D4/Q5",
+    text: "[router T5 question/D4/Q5] incus asks about your request.",
+  },
+  {
+    type: "noticeResult",
+    taskId: "T5",
+    key: "question/D4/Q5",
+    outcome: "accepted",
+  },
+  {
+    type: "answer",
+    by: "A1",
+    taskId: "T5",
+    messageId: "A5",
+    questionId: "Q5",
+    text: "ubuntu-24.04",
+  },
+  { type: "observe", placement: "incus@lab01", ready: true },
+  { type: "attempt", deliveryId: "D4" },
+  {
+    type: "adapterResult",
+    deliveryId: "D4",
+    messageId: "A5",
+    outcome: "accepted",
+  },
+  {
+    type: "update",
+    by: "L1",
+    taskId: "T5",
+    messageId: "R5",
+    inReplyTo: "A5",
+    kind: "completed",
+    text: "scratch-vm ready",
+  },
+);
