@@ -42,13 +42,13 @@ in the warning colour (see [Stale work](#stale-work)); a card with a
 delivery adds the snapshot's age (seen); the lever that holds or releases
 the session ends the row. A context meter sits in the name row (the health
 row on a collapsed card) with the token counts and cost as its tooltip, in
-the warning colour from 80%. Provider/model, thinking and mode are on the
+the warning colour when the context reads stale. Provider/model, thinking and mode are on the
 sheet. Without a snapshot the row reads "no telemetry".
 
 Under the cards, the router log shows its newest line. `l` opens its last
 twenty lines, newest at the bottom, and `l` again closes them; the page
-keeps the choice across refreshes on that device. Without the script, all
-twenty show.
+keeps the choice across refreshes on that device. Without the script the
+log is open.
 
 ## Stale work
 
@@ -56,16 +56,19 @@ The board marks work that has waited too long, in the warning colour. A
 card's status line, and its sheet's, ends with the first that applies:
 
 - "no reply 34m": the delivery's current send (the request, or the answer
-  to its question) has had no reply for more than 30 minutes;
+  to its question) reached the session and has had no reply for more than
+  30 minutes;
 - "turn 18m": the session has run one turn for more than 15 minutes;
 - "tool 6m": the session's last activity, a tool call, has run for more
   than 5 minutes;
 - "context 86%": the context window is 80% full or more.
 
-A task row ends with "no reply 34m" while one of its open deliveries has
-had no reply to its current send for more than 30 minutes. The time counts
-from when that message was recorded, so a request that waited for a
-recipient or behind another delivery counts its wait.
+A task row ends with "no reply 34m" by the same rule, for any of its open
+deliveries. A send not yet accepted is a wait, which the card and the row
+already name, not a missing reply. The time counts from when the message
+was recorded, not from when it was sent (the view model has no send time),
+so a request that waited for a recipient or behind another delivery shows
+its whole wait once it is sent.
 
 ## The sheet
 
@@ -112,8 +115,8 @@ waited too long for a reply says so last (see [Stale work](#stale-work)).
 The selected task's head is one line under its title: the recipient and how
 it was chosen; who sent it and when (for a task another agent sent, with
 the placement it came from), the message id as its tooltip; the countdown
-while it is open, or how many deliveries completed once it is finished,
-the deadline as its tooltip. The status badge carries the task's A2A state
+while it is open, or, once it is finished, how many deliveries completed,
+the reason and who ended it, the deadline as its tooltip. The status badge carries the task's A2A state
 as its tooltip. Below come the form that clears what waits on you, the
 exchange in time order, and its deliveries, the notices its sender was
 told, Jev's judgments and log.

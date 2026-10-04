@@ -355,9 +355,9 @@ export const viaJournal = extend(
 // sender to be idle (pending). Meanwhile a person started a turn in
 // environment@mini, which the router did not send, so it is not ready and
 // has no delivery (busy, v0.12). In the last run you chose orchestrator for
-// T1, 43 minutes after you sent it: its delivery queues behind T2's and has
-// no reply (stale, v0.12). A sixth task Jev was unsure of keeps a choice
-// waiting on you.
+// T1, 43 minutes after you sent it: its session is not ready, so the send
+// waits (not stale: nothing was sent). A sixth task Jev was unsure of keeps
+// a choice waiting on you.
 export const sampleJournal: Entry[] = [
   ...journal,
   ...run(

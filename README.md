@@ -165,7 +165,7 @@ it from another device and to act: the board reads the login Serve reports
 (`/whoami` shows the headers), and a login listed in `serve.identities`
 answers, chooses, cancels, resolves and holds as its principals. The page
 works without JavaScript; with it, it refreshes every ten seconds and `?`
-lists the keys and switches the palette. The same address serves the page's
+lists the keys, with the palette switch. The same address serves the page's
 data as JSON (`board.json`), the contract `jev-router-board/1`.
 
 More: [docs/board.md](docs/board.md) (what every part shows),

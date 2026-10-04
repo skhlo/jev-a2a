@@ -62,11 +62,12 @@ Each of these is a place where the design was wrong for live data:
   without a round trip (the design renders the open one);
 - the Flexoki dark pin (`data-scheme`) is not carried, as the theme switch
   covers it;
-- "no reply" counts an answered question too: once the answer is the
-  current send and nothing has come back since, the card and the row read
-  stale past 30 minutes, as the card already says "no reply yet" (the
-  design's `stale` and `stale_task` count a send unreplied only while the
-  delivery has no update at all);
+- "no reply" counts only a send the session accepted (one pending or
+  attempting is a wait, which the card and the row already name), and it
+  counts an answered question too: once the answer is the current send and
+  nothing has come back since, the card already says "no reply yet" (the
+  design's `stale` and `stale_task` count a send unreplied while the
+  delivery has no update at all, whatever its outcome);
 - the help's `⌘↩` row names `Ctrl ↩` too, which the script has always
   taken;
 - the footer's `l` and `?` take a click, so a screen without a keyboard

@@ -322,12 +322,21 @@ const older = (
   at: string,
 ): boolean => !!iso && Date.parse(at) - Date.parse(iso) > minutes * 60_000;
 
+// Whether a delivery's current send reached the session and has had no
+// reply since: accepted (a send still pending or attempting is a wait,
+// which the row and card already name), and either no update at all or a
+// question since answered. The design counts only "no update at all"; an
+// answered question is unreplied too, as its card says "no reply yet". A
+// resolve ends the delivery, so an ended one is never asked.
+const unreplied = (
+  d: { question: unknown; latest: { kind: UpdateKind } | null },
+  outcome: string,
+): boolean => outcome === "accepted" && (!d.latest || answeredQuestion(d));
+
 // stale(p, at): the first of "no reply <age>" (the delivery's current send
-// has no reply past 30 minutes), "turn <age>" (a turn running past 15),
-// "tool <age>" (the tail's last item a tool running past 5) and "context
-// <n>%" (80% or more), else null. The design counts a send as unreplied
-// only while the delivery has no update at all; an answered question is
-// unreplied too, as its card says "no reply yet".
+// is unreplied past STALE_MINUTES.reply), "turn <age>", "tool <age>" (the
+// tail's last item a running tool) and "context <n>%" (CONTEXT_WARN or
+// more), else null.
 export const stale = (
   p: PlacementView,
   at: string,
@@ -335,11 +344,7 @@ export const stale = (
 ): string | null => {
   const d = p.delivery;
   const sent = d ? times[d.messageId] : undefined;
-  if (
-    d &&
-    (!d.latest || answeredQuestion(d)) &&
-    older(sent, STALE_MINUTES.reply, at)
-  )
+  if (d && unreplied(d, d.outcome) && older(sent, STALE_MINUTES.reply, at))
     return `no reply ${age(sent, at)}`;
   const a = p.agent;
   if (!a) return null;
@@ -357,7 +362,7 @@ export const stale = (
 };
 
 // stale_task(t, at): "no reply <age>" for an open task with an unended
-// delivery whose current send has no reply past 30 minutes, else null.
+// delivery whose current send is unreplied past STALE_MINUTES.reply.
 export const staleTask = (
   t: TaskView,
   at: string,
@@ -368,7 +373,7 @@ export const staleTask = (
     const sent = times[d.send.messageId];
     if (
       !d.end &&
-      (!d.latest || answerOf(d)) &&
+      unreplied(d, d.send.outcome) &&
       older(sent, STALE_MINUTES.reply, at)
     )
       return `no reply ${age(sent, at)}`;
@@ -1118,7 +1123,7 @@ ${model.placements
   .map(([p, i]) => card(p, i))
   .join("\n")}
   </div></div>
-  <div class="foot"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)} · <kbd class="k">l</kbd></div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
+  <div class="foot open"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)} · <kbd class="k">l</kbd></div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
 </aside>`;
 
   // ---- Tasks ----
@@ -1588,7 +1593,7 @@ ${
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Router</title>
 <style>${STYLE}</style>
-<noscript><style>${NOSCRIPT_STYLE}</style></noscript></head>
+</head>
 <body>
 <!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
      what it reads, as in the board design v0.12: a plain path indexes the
@@ -1675,7 +1680,9 @@ h1, h2, h3, p { margin: 0; }
 
 /* Frame: nav, bento, key line; the bento fills what is left and its panels scroll inside. */
 #app { position: relative; height: 100vh; display: grid; grid-template-rows: 52px 1fr 40px; }
-.nav { display: flex; align-items: center; gap: 14px; padding: 0 20px; background: var(--canvas); border-bottom: 1px solid var(--hair); }
+/* min-width: 0, so the page's grid lets the nav be narrower than its
+   children's full text and .who truncates instead of widening the page. */
+.nav { display: flex; align-items: center; gap: 14px; padding: 0 20px; min-width: 0; background: var(--canvas); border-bottom: 1px solid var(--hair); }
 .nav .brand { font-weight: 500; font-size: 17px; letter-spacing: -.2px; }
 .nav .who { flex: 0 1 auto; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-small); color: var(--text-3); }
 .nav .counts { display: flex; gap: 6px; margin-left: 4px; }
@@ -1966,10 +1973,6 @@ a.btn, .card a.id { text-decoration: none; }
 }
 `;
 
-// Without a script, l cannot open the router log, so the log shows all its
-// lines under the cards.
-const NOSCRIPT_STYLE = `.agents .foot:not(.open) .tail > div:not(:last-child) { display: block; }`;
-
 // ---- Script: reads the rendered page and its data attributes only ----
 
 // The page works without it. It keeps what a person is doing across
@@ -2009,7 +2012,10 @@ const fold = () => {
 };
 
 // The router log: collapsed to its newest line until l opens the whole
-// block, which stays open across refreshes, on this device.
+// block, which stays open across refreshes, on this device. The server
+// renders it open, so a page without a script, which l needs, shows every
+// line in the open layout; the script sets it from the stored choice at
+// start and after each refresh, before the page is painted.
 const logOpen = () => localStorage.getItem("router-log") === "open";
 const showLog = () => $(".agents .foot")?.classList.toggle("open", logOpen());
 const toggleLog = () => {

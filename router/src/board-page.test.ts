@@ -284,8 +284,9 @@ test("every data-path of the v0.12 design is rendered for the fixture or dropped
   // The design's pages select an answer, a long working task, a choice, a
   // resolve and a task another agent sent; render each task of the fixture,
   // the record with the replaced session for the resolve form, the record
-  // before T4's first reply, and the sample's record with T5 and its
-  // telemetry, once more with a session the daemon does not know.
+  // before T4's first reply (once more 31 minutes after its accepted send,
+  // for the stale row), and the sample's record with T5 and its telemetry,
+  // once more with a session the daemon does not know.
   const missing: Telemetry = {
     ...telemetry,
     placements: {
@@ -301,6 +302,7 @@ test("every data-path of the v0.12 design is rendered for the fixture or dropped
       answeredJournal,
       attemptingJournal,
     ].map((entries) => model(ME, entries)),
+    model(ME, deliveredJournal, Date.parse("2026-09-30T10:11:00.000Z")),
     model(ME, sampleJournal, NOW, telemetry),
     model(ME, sampleJournal, NOW, missing),
   ];
@@ -1947,8 +1949,9 @@ test("v0.12 stale: the generator's thresholds, strictly past, the first rule tha
 });
 
 test("v0.12 stale on the page: in the warning role at the end of a card's status line, of the sheet head's, and of a row's second line", () => {
-  // The sample: environment@mbp's window at 86% (the meter turns warn);
-  // T1's request, 43 minutes old, has no reply.
+  // The sample: environment@mbp's window at 86% (the meter turns warn).
+  // T1's request is 43 minutes old but its send is pending (the session
+  // is not ready), so its row says what it waits for, not "no reply".
   const html = renderBoard(sampleModel(), { task: "T2" });
   const late =
     '<span class="role-warn num" data-path="stale(placements[2], at)">context 86%</span>';
@@ -1965,11 +1968,11 @@ test("v0.12 stale on the page: in the warning role at the end of a card's status
   );
   assert.ok(
     html.includes(
-      '<span class="to" data-path="open[3].recipient">orchestrator</span><span class="stale role-warn num" data-path="stale_task(open[3], at)">no reply 43m</span></div>',
+      '<span class="to" data-path="open[3].recipient">orchestrator</span></div>',
     ),
   );
   // No other row or card is stale.
-  assert.equal(html.match(/role-warn num" data-path="stale/g)?.length, 3);
+  assert.equal(html.match(/role-warn num" data-path="stale/g)?.length, 2);
   // A delivery with no reply on a card: T4's, 31 minutes on, without
   // telemetry.
   const quiet = page(ME, { task: "T4" }, deliveredJournal, NOW + 26 * 60_000);
@@ -1985,6 +1988,26 @@ test("v0.12 stale on the page: in the warning role at the end of a card's status
   );
   // The row's phrase is only for an open task.
   assert.ok(!page(ME, {}, journal, LATER).includes('data-path="stale_task('));
+  // Only a send the session accepted can go unreplied, and never on an
+  // ended delivery: the same T4, its send still pending, then ended.
+  const m = model(ME, deliveredJournal, NOW + 26 * 60_000);
+  const t4 = m.open.find((t) => t.id === "T4");
+  const d = t4?.deliveries[0];
+  assert.ok(t4 && d);
+  const at = m.at;
+  assert.equal(staleTask(t4, at, m.times), "no reply 31m");
+  const pending = { ...d, send: { ...d.send, outcome: "pending" } };
+  assert.equal(staleTask({ ...t4, deliveries: [pending] }, at, m.times), null);
+  const ended = { ...d, end: { reason: "finished" } } as typeof d;
+  assert.equal(staleTask({ ...t4, deliveries: [ended] }, at, m.times), null);
+  const p1 = m.placements.find((p) => p.key === "knowledge@mini");
+  assert.ok(p1?.delivery);
+  assert.match(stale(p1, at, m.times) ?? "", /^no reply 31m$/);
+  const attempting = {
+    ...p1,
+    delivery: { ...p1.delivery, outcome: "attempting" as const },
+  };
+  assert.equal(stale(attempting, at, m.times), null);
 });
 
 test("v0.12 busy: a session running with no delivery and no hold ranks after the work and reads busy; a held one stays held; not ready is for the rest", () => {
@@ -2163,7 +2186,7 @@ test("v0.12 log and help: the log collapses to its newest line and l opens it; t
   const m = sampleModel();
   assert.ok(
     html.includes(
-      `<div class="foot"><div><span class="kicker">Router log</span> · <span data-path="count(log)">last ${m.log.length}</span> · <kbd class="k">l</kbd></div><div class="lines"><div class="tail">`,
+      `<div class="foot open"><div><span class="kicker">Router log</span> · <span data-path="count(log)">last ${m.log.length}</span> · <kbd class="k">l</kbd></div><div class="lines"><div class="tail">`,
     ),
   );
   // Every line is in the page; the style shows the newest until l opens it.
@@ -2174,11 +2197,23 @@ test("v0.12 log and help: the log collapses to its newest line and l opens it; t
       ".agents .foot:not(.open) .tail > div:not(:last-child) { display: none; }",
     ),
   );
-  // Without a script, l cannot open it, so all the lines show.
+  // The server renders it open, so without a script, which l needs, every
+  // line shows in the open layout; the script collapses it at start unless
+  // the stored choice is open, and again after each refresh.
+  const startup = html.slice(html.indexOf("<script>"));
+  assert.ok(!html.includes("<noscript>"));
+  assert.match(startup, /\nshowLog\(\);\n/);
   assert.ok(
-    html.includes(
-      "<noscript><style>.agents .foot:not(.open) .tail > div:not(:last-child) { display: block; }</style></noscript></head>",
+    STYLE_HAS(html, "@media (max-width: 900px) {") &&
+      html.includes("  .bento { grid-template-columns: minmax(0, 1fr); }"),
+    "a narrow screen's one column may be narrower than its widest line",
+  );
+  assert.ok(
+    STYLE_HAS(
+      html,
+      ".nav { display: flex; align-items: center; gap: 14px; padding: 0 20px; min-width: 0;",
     ),
+    "the nav may be narrower than its children's full text",
   );
   assert.ok(
     html.includes(
