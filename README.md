@@ -117,9 +117,9 @@ the server from the view model below, in three columns:
   health row, when the router read any of it, the session's sheet in plain
   form (the design's v0.11 binds it): the checkout as Paseo's sidebar shows
   it (branch, starred when dirty, the diff size, the pull request with its
-  checks, linked, its title as tooltip), the open subagents counted with
-  their briefs as tooltip, and the last eight timeline entries, each a
-  line. The router's last twenty log lines fill the rest of the column,
+  checks, linked, its title as tooltip), the subagents counted with the
+  open ones' briefs as tooltip, and the last eight timeline entries, each
+  a line. The router's last twenty log lines fill the rest of the column,
   newest at the bottom.
 - **Tasks**, in three groups. Needs you holds the tasks that wait on one of
   your principals, a finished task too when an operator must resolve its
@@ -276,7 +276,8 @@ committed sample matches.
     did not read it (`telemetry.sheet` off in the config, the session not
     live, or that read failed) and empty when it read nothing: `checkout`
     (the session's workspace from Paseo's list, joined by project key and
-    workspace name, else by directory: `project`, `workspace`, `directory`,
+    workspace name, else by directory; `null` too when the list has no
+    workspace for the agent: `project`, `workspace`, `directory`,
     `kind` (`local_checkout`, `worktree`, `checkout` or `directory`),
     `branch`, `remote`, `dirty`, `ahead`, `behind`, `diff` (`additions`,
     `deletions`), `pr` (`number`, `url`, `title`, `state`, `draft`,
@@ -342,9 +343,10 @@ Telemetry is not part of the record: an observation is journaled only when
 readiness or the session changes, and a snapshot changes every run. After
 each run's observations the shell writes `telemetry.json` beside the
 journal, whole, by rename (`jev-router-telemetry/1`: `at` and one snapshot
-per served placement, from the same Paseo call that reads readiness,
-stamped with the run's clock). A write that fails is a line in the run's
-report, and the run goes on to its sends. The board reads the file without
+per served placement, the rail from the same Paseo call that reads
+readiness and the sheet from the reads below, stamped with the run's
+clock). A write that fails is a line in the run's report, and the run goes
+on to its sends. The board reads the file without
 a lock and shows each snapshot with its age (the nav tick dates the file);
 `router status` prints one line per placement with the time, the branch,
 diff and pull request on it. A missing or unreadable file is no telemetry,
@@ -353,9 +355,10 @@ named in the log, and a damaged sheet field reads as not read. The sheet
 costs, per run, one workspace list per host and two calls per live session
 (the subagent list, which is not on the public client and comes from the
 `DaemonClient` under `@getpaseo/client/internal/daemon-client`, and the
-timeline tail); a read that fails is a line in the run's report and a
-`null` field. `telemetry.sheet: false` in the config keeps a run to the
-one call per placement that reads readiness. Not held: a session's total
+timeline tail); a read that fails is a `telemetry:` line in the run's
+report, which serve logs once while the cause lasts, and a `null` field.
+`telemetry.sheet: false` in the config keeps a run to the one call per
+placement that reads readiness. Not held: a session's total
 turn and tool counts (the whole timeline), and the subagents' own
 timelines.
 

@@ -13,7 +13,7 @@ import type {
   PlacementView,
   TaskView,
 } from "./board.ts";
-import type { AgentStatus } from "./telemetry.ts";
+import { checkoutParts, type AgentStatus } from "./telemetry.ts";
 import type {
   Judgment,
   NeedsYouItem,
@@ -477,34 +477,30 @@ ${body}
     }
     return { line, meter };
   };
-  // The health sheet, plain until v0.11 binds it: the checkout as the
-  // sidebar's row (branch starred when dirty, diff, pull request with its
-  // checks, the title as tooltip), the open subagents counted with their
-  // briefs as tooltip, and the activity tail as one line per entry. A field
-  // the router did not read is left out; no field, no row.
+  // The health sheet, plain until v0.11 binds it, above the health row:
+  // the checkout as the sidebar's row (branch starred when dirty, diff,
+  // pull request with its checks, the title as tooltip), the subagents
+  // counted with the open briefs as tooltip, and the activity tail as one
+  // line per entry. A field the router did not read is left out; no field,
+  // no row.
   const sheet = (path: string, a: PlacementView["agent"]): string => {
     if (!a || (!a.checkout && !a.subagents && !a.activity)) return "";
     const ap = `${path}.agent`;
     const rows: string[] = [];
     const c = a.checkout;
     if (c) {
+      const [branch, ...rest] = checkoutParts(c);
       const parts = [
         slot(
           `${ap}.checkout.branch, ${ap}.checkout.dirty`,
-          `${esc(c.branch ?? c.kind)}${c.dirty ? "*" : ""}`,
+          esc(branch),
           "",
           "span",
           ` title="${esc(`${c.project} · ${c.workspace} · ${c.directory}`)}"`,
         ),
       ];
       if (c.diff)
-        parts.push(
-          slot(
-            `${ap}.checkout.diff`,
-            `+${esc(c.diff.additions)} −${esc(c.diff.deletions)}`,
-            "num",
-          ),
-        );
+        parts.push(slot(`${ap}.checkout.diff`, esc(rest.shift()), "num"));
       // The pull request links out when its URL is a web address; the
       // router shows what the daemon said, it does not run it.
       if (c.pr) {
@@ -512,7 +508,7 @@ ${body}
         parts.push(
           slot(
             `${ap}.checkout.pr`,
-            `PR #${esc(c.pr.number ?? "?")}${c.pr.checks ? ` ${esc(c.pr.checks)}` : ""}`,
+            esc(rest.shift()),
             c.pr.checks === "failure" ? "err" : "",
             web ? "a" : "span",
             `${web ? ` href="${esc(c.pr.url)}"` : ""} title="${esc(c.pr.title)}"`,
@@ -523,12 +519,11 @@ ${body}
     }
     const sub = a.subagents;
     if (sub) {
-      const done =
-        sub.counts.completed + sub.counts.failed + sub.counts.canceled;
+      const total = Object.values(sub.counts).reduce((n, k) => n + k, 0);
       rows.push(
         slot(
           `${ap}.subagents.counts`,
-          `${sub.counts.running} subagent${sub.counts.running === 1 ? "" : "s"} open · ${done} done`,
+          `${count(total, "subagent")} (${sub.counts.running} running)`,
           sub.counts.running ? "" : "k",
           "span",
           sub.running.length
@@ -544,7 +539,7 @@ ${body}
           ? act.items
               .map(
                 (it, j) =>
-                  `<div data-path="${ap}.activity.items[${j}]"${it.at ? ` title="${esc(it.at)}"` : ""}><b>${esc(it.tool ?? it.kind.replaceAll("_", " "))}</b>${it.status ? ` <span class="k">${esc(it.status)}</span>` : ""}${it.text ? ` ${esc(it.text)}` : ""}</div>`,
+                  `<div data-path="${ap}.activity.items[${j}]"${dated(it.at)}><b>${esc(it.tool ?? label(it.kind))}</b>${it.status ? ` <span class="k">${esc(it.status)}</span>` : ""}${it.text ? ` ${esc(it.text)}` : ""}</div>`,
               )
               .join("")
           : slot(`${ap}.activity.items`, "no activity", "k"),

@@ -798,8 +798,9 @@ test("a telemetry write that fails is reported and the run still sends", async (
   );
 });
 
-test("a sheet read the adapter could not make is one line of the report, and the observation stands", async () => {
+test("a sheet read the adapter could not make is one telemetry line of the report; the observation stands and the run still sends", async () => {
   const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const sent: string[] = [];
   const shell = await openShell(
     configFor(home),
     scripted({
@@ -811,16 +812,28 @@ test("a sheet read the adapter could not make is one line of the report, and the
           snapshot: { ...snapshot("idle"), seen },
           notes: ["activity of A1 not read: timeline gone"],
         }),
+      send: (key) => {
+        sent.push(key);
+        return Promise.resolve("accepted");
+      },
     }),
   );
+  shell.apply({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "Fix it",
+    to: "orchestrator",
+  });
   const report = await shell.deliver();
   await shell.close();
-  assert.equal(shell.state.placements["orchestrator@mbp"]?.ready, true);
+  // The send happened, so the observation read ready despite the note.
+  assert.deepEqual(sent, ["D1/M1"]);
   assert.deepEqual(
-    report.filter((line) => line.startsWith("orchestrator@mbp")),
+    report.filter((line) => /orchestrator@mbp/.test(line)),
     [
       "orchestrator@mbp: idle",
-      "orchestrator@mbp: activity of A1 not read: timeline gone",
+      "telemetry: orchestrator@mbp: activity of A1 not read: timeline gone",
     ],
   );
 });

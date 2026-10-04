@@ -99,6 +99,11 @@ export type Subagents = {
   counts: Record<SubagentStatus, number>;
   running: Subagent[];
 };
+export const zeroCounts = (): Record<SubagentStatus, number> =>
+  Object.fromEntries(SUBAGENT_STATUSES.map((s) => [s, 0])) as Record<
+    SubagentStatus,
+    number
+  >;
 
 // The tail of the session's timeline: the last few entries, oldest first,
 // each cut to a line.
@@ -114,13 +119,15 @@ export const ACTIVITY_KINDS = [
   "plugin",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+// A tool call's states, the same words as a subagent's.
+export type ToolStatus = SubagentStatus;
 export type ActivityItem = {
   at: string | null;
   kind: ActivityKind;
   text: string | null;
   // A tool call's name and state; null for the other kinds.
   tool: string | null;
-  status: SubagentStatus | null;
+  status: ToolStatus | null;
 };
 export type Activity = {
   // User messages among the items, not the session's total.
@@ -262,6 +269,12 @@ const str = (value: unknown): string | null =>
 const num = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
+// One of a list of words, or null.
+export const oneOf = <T extends string>(
+  words: readonly T[],
+  value: unknown,
+): T | null => words.find((w) => w === value) ?? null;
+
 // Reads a file this module wrote; anything else is null. Snapshots that do
 // not parse are dropped one by one, with a word each, so one bad entry
 // hides one placement.
@@ -287,9 +300,9 @@ export function parseTelemetry(
 
 function parseSnapshot(value: unknown): AgentSnapshot | null {
   if (!isRecord(value) || typeof value.seen !== "string") return null;
-  const status = STATUSES.find((s) => s === value.status);
+  const status = oneOf(STATUSES, value.status);
   if (!status) return null;
-  const attention = ATTENTIONS.find((a) => a === value.attention) ?? null;
+  const attention = oneOf(ATTENTIONS, value.attention);
   const used = isRecord(value.context) ? num(value.context.used) : null;
   const max = isRecord(value.context) ? num(value.context.max) : null;
   const context =
@@ -338,11 +351,6 @@ function parseSnapshot(value: unknown): AgentSnapshot | null {
     activity: parseActivity(value.activity),
   };
 }
-
-const oneOf = <T extends string>(
-  words: readonly T[],
-  value: unknown,
-): T | null => words.find((w) => w === value) ?? null;
 
 const bool = (value: unknown): boolean | null =>
   typeof value === "boolean" ? value : null;
@@ -408,7 +416,7 @@ function parseSubagents(value: unknown): Subagents | null {
     !Array.isArray(value.running)
   )
     return null;
-  const counts = { running: 0, completed: 0, failed: 0, canceled: 0 };
+  const counts = zeroCounts();
   for (const status of SUBAGENT_STATUSES)
     counts[status] = num(value.counts[status]) ?? 0;
   const running: Subagent[] = [];
@@ -437,8 +445,9 @@ function parseActivity(value: unknown): Activity | null {
   if (!isRecord(value) || !Array.isArray(value.items)) return null;
   const items: ActivityItem[] = [];
   for (const raw of value.items) {
-    const kind = isRecord(raw) ? oneOf(ACTIVITY_KINDS, raw.kind) : null;
-    if (!isRecord(raw) || !kind) return null;
+    if (!isRecord(raw)) return null;
+    const kind = oneOf(ACTIVITY_KINDS, raw.kind);
+    if (!kind) return null;
     items.push({
       at: str(raw.at),
       kind,
@@ -478,9 +487,16 @@ export function agentLine(agent: AgentSnapshot): string {
 // The sidebar's row in words: branch (starred when dirty), diff, PR and
 // its checks.
 export function checkoutLine(c: Checkout): string {
-  const diff = c.diff ? ` +${c.diff.additions} −${c.diff.deletions}` : "";
-  const pr = c.pr
-    ? ` · PR #${c.pr.number ?? "?"}${c.pr.checks ? ` ${c.pr.checks}` : ""}`
-    : "";
-  return `${c.branch ?? c.kind}${c.dirty ? "*" : ""}${diff}${pr}`;
+  return checkoutParts(c).join(" · ");
+}
+
+// The row's words, one per part, for the page to wrap each in its slot.
+export function checkoutParts(c: Checkout): string[] {
+  const parts = [`${c.branch ?? c.kind}${c.dirty ? "*" : ""}`];
+  if (c.diff) parts.push(`+${c.diff.additions} −${c.diff.deletions}`);
+  if (c.pr)
+    parts.push(
+      `PR #${c.pr.number ?? "?"}${c.pr.checks ? ` ${c.pr.checks}` : ""}`,
+    );
+  return parts;
 }

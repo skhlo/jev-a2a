@@ -445,8 +445,10 @@ export const sampleJournal: Entry[] = [
 // done; knowledge@mini with two subagents open, one under the other, in a
 // plain checkout with no pull request; environment@mbp's per-session reads
 // failed that run (the run's report said so), so it has its checkout and
-// nothing else, which is also how a closed session's sheet reads. Together
-// with `sampleJournal` it is what the published sample is built from.
+// nothing else, which is also how a closed session's sheet reads (the
+// sample has no card with all three null: that is the no-sheet rendering of
+// part 1). Together with `sampleJournal` it is what the published sample is
+// built from.
 export const telemetry: Telemetry = {
   version: "jev-router-telemetry/1",
   at: "2026-09-30T09:44:51.000Z",

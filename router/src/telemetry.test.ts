@@ -312,7 +312,7 @@ test("the sheet round-trips, and a damaged sheet field reads as not read while t
   // open subagents.
   assert.equal(
     agentLine(sheet),
-    `running · feat/x* +10 −3 · PR #7 failure · 1 subagent(s) running · seen ${SEEN}`,
+    `running · feat/x* · +10 −3 · PR #7 failure · 1 subagent(s) running · seen ${SEEN}`,
   );
 });
 

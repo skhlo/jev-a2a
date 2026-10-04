@@ -12,7 +12,7 @@ import {
   firstLine,
   subagentsOf,
   type Daemon,
-  type Subagent,
+  type ProviderSubagent,
   type TimelineEntry,
 } from "./paseo.ts";
 
@@ -159,11 +159,26 @@ test("checkoutOf reads the sidebar's row, and nulls what the daemon left out", (
   });
 });
 
-test("checkoutFor joins by project key and workspace name, then by directory, else null", () => {
-  assert.equal(checkoutFor(project, [plain, worktree])?.workspace, "feat-x");
-  // The same directory under another name: the directory decides.
+test("checkoutFor joins by project key and workspace name, by directory when the names do not match or are missing, else null", () => {
+  // Two workspaces of one project, same directory shape, different names:
+  // the name decides, not the directory.
+  const other: PaseoWorkspace = {
+    ...worktree,
+    id: "wks_3",
+    name: "feat-y",
+    workspaceDirectory: "/work/.paseo/worktrees/feat-x",
+    project: { ...project, workspaceName: "feat-y" },
+  };
+  assert.equal(
+    checkoutFor(project, [plain, other, worktree])?.workspace,
+    "feat-x",
+  );
+  // No name on the daemon's side: the directory decides.
+  const unnamed = { ...project, workspaceName: null };
+  const bare = { ...worktree, project: { ...project, workspaceName: null } };
+  assert.equal(checkoutFor(unnamed, [plain, bare])?.workspace, "feat-x");
+  // A different name and a different directory: nothing.
   const renamed = { ...project, projectKey: "prj_9", workspaceName: "other" };
-  assert.equal(checkoutFor(renamed, [plain, worktree])?.workspace, "feat-x");
   assert.equal(
     checkoutFor({ ...renamed, checkout: { ...project.checkout, cwd: "/x" } }, [
       plain,
@@ -176,10 +191,10 @@ test("checkoutFor joins by project key and workspace name, then by directory, el
 
 const sub = (
   id: string,
-  status: Subagent["status"],
+  status: ProviderSubagent["status"],
   createdAt: string,
   parent: string | null = null,
-): Subagent => ({
+): ProviderSubagent => ({
   id,
   parentAgentId: "A1",
   parentSubagentId: parent,
@@ -228,6 +243,30 @@ test("subagentsOf counts the history and lists the open ones oldest first, cappe
     counts: { running: 0, completed: 0, failed: 0, canceled: 0 },
     running: [],
   });
+  // A long history: all counted, none listed; a wide fan-out: twenty
+  // listed by default.
+  const history = Array.from({ length: 73 }, (_, i) =>
+    sub(
+      `h${i}`,
+      "completed",
+      `2026-09-30T09:${String(i % 60).padStart(2, "0")}:00.000Z`,
+    ),
+  );
+  assert.deepEqual(subagentsOf(history), {
+    counts: { running: 0, completed: 73, failed: 0, canceled: 0 },
+    running: [],
+  });
+  const wide = Array.from({ length: 25 }, (_, i) =>
+    sub(
+      `w${i}`,
+      "running",
+      `2026-09-30T10:${String(i).padStart(2, "0")}:00.000Z`,
+    ),
+  );
+  const listed = subagentsOf(wide);
+  assert.equal(listed.counts.running, 25);
+  assert.equal(listed.running.length, 20);
+  assert.equal(listed.running[0]?.id, "w0");
 });
 
 const entry = (
@@ -316,7 +355,7 @@ test("activityOf cuts each entry to a line and counts the user messages", () => 
           tool: null,
           status: null,
         },
-        { at: "t6", kind: "todo", text: "0 item(s)", tool: null, status: null },
+        { at: "t6", kind: "todo", text: "0 items", tool: null, status: null },
         {
           at: "t7",
           kind: "compaction",
@@ -409,18 +448,25 @@ test("a session that is not live gets its checkout and nothing that would resume
   }
 });
 
-test("a failed sheet read nulls its field and leaves a note; the rail and the rest stand", async () => {
-  const { daemon } = scripted("idle", ["workspaces", "tail"]);
-  const seen = await adapterOver(daemon).observe("A1", SEEN);
+test("a failed sheet read nulls its field and leaves a note; the rail and the rest stand; a failed list is one note per adapter", async () => {
+  const { daemon, calls } = scripted("idle", ["workspaces", "tail"]);
+  const adapter = adapterOver(daemon);
+  const seen = await adapter.observe("A1", SEEN);
   assert.equal(seen?.ready, true);
   assert.equal(seen?.snapshot.status, "idle");
   assert.equal(seen?.snapshot.checkout, null);
   assert.equal(seen?.snapshot.subagents?.counts.running, 1);
   assert.equal(seen?.snapshot.activity, null);
   assert.deepEqual(seen?.notes, [
-    "checkout of A1 not read: list timed out",
+    "workspaces not listed: list timed out",
     "activity of A1 not read: timeline gone",
   ]);
+  // The next session on the host gets its null without the list being
+  // asked for again or the failure repeated.
+  const next = await adapter.observe("A2", SEEN);
+  assert.equal(next?.snapshot.checkout, null);
+  assert.deepEqual(next?.notes, ["activity of A2 not read: timeline gone"]);
+  assert.equal(calls.filter((c) => c === "workspaces").length, 1);
 });
 
 test("with the sheet off, only the rail is read", async () => {

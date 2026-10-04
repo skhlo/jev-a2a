@@ -1321,7 +1321,7 @@ test("the sheet (part 2, plain until v0.11): the checkout row, the open subagent
     // the running answer.
     [
       "feat/notices* · +412 −96 · PR #21 failure",
-      "0 subagents open · 3 done",
+      "3 subagents (0 running)",
       "user message [router T5 N1] incus asks about your request. Answer with: router answer …",
       "reasoning The question is which kernel the lab image should boot.",
       "Read completed research/lab-images.md",
@@ -1332,7 +1332,7 @@ test("the sheet (part 2, plain until v0.11): the checkout row, the open subagent
     // in the call waiting on the permission.
     [
       "main",
-      "2 subagents open · 6 done",
+      "8 subagents (2 running)",
       "user message [router T4 M4] Task from the router. When done, run: router reply …",
       "Agent running Sweep the vault for notes that cite the retired runbook.",
       "Bash running rg -l runbook-2024 /Users/agent/vault/ops",
@@ -1350,12 +1350,12 @@ test("the sheet (part 2, plain until v0.11): the checkout row, the open subagent
   );
   assert.ok(
     seen.includes(
-      '<span data-path="placements[1].agent.subagents.counts" title="worker: Sweep the vault for notes that cite the retired runbook.\nExplore: List every note under ops/ that links runbook-2024.">2 subagents open · 6 done</span>',
+      '<span data-path="placements[1].agent.subagents.counts" title="worker: Sweep the vault for notes that cite the retired runbook.\nExplore: List every note under ops/ that links runbook-2024.">8 subagents (2 running)</span>',
     ),
   );
   assert.ok(
     seen.includes(
-      '<div data-path="placements[0].agent.activity.items[4]" title="2026-09-30T09:44:40.000Z"><b>Bash</b> <span class="k">running</span> router answer',
+      '<div data-path="placements[0].agent.activity.items[4]" title="2026-09-30 09:44Z"><b>Bash</b> <span class="k">running</span> router answer',
     ),
   );
   // No sheet field, no row: part 1's telemetry renders as before.
@@ -1371,9 +1371,9 @@ test("the sheet (part 2, plain until v0.11): the checkout row, the open subagent
     }),
   );
   assert.ok(!bare.includes('class="sheet"'));
-  // Hostile strings stay text: a branch, a tool's text, a PR title and a
-  // brief with markup in them; a pull request whose URL is not a web
-  // address is not a link; an empty tail reads "no activity".
+  // Hostile strings stay text: a branch, a tool's name and text, a PR
+  // title and a brief with markup in them; a pull request whose URL is not
+  // a web address is not a link.
   const hostile = telemetry.placements["orchestrator@mbp"];
   const open = hostile?.checkout?.pr;
   const first = telemetry.placements["knowledge@mini"]?.subagents?.running[0];
@@ -1393,12 +1393,29 @@ test("the sheet (part 2, plain until v0.11): the checkout row, the open subagent
             counts: { running: 1, completed: 0, failed: 0, canceled: 0 },
             running: [{ ...first, title: "<x>", description: '"' }],
           },
-          activity: { turns: 0, items: [] },
+          activity: {
+            turns: 0,
+            items: [
+              {
+                at: null,
+                kind: "tool_call",
+                text: "echo '<script>alert(1)</script>' & \"done\"",
+                tool: "<Bash>",
+                status: "completed",
+              },
+            ],
+          },
         },
       },
     }),
   );
   assert.ok(sharp.includes("&lt;b&gt;x&lt;/b&gt;*"));
+  assert.ok(
+    sharp.includes(
+      '<div data-path="placements[0].agent.activity.items[0]"><b>&lt;Bash&gt;</b> <span class="k">completed</span> echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;</div>',
+    ),
+  );
+  assert.ok(!sharp.includes("<script>alert"));
   assert.ok(!sharp.includes("javascript:"));
   assert.ok(
     sharp.includes(
@@ -1406,8 +1423,17 @@ test("the sheet (part 2, plain until v0.11): the checkout row, the open subagent
     ),
   );
   assert.ok(sharp.includes('title="&lt;x&gt;: &quot;"'));
+  // An empty tail reads "no activity".
+  const quiet = renderBoard(
+    model(ME, sampleJournal, NOW, {
+      ...telemetry,
+      placements: {
+        "orchestrator@mbp": { ...hostile, activity: { turns: 0, items: [] } },
+      },
+    }),
+  );
   assert.ok(
-    sharp.includes(
+    quiet.includes(
       '<span class="k" data-path="placements[0].agent.activity.items">no activity</span>',
     ),
   );

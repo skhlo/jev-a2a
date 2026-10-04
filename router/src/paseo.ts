@@ -16,8 +16,9 @@
 // The subagent list is not on the public client; it is on the DaemonClient
 // the client is built over, exported under the package's internal subpath.
 // This builds the same pair createPaseoClient builds, so one connection
-// serves both; the client version pins the subpath.
+// serves both; the lockfile pins the client, and with it the subpath.
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { createPaseoApi } from "@getpaseo/client";
 import type {
@@ -33,6 +34,8 @@ import {
 import {
   ACTIVITY_KINDS,
   SUBAGENT_STATUSES,
+  oneOf,
+  zeroCounts,
   type Activity,
   type ActivityItem,
   type AgentSnapshot,
@@ -75,7 +78,7 @@ export type AdapterOptions = {
   tail?: number;
 };
 
-export type Subagent = ProviderSubagentListPayload["subagents"][number];
+export type ProviderSubagent = ProviderSubagentListPayload["subagents"][number];
 export type TimelineEntry = FetchAgentTimelinePayload["entries"][number];
 
 // What the adapter asks of a daemon, so the rules above it are testable
@@ -84,7 +87,7 @@ export type Daemon = {
   refresh(agentId: string): Promise<PaseoAgentRefetchResult | null>;
   send(agentId: string, text: string, messageId: string): Promise<void>;
   workspaces(): Promise<PaseoWorkspace[]>;
-  subagents(agentId: string): Promise<Subagent[]>;
+  subagents(agentId: string): Promise<ProviderSubagent[]>;
   tail(agentId: string, limit: number): Promise<TimelineEntry[]>;
   close(): Promise<void>;
 };
@@ -177,8 +180,9 @@ export function firstLine(
   return trimmed.length > width ? `${trimmed.slice(0, width - 1)}…` : trimmed;
 }
 
-// A workspace entry (protocol 0.9.2: project placement, gitRuntime,
-// diffStat, githubRuntime.pullRequest) reduced to the sheet's checkout.
+// A workspace entry (protocol 0.9.2 and 0.10.1 alike: project placement,
+// gitRuntime, diffStat, githubRuntime.pullRequest) reduced to the sheet's
+// checkout.
 export function checkoutOf(w: PaseoWorkspace): Checkout {
   const git = w.gitRuntime ?? null;
   const pr = w.githubRuntime?.pullRequest ?? null;
@@ -234,8 +238,8 @@ export function checkoutFor(
 
 // The session's whole subagent history, counted, with the open ones
 // listed oldest first; a history is long and the sheet is short.
-export function subagentsOf(list: Subagent[], limit = 20): Subagents {
-  const counts = { running: 0, completed: 0, failed: 0, canceled: 0 };
+export function subagentsOf(list: ProviderSubagent[], limit = 20): Subagents {
+  const counts = zeroCounts();
   for (const s of list)
     if (SUBAGENT_STATUSES.includes(s.status)) counts[s.status] += 1;
   const running = list
@@ -259,7 +263,7 @@ export function subagentsOf(list: Subagent[], limit = 20): Subagents {
 export function activityOf(entries: TimelineEntry[]): Activity {
   const items = entries.flatMap((e): ActivityItem[] => {
     const item = e.item;
-    const kind = ACTIVITY_KINDS.find((k) => k === item.type);
+    const kind = oneOf(ACTIVITY_KINDS, item.type);
     if (!kind) return [];
     const base = { at: e.timestamp, kind, tool: null, status: null };
     switch (item.type) {
@@ -280,7 +284,12 @@ export function activityOf(entries: TimelineEntry[]): Activity {
       case "notification":
         return [{ ...base, text: firstLine(item.message) }];
       case "todo":
-        return [{ ...base, text: `${item.items.length} item(s)` }];
+        return [
+          {
+            ...base,
+            text: `${item.items.length} item${item.items.length === 1 ? "" : "s"}`,
+          },
+        ];
       case "compaction":
         return [{ ...base, text: item.status }];
       default:
@@ -331,9 +340,16 @@ export function adapterOver(
 ): Adapter {
   const sheet = options.sheet ?? true;
   const tail = options.tail ?? 8;
-  let workspaces: Promise<PaseoWorkspace[]> | null = null;
-  const listed = (): Promise<PaseoWorkspace[]> =>
-    (workspaces ??= daemon.workspaces());
+  // One list per adapter, and one note when it failed: the first observe
+  // hears why, the rest only get their null.
+  let workspaces: Promise<PaseoWorkspace[] | null> | null = null;
+  const listed = (notes: string[]): Promise<PaseoWorkspace[] | null> =>
+    (workspaces ??= daemon.workspaces().catch((error: unknown) => {
+      notes.push(
+        `workspaces not listed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }));
   const attempt = async <T>(
     what: string,
     agentId: string,
@@ -357,12 +373,8 @@ export function adapterOver(
       const snapshot = snapshotOf(result.agent, seen);
       const notes: string[] = [];
       if (sheet) {
-        snapshot.checkout = await attempt(
-          "checkout",
-          agentId,
-          async () => checkoutFor(result.project, await listed()),
-          notes,
-        );
+        const list = await listed(notes);
+        snapshot.checkout = list ? checkoutFor(result.project, list) : null;
         if (status === "idle" || status === "running") {
           snapshot.subagents = await attempt(
             "subagents",
@@ -413,7 +425,7 @@ export async function createPaseoAdapter(
     : null;
   const daemonClient = new DaemonClient({
     url: tunnel ? `ws://127.0.0.1:${tunnel.port}/ws` : endpoint,
-    clientId: `jev-router-${crypto.randomUUID()}`,
+    clientId: `jev-router-${randomUUID()}`,
     clientType: "cli",
   });
   try {

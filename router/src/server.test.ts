@@ -308,6 +308,8 @@ function fakeRunner(script: {
   recordWaits?: () => boolean;
   fail?: () => Error | null;
   delayMs?: number;
+  // The run's report; the default has an observation, a wait and a change.
+  report?: () => string[];
 }) {
   const pending: { fn: () => void; ms: number }[] = [];
   const timers = {
@@ -341,11 +343,13 @@ function fakeRunner(script: {
             release = resolve;
           });
           release = null;
-          return [
-            "orchestrator@mbp: idle",
-            "D1 waits: not ready",
-            "Recorded D2/M2 as attempting to A1 before calling the adapter.",
-          ];
+          return (
+            script.report?.() ?? [
+              "orchestrator@mbp: idle",
+              "D1 waits: not ready",
+              "Recorded D2/M2 as attempting to A1 before calling the adapter.",
+            ]
+          );
         },
         waits: script.waits,
         close: () => Promise.resolve(),
@@ -422,6 +426,42 @@ test("runner: an event run arms one look while work waits; the look runs deliver
   await f.fire();
   await f.finishRun();
   assert.deepEqual(f.timers(), []);
+  f.runner.stop();
+});
+
+test("runner: a look logs a telemetry complaint once while it lasts, and again after a run without it", async () => {
+  let lines = [
+    "orchestrator@mbp: idle",
+    "telemetry: orchestrator@mbp: activity of A1 not read: timeline gone",
+    "telemetry not written: EISDIR",
+  ];
+  const f = fakeRunner({ waits: () => true, report: () => lines });
+  f.runner.start();
+  await f.settle();
+  await f.finishRun();
+  await f.fire();
+  await f.finishRun();
+  assert.deepEqual(f.log, [
+    "start: telemetry: orchestrator@mbp: activity of A1 not read: timeline gone",
+    "start: telemetry not written: EISDIR",
+  ]);
+  // One complaint clears: the other is still not repeated.
+  lines = lines.slice(0, 2);
+  await f.fire();
+  await f.finishRun();
+  assert.equal(f.log.length, 2);
+  // A clean run resets: the complaint is news again when it returns.
+  lines = ["orchestrator@mbp: idle"];
+  await f.fire();
+  await f.finishRun();
+  lines = [
+    "telemetry: orchestrator@mbp: activity of A1 not read: timeline gone",
+  ];
+  await f.fire();
+  await f.finishRun();
+  assert.deepEqual(f.log.slice(2), [
+    "wake: telemetry: orchestrator@mbp: activity of A1 not read: timeline gone",
+  ]);
   f.runner.stop();
 });
 
