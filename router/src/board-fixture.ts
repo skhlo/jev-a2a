@@ -338,8 +338,9 @@ export const viaJournal = extend(
 // unsure, so the sender was owed a choice, but its session was mid-turn
 // when the router looked; it chose incus itself before it was told
 // (withdrawn). incus asked and the sender, idle by then, was told
-// (accepted); it answered, incus finished, and the end is owed and not yet
-// sent: no run has happened since the completion arrived (pending).
+// (accepted); it answered from the turn the question started, and incus
+// finished while that turn still ran, so the end is owed and waits for the
+// sender to be idle (pending).
 export const sampleJournal: Entry[] = [
   ...journal,
   ...run(
@@ -354,13 +355,9 @@ export const sampleJournal: Entry[] = [
       type: "judged",
       taskId: "T5",
       choice: "incus",
-      probabilities: {
-        orchestrator: 0.02,
-        knowledge: 0.03,
-        environment: 0.4,
-        incus: 0.5,
-        none: 0.05,
-      },
+      // The orchestrator may address environment and incus, so Jev chose
+      // among those and none.
+      probabilities: { environment: 0.4, incus: 0.55, none: 0.05 },
       model: "jev-1.13.0",
     },
     { type: "observe", placement: "orchestrator@mbp", ready: false },
@@ -412,7 +409,7 @@ export const sampleJournal: Entry[] = [
       questionId: "Q5",
       text: "ubuntu-24.04",
     },
-    { type: "observe", placement: "orchestrator@mbp", ready: true },
+    { type: "observe", placement: "orchestrator@mbp", ready: false },
     { type: "observe", placement: "incus@lab01", ready: true },
     { type: "attempt", deliveryId: "D4" },
     {
@@ -422,13 +419,17 @@ export const sampleJournal: Entry[] = [
       outcome: "accepted",
     },
   ),
-  ...run("09:44:50", {
-    type: "update",
-    by: "L1",
-    taskId: "T5",
-    messageId: "R5",
-    inReplyTo: "A5",
-    kind: "completed",
-    text: "scratch-vm ready",
-  }),
+  ...run(
+    "09:44:50",
+    {
+      type: "update",
+      by: "L1",
+      taskId: "T5",
+      messageId: "R5",
+      inReplyTo: "A5",
+      kind: "completed",
+      text: "scratch-vm ready",
+    },
+    { type: "observe", placement: "orchestrator@mbp", ready: false },
+  ),
 ];

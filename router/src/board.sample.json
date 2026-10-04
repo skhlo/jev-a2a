@@ -51,7 +51,7 @@
       "participant": "orchestrator",
       "host": "mbp",
       "session": "A1",
-      "ready": true,
+      "ready": false,
       "hold": false,
       "delivery": {
         "id": "D1",
@@ -334,9 +334,13 @@
       "judgments": [
         {
           "choice": "incus",
-          "probabilities": null,
+          "probabilities": {
+            "environment": 0.4,
+            "incus": 0.55,
+            "none": 0.05
+          },
           "model": "jev-1.13.0",
-          "valid": false,
+          "valid": true,
           "threshold": 0.9
         }
       ],
@@ -431,7 +435,7 @@
         {
           "n": 41,
           "actor": "Jev",
-          "text": "T5: Jev output was invalid. The sender must name a recipient."
+          "text": "T5: no confident owner (incus 0.55). The sender must choose."
         },
         {
           "n": 44,
@@ -550,11 +554,6 @@
   },
   "log": [
     {
-      "n": 43,
-      "actor": "Router",
-      "text": "Clock at 1790761460000."
-    },
-    {
       "n": 44,
       "actor": "Router",
       "text": "T5: sender chose incus."
@@ -617,7 +616,7 @@
     {
       "n": 56,
       "actor": "Adapter",
-      "text": "orchestrator@mbp: ready, session A1."
+      "text": "orchestrator@mbp: not ready, session A1."
     },
     {
       "n": 57,
@@ -646,6 +645,11 @@
     },
     {
       "n": 62,
+      "actor": "Adapter",
+      "text": "orchestrator@mbp: not ready, session A1."
+    },
+    {
+      "n": 63,
       "actor": "Router",
       "text": "Clock at 1790761500000."
     }

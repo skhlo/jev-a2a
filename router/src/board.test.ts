@@ -429,12 +429,14 @@ test("the sample holds a participant-sent task with a notice in each state the d
     sent.map((t) => [
       t.id,
       t.via,
+      t.judgments.map((j) => j.valid),
       t.notices.map((n) => [n.key, n.session, n.outcome]),
     ]),
     [
       [
         "T5",
         "orchestrator@mbp",
+        [true],
         [
           ["choose/1", null, "withdrawn"],
           ["question/D4/Q5", "A1", "accepted"],
