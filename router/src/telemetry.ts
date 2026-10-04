@@ -1,7 +1,7 @@
 // What the router last saw of each served session beyond its readiness:
 // the adapter's snapshot, reduced to the fields the board shows. It is not
-// part of the record: an observation is journaled only when readiness or
-// the session changes, and a snapshot changes every run (`updatedAt`,
+// part of the record: an observation is journaled only when readiness, the
+// session or the hold changes, and a snapshot changes every run (`updatedAt`,
 // tokens). The shell writes it whole after each run's observations as
 // `telemetry.json` beside the journal, replacing the file by rename; the
 // board and `router status` read it without a lock and show what they

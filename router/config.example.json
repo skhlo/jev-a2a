@@ -43,7 +43,8 @@
     "listen": "127.0.0.1:7677",
     "board": "127.0.0.1:7678",
     "identities": {},
-    "wake": 20
+    "wake": 20,
+    "poll": 0
   },
   "jev": { "model": "jev-latest" },
   "telemetry": { "sheet": true }

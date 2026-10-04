@@ -32,6 +32,10 @@ export type RouterConfig = Config & {
     // Seconds between runs while something waits for a session to be seen
     // idle; 0 leaves serve to run on events alone.
     wake: number;
+    // Seconds after the end of any run before serve runs again regardless,
+    // so the board's telemetry is at most this plus one run old; 0 polls
+    // nothing.
+    poll: number;
   };
   // Jev for unaddressed requests. The API key comes from TYPESAFE_API_KEY.
   jev: { model: string; url?: string; timeoutMs?: number };
@@ -93,6 +97,9 @@ export function loadConfig(path: string): RouterConfig {
   const wake = serve.wake === undefined ? 20 : serve.wake;
   if (typeof wake !== "number" || !(wake >= 0 && wake <= 3600))
     return fail("serve.wake is a number of seconds, 0 to 3600");
+  const poll = serve.poll === undefined ? 0 : serve.poll;
+  if (typeof poll !== "number" || !(poll >= 0 && poll <= 3600))
+    return fail("serve.poll is a number of seconds, 0 to 3600");
   const identities: Record<string, string[]> = {};
   if (serve.identities !== undefined) {
     if (!isRecord(serve.identities))
@@ -130,6 +137,7 @@ export function loadConfig(path: string): RouterConfig {
       board,
       identities,
       wake,
+      poll,
     },
     jev: {
       model:

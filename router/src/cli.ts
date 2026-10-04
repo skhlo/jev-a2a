@@ -179,13 +179,15 @@ async function serve(config: RouterConfig): Promise<void> {
   const token = process.env.ROUTER_TOKEN;
   if (!token) fail("ROUTER_TOKEN is not set; add it to secrets.env.");
   // Runs are serialized by the runner; while anything waits only for a
-  // session, it looks again every serve.wake seconds. The CLI on this host
+  // session, it looks again every serve.wake seconds, and with serve.poll
+  // set it runs that long after the end of any run regardless. The CLI on this host
   // writes the record without passing through serve, so the runner also
   // watches the journal file.
   mkdirSync(config.home, { recursive: true });
   const runner = serveRunner({
     open,
     delayMs: config.serve.wake * 1000,
+    pollMs: config.serve.poll * 1000,
     waits: waitsReader(config),
     log: (line) => console.log(line),
     watch: (onChange) => {

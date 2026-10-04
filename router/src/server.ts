@@ -63,12 +63,13 @@ export const waitsReader = (config: RouterConfig) => (): boolean => {
 // The serve runner: one run at a time through a queue (so the journal lock
 // is never contended from inside the server), and a look again every
 // `delayMs` while the record has work waiting only for a session to be seen
-// idle. A quiet router arms nothing. Three things arm the loop: a run's own
-// state at its end, a first run at start, and the journal growing under
-// another writer (the CLI on this host), read without the lock. Serve's own
-// appends also move the journal, so a change seen while a run is in
-// progress is ignored: that run decides at its end, and the interval counts
-// from there.
+// idle, and, with `pollMs`, a run that long after any run regardless.
+// Without a poll a quiet router arms nothing. Three things arm the loop: a
+// run's own state at its end, a first run at start, and the journal growing
+// under another writer (the CLI on this host), read without the lock.
+// Serve's own appends also move the journal, so a change seen while a run
+// is in progress is ignored: that run decides at its end, and both
+// intervals count from there.
 export type Timers<H> = {
   set: (fn: () => void, ms: number) => H;
   clear: (handle: H) => void;
@@ -86,6 +87,10 @@ export type RunnerShell = {
 export type RunnerDeps<H> = {
   open(): Promise<RunnerShell>;
   delayMs: number;
+  // A run this long after the end of the last one, whether or not anything
+  // waits, so the telemetry is at most this plus one run old; 0 runs on
+  // demand only.
+  pollMs: number;
   // Whether the record has work waiting for a served session, without the lock.
   waits(): boolean;
   log(line: string): void;
@@ -116,19 +121,40 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   let queue: Promise<unknown> = Promise.resolve();
   let busy = false;
   let armed: H | null = null;
+  let polled: H | null = null;
   let settle: H | null = null;
   let stopped = false;
   let watcher: { close(): void } | null = null;
 
-  const arm = (waiting: boolean): void => {
+  const armWake = (waiting: boolean): void => {
     if (!waiting || stopped || deps.delayMs <= 0 || armed !== null) return;
     armed = timers.set(() => {
       armed = null;
       void unattended("wake");
     }, deps.delayMs);
   };
-  // One run: the event, if any, then every deliverable command; the loop
-  // is armed from the run's own state before the shell closes.
+  // The poll is measured from the end of the last run, whatever started
+  // it, so runs never overlap and an active router polls no extra.
+  const armPoll = (): void => {
+    if (stopped || deps.pollMs <= 0 || polled !== null) return;
+    polled = timers.set(() => {
+      polled = null;
+      void unattended("poll");
+    }, deps.pollMs);
+  };
+  // A run that is about to look disarms both timers: it is the look they
+  // were for, and its end arms them again from its own state. A rejected
+  // event looks at nothing and leaves them be.
+  const disarm = (): void => {
+    if (armed !== null) timers.clear(armed);
+    if (polled !== null) timers.clear(polled);
+    armed = null;
+    polled = null;
+  };
+  // One run: the event, if any, then every deliverable command; the look
+  // is armed from the run's own state before the shell closes, the poll
+  // after it. A run that fails leaves a look armed, so waiting work is
+  // tried again at the interval rather than stalled until the next event.
   const runOnce = async (event: Event | null): Promise<Run> => {
     busy = true;
     try {
@@ -137,14 +163,20 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
         const outcome: Outcome = event
           ? shell.apply(event)
           : { ok: true, message: "run" };
-        const report = outcome.ok ? await shell.deliver() : [];
-        arm(shell.waits());
+        if (!outcome.ok) return { outcome, report: [] };
+        disarm();
+        const report = await shell.deliver();
+        armWake(shell.waits());
         return { outcome, report };
       } finally {
         await shell.close();
       }
+    } catch (error: unknown) {
+      armWake(true);
+      throw error;
     } finally {
       busy = false;
+      armPoll();
     }
   };
   const enqueue = (event: Event | null): Promise<Run> => {
@@ -172,7 +204,6 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       deps.log(
         `${label}: ${error instanceof Error ? error.message : String(error)}`,
       );
-      arm(true);
     }
   };
   const onChange = (): void => {
@@ -181,7 +212,7 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       settle = null;
       if (busy || stopped) return;
       try {
-        arm(deps.waits());
+        armWake(deps.waits());
       } catch (error: unknown) {
         deps.log(
           `watch: ${error instanceof Error ? error.message : String(error)}`,
@@ -198,9 +229,8 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
     stop() {
       stopped = true;
       watcher?.close();
-      if (armed !== null) timers.clear(armed);
+      disarm();
       if (settle !== null) timers.clear(settle);
-      armed = null;
       settle = null;
     },
   };
