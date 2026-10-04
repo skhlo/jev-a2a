@@ -76,7 +76,7 @@ placement, a host not in `hosts`, or an empty value.
 | `board`      | Where the board is served. **Must be loopback** (`127.0.0.1`, `localhost` or `[::1]`); the board trusts the login header Tailscale Serve sets, so nothing else may reach it.          | `127.0.0.1:7678` |
 | `identities` | Tailnet login to the list of principals it acts as on the board. Each must be a configured principal. `GET /whoami` on the board shows the `tailscale-user-login` header Serve sends. | `{}`             |
 | `wake`       | Seconds between looks while work waits only for a session to be seen idle; `0` looks on events alone. 0 to 3600.                                                                      | `20`             |
-| `poll`       | Seconds after any run before `serve` runs again regardless, so the board's telemetry is never older than this; `0` polls nothing. 0 to 3600. Each poll is a run and its Paseo calls.  | `0`              |
+| `poll`       | Seconds after the end of any run before `serve` runs again regardless, so the board's telemetry is at most this plus one run old; `0` polls nothing. 0 to 3600.                       | `0`              |
 
 ### `jev`
 

@@ -358,7 +358,7 @@ function fakeRunner(script: {
       });
     },
     delayMs: script.delayMs ?? 20_000,
-    ...(script.pollMs === undefined ? {} : { pollMs: script.pollMs }),
+    pollMs: script.pollMs ?? 0,
     waits: script.recordWaits ?? (() => false),
     log: (line) => log.push(line),
     watch: (onChange) => {
@@ -378,9 +378,11 @@ function fakeRunner(script: {
     (release as () => void)();
     await settle();
   };
-  // Fires the next armed timer, which is the wake or the watcher's settle.
+  // Fires the next armed timer (the wake, the poll or the watcher's
+  // settle), or the one with the given delay.
   const fire = async (ms?: number): Promise<void> => {
     const at = ms === undefined ? 0 : pending.findIndex((t) => t.ms === ms);
+    assert.ok(at >= 0, `a ${ms}ms timer was armed`);
     const next = pending.splice(at, 1)[0];
     assert.ok(next, "a timer was armed");
     next.fn();
@@ -531,7 +533,7 @@ test("runner: a look that fails is logged and tried again at the interval; a zer
   off.runner.stop();
 });
 
-test("runner: the poll runs after any run whether or not anything waits, measured from the run's end, and stops with the runner", async () => {
+test("runner: the poll runs after any run whether or not anything waits, is measured from each run's end, and stops with the runner", async () => {
   let waiting = false;
   const f = fakeRunner({ waits: () => waiting, pollMs: 30_000 });
   f.runner.start();
@@ -542,15 +544,16 @@ test("runner: the poll runs after any run whether or not anything waits, measure
   // The poll runs deliver only and logs like a wake.
   await f.fire(30_000);
   assert.ok(f.inRun());
+  assert.deepEqual(f.timers(), [], "a run disarms the poll");
   await f.finishRun();
   assert.deepEqual(f.log, [
     "start: Recorded D2/M2 as attempting to A1 before calling the adapter.",
     "poll: Recorded D2/M2 as attempting to A1 before calling the adapter.",
   ]);
   assert.deepEqual(f.timers(), [30_000]);
-  // An event run in between restarts the poll from its own end; while work
-  // waits, the look and the poll are both armed, and the look's run
-  // restarts the poll too.
+  // An event run disarms the pending poll and arms a new one from its own
+  // end: the handle after the run is not the one before it.
+  const before = f.pending[0];
   waiting = true;
   const handled = f.runner.handle({
     type: "submit",
@@ -559,19 +562,39 @@ test("runner: the poll runs after any run whether or not anything waits, measure
     text: "x",
   });
   await f.settle();
-  assert.deepEqual(
-    f.timers(),
-    [30_000],
-    "the old poll stays until the run ends",
-  );
+  assert.deepEqual(f.timers(), [], "the event run disarmed the poll");
   await f.finishRun();
   await handled;
-  assert.deepEqual(f.timers().sort(), [20_000, 30_000]);
+  assert.deepEqual(f.timers().sort(), [20_000, 30_000], "a look and a poll");
+  assert.notEqual(
+    f.pending.find((t) => t.ms === 30_000),
+    before,
+  );
+  // A look's run disarms both and re-arms both; never two of either.
   await f.fire(20_000);
+  assert.deepEqual(f.timers(), []);
   await f.finishRun();
-  assert.deepEqual(f.timers().sort(), [20_000, 30_000], "one of each");
+  assert.deepEqual(f.timers().sort(), [20_000, 30_000]);
+  // A failed poll still re-arms the poll (and the wake retry).
   f.runner.stop();
   assert.deepEqual(f.timers(), []);
+
+  let fail: Error | null = new Error("paseo down");
+  const g = fakeRunner({
+    waits: () => false,
+    pollMs: 30_000,
+    fail: () => fail,
+  });
+  g.runner.start();
+  await g.settle();
+  assert.deepEqual(g.timers().sort(), [20_000, 30_000], "retry and poll");
+  fail = null;
+  // stop during a run: the run's end arms nothing.
+  await g.fire(30_000);
+  assert.ok(g.inRun());
+  g.runner.stop();
+  await g.finishRun();
+  assert.deepEqual(g.timers(), []);
 });
 
 test("sameSite: browsers must come from the page; other clients pass", () => {

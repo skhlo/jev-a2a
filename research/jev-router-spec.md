@@ -95,8 +95,9 @@ blocked only on a session being seen idle or on an unconfirmed send there
 to nudge it. Anything else that waits (a hold, a hand-back, an open
 question, a replaced session) waits on an event, and a quiet router arms
 nothing, unless the deployment sets `serve.poll` (added 2026-10-05) and
-trades a run every so many seconds for a board whose telemetry is never
-older than that.
+trades a run every so many seconds for a board whose telemetry is at most
+that plus one run old; a run that changes nothing appends nothing to the
+journal, so the poll costs calls, not record.
 
 ## Configuration
 
@@ -496,7 +497,8 @@ Deployment decisions taken on 2026-09-30, outside the contract:
   rule are in `docs/operating.md`). One instance per host: the second finds the port taken
   and says so. Deliveries happen on events and runs, and `serve` looks again
   every `serve.wake` seconds while the record has work waiting only for a
-  session to be seen idle; it watches the journal file so a CLI run on the
+  session to be seen idle, and every `serve.poll` seconds after any run
+  when that is set; it watches the journal file so a CLI run on the
   router host, which does not pass through `serve`, arms that look too.
 - The vault participant's responsibility text is authored next to the vault's
   `AGENTS.md`, from its role section and the `CONTEXT.md` glossary, with

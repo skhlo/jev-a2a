@@ -32,8 +32,9 @@ export type RouterConfig = Config & {
     // Seconds between runs while something waits for a session to be seen
     // idle; 0 leaves serve to run on events alone.
     wake: number;
-    // Seconds after any run before serve runs again regardless, so the
-    // board's telemetry is never older than this; 0 polls nothing.
+    // Seconds after the end of any run before serve runs again regardless,
+    // so the board's telemetry is at most this plus one run old; 0 polls
+    // nothing.
     poll: number;
   };
   // Jev for unaddressed requests. The API key comes from TYPESAFE_API_KEY.
