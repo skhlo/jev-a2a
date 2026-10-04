@@ -441,7 +441,7 @@ ${body}
         : "",
       a.thinking ? slot(`${ap}.thinking`, esc(a.thinking)) : "",
       a.mode ? slot(`${ap}.mode`, esc(a.mode)) : "",
-      a.usage?.costUsd
+      a.usage && a.usage.costUsd !== null
         ? slot(`${ap}.usage.costUsd`, `$${a.usage.costUsd.toFixed(2)}`, "num")
         : "",
       a.error ? slot(`${ap}.error`, esc(a.error), "warn") : "",

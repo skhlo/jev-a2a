@@ -68,7 +68,6 @@ const scripted = (script: Script): ShellOptions => ({
     Promise.resolve({
       observe: (_agent, seen) =>
         (script.observe ?? (() => Promise.resolve(idle)))(seen),
-
       send: (_agent, key, text) =>
         (script.send ?? (() => Promise.resolve("accepted" as const)))(
           key,

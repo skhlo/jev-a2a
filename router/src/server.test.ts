@@ -1024,17 +1024,38 @@ test("board: the model carries the telemetry file beside the record; a bad file 
       ],
     );
     // A damaged file: none again, and one log line however often the page
-    // refreshes; a different damage is a new line.
+    // refreshes; a different damage is a new line; two damaged entries are
+    // two lines, once; after a clean read the same damage is news again.
     writeFileSync(join(record, "telemetry.json"), "{");
     for (let i = 0; i < 3; i += 1)
       assert.equal((await model()).telemetryAt, null);
     writeFileSync(join(record, "telemetry.json"), '{"version":"x"}');
     await model();
     await model();
+    writeFileSync(
+      join(record, "telemetry.json"),
+      JSON.stringify({ ...telemetry, placements: { a: 1, b: 2 } }),
+    );
+    for (let i = 0; i < 3; i += 1)
+      assert.equal((await model()).telemetryAt, telemetry.at);
+    writeTelemetry(record, telemetry);
+    await model();
+    writeFileSync(join(record, "telemetry.json"), "{");
+    await model();
     assert.deepEqual(
       logged.map((line) => line.split(":")[0]),
-      ["telemetry.json is not JSON", "telemetry.json is not a telemetry file"],
+      [
+        "telemetry.json is not JSON",
+        "telemetry.json is not a telemetry file",
+        "telemetry.json",
+        "telemetry.json",
+        "telemetry.json is not JSON",
+      ],
     );
+    assert.deepEqual(logged.slice(2, 4), [
+      "telemetry.json: the entry for a is not a snapshot",
+      "telemetry.json: the entry for b is not a snapshot",
+    ]);
   } finally {
     server.close();
   }

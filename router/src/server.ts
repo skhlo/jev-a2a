@@ -25,7 +25,7 @@ import {
 import { renderBoard } from "./board-page.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
-import { readTelemetry } from "./telemetry.ts";
+import { readTelemetry, type Telemetry } from "./telemetry.ts";
 import { fold, servedBy } from "./shell.ts";
 import { waitsOnSessions } from "./core.ts";
 import type { Event, Outcome } from "./types.ts";
@@ -350,8 +350,10 @@ export function boardListener(
   const { config } = deps;
   const log = deps.log ?? ((): void => undefined);
   const now = deps.now ?? Date.now;
-  // A bad telemetry file is logged once, not on every refresh.
-  let telemetryError: string | null = null;
+  // A bad telemetry file is logged once, not on every refresh: each
+  // complaint is logged the first time it is heard, and the slate is wiped
+  // once a read passes without one, so the same damage returning is news.
+  const telemetryErrors = new Set<string>();
   const model = (at: number, actor: Actor | null) => {
     const entries = readJournal(config.home);
     return boardModel(
@@ -360,12 +362,19 @@ export function boardListener(
       at,
       messageTimes(entries),
       actor,
-      readTelemetry(config.home, (message) => {
-        if (message === telemetryError) return;
-        telemetryError = message;
-        log(message);
-      }),
+      readTelemetryOnce(),
     );
+  };
+  const readTelemetryOnce = (): Telemetry | null => {
+    const heard = new Set<string>();
+    const telemetry = readTelemetry(config.home, (message) => {
+      heard.add(message);
+      if (telemetryErrors.has(message)) return;
+      telemetryErrors.add(message);
+      log(message);
+    });
+    if (heard.size === 0) telemetryErrors.clear();
+    return telemetry;
   };
   return (req, res) => {
     const url = new URL(req.url ?? "/", "http://board");

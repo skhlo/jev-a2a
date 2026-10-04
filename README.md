@@ -250,8 +250,9 @@ committed sample matches.
     `usage` (`input`, `cached` and `output` tokens, `costUsd`), the last
     `error`, the agent's `title` and `cwd`. Every field but `seen`,
     `status` and `permissions` is `null` when the daemon reported nothing
-    for it; `missing` and `unreachable` snapshots carry only `seen`,
-    `status` and, for the latter, `error`.
+    for it (a token count the daemon left out of a reported usage is 0);
+    `missing` and `unreachable` snapshots carry only `seen`, `status` and,
+    for the latter, `error`.
 - `open` and `finished`: tasks, newest first; `finished` keeps the last ten.
   Each has `id`, `status`, `a2a`, `source`, `messageId`, `recipient`,
   `chosenBy` (`address`, `judgment`, `sender` or `null`), `text`,
