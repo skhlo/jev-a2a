@@ -1,4 +1,4 @@
-// --text and --text-file for the CLI, and the same rule in the reply client,
+// --text and --text-file for the CLI, and the same rule in the client,
 // run as the process a participant runs.
 import test from "node:test";
 import assert from "node:assert/strict";

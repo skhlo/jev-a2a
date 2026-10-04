@@ -347,7 +347,7 @@ export function describeNeed(item: NeedsYouItem): string {
     case "choose":
       return `${item.taskId}: choose a recipient (${item.reason}${item.suggestions.length ? `; suggested ${item.suggestions.join(", ")}` : ""})`;
     case "answer":
-      return `${item.taskId}: answer ${item.questionId} "${item.text}"`;
+      return `${item.taskId}: answer ${item.questionId} on ${item.deliveryId} "${item.text}"`;
     case "resolve":
       return `${item.deliveryId}: resolve ${item.messageId} (${item.reason})`;
   }

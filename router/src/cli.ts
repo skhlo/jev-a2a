@@ -48,7 +48,8 @@ const USAGE = `router: a prompt with an envelope and a record
   router eval [--set <file>] [--model <id>] [--as <principal>]
                                                judge the labeled set with this config's texts; nothing recorded
   router status [<task>]                       the record
-  router needs-you [--as <principal>]          decisions waiting on a person
+  router needs-you [--as <principal|participant>]
+                                               decisions waiting on a person, or owed to a participant sender
   router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ... | --text-file <path>] [--message <id>]
   router answer --task <T> --question <Q> [--delivery <D>] (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
   router observe <participant@host> --hold | --release
@@ -157,7 +158,7 @@ if (command === "serve") {
   process.exit(exitCode);
 }
 
-// `router serve`: replies and answers from other hosts, and the board. Each
+// `router serve`: events from participants on other hosts, and the board. Each
 // event is one shell run, and runs are handled one at a time so the journal
 // lock is never contended from inside the server.
 async function serve(config: RouterConfig): Promise<void> {

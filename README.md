@@ -46,18 +46,18 @@ participant that runs on several hosts.
 
 ## Commands
 
-| Command                                            | What it does                                                   |
-| -------------------------------------------------- | -------------------------------------------------------------- |
-| `router submit [--to P [--hosts a,b]] <text>`      | Record a request and deliver it                                |
-| `router status [<task>]`                           | Show the record                                                |
-| `router needs-you`                                 | List decisions waiting on a person                             |
-| `router choose --task T --to P`                    | Name the recipient when the router handed the choice back      |
-| `router answer --task T --question Q --text ...`   | Answer a question an agent asked                               |
-| `router reply --task T --in-reply-to M --kind ...` | An agent's reply: `working`, `question`, `completed`, `failed` |
-| `router run`                                       | Observe the sessions and deliver what is eligible              |
-| `router serve`                                     | Accept events from other hosts over HTTP; serve the board      |
-| `router eval`                                      | Judge a labeled request set with the configured texts          |
-| `router cancel <task>`                             | Cancel a task                                                  |
+| Command                                                         | What it does                                                   |
+| --------------------------------------------------------------- | -------------------------------------------------------------- |
+| `router submit [--to P [--hosts a,b]] <text>`                   | Record a request and deliver it                                |
+| `router status [<task>]`                                        | Show the record                                                |
+| `router needs-you`                                              | List decisions waiting on a person                             |
+| `router choose --task T --to P`                                 | Name the recipient when the router handed the choice back      |
+| `router answer --task T --question Q [--delivery D] --text ...` | Answer a question an agent asked                               |
+| `router reply --task T --in-reply-to M --kind ...`              | An agent's reply: `working`, `question`, `completed`, `failed` |
+| `router run`                                                    | Observe the sessions and deliver what is eligible              |
+| `router serve`                                                  | Accept events from other hosts over HTTP; serve the board      |
+| `router eval`                                                   | Judge a labeled request set with the configured texts          |
+| `router cancel <task>`                                          | Cancel a task                                                  |
 
 `reply`, `answer` and `submit` also take `--text-file <path>` in place of
 `--text`, for text that a shell cannot quote in one argument. `router` with
@@ -85,7 +85,7 @@ them under "Notices to".
 router submit --to orchestrator "The board's log panel clips its last line at 1280 wide."
 # The design agent's session hears back, for example:
 # [router T41 question/D7/R2] orchestrator asks about your request. Answer with:
-#   router answer --as <session> --task T41 --question R2 --text "<answer>" ...
+#   router answer --as <session> --task T41 --delivery D7 --question R2 --text "<answer>" ...
 ```
 
 ## The board

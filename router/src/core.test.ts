@@ -1637,6 +1637,34 @@ test("two deliveries of one fan-out asking under the same id are told and answer
   });
   assert.equal(must(Core.findDelivery(s, "D2")).question, null);
   assert.equal(must(Core.findDelivery(s, "D1")).question?.id, "Q1");
+  // The same message id for the other delivery is a conflict, not a repeat;
+  // a delivery the task does not have is named as such.
+  expectReject(
+    s,
+    {
+      type: "answer",
+      by: ORCH,
+      taskId: "T1",
+      messageId: "A1",
+      questionId: "Q1",
+      deliveryId: "D1",
+      text: "interactive",
+    },
+    "conflict",
+  );
+  expectReject(
+    s,
+    {
+      type: "answer",
+      by: ORCH,
+      taskId: "T1",
+      messageId: "A9",
+      questionId: "Q1",
+      deliveryId: "D7",
+      text: "x",
+    },
+    "not_found",
+  );
   assert.deepEqual(
     Core.dueNotices(s, task(s)).map((d) => d.key),
     ["question/D1/Q1"],
@@ -2796,30 +2824,54 @@ function randomEvent(s: State, r: () => number): Event {
     case "update": {
       const d = deliveries.length ? pick(deliveries) : null;
       const by = d?.session && r() < 0.8 ? d.session : pick(sessions);
+      const kind = pick([
+        "working",
+        "question",
+        "question",
+        "completed",
+        "failed",
+      ] as const);
       return {
         type: "update",
         by,
         taskId: d?.taskId ?? taskId,
-        messageId: `R${Math.floor(r() * 12)}`,
+        // Questions draw from a small pool so two deliveries of one
+        // fan-out sometimes ask under the same id.
+        messageId:
+          kind === "question"
+            ? `R${Math.floor(r() * 3)}`
+            : `R${3 + Math.floor(r() * 9)}`,
         inReplyTo:
           sends.length && r() < 0.9
             ? d && r() < 0.7
               ? currentSend(d).messageId
               : pick(sends)
             : "M404",
-        kind: pick(["working", "question", "question", "completed", "failed"]),
+        kind,
         text: pick(["x", "y"]),
       };
     }
-    case "answer":
+    case "answer": {
+      // Half the time aim at an open question on its own task, mostly by
+      // question id alone, now and then naming the delivery; otherwise
+      // anything, which the core must refuse.
+      const asking = deliveries.filter((d) => open(d) && d.question);
+      const aimed = asking.length && r() < 0.5 ? pick(asking) : null;
       return {
         type: "answer",
         by: pick(["you", ORCH]),
-        taskId,
+        taskId: aimed?.taskId ?? taskId,
         messageId: `A${Math.floor(r() * 6)}`,
-        questionId: questions.length && r() < 0.8 ? pick(questions) : "R0",
+        questionId:
+          aimed?.question?.id ??
+          (questions.length && r() < 0.8 ? pick(questions) : "R0"),
+        deliveryId:
+          r() < 0.3 && deliveries.length
+            ? (aimed?.id ?? pick(deliveries).id)
+            : null,
         text: "ok",
       };
+    }
     case "cancel":
       return {
         type: "cancel",
@@ -2958,6 +3010,7 @@ test("random event sequences never violate the contract", () => {
     "notice repeat after not_sent",
     "notice repeat after unknown",
     "reject:not_due",
+    "reject:ambiguous",
     "resend after not_sent",
     "needs:choose:no_owner",
     "needs:choose:low_confidence",

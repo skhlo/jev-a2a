@@ -218,7 +218,7 @@ export async function openShell(
   // and the client ignores (it is always $PASEO_AGENT_ID). A final notice
   // carries each delivery's last word.
   function noticeText(task: Task, due: NoticeDue): string {
-    const { key, kind } = due;
+    const { key } = due;
     const placement = state.placements[task.via ?? ""];
     const command =
       config.hosts[placement?.host ?? ""]?.replyCommand ?? "router";
@@ -228,7 +228,7 @@ export async function openShell(
       const delivery = task.deliveries.find((d) => d.id === due.deliveryId);
       return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --delivery ${due.deliveryId} --question ${due.questionId} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
     }
-    if (kind === "choose") {
+    if (due.kind === "choose") {
       const routing =
         task.routing?.state === "needs_recipient" ? task.routing : null;
       const suggested = routing?.suggestions.length

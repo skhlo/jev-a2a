@@ -602,8 +602,8 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
     const answer = find("answer", "taskId", "T2");
     assert.ok(answer?.type === "answer");
     assert.deepEqual(
-      [answer.by, answer.questionId, answer.text],
-      ["you", "Q2", "seen in the session"],
+      [answer.by, answer.questionId, answer.deliveryId, answer.text],
+      ["you", "Q2", "D1", "seen in the session"],
     );
     // D3's send was accepted, so the form offers finished alone.
     assert.deepEqual(find("resolve", "deliveryId", "D3"), {

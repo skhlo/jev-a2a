@@ -197,7 +197,7 @@ const noticeInFlight = (state: State, session: string): boolean =>
 
 // A session that a placement no longer binds may finish its work but not
 // start any: no new request, no choice of recipient.
-function replacedSession(state: State, by: string): Rejected | null {
+function notCurrentSession(state: State, by: string): Rejected | null {
   const session = state.sessions[by];
   if (
     session &&
@@ -417,8 +417,8 @@ export function noticeBlockedReason(
 export function noticeWaits(
   state: State,
   task: Task,
-): { key: string; why: BlockedReason }[] {
-  const waits: { key: string; why: BlockedReason }[] = [];
+): { key: string; why: NoticeWait }[] {
+  const waits: { key: string; why: NoticeWait }[] = [];
   for (const due of dueNotices(state, task)) {
     const why = noticeBlockedReason(state, task, due.key);
     if (why && why !== "told" && why !== "closed" && why !== "not_pending")
@@ -426,6 +426,7 @@ export function noticeWaits(
   }
   return waits;
 }
+type NoticeWait = Exclude<BlockedReason, "closed" | "not_pending">;
 
 // One Choice over the participants the sender could address when it asked,
 // plus an abstention.
@@ -688,7 +689,7 @@ const handlers: Handlers = {
         "unauthenticated",
         "Only the user or a current participant session can submit.",
       );
-    const replaced = replacedSession(state, by);
+    const replaced = notCurrentSession(state, by);
     if (replaced) return replaced;
     const session = state.sessions[by];
     const invalid = badMessageId(messageId) ?? badText(state, text);
@@ -813,7 +814,8 @@ const handlers: Handlers = {
   choose(state, { by, taskId, to }) {
     const task = findTask(state, taskId);
     if (!task) return reject("not_found", "No such request.");
-    const forbidden = notSender(state, by, task) ?? replacedSession(state, by);
+    const forbidden =
+      notSender(state, by, task) ?? notCurrentSession(state, by);
     if (forbidden) return forbidden;
     if (isTerminal(task) || task.routing?.state !== "needs_recipient")
       return reject(
@@ -993,7 +995,7 @@ const handlers: Handlers = {
       badText(state, text);
     if (invalid) return invalid;
     const key = `${task.source}/${messageId}`;
-    const content = digest({ taskId, questionId, text });
+    const content = digest({ taskId, questionId, deliveryId, text });
     const prior = priorReceipt(state, key, content);
     if (prior) return prior;
     if (task.final)
@@ -1001,6 +1003,11 @@ const handlers: Handlers = {
         "terminal",
         `${task.id} is ${task.final.status} and accepts no further messages.`,
       );
+    if (
+      deliveryId !== null &&
+      !task.deliveries.some((d) => d.id === deliveryId)
+    )
+      return reject("not_found", `${task.id} has no delivery ${deliveryId}.`);
     const asking = task.deliveries.filter(
       (d) =>
         isOpen(d) &&

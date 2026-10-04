@@ -74,7 +74,7 @@ test("the model lists what waits on a person and the open and finished tasks", (
   assert.ok(you);
   assert.deepEqual(you.items.map(describeNeed), [
     "T1: choose a recipient (low_confidence; suggested orchestrator, knowledge, environment, incus)",
-    'T2: answer Q2 "Force push?"',
+    'T2: answer Q2 on D1 "Force push?"',
   ]);
   assert.deepEqual(
     model.needsYou.find((n) => n.principal === "operator")?.items,
@@ -477,6 +477,7 @@ test("actionEvent: each form becomes its event, signed by the principal the role
   if (answer.ok && answer.event.type === "answer") {
     assert.equal(answer.event.text, "main please");
     assert.equal(answer.event.by, "you");
+    assert.equal(answer.event.deliveryId, null);
     assert.match(answer.event.messageId, /^m-/);
   }
   assert.deepEqual(of("action=cancel&task=T1"), {

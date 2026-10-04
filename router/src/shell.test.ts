@@ -325,10 +325,37 @@ test("a participant sender is told a question and the end through the adapter, e
     /^\[router T1 question\/D1\/Q1\] environment asks about your request\. Answer with: router answer --as A1 --task T1 --delivery D1 --question Q1 --text "<answer>" \(or --text-file <path>\)\.\n\nLogin shell or interactive\?$/,
   );
   assert.match(report.join("\n"), /T1\/question\/D1\/Q1: notice accepted/);
-  // Told once: another run with nothing new sends nothing.
+  // Told once: another run with nothing new sends nothing. A held sender
+  // is reported as what its next notice waits for.
   report = await shell.deliver();
   assert.equal(sent.length, 1);
   assert.doesNotMatch(report.join("\n"), /notice/);
+  shell.apply({ type: "observe", placement: "orchestrator@mbp", hold: true });
+  shell.apply({
+    type: "update",
+    by: "E1",
+    taskId: "T1",
+    messageId: "W1",
+    inReplyTo: "M1",
+    kind: "working",
+    text: "still thinking",
+  });
+  shell.apply({
+    type: "update",
+    by: "E1",
+    taskId: "T1",
+    messageId: "Q2",
+    inReplyTo: "M1",
+    kind: "question",
+    text: "Second thought: which user?",
+  });
+  report = await shell.deliver();
+  assert.match(report.join("\n"), /T1 notice question\/D1\/Q2 waits: held/);
+  assert.equal(sent.length, 1);
+  shell.apply({ type: "observe", placement: "orchestrator@mbp", hold: false });
+  report = await shell.deliver();
+  assert.equal(sent.at(-1)?.key, "N/T1/question/D1/Q2");
+  assert.equal(sent.length, 2);
   // The sender answers and the service finishes; the end is told next run.
   for (const event of [
     {
@@ -336,8 +363,8 @@ test("a participant sender is told a question and the end through the adapter, e
       by: "A1",
       taskId: "T1",
       messageId: "A1-1",
-      questionId: "Q1",
-      text: "Interactive.",
+      questionId: "Q2",
+      text: "The login user.",
     },
     { type: "observe", placement: "environment@mbp", ready: true },
     { type: "attempt", deliveryId: "D1" },
@@ -370,15 +397,15 @@ test("a participant sender is told a question and the end through the adapter, e
     /T1 notice final: mbp unreachable \(socket hang up\)/,
   );
   assert.match(report.join("\n"), /T1\/final: notice unknown/);
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
   refuse = false;
   report = await shell.deliver();
   assert.deepEqual(
     sent.map((s) => s.key),
-    ["N/T1/question/D1/Q1", "N/T1/final"],
+    ["N/T1/question/D1/Q1", "N/T1/question/D1/Q2", "N/T1/final"],
   );
   assert.match(
-    sent[1]?.text ?? "",
+    sent[2]?.text ?? "",
     /^\[router T1 final\] Your request is completed\. No reply is needed\.\n\nenvironment@mbp completed:\nzsh from the baseline$/,
   );
   await shell.close();
@@ -388,6 +415,7 @@ test("a participant sender is told a question and the end through the adapter, e
     shell.state.tasks[0]?.notices.map((n) => [n.key, n.outcome, n.trail]),
     [
       ["question/D1/Q1", "accepted", ["attempting", "accepted"]],
+      ["question/D1/Q2", "accepted", ["attempting", "accepted"]],
       [
         "final",
         "accepted",
@@ -396,7 +424,7 @@ test("a participant sender is told a question and the end through the adapter, e
     ],
   );
   report = await shell.deliver();
-  assert.equal(sent.length, 2);
+  assert.equal(sent.length, 3);
   assert.doesNotMatch(report.join("\n"), /notice/);
   await shell.close();
 });
