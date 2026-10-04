@@ -1,4 +1,4 @@
-// The board page: the v0.11 design drawn from the view model and the viewer,
+// The board page: the v0.12 design drawn from the view model and the viewer,
 // a pure function of both. The tests read what a viewer or the design agent
 // reads: text, data-paths, and the forms with their fields.
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
   identify,
   messageTimes,
   type BoardModel,
+  type PlacementView,
 } from "./board.ts";
 import {
   age,
@@ -22,6 +23,9 @@ import {
   label,
   left,
   renderBoard,
+  repo,
+  stale,
+  staleTask,
   time,
   type RenderOptions,
 } from "./board-page.ts";
@@ -39,9 +43,14 @@ import {
   viaJournal,
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
+import { sampleModel } from "./board-sample.ts";
 import { shots } from "./board-shots.ts";
 import type { Entry } from "./journal.ts";
-import { emptySnapshot, type Telemetry } from "./telemetry.ts";
+import {
+  emptySnapshot,
+  type AgentSnapshot,
+  type Telemetry,
+} from "./telemetry.ts";
 import type { Role } from "./types.ts";
 
 // Past every deadline in the fixture.
@@ -115,6 +124,9 @@ const groups = (html: string): Record<string, string[]> => {
       ]),
   );
 };
+// Whether the page's style holds a rule.
+const STYLE_HAS = (html: string, rule: string): boolean =>
+  (html.match(/<style>([^]*?)<\/style>/)?.[1] ?? "").includes(rule);
 const detailOf = (html: string): string =>
   html.slice(html.indexOf('class="panel detail"'), html.indexOf("</main>"));
 const selectedOf = (html: string): string | undefined =>
@@ -220,14 +232,42 @@ test("the formats: clocks, ages, countdowns, counts and labels as the design fix
     "2 running · 1,200 completed · 1 canceled",
   );
   assert.equal(counts({ running: 0, completed: 0 }), "");
+  // v0.12: a remote as owner/repo, from a web address, the scp form or an
+  // ssh URL; a bare name and a path as they are, less a trailing .git; a URL
+  // with no path keeps its host, as the generator does. The page escapes
+  // what repo returns.
+  assert.deepEqual(
+    [
+      "https://github.com/me/jev-a2a.git",
+      "git@github.com:me/dotfiles.git",
+      "ssh://git@github.com:22/me/repo.git",
+      "https://gitlab.example/group/sub/project",
+      "jev-a2a",
+      "/srv/git/repo.git",
+      "https://github.com",
+      "",
+      'https://evil.example/"><script>alert(1)</script>.git',
+    ].map(repo),
+    [
+      "me/jev-a2a",
+      "me/dotfiles",
+      "me/repo",
+      "group/sub/project",
+      "jev-a2a",
+      "/srv/git/repo",
+      "github.com",
+      "",
+      '"><script>alert(1)</script>',
+    ],
+  );
 });
 
-test("every data-path of the v0.11 design is rendered for the fixture or dropped with a reason", () => {
+test("every data-path of the v0.12 design is rendered for the fixture or dropped with a reason", () => {
   const lines = (name: string): string[] =>
     readFileSync(join(import.meta.dirname, "..", "design", name), "utf8")
       .split("\n")
       .filter((line) => line && !line.startsWith("#"));
-  const listed = lines("v0.11-paths.txt");
+  const listed = lines("v0.12-paths.txt");
   // The committed list is the extraction's output: distinct and sorted.
   assert.ok(listed.length > 100);
   assert.deepEqual(listed, [...new Set(listed)].sort());
@@ -236,7 +276,7 @@ test("every data-path of the v0.11 design is rendered for the fixture or dropped
   const shape = (path: string): string => path.replaceAll(/\[\d+\]/g, "[]");
   const design = [...new Set(listed.map(shape))].sort();
   const dropped = new Map(
-    lines("v0.11-dropped.txt").map((line): [string, string] => {
+    lines("v0.12-dropped.txt").map((line): [string, string] => {
       const at = line.lastIndexOf(" | ");
       return at < 0 ? [line, ""] : [line.slice(0, at), line.slice(at + 3)];
     }),
@@ -274,11 +314,11 @@ test("every data-path of the v0.11 design is rendered for the fixture or dropped
   assert.deepEqual(
     design.filter((path) => !rendered.has(path) && !dropped.has(path)),
     [],
-    "v0.11 paths neither rendered nor in design/v0.11-dropped.txt",
+    "v0.12 paths neither rendered nor in design/v0.12-dropped.txt",
   );
   for (const [path, reason] of dropped) {
     assert.ok(reason.trim(), `${path} is dropped without a reason`);
-    assert.ok(design.includes(path), `${path} is not a v0.11 path`);
+    assert.ok(design.includes(path), `${path} is not a v0.12 path`);
     assert.ok(!rendered.has(path), `${path} is rendered after all`);
   }
 });
@@ -349,8 +389,12 @@ test("the fixture's board: what needs you, what is in flight, what is done", () 
     detailHtml.indexOf('<div class="head">') <
       detailHtml.indexOf('<form class="form"'),
   );
-  assert.equal(textOf(html, "time(open[1].deadline)"), "10:10Z");
-  assert.equal(textOf(html, "left(open[1].deadline, at)"), "25m left");
+  // v0.12: the countdown carries the deadline as its title.
+  assert.ok(
+    html.includes(
+      '<span class="num end" data-path="left(open[1].deadline, at), time(open[1].deadline)" title="deadline 2026-09-30 10:10Z">25m left</span>',
+    ),
+  );
   // Jev's line in the thread, above and below the threshold.
   assert.ok(
     page(ME, { task: "T4" }).includes(
@@ -564,7 +608,8 @@ test("a valid record never breaks the page: Jev still judging, or a judgment wit
     text: "Plan the week",
   });
   const html = page(ME, { task: "T5" }, judging);
-  assert.deepEqual(textsOf(html, "open[0].status"), ["", "routing", "routing"]);
+  assert.deepEqual(textsOf(html, "open[0].status"), ["", "routing"]);
+  assert.equal(textOf(html, "open[0].status, open[0].a2a"), "routing");
   assert.equal(textOf(html, "open[0].routing", "div"), "judging");
   const invalid = extend(
     { type: "submit", by: "you", messageId: "M5", text: "Plan the week" },
@@ -671,7 +716,13 @@ test("a delivery without a reply reads as delivered once its send was accepted, 
 
 test("a task a participant sent lists the notices it was told; a person's task has no such table", () => {
   const html = page(ME, { task: "T5" }, viaJournal);
-  assert.equal(textOf(html, "open[0].source"), "orchestrator/M5");
+  // The head names the sender; its message is the title of "from ... at".
+  assert.equal(textOf(html, "open[0].source"), "orchestrator");
+  assert.ok(
+    html.includes(
+      '<span data-path="open[0].messageId" title="message M5 · orchestrator/M5">from ',
+    ),
+  );
   assert.equal(textOf(detailOf(html), "open[0].via"), "orchestrator@mbp");
   assert.match(strip(html), /Notices to\s*orchestrator@mbp/);
   assert.equal(textOf(html, "open[0].notices[0].key"), "question/D4/Q5");
@@ -716,10 +767,7 @@ test("v0.9: via in the head, from <via> on an open row, the notices table after 
   // withdrawn outcome carries its class.
   const done = page(ME, { task: "T5" }, sampleJournal);
   const head = done.match(/<div class="meta">([^]*?)<\/div>/)?.[1] ?? "";
-  assert.match(
-    strip(head),
-    /from orchestrator\/M5 via orchestrator@mbp at 09:44Z/,
-  );
+  assert.match(strip(head), /from orchestrator via orchestrator@mbp at 09:44Z/);
   const facts = strip(done.slice(done.indexOf('<div class="facts">')));
   assert.match(
     facts,
@@ -941,7 +989,13 @@ test("a finished task shows its verdict, not a countdown", () => {
       strip(detail.slice(0, detail.indexOf("</div>\n  </div>"))),
     ),
   );
-  assert.match(strip(detail), /deadline 10:15Z · 1 of 1 delivery/);
+  // v0.12: the deadline is the verdict's title.
+  assert.match(strip(detail), /from you at 09:15Z · 1 of 1 delivery/);
+  assert.ok(
+    detail.includes(
+      '<span class="end" data-path="finished[0].final, time(finished[0].deadline)" title="deadline 2026-09-30 10:15Z">1 of 1 delivery</span>',
+    ),
+  );
   // After every deadline nothing is open, so the newest finished is selected.
   const later = page(null, {}, journal, LATER);
   assert.equal(selectedOf(later), "T4");
@@ -1082,7 +1136,7 @@ test("the page escapes what it shows, takes only a known palette, and dates its 
   assert.ok(html.includes('<div id="app" data-refresh="7">'));
   assert.ok(
     html.includes(
-      'data-path="time(at)" title="2026-09-30 09:45Z">09:45Z</span>',
+      '<span class="tick" data-path="time(at)" title="built 2026-09-30 09:45:00Z · no telemetry · jev-router-board/1">updated 09:45Z</span>',
     ),
   );
   assert.ok(html.includes('<html lang="en" data-theme="flexoki">'));
@@ -1169,7 +1223,7 @@ test("a real record: a long request keeps a short title and session ids are shor
   );
 });
 
-test("v0.10 health: each card closes with the status line, the snapshot's age and the lever; the meter and the harness tags; no telemetry without a snapshot", () => {
+test("v0.10 health: each card closes with the status line, the snapshot's age on a card with a delivery, and the lever; the meter; no telemetry without a snapshot", () => {
   const seen = rail(renderBoard(model(ME, sampleJournal, NOW, telemetry)));
   const rows = [...seen.matchAll(/<div class="tele">([^]*?)<\/div>/g)].map(
     (m) =>
@@ -1183,44 +1237,37 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
     // Stopped at a permission prompt: the names, in the accent; two
     // subagents run (v0.11).
     "asks permission: Bash · 2 subagents · seen 10sHold",
-    // Idle after a finished turn: how long ago it ended; the idle card
-    // carries its meter in this row.
-    "idle 21m · seen 9s86%Release",
-    // Mid-turn on a prompt the router did not send, with one subagent.
-    "running 55s · 1 subagent · seen 10s41%Hold",
+    // Busy on a prompt the router did not send, with one subagent; no
+    // delivery, so no seen age (v0.12).
+    "running 55s · 1 subagentHold",
+    // Idle after a finished turn: how long ago it ended, then its window
+    // as stale (v0.12); the idle card carries its meter in this row.
+    "idle 21m · context 86%86%Release",
   ]);
   assert.ok(
     seen.includes(
       '<span class="ask" data-path="placements[1].agent.permissions[].name" title="Run rg over the vault">asks permission: Bash</span>',
     ),
   );
-  // The meter: a bar with the share, full at 80%, the counts and cost as
-  // its tooltip; in the name row of a busy card.
+  // The meter: a bar with the share, in the warning role from 80% (v0.12),
+  // the counts and cost as its tooltip; in the name row of a card that is
+  // not collapsed.
   assert.ok(
     seen.includes(
-      '<span class="meter full" data-path="placements[2].agent.context, placements[2].agent.usage" title="171,500 of 200,000 tokens in context · since the session started: input 880, cached 1,204,000, output 44,120 · $9.61"><span class="bar"><i style="width: 86%"></i></span><span class="num" data-path="percent(placements[2].agent.context.used, placements[2].agent.context.max)">86%</span></span>',
+      '<span class="meter warn" data-path="placements[2].agent.context, placements[2].agent.usage" title="171,500 of 200,000 tokens in context · since the session started: input 880, cached 1,204,000, output 44,120 · $9.61"><span class="bar"><i style="width: 86%"></i></span><span class="num" data-path="percent(placements[2].agent.context.used, placements[2].agent.context.max)">86%</span></span>',
     ),
   );
   assert.match(
     seen,
     /<div class="name"><span class="key" data-path="placements\[0\]\.key" role="button" aria-haspopup="dialog" title="Open the sheet \(s\)">orchestrator@mbp<\/span><span class="meter" data-path="placements\[0\]\.agent\.context, placements\[0\]\.agent\.usage"[^>]*><span class="bar"><i style="width: 31%"><\/i><\/span><span class="num" data-path="percent\(placements\[0\]\.agent\.context\.used, placements\[0\]\.agent\.context\.max\)">31%<\/span><\/span><span class="age num"/,
   );
-  // Harness tags after ready and held.
-  assert.ok(
-    seen.includes(
-      '<span class="tag" data-path="placements[1].ready">not ready</span><span class="tag" data-path="placements[1].agent.provider, placements[1].agent.model">codex/gpt-5.5</span><span class="tag" data-path="placements[1].agent.thinking" title="thinking medium">medium</span><span class="tag" data-path="placements[1].agent.mode" title="mode default">default</span>',
-    ),
-  );
-  // The nav tick dates the snapshots.
-  assert.ok(
-    seen.includes(
-      '<span data-path="time(telemetryAt)" title="2026-09-30 09:44Z">telemetry 09:44Z</span>',
-    ),
-  );
-  // Without telemetry: "no telemetry" on each card and in the tick; the
-  // lever still closes the card.
+  // Without telemetry: "no telemetry" on each card and in the tick's
+  // title; the lever still closes the card.
   const none = rail(page(ME));
-  assert.ok(none.includes('<span data-path="telemetryAt">no telemetry</span>'));
+  assert.match(
+    none,
+    /class="tick" data-path="time\(at\)" title="[^"]*· no telemetry ·/,
+  );
   assert.equal(
     [...none.matchAll(/<div class="tele">/g)].length,
     none.match(/<div class="card[ "]/g)?.length,
@@ -1282,7 +1329,7 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   assert.ok(some.includes('data-path="placements[1].agent.status, '));
   // Edges: a permission wins over an error status; running without a turn
   // start has no age; no cost reported and no usage shape the tooltip; no
-  // context, no meter; exactly 80% fills the meter.
+  // context, no meter; exactly 80% turns the meter warn.
   const idle = telemetry.placements["environment@mbp"];
   assert.ok(idle?.usage);
   const usage = idle.usage;
@@ -1317,7 +1364,7 @@ test("v0.10 health: each card closes with the status line, the snapshot's age an
   );
   assert.ok(
     edges.includes(
-      '<span class="meter full" data-path="placements[0].agent.context, placements[0].agent.usage" title="160,000 of 200,000 tokens in context · since the session started: input 880, cached 1,204,000, output 44,120 · no cost reported">',
+      '<span class="meter warn" data-path="placements[0].agent.context, placements[0].agent.usage" title="160,000 of 200,000 tokens in context · since the session started: input 880, cached 1,204,000, output 44,120 · no cost reported">',
     ),
   );
   assert.match(
@@ -1374,10 +1421,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     ["project", "A2A"],
     ["workspace", "feat-noticesworktree"],
     ["directory", "/home/me/Projects/jev-a2a/.paseo/worktrees/feat-notices"],
-    [
-      "branch",
-      "feat/noticeshttps://github.com/me/jev-a2a.gitdirtyahead 3 · behind 0",
-    ],
+    ["branch", "feat/noticesme/jev-a2adirtyahead 3 · behind 0"],
     ["diff", "+412 −96"],
     [
       "pull request",
@@ -1386,6 +1430,12 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     ["checks", "checks failing·review pending"],
     ["status", "runningactive 20s"],
   ]);
+  // v0.12: the remote as owner/repo, the whole URL as its title.
+  assert.ok(
+    o.includes(
+      '<span class="mono muted remote" data-path="repo(placements[0].agent.checkout.remote)" title="https://github.com/me/jev-a2a.git">me/jev-a2a</span>',
+    ),
+  );
   assert.ok(
     o.includes(
       '<a class="pr" data-path="placements[0].agent.checkout.pr.number, placements[0].agent.checkout.pr.title, placements[0].agent.checkout.pr.url" href="https://github.com/me/jev-a2a/pull/21" title="#21 feat(router): notices to participant senders">#21 feat(router): notices to participant senders</a>',
@@ -1445,7 +1495,8 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     ),
   );
   // Activity: turns in the heading; each row its seconds, kind word, tool
-  // and status, text; the last row, a running tool, is current.
+  // and status, text; the last row, a running tool, is current, its mark
+  // the pulse dot in the text colour (v0.12).
   assert.ok(
     o.includes(
       '<h3><span class="kicker">Activity · last 8</span><span class="n" data-path="placements[0].agent.activity.turns">1 turn</span></h3>',
@@ -1458,7 +1509,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
   );
   assert.ok(
     o.includes(
-      '<div class="item now" data-path="placements[0].agent.activity.items[4]" aria-current="true"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[4].at)" title="2026-09-30 09:44Z">09:44:40Z</span><span class="kind" data-path="placements[0].agent.activity.items[4].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[4].tool">Bash</span><span class="status running" data-path="placements[0].agent.activity.items[4].status">running</span>',
+      '<div class="item now" data-path="placements[0].agent.activity.items[4]" aria-current="true"><span class="mark work"></span><span class="at" data-path="hms(placements[0].agent.activity.items[4].at)" title="2026-09-30 09:44Z">09:44:40Z</span><span class="kind" data-path="placements[0].agent.activity.items[4].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[4].tool">Bash</span><span class="status running" data-path="placements[0].agent.activity.items[4].status">running</span>',
     ),
   );
   assert.ok(
@@ -1696,11 +1747,12 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
       '<span class="kind" data-path="placements[0].agent.activity.items[2].kind">compaction</span>',
     ),
   );
+  // No turns among the items: the heading leaves the count out (v0.12).
   assert.ok(
-    odd.includes(
-      '<span class="n" data-path="placements[0].agent.activity.turns">0 turns</span>',
-    ),
+    odd.includes('<h3><span class="kicker">Activity · last 8</span></h3>'),
   );
+  assert.ok(!odd.includes("0 turns"));
+  assert.ok(!odd.includes('data-path="placements[0].agent.activity.turns"'));
   assert.ok(
     quiet.includes(
       '<p class="none" data-path="placements[1].agent.subagents">none</p>',
@@ -1717,7 +1769,496 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
     !rail(html).includes("count(placements[0].agent.subagents.running)"),
   );
   assert.ok(html.includes("<span><kbd>s</kbd> sheet</span>"));
-  assert.ok(html.includes("<dt>s</dt>"));
+  assert.ok(html.includes("<kbd>s</kbd><span>sheet</span>"));
+});
+
+// v0.12: a placement for stale(), with a delivery whose current send is M2.
+const placement = (over: Partial<PlacementView> = {}): PlacementView => ({
+  key: "orchestrator@mbp",
+  participant: "orchestrator",
+  host: "mbp",
+  session: "A1",
+  ready: true,
+  hold: false,
+  delivery: null,
+  agent: null,
+  ...over,
+});
+const sentAgo = (seconds: number): string =>
+  new Date(NOW - seconds * 1000).toISOString();
+const pinned = (
+  latest: { kind: "question" | "working"; at: string } | null,
+  question: { id: string; text: string; at: string | null } | null = null,
+): PlacementView["delivery"] => ({
+  id: "D1",
+  taskId: "T2",
+  excerpt: "Ask me something",
+  messageId: "M2",
+  outcome: "accepted",
+  question,
+  latest,
+});
+const running = (over: Partial<AgentSnapshot> = {}): PlacementView =>
+  placement({
+    agent: { ...emptySnapshot(AT, "missing"), status: "running", ...over },
+  });
+type Item = NonNullable<AgentSnapshot["activity"]>["items"][number];
+const tail = (
+  status: Item["status"],
+  seconds: number,
+  after: Item[] = [],
+): AgentSnapshot["activity"] => ({
+  turns: 1,
+  items: [
+    {
+      at: sentAgo(seconds),
+      kind: "tool_call",
+      text: "ls",
+      tool: "Bash",
+      status,
+    },
+    ...after,
+  ],
+});
+
+test("v0.12 stale: the generator's thresholds, strictly past, the first rule that applies", () => {
+  const sent = (seconds: number) => ({ M2: sentAgo(seconds) });
+  const quiet = placement({ delivery: pinned(null) });
+  // No reply past 30 minutes: not at 30, from a second past.
+  assert.equal(stale(quiet, AT, sent(30 * 60)), null);
+  assert.equal(stale(quiet, AT, sent(30 * 60 + 1)), "no reply 30m");
+  // An update is a reply, however old the send.
+  const replied = pinned({ kind: "working", at: sentAgo(40 * 60) });
+  assert.equal(
+    stale(placement({ delivery: replied }), AT, sent(45 * 60)),
+    null,
+  );
+  // A question still open waits on a person, not on the session; once
+  // answered, the answer is the current send and has no reply yet (the
+  // page reads that as unreplied too; the design does not).
+  const question = { id: "Q2", text: "Force push?", at: sentAgo(40 * 60) };
+  const asked = pinned({ kind: "question", at: sentAgo(40 * 60) }, question);
+  assert.equal(stale(placement({ delivery: asked }), AT, sent(45 * 60)), null);
+  const answered = pinned({ kind: "question", at: sentAgo(40 * 60) });
+  assert.equal(
+    stale(placement({ delivery: answered }), AT, sent(31 * 60)),
+    "no reply 31m",
+  );
+  // A clock that does not read is not stale.
+  assert.equal(stale(quiet, AT, { M2: "<b>soon</b>" }), null);
+  assert.equal(stale(quiet, AT, {}), null);
+  // A turn past 15 minutes, only while running.
+  assert.equal(
+    stale(running({ turnStartedAt: sentAgo(15 * 60) }), AT, {}),
+    null,
+  );
+  assert.equal(
+    stale(running({ turnStartedAt: sentAgo(15 * 60 + 1) }), AT, {}),
+    "turn 15m",
+  );
+  assert.equal(
+    stale(running({ status: "idle", turnStartedAt: sentAgo(3600) }), AT, {}),
+    null,
+  );
+  // A tool running past 5 minutes, when it is the tail's last item.
+  assert.equal(
+    stale(running({ activity: tail("running", 5 * 60) }), AT, {}),
+    null,
+  );
+  assert.equal(
+    stale(running({ activity: tail("running", 5 * 60 + 1) }), AT, {}),
+    "tool 5m",
+  );
+  assert.equal(
+    stale(running({ activity: tail("completed", 3600) }), AT, {}),
+    null,
+  );
+  const later: Item = {
+    at: sentAgo(30),
+    kind: "assistant_message",
+    text: "done",
+    tool: null,
+    status: null,
+  };
+  assert.equal(
+    stale(running({ activity: tail("running", 3600, [later]) }), AT, {}),
+    null,
+  );
+  // The context window from 80%.
+  const window = (used: number) => running({ context: { used, max: 200_000 } });
+  assert.equal(stale(window(158_000), AT, {}), null);
+  assert.equal(stale(window(160_000), AT, {}), "context 80%");
+  // The first that applies: reply, turn, tool, context.
+  const all = {
+    turnStartedAt: sentAgo(20 * 60),
+    activity: tail("running", 10 * 60),
+    context: { used: 190_000, max: 200_000 },
+  };
+  assert.equal(
+    stale({ ...running(all), delivery: pinned(null) }, AT, sent(40 * 60)),
+    "no reply 40m",
+  );
+  assert.equal(stale(running(all), AT, {}), "turn 20m");
+  assert.equal(
+    stale(running({ ...all, turnStartedAt: sentAgo(60) }), AT, {}),
+    "tool 10m",
+  );
+  assert.equal(
+    stale(
+      running({ ...all, turnStartedAt: sentAgo(60), activity: null }),
+      AT,
+      {},
+    ),
+    "context 95%",
+  );
+  // A placement with no telemetry is stale only for want of a reply.
+  assert.equal(
+    stale(placement({ delivery: pinned(null) }), AT, sent(31 * 60)),
+    "no reply 31m",
+  );
+
+  // stale_task: an open task with an unended delivery whose current send
+  // has no reply past 30 minutes. T4's request went at 09:40 and has no
+  // reply before 09:44.
+  const t4 = (now: number) => {
+    const m = model(ME, deliveredJournal, now);
+    const t = [...m.open, ...m.finished].find((x) => x.id === "T4");
+    assert.ok(t);
+    return staleTask(t, m.at, m.times);
+  };
+  assert.equal(t4(NOW + 25 * 60_000), null);
+  assert.equal(t4(NOW + 25 * 60_000 + 1000), "no reply 30m");
+  // Finished, it is not stale.
+  assert.equal(t4(LATER), null);
+  // T2's answer went at 09:16 and has no reply.
+  const t2 = (now: number) => {
+    const m = model(ME, answeredJournal, now);
+    const t = m.open.find((x) => x.id === "T2");
+    assert.ok(t);
+    return staleTask(t, m.at, m.times);
+  };
+  assert.equal(t2(NOW + 60_000), null);
+  assert.equal(t2(NOW + 61_000), "no reply 30m");
+  // With replies since its answer, T2 in the fixture is not stale.
+  const fixture = model(ME);
+  const replies = fixture.open.find((x) => x.id === "T2");
+  assert.ok(replies);
+  assert.equal(staleTask(replies, fixture.at, fixture.times), null);
+});
+
+test("v0.12 stale on the page: in the warning role at the end of a card's status line, of the sheet head's, and of a row's second line", () => {
+  // The sample: environment@mbp's window at 86% (the meter turns warn);
+  // T1's request, 43 minutes old, has no reply.
+  const html = renderBoard(sampleModel(), { task: "T2" });
+  const late =
+    '<span class="role-warn num" data-path="stale(placements[2], at)">context 86%</span>';
+  assert.ok(
+    rail(html).includes(
+      `<span data-path="placements[2].agent.status">idle</span> <span class="num" data-path="age(placements[2].agent.attentionAt, at)" title="2026-09-30 09:23Z">21m</span> · ${late}</span><span class="meter warn"`,
+    ),
+  );
+  const head = sheets(html)[2] ?? "";
+  assert.ok(
+    head.includes(
+      `${late} · <span class="seen num" data-path="age(placements[2].agent.seen, at)" title="2026-09-30 09:44Z">seen 9s</span></span>`,
+    ),
+  );
+  assert.ok(
+    html.includes(
+      '<span class="to" data-path="open[3].recipient">orchestrator</span><span class="stale role-warn num" data-path="stale_task(open[3], at)">no reply 43m</span></div>',
+    ),
+  );
+  // No other row or card is stale.
+  assert.equal(html.match(/role-warn num" data-path="stale/g)?.length, 3);
+  // A delivery with no reply on a card: T4's, 31 minutes on, without
+  // telemetry.
+  const quiet = page(ME, { task: "T4" }, deliveredJournal, NOW + 26 * 60_000);
+  assert.ok(
+    rail(quiet).includes(
+      '<span class="k" data-path="placements[1].agent">no telemetry</span> · <span class="role-warn num" data-path="stale(placements[1], at)">no reply 31m</span></span>',
+    ),
+  );
+  assert.ok(
+    quiet.includes(
+      '<span class="to" data-path="open[0].recipient">knowledge</span><span class="stale role-warn num" data-path="stale_task(open[0], at)">no reply 31m</span>',
+    ),
+  );
+  // The row's phrase is only for an open task.
+  assert.ok(!page(ME, {}, journal, LATER).includes('data-path="stale_task('));
+});
+
+test("v0.12 busy: a session running with no delivery and no hold ranks after the work and reads busy; a held one stays held; not ready is for the rest", () => {
+  const order = (html: string): string[] =>
+    [
+      ...html.matchAll(
+        /<div class="card[^"]*" tabindex="0" data-path="placements\[(\d)\]">/g,
+      ),
+    ].map((m) => m[1] ?? "");
+  const sample = sampleModel();
+  const html = renderBoard(sample, { task: "T2" });
+  // Asking, working, busy, held.
+  assert.deepEqual(order(html), ["0", "1", "3", "2"]);
+  assert.ok(
+    html.includes(
+      `    <div class="card" tabindex="0" data-path="placements[3]">
+      <span class="dot busy" data-path="placements[3].delivery.latest.kind, placements[3].ready, placements[3].hold, placements[3].agent.status"></span>
+      <div class="body">
+        <div class="name"><span class="key" data-path="placements[3].key" role="button" aria-haspopup="dialog" title="Open the sheet (s)">environment@mini</span><span class="meter" data-path="placements[3].agent.context, placements[3].agent.usage"`,
+    ),
+  );
+  assert.ok(
+    html.includes(
+      `<div class="what busy"><span data-path="placements[3].agent.status">busy</span></div>
+        <div class="tele"><span class="line"><span data-path="placements[3].agent.status">running</span> <span class="num" data-path="age(placements[3].agent.turnStartedAt, at)" title="2026-09-30 09:44Z">55s</span> · <span data-path="count(placements[3].agent.subagents.running)">1 subagent</span></span><span class="lever">`,
+    ),
+  );
+  // The sheet's head repeats the dot.
+  assert.ok(
+    (sheets(html)[3] ?? "").includes(
+      '<span class="dot busy" data-path="placements[3].delivery.latest.kind, placements[3].ready, placements[3].hold"></span>',
+    ),
+  );
+  // Busy comes before held whatever the model's order.
+  assert.deepEqual(
+    order(
+      renderBoard({ ...sample, placements: [...sample.placements].reverse() }),
+    ),
+    ["3", "2", "0", "1"],
+  );
+  const with_ = (key: string, over: Partial<PlacementView>): BoardModel => ({
+    ...sample,
+    placements: sample.placements.map((p) =>
+      p.key === key ? { ...p, ...over } : p,
+    ),
+  });
+  // Held and running stays held.
+  const heldAgent = sample.placements[2]?.agent;
+  assert.ok(heldAgent);
+  const heldRunning = renderBoard(
+    with_("environment@mbp", { agent: { ...heldAgent, status: "running" } }),
+  );
+  assert.match(
+    heldRunning,
+    /<div class="card idle" tabindex="0" data-path="placements\[2\]">\s*<span class="dot held"/,
+  );
+  // Neither ready nor running reads not ready; ready and idle reads ready.
+  const busyAgent = sample.placements[3]?.agent;
+  assert.ok(busyAgent);
+  const idle = { ...busyAgent, status: "idle" as const };
+  assert.ok(
+    renderBoard(with_("environment@mini", { agent: idle })).includes(
+      '<div class="what"><span data-path="placements[3].ready">not ready</span></div>',
+    ),
+  );
+  assert.ok(
+    renderBoard(
+      with_("environment@mini", { agent: idle, ready: true }),
+    ).includes(
+      '<div class="what"><span data-path="placements[3].ready">ready</span> · no open delivery</div>',
+    ),
+  );
+  // Without telemetry nothing is busy.
+  assert.ok(!page(ME).includes("dot busy"));
+});
+
+test("v0.12 cards: no tags row (the sheet keeps the tags); the seen age only on a card with a delivery", () => {
+  const html = renderBoard(sampleModel(), { task: "T2" });
+  const cards = rail(html);
+  assert.ok(!cards.includes('class="rig"'));
+  assert.ok(!cards.includes('class="tag"'));
+  assert.ok(
+    (sheets(html)[1] ?? "").includes(
+      '<div class="rig"><span class="tag" data-path="placements[1].agent.provider, placements[1].agent.model">codex/gpt-5.5</span><span class="tag" data-path="placements[1].agent.thinking" title="thinking medium">medium</span><span class="tag" data-path="placements[1].agent.mode" title="mode default">default</span><span class="tag" data-path="placements[1].host">mini</span><span class="tag" data-path="placements[1].session">session K1</span></div>',
+    ),
+  );
+  // Seen on the two cards with a delivery, not on the busy or held one; the
+  // sheet's head always shows it.
+  assert.deepEqual(
+    [
+      ...cards.matchAll(
+        /data-path="age\(placements\[(\d)\]\.agent\.seen, at\)"/g,
+      ),
+    ].map((m) => m[1]),
+    ["0", "1"],
+  );
+  assert.equal(
+    sheets(html).filter((s) => s.includes('class="seen num"')).length,
+    4,
+  );
+});
+
+test("v0.12 nav: who truncates with its whole text as title, the tick reads updated with the build, telemetry and contract as title, one JSON link, no theme switch", () => {
+  const html = renderBoard(sampleModel(), { task: "T2" });
+  const nav = html.slice(
+    html.indexOf('<header class="nav">'),
+    html.indexOf("</header>"),
+  );
+  assert.ok(
+    nav.includes(
+      '<span class="who" title="me@example.com · you (requester), operator"><span data-path="actor.login">me@example.com</span> · <span data-path="actor.principals[]">you (requester), operator</span></span>',
+    ),
+  );
+  assert.ok(
+    nav.includes(
+      '<span class="tick" data-path="time(at)" title="built 2026-09-30 09:45:00Z · telemetry 2026-09-30 09:44:51Z · jev-router-board/1">updated 09:45Z</span>',
+    ),
+  );
+  assert.ok(!nav.includes("themes"));
+  assert.equal(html.match(/href="board\.json"/g)?.length, 1);
+  assert.ok(nav.includes('<a href="board.json">JSON</a>'));
+  assert.ok(
+    STYLE_HAS(
+      html,
+      ".nav .who { flex: 0 1 auto; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+    ),
+  );
+  // Nobody identified: the same words as title.
+  assert.ok(
+    page(null).includes(
+      '<span class="who" title="reading only · not identified"><span data-path="actor">reading only · not identified</span></span>',
+    ),
+  );
+});
+
+test("v0.12 head: one line, with the message, the deadline and the a2a token as titles", () => {
+  const html = page(ME, { task: "T2" });
+  assert.ok(
+    detailOf(html).includes(
+      '<div class="meta">to <span class="mono" data-path="open[1].recipient">orchestrator</span> · <span data-path="open[1].chosenBy">named on the request</span> · <span data-path="open[1].messageId" title="message M2 · you/M2">from <span class="mono" data-path="open[1].source">you</span> at <span class="num" data-path="time(times[open[1].messageId])" title="2026-09-30 09:10Z">09:10Z</span></span> · <span class="num end" data-path="left(open[1].deadline, at), time(open[1].deadline)" title="deadline 2026-09-30 10:10Z">25m left</span></div>',
+    ),
+  );
+  assert.ok(
+    html.includes(
+      '<span class="badge ask" data-path="open[1].status, open[1].a2a" title="TASK_STATE_INPUT_REQUIRED">needs answer</span>',
+    ),
+  );
+  // The token line is gone.
+  assert.ok(!html.includes('data-path="open[1].a2a"'));
+  assert.ok(!strip(detailOf(html)).includes("TASK_STATE"));
+  // A canceled task's verdict keeps its reason and who ended it after the
+  // count, which carries the deadline.
+  const canceled = page(
+    ME,
+    { task: "T5" },
+    extend(
+      {
+        type: "submit",
+        by: "you",
+        messageId: "M5",
+        text: "Check",
+        to: "environment",
+        hosts: ["mbp"],
+      },
+      { type: "cancel", by: "you", taskId: "T5" },
+    ),
+  );
+  assert.match(
+    detailOf(canceled),
+    /<span class="end" data-path="finished\[0\]\.final, time\(finished\[0\]\.deadline\)" title="deadline 2026-09-30 10:44Z">0 of 1 delivery<\/span> · <span data-path="finished\[0\]\.final\.reason">sender<\/span> · by <span data-path="finished\[0\]\.final\.by">you<\/span><\/div>/,
+  );
+});
+
+test("v0.12 log and help: the log collapses to its newest line and l opens it; the help lists the keys in a grid and ends with the theme switch", () => {
+  const html = renderBoard(sampleModel(), { task: "T2", theme: "one-dark" });
+  const m = sampleModel();
+  assert.ok(
+    html.includes(
+      `<div class="foot"><div><span class="kicker">Router log</span> · <span data-path="count(log)">last ${m.log.length}</span> · <kbd class="k">l</kbd></div><div class="lines"><div class="tail">`,
+    ),
+  );
+  // Every line is in the page; the style shows the newest until l opens it.
+  assert.ok(html.includes(`data-path="log[${m.log.length - 1}]"`));
+  assert.ok(
+    STYLE_HAS(
+      html,
+      ".agents .foot:not(.open) .tail > div:not(:last-child) { display: none; }",
+    ),
+  );
+  assert.ok(
+    html.includes(
+      "<span><kbd>h</kbd> hold</span><span><kbd>l</kbd> log</span>",
+    ),
+  );
+  const help = html.slice(
+    html.indexOf('<div class="help"'),
+    html.indexOf("<script>"),
+  );
+  assert.ok(
+    help.startsWith(
+      '<div class="help" role="dialog" aria-label="Keys" hidden>\n  <div class="top"><span class="kicker">Keys</span><span class="spacer"></span><kbd class="k">?</kbd></div>',
+    ),
+  );
+  assert.deepEqual(
+    [...help.matchAll(/<kbd>([^<]*)<\/kbd><span>([^<]*)<\/span>/g)].map(
+      (k) => `${k[1]} ${k[2]}`,
+    ),
+    [
+      "j / k move",
+      "space peek",
+      "↵ open",
+      "→ open the peek's task",
+      "s sheet",
+      "a answer",
+      "c cancel",
+      "h hold / release",
+      "l router log",
+      "/ filter",
+      "⌘↩ send the form (or Ctrl ↩)",
+      "esc close",
+    ],
+  );
+  assert.ok(
+    help.includes(
+      '<div class="theme"><span>theme</span><span class="themes" role="group" aria-label="Theme"><button type="button" data-theme="flexoki" aria-pressed="false">Flexoki</button><button type="button" data-theme="one-dark" class="on" aria-pressed="true">One Dark</button></span></div>\n</div>',
+    ),
+  );
+  // The page's script binds l and parses.
+  const script = html.slice(
+    html.indexOf("<script>") + 8,
+    html.lastIndexOf("</script>"),
+  );
+  assert.ok(script.includes("  l: toggleLog,"));
+  assert.doesNotThrow(() => new Function(script));
+});
+
+test("v0.12 escapes what it adds: the remote and its title, the who title, the message title", () => {
+  const m = sampleModel();
+  const sharp = m.placements[0]?.agent;
+  const checkout = sharp?.checkout;
+  assert.ok(sharp && checkout && m.actor);
+  const hostile = '"><script>alert(1)</script>';
+  const odd: BoardModel = {
+    ...m,
+    actor: { ...m.actor, login: `x${hostile}@example.com` },
+    placements: m.placements.map((p, i) =>
+      i === 0
+        ? {
+            ...p,
+            agent: {
+              ...sharp,
+              checkout: { ...checkout, remote: `https://h/${hostile}.git` },
+            },
+          }
+        : p,
+    ),
+  };
+  const t2 = odd.open.find((t) => t.id === "T2");
+  assert.ok(t2);
+  t2.source = `you/${hostile}`;
+  const html = renderBoard(odd, { task: "T2" });
+  assert.ok(!html.includes("<script>alert"));
+  const safe = "&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;";
+  assert.ok(
+    html.includes(
+      `<span class="mono muted remote" data-path="repo(placements[0].agent.checkout.remote)" title="https://h/${safe}.git">${safe}</span>`,
+    ),
+  );
+  assert.ok(
+    html.includes(
+      `<span class="who" title="x${safe}@example.com · you (requester), operator">`,
+    ),
+  );
+  assert.ok(html.includes(`title="message M2 · you/${safe}">from`));
 });
 
 test("the README's screenshots: the sample board, and the same page with one sheet shown", () => {
