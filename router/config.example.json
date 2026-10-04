@@ -1,0 +1,51 @@
+{
+  "policy": {
+    "threshold": 0.9,
+    "deadline": 21600000,
+    "maxText": 4000,
+    "maxOpenTasks": 20
+  },
+  "principals": {
+    "you": "requester",
+    "operator": "operator"
+  },
+  "participants": [
+    {
+      "id": "coder",
+      "name": "Coding agent",
+      "kind": "agent",
+      "hosts": ["laptop"],
+      "idempotent": true,
+      "responsibility": "Changes code in any repository on the laptop: fixes, features, tests, reviews. Not for notes or research. Examples: 'Fix the failing build in the router repo', 'Add a test for the config loader'."
+    },
+    {
+      "id": "notes",
+      "name": "Notes agent",
+      "kind": "agent",
+      "hosts": ["desk"],
+      "idempotent": true,
+      "responsibility": "Notes, research and synthesis in the vault on the desk machine. Not for code changes. Examples: 'Summarize what we decided about the board', 'Draft a note on the eval procedure'."
+    }
+  ],
+  "permissions": {
+    "you": ["coder", "notes"],
+    "coder": ["notes"],
+    "notes": ["coder"]
+  },
+  "hosts": {
+    "laptop": { "paseo": "ws://127.0.0.1:6767/ws" },
+    "desk": { "paseo": "ssh://desk" }
+  },
+  "agents": {
+    "coder@laptop": "paste the agent id from `paseo agent ls --json`",
+    "notes@desk": "paste the agent id from `paseo --host ssh://desk agent ls --json`"
+  },
+  "serve": {
+    "listen": "127.0.0.1:7677",
+    "board": "127.0.0.1:7678",
+    "identities": {},
+    "wake": 20
+  },
+  "jev": { "model": "jev-latest" },
+  "telemetry": { "sheet": true }
+}

@@ -2,7 +2,7 @@
 // defaults, and that the environment wins over the file.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig, loadSecrets } from "./config.ts";
@@ -121,4 +121,28 @@ test("secrets: KEY=VALUE lines fill the environment without overriding it", () =
   assert.equal(process.env.CONFIG_TEST_B, "from-env");
   assert.equal(process.env.CONFIG_TEST_C, undefined);
   loadSecrets(join(dir, "missing.env"));
+});
+
+// The example the README's quick start copies loads as it is, names every
+// top-level key, and the one unit the schema cannot carry reads as hours.
+test("config.example.json is a valid configuration", () => {
+  const path = join(import.meta.dirname, "..", "config.example.json");
+  const config = loadConfig(path);
+  const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(raw).sort(), [
+    "agents",
+    "hosts",
+    "jev",
+    "participants",
+    "permissions",
+    "policy",
+    "principals",
+    "serve",
+    "telemetry",
+  ]);
+  assert.equal(config.policy.deadline, 6 * 60 * 60_000);
+  assert.deepEqual(Object.keys(config.agents).sort(), [
+    "coder@laptop",
+    "notes@desk",
+  ]);
 });

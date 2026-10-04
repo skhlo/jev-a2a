@@ -487,8 +487,9 @@ Deployment decisions taken on 2026-09-30, outside the contract:
 - `router serve` runs as a systemd user service on the router host
   (`router/jev-router.service`, decided 2026-10-01): restarts on failure,
   logs to journald, starts at boot under linger. It binds the tailnet
-  address, which at boot arrives after the service; `serve` waits for it
-  instead of failing. One instance per host: the second finds the port taken
+  address, which at boot arrives after the service; `serve` waits up to
+  120 seconds for it, then exits 75 (`EX_TEMPFAIL`) so the unit restarts
+  it; exit 2 (port taken, configuration or token wrong) stays down. One instance per host: the second finds the port taken
   and says so. Deliveries happen on events and runs, and `serve` looks again
   every `serve.wake` seconds while the record has work waiting only for a
   session to be seen idle; it watches the journal file so a CLI run on the

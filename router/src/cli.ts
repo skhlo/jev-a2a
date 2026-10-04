@@ -43,7 +43,7 @@ import type { Event, Role, State, Task } from "./types.ts";
 
 const USAGE = `router: a prompt with an envelope and a record
 
-  router submit [--to <participant>] [--hosts a,b] [--message <id>] [--as <principal>] (<text...> | --text-file <path>)
+  router submit [--to <participant> [--hosts a,b]] [--message <id>] [--as <principal>] (<text...> | --text-file <path>)
                                                without --to, Jev picks the recipient
   router choose --task <T> --to <participant> [--as <principal>]
                                                answer a needs_recipient

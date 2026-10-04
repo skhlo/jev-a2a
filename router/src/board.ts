@@ -33,12 +33,12 @@ import type {
   UpdateKind,
 } from "./types.ts";
 
-// The view model is a published contract: the BoardModel type below, the
-// sample generated from the board fixture (board.sample.json), and the
-// README's section on it. A design binds its template to these names. A
-// change that removes or renames a field raises the major version here;
-// adding a field does not. Times are ISO strings, as the journal records
-// them.
+// The view model is a published contract: the BoardModel type below (with
+// AgentSnapshot and its sheet types in telemetry.ts), the sample generated
+// from the board fixture (board.sample.json), and the notes in
+// docs/board-model.md. A design binds its template to these names. A change
+// that removes or renames a field raises the major version here; adding a
+// field does not. Times are ISO strings, as the journal records them.
 export const BOARD_VERSION = "jev-router-board/1";
 
 // An agent's reply, without the digest the core keeps to recognise a repeat.
