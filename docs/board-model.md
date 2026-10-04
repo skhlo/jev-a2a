@@ -27,8 +27,8 @@ Three things make the contract, `jev-router-board/1`:
   `router/src/telemetry.ts`; the names and shapes live there;
 - the sample in `router/src/board.sample.json`: the model built from the
   board's test fixture (`router/src/board-fixture.ts`, `sampleJournal`: the
-  fixture plus one participant-sent task), so it holds no live request
-  text. After changing the model or the fixture, run
+  fixture plus the minute after it, with a participant-sent task), so it
+  holds no live request text. After changing the model or the fixture, run
   `pnpm exec node src/board-sample.ts` in `router/`; a test fails until the
   committed sample matches;
 - this page, for what a type cannot say: what `null` means where, how
