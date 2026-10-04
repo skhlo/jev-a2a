@@ -137,6 +137,65 @@ test("a failed observation records not ready: an earlier idle does not send this
   await shell.close();
 });
 
+test("a quiet run records nothing: the tick is held until an event follows it, and an observation only when it changed the placement", async () => {
+  const home = mkdtempSync(join(tmpdir(), "shell-"));
+  const config = configFor(home);
+  const types = (): unknown[] => readJournal(home).map((e) => e.event.type);
+  let clock = 1_000;
+  const at = (ms: number, script: Script = {}): ShellOptions => {
+    clock = ms;
+    return { ...scripted(script), now: () => clock };
+  };
+  // Run 1: the first observation turns the placement ready; recorded,
+  // with the tick before it.
+  let shell = await openShell(config, at(1_000));
+  await shell.deliver();
+  await shell.close();
+  const first = types();
+  assert.deepEqual(first.slice(-2), ["tick", "observe"]);
+  // Runs 2 and 3: the same idle again. Nothing is appended, in memory the
+  // run still saw its clock and its observation.
+  for (const ms of [2_000, 3_000]) {
+    shell = await openShell(config, at(ms));
+    await shell.deliver();
+    assert.equal(shell.state.now, ms);
+    assert.equal(shell.state.placements["orchestrator@mbp"]?.ready, true);
+    await shell.close();
+    assert.deepEqual(types(), first);
+  }
+  // Run 4: the session is busy. The change is recorded, tick first.
+  shell = await openShell(
+    config,
+    at(4_000, {
+      observe: () =>
+        Promise.resolve({
+          ...idle,
+          ready: false,
+          status: "running",
+          snapshot: snapshot("running"),
+        }),
+    }),
+  );
+  await shell.deliver();
+  await shell.close();
+  assert.deepEqual(types().slice(first.length), ["tick", "observe"]);
+  // Run 5: a request at 5 000. Its deadline is measured from this run's
+  // tick, so the held tick lands before the submit and a replay agrees.
+  shell = await openShell(config, at(5_000));
+  shell.apply({ type: "submit", by: "you", messageId: "M1", text: "Fix it" });
+  const deadline = shell.state.tasks[0]?.deadline;
+  assert.equal(deadline, 5_000 + base.policy.deadline);
+  await shell.deliver();
+  await shell.close();
+  assert.deepEqual(types().slice(first.length + 2, first.length + 4), [
+    "tick",
+    "submit",
+  ]);
+  shell = await openShell(config, at(6_000));
+  assert.equal(shell.state.tasks[0]?.deadline, deadline, "replay agrees");
+  await shell.close();
+});
+
 test("a key conflict aborts the run with the send left attempting", async () => {
   const home = mkdtempSync(join(tmpdir(), "shell-"));
   const config = configFor(home);
@@ -204,10 +263,11 @@ test("a configuration change is recorded, and earlier events still replay", asyn
   assert.equal(shell.state.tasks[0]?.status, "working", "dispatched at 0.9");
   await shell.close();
   const lines = readJournal(home).length;
-  // Same configuration: nothing new is recorded on open.
+  // Same configuration and nothing to do: nothing is recorded, not even
+  // the tick.
   shell = await openShell(loose, judged);
   await shell.close();
-  assert.equal(readJournal(home).length, lines + 1, "only the tick");
+  assert.equal(readJournal(home).length, lines, "nothing recorded");
   // Stricter threshold and a new participant: recorded once, replay intact,
   // and the new rule applies to the next request.
   const strict: Config = structuredClone(base);
@@ -225,7 +285,7 @@ test("a configuration change is recorded, and earlier events still replay", asyn
     you: [...(strict.permissions?.you ?? []), "reviewer"],
   };
   shell = await openShell(configFor(home, strict), judged);
-  assert.equal(readJournal(home).at(-2)?.event.type, "configured");
+  assert.equal(readJournal(home).at(-1)?.event.type, "configured");
   assert.equal(
     shell.state.tasks[0]?.status,
     "working",

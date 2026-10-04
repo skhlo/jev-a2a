@@ -21,12 +21,17 @@ Anything else that waits (a hold, a hand-back, an open question, a replaced
 session) waits on an event, and a quiet router arms nothing.
 
 `serve.poll` changes that: set to a number of seconds, `serve` runs again
-that long after any run, whatever started it, so the board's telemetry
-(session status, permissions, the sheet) is never older than that while
-`serve` is up. Each poll costs a run (one Paseo call per placement, plus
-the sheet's reads on live sessions); the record itself is event-fresh
-either way, so the poll buys freshness of the agents column, not of the
-tasks. `0`, the default, polls nothing.
+that long after the end of any run, whatever started it, so while `serve`
+is up the board's telemetry (session status, permissions, the sheet) is at
+most that plus one run old. A poll run is an ordinary run: it observes,
+ends tasks whose deadline has passed, and delivers what is eligible. It
+costs one Paseo call per placement, a workspace list per host and, with
+the sheet on, two more calls per live session; it appends nothing to the
+journal unless something changed, since a run records its clock only when
+an event follows it and an observation only when readiness, the session or
+the hold changed. The tasks column does not need the poll: a request, a
+reply or an answer is an event and runs at once. `0`, the default, polls
+nothing.
 
 A session is sent to only when the router has just seen it idle, or closed
 (a persisted session with no process; the prompt resumes it) and not
@@ -44,8 +49,8 @@ board) closes it, and `--release` opens it again.
 - `telemetry.json`: one snapshot per served placement from the last run,
   written whole by rename after the run's observations and before its
   sends. It is not part of the record: an observation is journaled only
-  when readiness or the session changes, while a snapshot changes every
-  run. The board shows each snapshot with its age (the nav tick dates the
+  when readiness, the session or the hold changes, while a snapshot
+  changes every run. The board shows each snapshot with its age (the nav tick dates the
   file); `router status` prints one line per placement with the time,
   branch, diff and pull request. A missing file is "no telemetry" and
   never a fault; an unreadable one is logged once by `serve`; a damaged

@@ -145,12 +145,39 @@ export async function openShell(
     throw error;
   }
 
+  // Every run applies a tick and one observation per placement, and a quiet
+  // router's journal must not grow with them. A tick that ended nothing is
+  // held back and appended only when a later event follows it in this run,
+  // since a later submit's deadline is measured from it; an observation is
+  // appended only when it changed the placement's readiness, session or
+  // hold. In memory the run sees every event.
+  let heldTick: Event | null = null;
+  const repeats = (event: Event, next: State): boolean => {
+    if (event.type === "tick")
+      return state.tasks.every(
+        (task, i) => Boolean(task.final) === Boolean(next.tasks[i]?.final),
+      );
+    if (event.type === "observe") {
+      const before = state.placements[event.placement];
+      const after = next.placements[event.placement];
+      return (
+        before?.ready === after?.ready &&
+        before?.session === after?.session &&
+        before?.hold === after?.hold
+      );
+    }
+    return false;
+  };
   const apply = (event: Event): Outcome => {
     const next = reduce(state, event);
     const outcome = next.last;
     if (!outcome) throw new Error("reduce left no outcome");
     if (outcome.ok) {
-      journal.append(event);
+      if (!repeats(event, next)) {
+        if (heldTick) journal.append(heldTick);
+        heldTick = null;
+        journal.append(event);
+      } else if (event.type === "tick") heldTick = event;
       state = next;
     }
     return outcome;
