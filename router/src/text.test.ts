@@ -179,7 +179,17 @@ test("client: submit, answer and choose post as the participant session", async 
     assert.equal(out.code, 2);
     assert.match(out.stderr, /--question is required/);
 
-    out = await run(url, ["choose", "--task", "T3", "--to", "incus"]);
+    // The notices name --as for the router host's CLI; here the session is
+    // always $PASEO_AGENT_ID, so --as is taken and ignored.
+    out = await run(url, [
+      "choose",
+      "--as",
+      "someone-else",
+      "--task",
+      "T3",
+      "--to",
+      "incus",
+    ]);
     assert.equal(out.code, 0, out.stderr);
     assert.deepEqual(posted[3], {
       type: "choose",

@@ -43,6 +43,9 @@ const { values, positionals } = parseArgs({
     to: { type: "string" },
     hosts: { type: "string" },
     question: { type: "string" },
+    // Named in the router's notices for the CLI on the router host; here
+    // the session is always $PASEO_AGENT_ID.
+    as: { type: "string" },
   },
 });
 

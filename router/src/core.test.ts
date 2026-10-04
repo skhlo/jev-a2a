@@ -394,14 +394,20 @@ function noticeViolations(state: State): string[] {
     const keys = task.notices.map((n) => n.key);
     if (new Set(keys).size !== keys.length)
       out.push(`${task.id}: a notice key recorded twice`);
-    const safeBefore = state.config.participants.find(
-      (p) => p.id === task.source,
-    )?.idempotent
-      ? ["not_sent", "unknown"]
-      : ["not_sent"];
+    const due = Core.dueNotices(state, task).map((d) => d.key);
     for (const n of task.notices) {
+      // Repeating an unknown notice is safe only through an adapter that
+      // deduplicates, as recorded when the notice was first attempted.
+      const safeBefore = n.idempotent ? ["not_sent", "unknown"] : ["not_sent"];
       if (n.kind === "final" && !task.final)
         out.push(`${task.id}/${n.key}: final notice before the end`);
+      // A notice that stopped standing is withdrawn, never left waiting;
+      // an accepted or attempting one keeps its outcome.
+      if (!due.includes(n.key) && ["pending", "unknown"].includes(n.outcome))
+        out.push(`${task.id}/${n.key}: no longer due but still waiting`);
+      if (n.outcome === "withdrawn" && n.kind === "final")
+        out.push(`${task.id}/${n.key}: a final notice withdrawn`);
+      if (!n.text) out.push(`${task.id}/${n.key}: no text`);
       n.trail.forEach((step, i) => {
         if (
           step === "attempting" &&
@@ -411,8 +417,14 @@ function noticeViolations(state: State): string[] {
           out.push(`${task.id}/${n.key}: unsafe repeat`);
       });
       if (n.outcome !== "attempting") continue;
+      // The session may have been replaced since; it was the sender's.
       const via = task.via === null ? undefined : state.placements[task.via];
-      if (!via || via.session !== n.session)
+      const owner = state.sessions[n.session ?? ""];
+      if (
+        !via ||
+        owner?.participant !== via.participant ||
+        owner.host !== via.host
+      )
         out.push(`${task.id}/${n.key}: attempting at a foreign session`);
       const session = n.session ?? "";
       if (attempting[session])
@@ -1203,7 +1215,7 @@ const tell = (
   outcome: AdapterOutcome = "accepted",
   taskId = "T1",
 ) => {
-  s = expectOk(s, { type: "noticeAttempt", taskId, key });
+  s = expectOk(s, { type: "noticeAttempt", taskId, key, text: key });
   return expectOk(s, { type: "noticeResult", taskId, key, outcome });
 };
 
@@ -1234,14 +1246,19 @@ test("a participant sender hears a question, then the final word, once each, at 
     { key: "question/Q1", kind: "question" },
   ]);
   assert.deepEqual(notifies(s), ["T1/question/Q1"]);
-  s = expectOk(s, { type: "noticeAttempt", taskId: "T1", key: "question/Q1" });
+  s = expectOk(s, {
+    type: "noticeAttempt",
+    taskId: "T1",
+    key: "question/Q1",
+    text: "q",
+  });
   assert.equal(notice(s, "question/Q1").session, ORCH);
   assert.equal(notice(s, "question/Q1").outcome, "attempting");
   assert.equal(s.placements["orchestrator@mbp"]?.ready, false);
   assert.deepEqual(notifies(s), []);
   expectReject(
     s,
-    { type: "noticeAttempt", taskId: "T1", key: "question/Q1" },
+    { type: "noticeAttempt", taskId: "T1", key: "question/Q1", text: "q" },
     "not_eligible",
   );
   expectReject(
@@ -1297,7 +1314,15 @@ test("a participant sender hears a question, then the final word, once each, at 
   assert.equal(Core.noticeBlockedReason(s, task(s), "final"), "not_ready");
   s = tell(idle(s), "final", "unknown");
   assert.equal(Core.noticeBlockedReason(idle(s), task(s), "final"), null);
+  // A repeat goes out under the same key with the same text, or not at all.
+  expectReject(
+    idle(s),
+    { type: "noticeAttempt", taskId: "T1", key: "final", text: "other" },
+    "conflict",
+  );
   s = tell(idle(s), "final");
+  assert.equal(notice(s, "final").text, "final");
+  assert.equal(notice(s, "final").idempotent, true);
   assert.equal(notice(s, "final").outcome, "accepted");
   assert.deepEqual(notice(s, "final").trail, [
     "attempting",
@@ -1332,7 +1357,7 @@ test("notices follow the record: no sender session, no notice; a dropped questio
   assert.deepEqual(Core.dueNotices(s, task(s)), []);
   expectReject(
     s,
-    { type: "noticeAttempt", taskId: "T1", key: "question/Q1" },
+    { type: "noticeAttempt", taskId: "T1", key: "question/Q1", text: "q" },
     "not_due",
   );
   // Jev hands back: the sender is asked to choose, once per judgment.
@@ -1346,7 +1371,12 @@ test("notices follow the record: no sender session, no notice; a dropped questio
   s = judge(s, "T1", "incus", 0.5);
   assert.equal(task(s).routing?.state, "needs_recipient");
   assert.deepEqual(notifies(s), ["T1/choose/1"]);
-  s = expectOk(s, { type: "noticeAttempt", taskId: "T1", key: "choose/1" });
+  s = expectOk(s, {
+    type: "noticeAttempt",
+    taskId: "T1",
+    key: "choose/1",
+    text: "c",
+  });
   // A restart while the attempt is out leaves it unknown; without
   // deduplication it is not repeated, and the sender still sees its choice
   // in the needs-you list.
@@ -1358,11 +1388,23 @@ test("notices follow the record: no sender session, no notice; a dropped questio
   );
   assert.deepEqual(notifies(idle(s)), []);
   assert.equal(Core.needsYou(s, "orchestrator").length, 1);
-  // The sender withdraws: the choice is no longer due, only the end is.
+  // The sender withdraws: the choice is no longer due, only the end is;
+  // the unknown choice notice is withdrawn and the record says so.
   s = expectOk(s, { type: "cancel", by: ORCH, taskId: "T1" });
   assert.deepEqual(Core.dueNotices(s, task(s)), [
     { key: "final", kind: "final" },
   ]);
+  assert.equal(notice(s, "choose/1").outcome, "withdrawn");
+  assert.deepEqual(notice(s, "choose/1").trail, [
+    "attempting",
+    "unknown",
+    "withdrawn",
+  ]);
+  assert.match(
+    s.log.at(-1)?.text ?? "",
+    /^T1 notice choose\/1 withdrawn: the choice no longer stands\.$/,
+  );
+  assert.equal(notice(s, "choose/1").idempotent, false);
   s = tell(idle(s), "final");
   assert.deepEqual(notifies(idle(s)), []);
   // A question whose session was replaced is not told: the new session
@@ -1387,12 +1429,26 @@ test("notices follow the record: no sender session, no notice; a dropped questio
   });
   assert.deepEqual(notifies(s), ["T1/question/Q1"]);
   s = expectOk(s, {
+    type: "noticeAttempt",
+    taskId: "T1",
+    key: "question/Q1",
+    text: "q",
+  });
+  s = expectOk(s, {
+    type: "noticeResult",
+    taskId: "T1",
+    key: "question/Q1",
+    outcome: "not_sent",
+  });
+  s = expectOk(s, {
     type: "observe",
     placement: "incus@lab01",
     ready: true,
     session: "incus@lab01#2",
   });
   assert.deepEqual(Core.dueNotices(s, task(s)), []);
+  assert.equal(notice(s, "question/Q1").outcome, "withdrawn");
+  assert.match(s.log.at(-1)?.text ?? "", /question no longer stands/);
   // A replaced sender session may not submit; the current one may.
   s = expectOk(s, {
     type: "observe",
@@ -2402,6 +2458,7 @@ function randomEvent(s: State, r: () => number): Event {
       "ack",
       "ack",
       "noticeResult",
+      "noticeAttempt",
       "update",
       "update",
       "update",
@@ -2432,7 +2489,12 @@ function randomEvent(s: State, r: () => number): Event {
       if (c.type === "deliver")
         return { type: "attempt", deliveryId: c.deliveryId };
       if (c.type === "notify")
-        return { type: "noticeAttempt", taskId: c.taskId, key: c.key };
+        return {
+          type: "noticeAttempt",
+          taskId: c.taskId,
+          key: c.key,
+          text: pick(["n", "n", "m"]),
+        };
       if (r() < 0.15) return { type: "judgeFailed", taskId: c.taskId };
       const options = Object.keys(c.question.criteria);
       const choice = pick(options);
@@ -2461,11 +2523,16 @@ function randomEvent(s: State, r: () => number): Event {
       };
     case "attempt":
     case "attempt2":
-    case "attempt3":
+    case "attempt3": {
+      // Now and then aim at a pinned delivery, which is rarer than a queued
+      // one: a held session refusing an answer is otherwise seldom seen.
+      const pinned = deliveries.filter((d) => d.session !== null);
+      const pool = pinned.length && r() < 0.3 ? pinned : deliveries;
       return {
         type: "attempt",
-        deliveryId: deliveries.length ? pick(deliveries).id : "D1",
+        deliveryId: pool.length ? pick(pool).id : "D1",
       };
+    }
     case "noticeResult": {
       const notices = s.tasks.flatMap((t) =>
         t.notices.map((n) => ({ taskId: t.id, key: n.key })),
@@ -2478,6 +2545,14 @@ function randomEvent(s: State, r: () => number): Event {
         outcome: pick(["accepted", "accepted", "not_sent", "unknown"]),
       };
     }
+    case "noticeAttempt":
+      // A notice that is not necessarily due or eligible.
+      return {
+        type: "noticeAttempt",
+        taskId,
+        key: pick(["final", "choose/1", `question/R${Math.floor(r() * 12)}`]),
+        text: "n",
+      };
     case "ack": {
       const d = deliveries.length ? pick(deliveries) : null;
       return {
@@ -2585,6 +2660,15 @@ test("random event sequences never violate the contract", () => {
       for (const d of Core.allDeliveries(s))
         if (d.sends.some((send) => send.outcome === "withdrawn"))
           reached.add("withdrawn");
+      for (const t of s.tasks)
+        for (const n of t.notices) {
+          if (n.outcome === "accepted") reached.add("notice told");
+          if (n.outcome === "withdrawn") reached.add("notice withdrawn");
+          n.trail.forEach((step, i) => {
+            if (step === "attempting" && i > 0)
+              reached.add(`notice repeat after ${n.trail[i - 1]}`);
+          });
+        }
       for (const d of Core.allDeliveries(s))
         for (const send of d.sends)
           send.trail.forEach((step, i) => {
@@ -2618,6 +2702,13 @@ test("random event sequences never violate the contract", () => {
     "ok:observe",
     "ok:restart",
     "ok:tick",
+    "ok:noticeAttempt",
+    "ok:noticeResult",
+    "notice told",
+    "notice withdrawn",
+    "notice repeat after not_sent",
+    "reject:not_due",
+    "reject:not_attempting",
     "resend after not_sent",
     "needs:choose:no_owner",
     "needs:choose:low_confidence",

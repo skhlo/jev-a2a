@@ -630,6 +630,22 @@ test("a task a participant sent lists the notices it was told; a person's task h
   assert.equal(textOf(html, "open[0].notices[0].outcome"), "accepted");
   // The requester is not asked to answer the sender's question.
   assert.ok(!html.includes('name="questionId" value="Q5"'));
+  // A notice that stopped standing before it was told reads as withdrawn.
+  const at = viaJournal.at(-1)?.at ?? AT;
+  const moved = page(ME, { task: "T5" }, [
+    ...viaJournal.slice(0, -1),
+    {
+      at,
+      event: {
+        type: "noticeResult",
+        taskId: "T5",
+        key: "question/Q5",
+        outcome: "not_sent",
+      },
+    },
+    { at, event: { type: "observe", placement: "incus@lab01", session: "L2" } },
+  ]);
+  assert.equal(textOf(moved, "open[0].notices[0].outcome"), "withdrawn");
   // Before anything was told the table is a hint; a person's task has none.
   const quiet = page(ME, { task: "T5" }, viaJournal.slice(0, -2));
   assert.match(

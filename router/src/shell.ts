@@ -9,6 +9,7 @@ import {
   currentSend,
   dueNotices,
   findDelivery,
+  findNotice,
   findTask,
   initial,
   noticeBlockedReason,
@@ -150,11 +151,13 @@ export async function openShell(
     state = recorded;
   }
 
-  // A send left "attempting" means the previous run died mid-send.
+  // A send or a notice left "attempting" means the previous run died
+  // mid-send.
   if (
     allDeliveries(state).some((d) =>
       d.sends.some((s) => s.outcome === "attempting"),
-    )
+    ) ||
+    state.tasks.some((t) => t.notices.some((n) => n.outcome === "attempting"))
   )
     apply({ type: "restart" });
   apply({ type: "tick", now: now() });
@@ -212,15 +215,19 @@ export async function openShell(
   }
 
   // What a participant sender is told, with the client command that answers
-  // it. A final notice carries each delivery's last word.
+  // it: `--as` names the session, which the CLI on the router host needs
+  // and the client ignores (it is always $PASEO_AGENT_ID). A final notice
+  // carries each delivery's last word.
   function noticeText(task: Task, key: string, kind: NoticeKind): string {
-    const host = task.via?.slice(task.via.indexOf("@") + 1) ?? "";
-    const command = config.hosts[host]?.replyCommand ?? "router";
+    const placement = state.placements[task.via ?? ""];
+    const command =
+      config.hosts[placement?.host ?? ""]?.replyCommand ?? "router";
+    const as = `--as ${placement?.session ?? "<session>"}`;
     const head = `[router ${task.id} ${key}]`;
     if (kind === "question") {
       const id = key.slice("question/".length);
       const delivery = task.deliveries.find((d) => d.question?.id === id);
-      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer --task ${task.id} --question ${id} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
+      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --question ${id} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
     }
     if (kind === "choose") {
       const routing =
@@ -228,7 +235,7 @@ export async function openShell(
       const suggested = routing?.suggestions.length
         ? `; suggested ${routing.suggestions.join(", ")}`
         : "";
-      return `${head} The router could not pick a recipient for your request (${(routing?.reason ?? "unknown").replaceAll("_", " ")}${suggested}). Choose with: ${command} choose --task ${task.id} --to <participant>, one of: ${task.permitted.join(", ")}.\n\n${task.text}`;
+      return `${head} The router could not pick a recipient for your request (${(routing?.reason ?? "unknown").replaceAll("_", " ")}${suggested}). Choose with: ${command} choose ${as} --task ${task.id} --to <participant>, one of: ${task.permitted.join(", ")}.\n\n${task.text}`;
     }
     const words = task.deliveries
       .map((d) => {
@@ -256,23 +263,24 @@ export async function openShell(
         report.push(`${task.id}: no agent configured for ${task.via}`);
         break;
       }
+      // A repeat sends the first attempt's text under the same key.
+      const text =
+        findNotice(task, next.key)?.text ??
+        noticeText(task, next.key, next.kind);
       const attempted = apply({
         type: "noticeAttempt",
         taskId: task.id,
         key: next.key,
+        text,
       });
       report.push(attempted.message);
       if (!attempted.ok) break;
-      const host = task.via.slice(task.via.indexOf("@") + 1);
+      const host = state.placements[task.via]?.host ?? "";
       let outcome: Awaited<ReturnType<Adapter["send"]>>;
       try {
         outcome = await (
           await adapterFor(host)
-        ).send(
-          agentId,
-          `N/${task.id}/${next.key}`,
-          noticeText(task, next.key, next.kind),
-        );
+        ).send(agentId, `N/${task.id}/${next.key}`, text);
       } catch (error: unknown) {
         if (error instanceof RouterBug) throw error;
         report.push(

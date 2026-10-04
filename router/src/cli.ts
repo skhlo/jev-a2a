@@ -39,11 +39,12 @@ import type { Event, Role, State, Task } from "./types.ts";
 
 const USAGE = `router: a prompt with an envelope and a record
 
-  router submit [--to <participant>] [--hosts a,b] [--message <id>] [--as <principal>] <text...>
+  router submit [--to <participant>] [--hosts a,b] [--message <id>] [--as <principal>] (<text...> | --text-file <path>)
                                                without --to, Jev picks the recipient
-  router choose --task <T> --to <participant>  answer a needs_recipient
+  router choose --task <T> --to <participant> [--as <principal>]
+                                               answer a needs_recipient
   router run                                   observe placements, deliver what is eligible
-  router serve                                 accept replies from other hosts over HTTP; serve the board
+  router serve                                 accept events from other hosts over HTTP; serve the board
   router eval [--set <file>] [--model <id>] [--as <principal>]
                                                judge the labeled set with this config's texts; nothing recorded
   router status [<task>]                       the record
@@ -56,7 +57,8 @@ const USAGE = `router: a prompt with an envelope and a record
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
 A participant's reply is authenticated by $PASEO_AGENT_ID (never --as); over
-HTTP, by $ROUTER_TOKEN from secrets.env.`;
+HTTP, by $ROUTER_TOKEN from secrets.env. A participant session on this host
+submits, chooses and answers with --as <its session id>.`;
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -176,7 +178,24 @@ async function serve(config: RouterConfig): Promise<void> {
     queue = run.catch(() => undefined);
     return run;
   };
-  const deps = { config, handle, log: (line: string) => console.log(line) };
+  // Whether `by` is the session a placement binds now, read from the
+  // record without a run.
+  const isCurrentSession = async (by: string): Promise<boolean> => {
+    const shell = await open();
+    try {
+      return Object.values(shell.state.placements).some(
+        (p) => p.session === by,
+      );
+    } finally {
+      await shell.close();
+    }
+  };
+  const deps = {
+    config,
+    handle,
+    isCurrentSession,
+    log: (line: string) => console.log(line),
+  };
   const events = createServer(eventsListener(deps, token));
   const board = createServer(boardListener(deps));
   // A permanent failure exits 2 and the service unit does not restart it; an
@@ -242,7 +261,12 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
 
   switch (command) {
     case "submit": {
-      const text = rest.join(" ").trim();
+      // The text is the remaining words or a file, not both.
+      if (values["text-file"] !== undefined && rest.length)
+        fail("Pass the text as words or with --text-file, not both.");
+      const text = (
+        values["text-file"] === undefined ? rest.join(" ") : textArg()
+      ).trim();
       if (!text) fail("Give the request text after the options.");
       const event: Event = {
         type: "submit",
@@ -377,7 +401,8 @@ function describe(task: Task, state: State): string[] {
       );
     for (const due of dueNotices(state, task)) {
       const why = noticeBlockedReason(state, task, due.key);
-      if (why && why !== "told")
+      // Told, or never to be told again: nothing waits.
+      if (why && why !== "told" && why !== "not_pending" && why !== "closed")
         lines.push(`  notice ${due.key} waits: ${why.replaceAll("_", " ")}`);
     }
   }

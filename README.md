@@ -83,9 +83,9 @@ them under "Notices to".
 ```sh
 # As the design agent on mba:
 router submit --to orchestrator "The board's log panel clips its last line at 1280 wide."
-# The orchestrator's session hears back, for example:
+# The design agent's session hears back, for example:
 # [router T41 question/R2] orchestrator asks about your request. Answer with:
-#   router answer --task T41 --question R2 --text "<answer>" ...
+#   router answer --as <session> --task T41 --question R2 --text "<answer>" ...
 ```
 
 ## The board
@@ -323,7 +323,7 @@ URL, and the same `ROUTER_TOKEN`.
 | Path                          | Contents                                                        |
 | ----------------------------- | --------------------------------------------------------------- |
 | `router/src/`                 | The router: a pure core (`core.ts`) and the shell around it     |
-| `router/client/`              | The reply client for hosts that do not run the router           |
+| `router/client/`              | The client for hosts that do not run the router                 |
 | `router/eval/`                | The labeled request set                                         |
 | `router/design/`              | The board design's data-paths, and the ones the page drops      |
 | `research/jev-router-spec.md` | The design and the contract. Start here for the reasoning       |
@@ -352,9 +352,10 @@ fails if the run changed `package.json` or the lockfile.
 - The board trusts the login header Tailscale Serve sets, so anything that
   can reach its loopback port can claim a login.
 - A participant sender is told once per key. A notice whose adapter call
-  was interrupted is marked unknown and, for a participant whose adapter
-  does not deduplicate, is not repeated; the sender still finds the question
-  or the choice in its needs-you list and the end in `router status`.
+  was interrupted or whose host was unreachable is marked unknown and, for
+  a participant whose adapter does not deduplicate, is not repeated; there
+  is no operator form for it. The sender still finds the question or the
+  choice in its needs-you list and the end in `router status`.
 - Not exercised live: a host that is down for a whole run, token rotation,
   and throughput. The spec keeps the full list.
 

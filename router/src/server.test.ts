@@ -153,6 +153,74 @@ test("events: health is open, everything else needs the exact token", async () =
   }
 });
 
+test("events: only the current session of a placement gets through; a person or a replaced session is refused before the core", async () => {
+  const seen: Event[] = [];
+  const server = createServer(
+    eventsListener(
+      {
+        config,
+        handle: (event) => {
+          seen.push(event);
+          return handle(event);
+        },
+        isCurrentSession: (by) => Promise.resolve(by === "A1"),
+      },
+      "secret",
+    ),
+  );
+  const url = await serve(server);
+  const post = (event: Record<string, unknown>) =>
+    fetch(`${url}/events`, {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+      body: JSON.stringify(event),
+    });
+  try {
+    const refused = [
+      // The shared token acting as the person.
+      { type: "submit", by: "you", messageId: "m", text: "x" },
+      // A session that was replaced.
+      { type: "choose", by: "A0", taskId: "T1", to: "incus" },
+      {
+        type: "answer",
+        by: "A0",
+        taskId: "T1",
+        messageId: "m",
+        questionId: "Q",
+      },
+      {
+        type: "update",
+        by: "A0",
+        taskId: "T1",
+        messageId: "m",
+        inReplyTo: "M",
+        kind: "working",
+      },
+      { type: "submit", messageId: "m", text: "x" },
+    ];
+    for (const event of refused) {
+      const res = await post(event);
+      assert.equal(res.status, 403, JSON.stringify(event));
+      assert.partialDeepStrictEqual(await res.json(), {
+        ok: false,
+        code: "unauthenticated",
+      });
+    }
+    assert.equal(seen.length, 0);
+    const ok = await post({
+      type: "submit",
+      by: "A1",
+      messageId: "m",
+      text: "x",
+      to: "incus",
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(seen.length, 1);
+  } finally {
+    server.close();
+  }
+});
+
 test("sameSite: browsers must come from the page; other clients pass", () => {
   assert.equal(sameSite({}), true);
   assert.equal(sameSite({ "sec-fetch-site": "same-origin" }), true);

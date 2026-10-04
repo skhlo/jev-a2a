@@ -113,12 +113,18 @@ export type Final = {
 // must answer, a recipient it must choose, or the final word. Keyed by
 // what it reports, so each is sent once; the outcome follows a send's.
 export type NoticeKind = "question" | "choose" | "final";
-export type Notice = {
-  key: string;
-  kind: NoticeKind;
+export type NoticeDue = { key: string; kind: NoticeKind };
+export type Notice = NoticeDue & {
+  // The text of the first attempt; a repeat sends the same text under the
+  // same key, as a send does.
+  text: string;
+  // Whether the sender's adapter deduplicates by key, as configured when
+  // the notice was first attempted; decides whether unknown is repeated.
+  idempotent: boolean;
   // The session the notice went to, set at the attempt.
   session: string | null;
-  outcome: Exclude<SendOutcome, "withdrawn">;
+  // withdrawn: the question or choice stopped standing before it was told.
+  outcome: SendOutcome;
   trail: TrailStep[];
 };
 
@@ -241,7 +247,7 @@ export type Event =
       hold?: boolean;
       session?: string;
     }
-  | { type: "noticeAttempt"; taskId: string; key: string }
+  | { type: "noticeAttempt"; taskId: string; key: string; text: string }
   | {
       type: "noticeResult";
       taskId: string;
@@ -254,7 +260,7 @@ export type Event =
 export type Command =
   | { type: "judge"; taskId: string; question: JudgmentQuestion }
   | { type: "deliver"; deliveryId: string; messageId: string }
-  | { type: "notify"; taskId: string; key: string; kind: NoticeKind };
+  | ({ type: "notify"; taskId: string } & NoticeDue);
 
 export type JudgmentQuestion = {
   state: { request: string };

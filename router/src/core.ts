@@ -22,7 +22,7 @@ import type {
   JudgmentQuestion,
   NeedsYouItem,
   Notice,
-  NoticeKind,
+  NoticeDue,
   Outcome,
   Participant,
   Rejected,
@@ -265,21 +265,35 @@ export function blockedReason(
   if (send.outcome !== "pending" && !retryable(state, delivery, send))
     return "not_pending";
   if (sessionReplaced(state, delivery)) return "session_replaced";
-  const holder = allDeliveries(state).find(
-    (other) =>
-      other !== delivery &&
-      other.placement === delivery.placement &&
-      inFlight(other),
-  );
-  if (holder || noticeInFlight(state, placement.session)) return "in_flight";
-  if (placement.hold) return "held";
-  if (!placement.ready) return "not_ready";
+  const busy = placementBusy(state, delivery.placement, delivery);
+  if (busy) return busy;
   if (delivery.session !== null) return null;
   // This delivery is open, unpinned and its task is open, so the queue has a
   // head: this delivery, or one created before it.
   return queueHead(state, delivery.placement)?.id === delivery.id
     ? null
     : "queued_behind";
+}
+
+// Why nothing may go to a placement now: a send (other than `except`) or a
+// notice is unconfirmed there, a person holds it, or it was not seen idle.
+function placementBusy(
+  state: State,
+  key: string,
+  except: Delivery | null = null,
+): BlockedReason | null {
+  const placement = state.placements[key];
+  if (!placement) return "closed";
+  if (
+    allDeliveries(state).some(
+      (d) => d !== except && d.placement === key && inFlight(d),
+    ) ||
+    noticeInFlight(state, placement.session)
+  )
+    return "in_flight";
+  if (placement.hold) return "held";
+  if (!placement.ready) return "not_ready";
+  return null;
 }
 
 // The delivery that goes next on a placement's queue: of its open, unpinned
@@ -329,12 +343,9 @@ export function commands(state: State): Command[] {
 // each is told once: an open question on a delivery, a recipient to
 // choose while Jev's hand-back stands, and the final word. A question or a
 // choice that no longer stands is not due, so it is never sent late.
-export function dueNotices(
-  state: State,
-  task: Task,
-): { key: string; kind: NoticeKind }[] {
+export function dueNotices(state: State, task: Task): NoticeDue[] {
   if (task.via === null) return [];
-  const due: { key: string; kind: NoticeKind }[] = [];
+  const due: NoticeDue[] = [];
   if (isTerminal(task)) due.push({ key: "final", kind: "final" });
   else {
     if (task.routing?.state === "needs_recipient")
@@ -367,23 +378,12 @@ export function noticeBlockedReason(
   const notice = findNotice(task, key);
   if (notice) {
     if (notice.outcome === "accepted") return "told";
-    if (notice.outcome === "attempting") return "not_pending";
-    if (
-      notice.outcome === "unknown" &&
-      !participant(state, task.source)?.idempotent
-    )
+    if (notice.outcome === "attempting" || notice.outcome === "withdrawn")
+      return "not_pending";
+    if (notice.outcome === "unknown" && !notice.idempotent)
       return "not_pending";
   }
-  const placement = task.via === null ? undefined : state.placements[task.via];
-  if (!placement) return "closed";
-  if (
-    allDeliveries(state).some((d) => d.placement === task.via && inFlight(d)) ||
-    noticeInFlight(state, placement.session)
-  )
-    return "in_flight";
-  if (placement.hold) return "held";
-  if (!placement.ready) return "not_ready";
-  return null;
+  return task.via === null ? "closed" : placementBusy(state, task.via);
 }
 
 // One Choice over the participants the sender could address when it asked,
@@ -590,7 +590,7 @@ export function reduce(previous: State, event: Event): State {
     });
     return unchanged;
   }
-  for (const task of state.tasks) settle(state, task);
+  const withdrawn = state.tasks.flatMap((task) => settle(state, task));
   state.last = outcome;
   if (outcome.message)
     state.log.push({
@@ -598,6 +598,8 @@ export function reduce(previous: State, event: Event): State {
       actor: outcome.actor ?? "Router",
       text: outcome.message,
     });
+  for (const text of withdrawn)
+    state.log.push({ n: state.log.length + 1, actor: "Router", text });
   return state;
 }
 
@@ -1042,12 +1044,14 @@ const handlers: Handlers = {
 
   // Like attempt, for a notice: recorded before the adapter is called, with
   // the sender's session so a later observer can tell whom it reached.
-  noticeAttempt(state, { taskId, key }) {
+  noticeAttempt(state, { taskId, key, text }) {
     const task = findTask(state, taskId);
     if (!task) return reject("not_found", "No such request.");
     const due = dueNotices(state, task).find((d) => d.key === key);
     if (!due)
       return reject("not_due", `${task.id}: nothing to tell under ${key}.`);
+    if (typeof text !== "string" || !text.trim())
+      return reject("invalid", "A notice needs text.");
     const reason = noticeBlockedReason(state, task, key);
     if (reason)
       return reject(
@@ -1059,14 +1063,19 @@ const handlers: Handlers = {
     let notice = findNotice(task, key);
     if (!notice) {
       notice = {
-        key,
-        kind: due.kind,
+        ...due,
+        text,
+        idempotent: participant(state, task.source)?.idempotent ?? false,
         session: null,
         outcome: "pending",
         trail: [],
       };
       task.notices.push(notice);
-    }
+    } else if (notice.text !== text)
+      return reject(
+        "conflict",
+        `${task.id} notice ${key} was first attempted with different text.`,
+      );
     notice.session = placement.session;
     notice.outcome = "attempting";
     notice.trail.push("attempting");
@@ -1122,20 +1131,16 @@ const handlers: Handlers = {
   restart(state) {
     state.boot++;
     let uncertain = 0;
-    for (const delivery of allDeliveries(state))
-      for (const send of delivery.sends)
-        if (send.outcome === "attempting") {
-          send.outcome = "unknown";
-          send.trail.push("unknown");
-          uncertain++;
-        }
-    for (const task of state.tasks)
-      for (const notice of task.notices)
-        if (notice.outcome === "attempting") {
-          notice.outcome = "unknown";
-          notice.trail.push("unknown");
-          uncertain++;
-        }
+    const interrupted = [
+      ...allDeliveries(state).flatMap((d) => d.sends),
+      ...state.tasks.flatMap((t) => t.notices),
+    ];
+    for (const attempt of interrupted)
+      if (attempt.outcome === "attempting") {
+        attempt.outcome = "unknown";
+        attempt.trail.push("unknown");
+        uncertain++;
+      }
     return ok(
       `Router boot ${state.boot}: ${uncertain} interrupted attempt(s) marked unknown. Nothing replayed.`,
     );
@@ -1224,8 +1229,10 @@ function verdict(task: Task, reason = "delivery"): Final {
   };
 }
 
-// Close what can no longer happen, then derive status.
-function settle(state: State, task: Task): void {
+// Close what can no longer happen, then derive status. Returns a log line
+// for each notice withdrawn: a question or a choice that stopped standing
+// before the sender was told is never told late.
+function settle(state: State, task: Task): string[] {
   if (isTerminal(task)) {
     // Nothing new is sent after a deadline: never-sent deliveries expire.
     for (const delivery of task.deliveries)
@@ -1234,4 +1241,18 @@ function settle(state: State, task: Task): void {
   } else if (task.deliveries.length && task.deliveries.every((d) => !isOpen(d)))
     task.final = verdict(task);
   task.status = status(task);
+  const due = dueNotices(state, task).map((d) => d.key);
+  const withdrawn: string[] = [];
+  for (const notice of task.notices)
+    if (
+      ["pending", "unknown"].includes(notice.outcome) &&
+      !due.includes(notice.key)
+    ) {
+      notice.outcome = "withdrawn";
+      notice.trail.push("withdrawn");
+      withdrawn.push(
+        `${task.id} notice ${notice.key} withdrawn: the ${notice.kind === "choose" ? "choice" : "question"} no longer stands.`,
+      );
+    }
+  return withdrawn;
 }

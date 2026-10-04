@@ -312,7 +312,12 @@ export const viaJournal = extend(
     kind: "question",
     text: "Which image?",
   },
-  { type: "noticeAttempt", taskId: "T5", key: "question/Q5" },
+  {
+    type: "noticeAttempt",
+    taskId: "T5",
+    key: "question/Q5",
+    text: "[router T5 question/Q5] incus asks about your request.",
+  },
   {
     type: "noticeResult",
     taskId: "T5",

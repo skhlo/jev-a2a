@@ -31,6 +31,10 @@ export type ServerDeps = {
   config: RouterConfig;
   // Applies one event as one shell run; callers serialize.
   handle(event: Event): Promise<Run>;
+  // The events endpoint is the agents' door: it takes an event only from
+  // the current session of a placement, so the shared token cannot act as
+  // a person or as a replaced session. Absent, every `by` passes.
+  isCurrentSession?(by: string): Promise<boolean>;
   log?: (line: string) => void;
   // The board's clock; a test fixes it to read a fixture's record.
   now?: () => number;
@@ -83,16 +87,28 @@ export function eventsListener(
           code: "bad_event",
           message: `serve accepts ${EVENT_TYPES.slice(0, -1).join(", ")} and ${EVENT_TYPES.at(-1)} events`,
         });
-      // The core validates everything else and rejects what it does not know.
-      deps.handle(event as Event).then(
-        ({ outcome, report }) => reply(200, { ...outcome, report }),
-        (error: unknown) =>
-          reply(500, {
+      const failed = (error: unknown): void =>
+        reply(500, {
+          ok: false,
+          code: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      const by = typeof event.by === "string" ? event.by : "";
+      (deps.isCurrentSession?.(by) ?? Promise.resolve(true)).then((current) => {
+        if (!current)
+          return reply(403, {
             ok: false,
-            code: "error",
-            message: error instanceof Error ? error.message : String(error),
-          }),
-      );
+            code: "unauthenticated",
+            message: "serve takes events from a current participant session.",
+          });
+        // The core validates everything else and rejects what it does not know.
+        deps
+          .handle(event as Event)
+          .then(
+            ({ outcome, report }) => reply(200, { ...outcome, report }),
+            failed,
+          );
+      }, failed);
     });
   };
 }
