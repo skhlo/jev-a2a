@@ -32,14 +32,8 @@ import {
   keepReading,
   type Run,
 } from "./server.ts";
-import {
-  ACCOUNT_IDS,
-  createUsageStore,
-  usageView,
-  type AccountId,
-  type UsageStore,
-} from "./usage.ts";
-import { createLoaders } from "./usage-readers.ts";
+import { ACCOUNT_IDS, usageView } from "./usage.ts";
+import { usageStore } from "./usage-readers.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
 import {
@@ -223,7 +217,7 @@ async function serve(config: RouterConfig): Promise<void> {
   // With a usage section, the accounts are read on their own cadence,
   // apart from the runs, and held in memory for the board.
   const usage = config.usage;
-  const store = usage && usageStore(usage.accounts);
+  const store = usage && usageStore(usage.accounts, secretNames);
   const reading =
     store &&
     keepReading(store, usage.every * 1000, {
@@ -265,21 +259,12 @@ async function serve(config: RouterConfig): Promise<void> {
   });
 }
 
-// The usage store for `accounts`, read with this host's logins as the user
-// the router runs as.
-function usageStore(accounts: AccountId[]): UsageStore {
-  const loaders = createLoaders(homedir(), process.env, {}, secretNames);
-  return createUsageStore(
-    Object.fromEntries(accounts.map((id) => [id, loaders[id]])),
-  );
-}
-
 // `router usage`: every configured account read once (all four without a
 // usage section), printed as the board model carries it, for checking the
 // readers on a host. Private account data, to this terminal only; the
 // journal is not opened.
 async function readUsage(config: RouterConfig): Promise<void> {
-  const store = usageStore(config.usage?.accounts ?? ACCOUNT_IDS);
+  const store = usageStore(config.usage?.accounts ?? ACCOUNT_IDS, secretNames);
   await store.refresh();
   const state = {
     ...store.state(),

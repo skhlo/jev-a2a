@@ -15,13 +15,14 @@
 // router's secrets.env).
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import {
   aged,
   claudeReading,
   codexReading,
+  createUsageStore,
   deepseekReading,
   isStale,
   LABEL,
@@ -35,6 +36,7 @@ import type {
   Metric,
   Reading,
   UsageDetail,
+  UsageStore,
 } from "./usage.ts";
 import { codexDetails, openrouterDetails } from "./usage-details.ts";
 
@@ -413,16 +415,25 @@ export type ReaderIo = {
   clock?: () => number;
 };
 
-// One loader per account, reading as `home`'s user with `env`. Each source
-// is kept apart, so one that fails never hides another. `secrets` names
-// the router's own secrets beyond the fixed ones, which the Codex child
-// does not get.
-export function createLoaders(
-  home: string,
-  env: NodeJS.ProcessEnv = process.env,
-  io: ReaderIo = {},
-  secrets: readonly string[] = [],
-): Record<AccountId, Loader> {
+// Where and how the loaders read: as `home`'s user with `env` (the
+// router's own by default), through `io` (the real process, request and
+// clock by default). `secrets` names the router's own secrets beyond the
+// fixed ones, which the Codex child does not get.
+export type LoaderOptions = {
+  home: string;
+  env?: NodeJS.ProcessEnv;
+  io?: ReaderIo;
+  secrets?: readonly string[];
+};
+
+// One loader per account. Each source is kept apart, so one that fails
+// never hides another.
+export function createLoaders({
+  home,
+  env = process.env,
+  io = {},
+  secrets = [],
+}: LoaderOptions): Record<AccountId, Loader> {
   const rpc = io.readUsageRpc ?? readUsageRpc;
   const fetchUsage = io.fetchJson ?? fetchJson;
   const clock = io.clock ?? Date.now;
@@ -607,4 +618,18 @@ export function createLoaders(
       );
     },
   };
+}
+
+// The store serve and `router usage` read: `accounts`, as the user the
+// router runs as, keeping the Codex child from the secrets file's `secrets`.
+// A test gives its own home, environment and I/O.
+export function usageStore(
+  accounts: readonly AccountId[],
+  secrets: readonly string[],
+  options: Omit<LoaderOptions, "home" | "secrets"> & { home?: string } = {},
+): UsageStore {
+  const loaders = createLoaders({ home: homedir(), ...options, secrets });
+  return createUsageStore(
+    Object.fromEntries(accounts.map((id) => [id, loaders[id]])),
+  );
 }

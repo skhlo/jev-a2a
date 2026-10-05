@@ -15,6 +15,7 @@ import {
   FETCH_LIMITS,
   fetchJson,
   readUsageRpc,
+  usageStore,
   type ReaderIo,
 } from "./usage-readers.ts";
 import {
@@ -119,7 +120,7 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
   );
 });
 
-test("the Codex child gets the router's environment without its secrets: the fixed names and every name its secrets file sets", async (t) => {
+test("the Codex child gets the router's environment without its secrets: the fixed names and every name its secrets file sets, through the store the CLI makes", async (t) => {
   const home = await fixtureHome(t);
   const seen = join(home, "env.json");
   // The real spawn, with a stand-in for codex that writes the names of its
@@ -153,10 +154,11 @@ test("the Codex child gets the router's environment without its secrets: the fix
     ...Object.fromEntries(fixed.map((name) => [name, "secret"])),
     USAGE_TEST_MARKER: "harmless",
   };
-  const loaders = createLoaders(
+  // The CLI's factory, with the secrets file's names, as serve calls it.
+  const store = usageStore(["codex"], names, {
     home,
     env,
-    io({
+    io: io({
       readUsageRpc: (_command, _args, protocol, timeoutMs, childEnv) =>
         readUsageRpc(
           process.execPath,
@@ -166,9 +168,9 @@ test("the Codex child gets the router's environment without its secrets: the fix
           childEnv,
         ),
     }),
-    names,
-  );
-  await loaders.codex();
+  });
+  await store.refresh();
+  assert.equal(store.state().accounts[0]?.reading?.windows[0]?.usedPercent, 1);
   const keys: unknown = JSON.parse(await readFile(seen, "utf8"));
   assert.ok(Array.isArray(keys));
   assert.ok(keys.includes("USAGE_TEST_MARKER"));
@@ -352,7 +354,7 @@ test("a refused credential says what to do next, per account, through the real r
     OPENROUTER_MANAGEMENT_KEY: "fixture-management",
   };
   const errors = async (given: NodeJS.ProcessEnv) => {
-    const loaders = createLoaders(home, given, readers);
+    const loaders = createLoaders({ home, env: given, io: readers });
     const store = createUsageStore(
       {
         claude: loaders.claude,
@@ -383,7 +385,7 @@ test("a refused credential says what to do next, per account, through the real r
   // With the key read, the refused management key is the account's notice,
   // and the spending it reads says it could not be refreshed.
   answers["/api/v1/key"] = openrouterPayloads.key;
-  const reading = await createLoaders(home, env, readers).openrouter();
+  const reading = await createLoaders({ home, env, io: readers }).openrouter();
   assert.equal(reading.allowance, "ready");
   assert.equal(
     reading.notice,
@@ -450,31 +452,31 @@ test("a provider request reads at most a megabyte and waits at most twelve secon
 test("a source that fails with the provider's own text reads as the router's fixed sentence", async (t) => {
   const home = await fixtureHome(t);
   const leak = "private-provider-error";
-  const codex = await createLoaders(
+  const codex = await createLoaders({
     home,
-    {},
-    io({
+    env: {},
+    io: io({
       readUsageRpc: async (_command, _args, protocol) => {
         if (protocol === "codex") throw new Error(leak);
         return codexHistory;
       },
     }),
-  ).codex();
+  }).codex();
   assert.equal(codex.allowance, "unavailable");
   assert.equal(codex.notice, "Current limits could not be refreshed.");
-  const openrouter = await createLoaders(
+  const openrouter = await createLoaders({
     home,
-    {
+    env: {
       OPENROUTER_API_KEY: "fixture-api",
       OPENROUTER_MANAGEMENT_KEY: "fixture-management",
     },
-    io({
+    io: io({
       fetchJson: async (url) => {
         if (url.endsWith("/activity")) return { data: [] };
         throw new Error(leak);
       },
     }),
-  ).openrouter();
+  }).openrouter();
   assert.equal(
     openrouter.notice,
     "The account balance could not be refreshed. Key usage could not be refreshed.",
@@ -496,7 +498,7 @@ test("Codex quota and history fail apart and keep their original times", async (
     },
     clock: () => time,
   });
-  const load = createLoaders(home, {}, readers).codex;
+  const load = createLoaders({ home, env: {}, io: readers }).codex;
   const first = await load();
   assert.equal(first.allowance, "ready");
   const activity = first.details[0];
@@ -526,14 +528,18 @@ test("Codex quota and history fail apart and keep their original times", async (
 
   // A fresh loader whose limits were refused reads history alone.
   quota = "refused";
-  const historyOnly = await createLoaders(home, {}, readers).codex();
+  const historyOnly = await createLoaders({
+    home,
+    env: {},
+    io: readers,
+  }).codex();
   assert.equal(historyOnly.allowance, "unavailable");
   assert.deepEqual(historyOnly.windows, []);
   assert.equal(historyOnly.details.length, 1);
   assert.equal(historyOnly.notice, "Codex usage unavailable.");
   // And with nothing at all, the account says why.
   history = {};
-  await assert.rejects(createLoaders(home, {}, readers).codex(), {
+  await assert.rejects(createLoaders({ home, env: {}, io: readers }).codex(), {
     message: "Codex usage unavailable.",
   });
 });
@@ -542,15 +548,15 @@ test("the store reports history alone as unavailable and ages the detail apart",
   const home = await fixtureHome(t);
   let time = now;
   let quota: unknown = {};
-  const load = createLoaders(
+  const load = createLoaders({
     home,
-    {},
-    io({
+    env: {},
+    io: io({
       readUsageRpc: async (_c, _a, protocol) =>
         protocol === "codex-usage" ? codexHistory : quota,
       clock: () => time,
     }),
-  ).codex;
+  }).codex;
   const store = createUsageStore({ codex: load }, () => time);
   await store.refresh();
   const at = (t: number) => snapshot(store.state().accounts, t)[0];
@@ -580,7 +586,7 @@ test("Claude reads Claude Code's credential file, says when it expired, and neve
     },
   });
   const inherited = { CLAUDE_CODE_OAUTH_TOKEN: "agent-token" };
-  const load = createLoaders(home, inherited, readers).claude;
+  const load = createLoaders({ home, env: inherited, io: readers }).claude;
   await assert.rejects(load(), {
     message: "No Claude login on this host. Open Claude Code and run /login.",
   });
@@ -609,11 +615,11 @@ test("Claude reads Claude Code's credential file, says when it expired, and neve
   });
   // No variable stands in for the file, so its expiry always applies.
   await assert.rejects(
-    createLoaders(
+    createLoaders({
       home,
-      { ...inherited, ROUTER_CLAUDE_OAUTH_TOKEN: "router-token" },
-      readers,
-    ).claude(),
+      env: { ...inherited, ROUTER_CLAUDE_OAUTH_TOKEN: "router-token" },
+      io: readers,
+    }).claude(),
     { message: "Claude login expired; open Claude Code." },
   );
   // CLAUDE_CONFIG_DIR moves the file, as it does for Claude Code.
@@ -625,7 +631,11 @@ test("Claude reads Claude Code's credential file, says when it expired, and neve
       claudeAiOauth: { accessToken: "moved-token", expiresAt: now + 60_000 },
     }),
   );
-  await createLoaders(home, { CLAUDE_CONFIG_DIR: moved }, readers).claude();
+  await createLoaders({
+    home,
+    env: { CLAUDE_CONFIG_DIR: moved },
+    io: readers,
+  }).claude();
   assert.deepEqual(used, ["file-token", "moved-token"]);
   assert.ok(!used.includes("agent-token"));
   assert.ok(!used.includes("never-used"));
@@ -653,10 +663,13 @@ test("DeepSeek takes its key from the environment or Pi's auth.json, never a cre
       return { balance_infos: [{ currency: "USD", total_balance: "1" }] };
     },
   });
-  await assert.rejects(createLoaders(home, {}, readers).deepseek(), {
-    message:
-      "No DeepSeek API key on this host: set DEEPSEEK_API_KEY or add one to Pi's auth.json.",
-  });
+  await assert.rejects(
+    createLoaders({ home, env: {}, io: readers }).deepseek(),
+    {
+      message:
+        "No DeepSeek API key on this host: set DEEPSEEK_API_KEY or add one to Pi's auth.json.",
+    },
+  );
   await mkdir(join(home, ".pi/agent"), { recursive: true });
   const auth = join(home, ".pi/agent/auth.json");
   await writeFile(
@@ -664,22 +677,26 @@ test("DeepSeek takes its key from the environment or Pi's auth.json, never a cre
     JSON.stringify({ deepseek: { type: "api_key", key: "!pass show x" } }),
   );
   await assert.rejects(
-    createLoaders(home, {}, readers).deepseek(),
+    createLoaders({ home, env: {}, io: readers }).deepseek(),
     /No DeepSeek/,
   );
   await writeFile(
     auth,
     JSON.stringify({ deepseek: { type: "api_key", key: "pi-key" } }),
   );
-  await createLoaders(home, {}, readers).deepseek();
-  await createLoaders(
+  await createLoaders({ home, env: {}, io: readers }).deepseek();
+  await createLoaders({
     home,
-    { DEEPSEEK_API_KEY: "env-key" },
-    readers,
-  ).deepseek();
+    env: { DEEPSEEK_API_KEY: "env-key" },
+    io: readers,
+  }).deepseek();
   // A key with a control character in it is no key: Pi's is used instead.
   for (const bad of ["env\u0007key", "env\tkey", "env\u007fkey"])
-    await createLoaders(home, { DEEPSEEK_API_KEY: bad }, readers).deepseek();
+    await createLoaders({
+      home,
+      env: { DEEPSEEK_API_KEY: bad },
+      io: readers,
+    }).deepseek();
   assert.deepEqual(keys, ["pi-key", "env-key", "pi-key", "pi-key", "pi-key"]);
 });
 
@@ -693,28 +710,31 @@ test("OpenRouter without a management key reads the key alone and says what the 
     },
     clock: () => NOW,
   });
-  const reading = await createLoaders(
+  const reading = await createLoaders({
     home,
-    { OPENROUTER_API_KEY: "fixture-api" },
-    readers,
-  ).openrouter();
+    env: { OPENROUTER_API_KEY: "fixture-api" },
+    io: readers,
+  }).openrouter();
   assert.deepEqual(reading, openrouterKeyOnly(NOW));
   assert.equal(reading.allowance, "ready");
-  await assert.rejects(createLoaders(home, {}, readers).openrouter(), {
-    message:
-      "No OpenRouter key on this host: set OPENROUTER_API_KEY or add one to Pi's auth.json, and OPENROUTER_MANAGEMENT_KEY for the account.",
-  });
+  await assert.rejects(
+    createLoaders({ home, env: {}, io: readers }).openrouter(),
+    {
+      message:
+        "No OpenRouter key on this host: set OPENROUTER_API_KEY or add one to Pi's auth.json, and OPENROUTER_MANAGEMENT_KEY for the account.",
+    },
+  );
 });
 
 test("OpenRouter with a management key reads credits, key and spending, as the fixture shows it", async (t) => {
   const home = await fixtureHome(t);
-  const reading = await createLoaders(
+  const reading = await createLoaders({
     home,
-    {
+    env: {
       OPENROUTER_API_KEY: "fixture-api",
       OPENROUTER_MANAGEMENT_KEY: "fixture-management",
     },
-    io({
+    io: io({
       fetchJson: async (url, key) => {
         const name = new URL(url).pathname.split("/").at(-1) ?? "";
         assert.equal(
@@ -725,21 +745,21 @@ test("OpenRouter with a management key reads credits, key and spending, as the f
       },
       clock: () => NOW,
     }),
-  ).openrouter();
+  }).openrouter();
   assert.deepEqual(reading, openrouterManaged(NOW));
 });
 
 test("OpenRouter with a management key alone says the credits' own reason when nothing reads", async (t) => {
   const home = await fixtureHome(t);
-  const load = createLoaders(
+  const load = createLoaders({
     home,
-    { OPENROUTER_MANAGEMENT_KEY: "fixture-management" },
-    io({
+    env: { OPENROUTER_MANAGEMENT_KEY: "fixture-management" },
+    io: io({
       fetchJson: async () => {
         throw new ReadError("The usage request failed (HTTP 401).");
       },
     }),
-  ).openrouter;
+  }).openrouter;
   const store = createUsageStore({ openrouter: load }, () => now);
   await store.refresh();
   assert.equal(
@@ -767,7 +787,7 @@ test("OpenRouter key, credits and history keep their values apart, including his
     OPENROUTER_API_KEY: "fixture-api",
     OPENROUTER_MANAGEMENT_KEY: "fixture-management",
   };
-  const load = createLoaders(home, env, readers).openrouter;
+  const load = createLoaders({ home, env, io: readers }).openrouter;
   const first = await load();
   assert.equal(metric(first, "Account balance"), 15);
   payloads.activity = {};
@@ -792,7 +812,11 @@ test("OpenRouter key, credits and history keep their values apart, including his
   assert.equal(noCredits.details[0]?.observedAt, time);
   assert.match(noCredits.notice ?? "", /did not return account or key usage/);
   payloads.key = {};
-  const onlyHistory = await createLoaders(home, env, readers).openrouter();
+  const onlyHistory = await createLoaders({
+    home,
+    env,
+    io: readers,
+  }).openrouter();
   assert.equal(onlyHistory.allowance, "unavailable");
   assert.deepEqual(onlyHistory.metrics, []);
   const spending = onlyHistory.details[0];
