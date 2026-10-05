@@ -429,7 +429,7 @@ const HELP_KEYS: [string, string][] = [
 // The page's views, in the nav's order: each tab's words, its directory
 // beside the board's, and whether the model has anything for it. The nav
 // and the View type both come from this list.
-export const VIEWS = [
+const VIEWS = [
   { name: "board", words: "Board", dir: "", shown: () => true },
   {
     name: "usage",
@@ -438,8 +438,8 @@ export const VIEWS = [
     shown: (model: BoardModel) => model.usage !== null,
   },
 ] as const;
-export type View = (typeof VIEWS)[number]["name"];
-export type Theme = (typeof THEMES)[number];
+type View = (typeof VIEWS)[number]["name"];
+type Theme = (typeof THEMES)[number];
 
 // The palette a cookie names, else the default, so the cookie cannot put
 // text into the page.
@@ -502,7 +502,6 @@ export const head = (
 // The document around a view: the head, the view's main, the key line, the
 // help with the view's keys and the theme switch, the style and the script.
 export const frame = (parts: {
-  model: BoardModel;
   theme: Theme;
   refreshSeconds: number;
   title: string;
@@ -1798,7 +1797,6 @@ ${
     : "";
 
   return frame({
-    model,
     theme: themeOf(options.theme),
     refreshSeconds,
     title: "Router",

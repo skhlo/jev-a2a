@@ -438,7 +438,6 @@ ${list.map(({ a, path }) => draw(a, path)).join("\n")}
   ].filter(Boolean);
 
   return frame({
-    model,
     theme: themeOf(options.theme),
     refreshSeconds,
     title: "Usage · Router",
