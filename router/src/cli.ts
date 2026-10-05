@@ -6,7 +6,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { mkdirSync, watch } from "node:fs";
-import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
+import {
+  loadConfig,
+  loadSecrets,
+  USAGE_EVERY,
+  type RouterConfig,
+} from "./config.ts";
 import {
   A2A_STATE,
   currentSend,
@@ -272,7 +277,10 @@ function usageStore(accounts: AccountId[]): UsageStore {
 async function readUsage(config: RouterConfig): Promise<void> {
   const store = usageStore(config.usage?.accounts ?? ACCOUNT_IDS);
   await store.refresh();
-  const state = { ...store.state(), every: config.usage?.every ?? 120 };
+  const state = {
+    ...store.state(),
+    every: config.usage?.every ?? USAGE_EVERY,
+  };
   console.log(JSON.stringify(usageView(state, Date.now()), null, 2));
 }
 

@@ -48,6 +48,9 @@ export type RouterConfig = Config & {
   usage: { every: number; accounts: AccountId[] } | null;
 };
 
+// Seconds between usage reads when the usage section names none.
+export const USAGE_EVERY = 120;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
@@ -129,7 +132,8 @@ export function loadConfig(path: string): RouterConfig {
   if (extra.usage !== undefined) {
     if (!isRecord(extra.usage))
       return fail('usage is an object such as { "every": 120 }');
-    const every = extra.usage.every === undefined ? 120 : extra.usage.every;
+    const every =
+      extra.usage.every === undefined ? USAGE_EVERY : extra.usage.every;
     if (typeof every !== "number" || !(every >= 30 && every <= 3600))
       return fail("usage.every is a number of seconds, 30 to 3600");
     const listed: unknown = extra.usage.accounts ?? ACCOUNT_IDS;

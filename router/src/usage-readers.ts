@@ -293,8 +293,8 @@ async function claudeToken(
 // A source that keeps its last value: a failure, a missing value or an
 // older one returns the previous value as failed, with the error. Only
 // normalized values are kept, never a payload or a credential.
-export type Kept<T> = { value: T | null; failed: boolean; error: unknown };
-export function retained<T extends { observedAt: number }, A extends unknown[]>(
+type Kept<T> = { value: T | null; failed: boolean; error: unknown };
+function retained<T extends { observedAt: number }, A extends unknown[]>(
   load: (...args: A) => Promise<T | null>,
 ) {
   let previous: T | null = null;
@@ -320,7 +320,7 @@ const said = (error: unknown, fallback: string): string =>
 // and kept apart: history alone is a reading with the allowance
 // unavailable, and each failure adds a notice naming what failed. Nothing
 // at all throws the allowance's error.
-export function combine(
+function combine(
   source: string,
   allowance: Kept<Reading>,
   histories: (Kept<UsageDetail> & { name: string })[],
