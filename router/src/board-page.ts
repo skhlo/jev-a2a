@@ -2037,6 +2037,14 @@ a.btn, .card a.id { text-decoration: none; }
 /* A bento of two panels, or of one. */
 .bento.pair { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
 .bento.single { grid-template-columns: minmax(0, 1fr); max-width: 1000px; }
+/* A pair stacks below 1360px. A ledger row of quota windows needs about 750px (the lead 88, the figure
+   44, the wide meter 168, the note 76, the reset 128, what is left 68, the gaps and a name), which the
+   pair's wider column has only from there. Stacked, the main area scrolls between the head and the keys,
+   and each panel takes its whole height. */
+@media (max-width: 1359px) {
+  .bento.pair { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; overflow-y: auto; }
+  .bento.pair > .panel, .bento.pair .scroll { overflow: visible; }
+}
 /* Head chips in a role: a figure in a band reads in the band's colour. */
 .nav .counts .warn, .nav .counts .warn b { color: var(--warn); }
 .nav .counts .err, .nav .counts .err b { color: var(--err); }
@@ -2108,13 +2116,15 @@ td.num, th.num { text-align: right; font-family: var(--mono); font-size: var(--f
   /* The head's chips wrap rather than widen the page. */
   .nav .counts { flex-wrap: wrap; }
   /* A ledger row wraps: the lead on its own line, then the name with its figures, the meter across, the
-     note and the time under it; .more drops its indent. */
+     note and the time under it; a leading figure takes a line of its own, with the name and a small
+     meter under it; .more drops its indent. */
   .entry { flex-wrap: wrap; row-gap: 4px; }
   .entry > .lead { flex: 1 1 100%; }
   .entry > .lead:empty { display: none; }
   .entry > .name { order: 1; }
   .entry > .figure { order: 2; }
-  .entry > .figure.leading { order: 0; min-width: 0; }
+  .entry > .figure.leading { order: 0; flex: 1 1 100%; min-width: 0; }
+  .entry > .meter:not(.wide) { order: 2; }
   .entry > .rest { order: 3; flex: 0 0 auto; }
   .entry > .meter.wide { order: 4; flex: 1 1 100%; }
   .entry > .note { order: 5; flex: 0 0 auto; }

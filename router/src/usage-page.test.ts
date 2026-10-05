@@ -423,7 +423,31 @@ test("the page reads without a script and takes no input: no form, the help's ke
   );
 });
 
-test("the narrow screen: one column, rows that wrap, chips that wrap, tables that scroll inside; nothing wider than 390px", () => {
+test("between the breakpoints: a pair of panels stacks below 1360px, where a row of quota windows no longer fits the wider column, and the main area scrolls", () => {
+  const css = STYLE(renderUsage(sampleModel()));
+  const block = css.slice(
+    css.indexOf("@media (max-width: 1359px) {"),
+    css.indexOf("@media (max-width: 900px)"),
+  );
+  assert.ok(block.startsWith("@media (max-width: 1359px) {"));
+  for (const rule of [
+    ".bento.pair { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; overflow-y: auto; }",
+    ".bento.pair > .panel, .bento.pair .scroll { overflow: visible; }",
+  ])
+    assert.ok(block.includes(rule), rule);
+  // The row's fixed cells, which the 1360px follows from: measured in
+  // Chromium, a window label keeps a width from 390px to 1440px.
+  for (const rule of [
+    ".entry > .lead { flex: 0 0 88px;",
+    ".entry > .meter.wide { flex: 0 0 168px; }",
+    ".entry > .note { flex: 0 0 76px;",
+    ".entry > .when { flex: 0 0 128px; }",
+    ".entry > .rest { flex: 0 0 68px;",
+  ])
+    assert.ok(css.includes(rule), rule);
+});
+
+test("the narrow screen: one column, rows that wrap with a leading figure on its own line, chips that wrap, tables that scroll inside their box", () => {
   const page = renderUsage(sampleModel());
   const narrow = NARROW(page);
   for (const rule of [
@@ -452,6 +476,9 @@ test("the narrow screen: one column, rows that wrap, chips that wrap, tables tha
     ),
   );
   assert.ok(
-    narrow.includes(".entry > .figure.leading { order: 0; min-width: 0; }"),
+    narrow.includes(
+      ".entry > .figure.leading { order: 0; flex: 1 1 100%; min-width: 0; }",
+    ),
   );
+  assert.ok(narrow.includes(".entry > .meter:not(.wide) { order: 2; }"));
 });
