@@ -6,7 +6,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { mkdirSync, watch } from "node:fs";
-import { loadConfig, loadSecrets, type RouterConfig } from "./config.ts";
+import {
+  loadConfig,
+  loadSecrets,
+  USAGE_EVERY,
+  type RouterConfig,
+} from "./config.ts";
 import {
   A2A_STATE,
   currentSend,
@@ -24,8 +29,11 @@ import {
   BindError,
   boardListener,
   eventsListener,
+  keepReading,
   type Run,
 } from "./server.ts";
+import { ACCOUNT_IDS, usageView } from "./usage.ts";
+import { usageStore } from "./usage-readers.ts";
 import { createPaseoAdapter } from "./paseo.ts";
 import { judge } from "./jev.ts";
 import {
@@ -51,6 +59,7 @@ const USAGE = `router: a prompt with an envelope and a record
   router serve                                 accept events from other hosts over HTTP; serve the board
   router eval [--set <file>] [--model <id>] [--as <principal>]
                                                judge the labeled set with this config's texts; nothing recorded
+  router usage                                 read the usage accounts once and print them (private data)
   router status [<task>]                       the record
   router needs-you [--as <principal|participant>]
                                                decisions waiting on a person, or owed to a participant sender
@@ -110,7 +119,9 @@ const config = ((): RouterConfig => {
     return fail(error instanceof Error ? error.message : String(error));
   }
 })();
-loadSecrets(join(configPath, "..", "secrets.env"));
+// The names the secrets file sets, which no child process the router
+// starts for usage inherits.
+const secretNames = loadSecrets(join(configPath, "..", "secrets.env"));
 
 // The principal the caller acts as: --as, $ROUTER_AS, or the first
 // configured principal in the needed role.
@@ -161,6 +172,8 @@ if (command === "serve") {
   await serve(config);
 } else if (command === "eval") {
   await evaluateSet(config);
+} else if (command === "usage") {
+  await readUsage(config);
 } else {
   const shell = await open();
   let exitCode = 0;
@@ -201,11 +214,21 @@ async function serve(config: RouterConfig): Promise<void> {
     },
   });
   const handle = runner.handle;
+  // With a usage section, the accounts are read on their own cadence,
+  // apart from the runs, and held in memory for the board.
+  const usage = config.usage;
+  const store = usage && usageStore(usage.accounts, secretNames);
+  const reading =
+    store &&
+    keepReading(store, usage.every * 1000, {
+      log: (line) => console.error(line),
+    });
   const deps = {
     config,
     handle,
     sessionOf: sessionReader(config),
     log: (line: string) => console.log(line),
+    usage: store && (() => ({ ...store.state(), every: usage.every })),
   };
   const events = createServer(eventsListener(deps, token));
   const board = createServer(boardListener(deps));
@@ -227,12 +250,27 @@ async function serve(config: RouterConfig): Promise<void> {
   await new Promise<void>((resolve) => {
     const stop = (): void => {
       runner.stop();
+      reading?.stop();
       board.close();
       events.close(() => resolve());
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   });
+}
+
+// `router usage`: every configured account read once (all four without a
+// usage section), printed as the board model carries it, for checking the
+// readers on a host. Private account data, to this terminal only; the
+// journal is not opened.
+async function readUsage(config: RouterConfig): Promise<void> {
+  const store = usageStore(config.usage?.accounts ?? ACCOUNT_IDS, secretNames);
+  await store.refresh();
+  const state = {
+    ...store.state(),
+    every: config.usage?.every ?? USAGE_EVERY,
+  };
+  console.log(JSON.stringify(usageView(state, Date.now()), null, 2));
 }
 
 // `router eval`: the labeled set against this config's responsibility texts,

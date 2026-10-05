@@ -5,11 +5,25 @@
 // `sampleJournal`, the fixture plus one participant-sent task), so the
 // committed sample shows what the tests check. Its times are fixed and
 // realistic, and nothing in it comes from a live record, which holds
-// private request text.
+// private request text, or from a live account: its usage is made up.
 import type { RouterConfig } from "./config.ts";
 import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 import type { Telemetry } from "./telemetry.ts";
+import {
+  ACCOUNT_IDS,
+  ACCOUNTS,
+  claudeReading,
+  codexReading,
+  deepseekReading,
+  LABEL,
+  openrouterReading,
+  type AccountId,
+  type AccountState,
+  type Reading,
+  type UsageState,
+} from "./usage.ts";
+import { codexDetails, openrouterDetails } from "./usage-details.ts";
 import base from "./example-config.ts";
 
 export const config: RouterConfig = {
@@ -40,6 +54,7 @@ export const config: RouterConfig = {
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
+  usage: { every: 120, accounts: [...ACCOUNT_IDS] },
 };
 
 // When the board is read: after the last event and before any deadline.
@@ -785,4 +800,325 @@ export const telemetry: Telemetry = {
       },
     },
   },
+};
+
+// ---- Usage: made-up accounts, read at fixed times ----
+
+// A time on the fixture's day, `HH:MM:SS`.
+const clockAt = (clock: string): number => Date.parse(`2026-09-30T${clock}Z`);
+const seconds = (iso: string): number => Date.parse(iso) / 1000;
+
+const account = (
+  id: AccountId,
+  state: Pick<AccountState, "status" | "checkedAt" | "reading" | "error">,
+): AccountState => {
+  const found = ACCOUNTS.find((a) => a.id === id);
+  if (!found) throw new Error(`no account ${id}`);
+  return { ...found, ...state };
+};
+
+// What the providers answered, as the readers receive it. Codex's 5-hour
+// window is 41% used with 30% of it gone (above pace), its week 78% used
+// with 90% gone (within pace, in the 75% band); its credits are 0, not
+// absent. Its history has a day with no bucket (Sep 21, a gap, not a zero)
+// and a day of 0 tokens (Sep 27).
+const codexLimits = {
+  rateLimits: {
+    primary: {
+      usedPercent: 41,
+      windowDurationMins: 300,
+      resetsAt: seconds("2026-09-30T13:15:00Z"),
+    },
+    secondary: {
+      usedPercent: 78,
+      windowDurationMins: 10080,
+      resetsAt: seconds("2026-10-01T02:00:00Z"),
+    },
+    planType: "pro",
+    credits: { balance: "0" },
+  },
+};
+const codexHistory = {
+  summary: {
+    lifetimeTokens: 48_213_900,
+    peakDailyTokens: 3_912_000,
+    currentStreakDays: 2,
+    longestStreakDays: 14,
+  },
+  dailyUsageBuckets: (
+    [
+      ["2026-09-16", 2_104_300],
+      ["2026-09-17", 1_876_000],
+      ["2026-09-18", 3_912_000],
+      ["2026-09-19", 2_450_800],
+      ["2026-09-20", 980_200],
+      ["2026-09-22", 1_720_500],
+      ["2026-09-23", 2_211_900],
+      ["2026-09-24", 3_015_400],
+      ["2026-09-25", 2_876_300],
+      ["2026-09-26", 1_530_000],
+      ["2026-09-27", 0],
+      ["2026-09-28", 2_640_700],
+      ["2026-09-29", 3_388_100],
+    ] as const
+  ).map(([startDate, tokens]) => ({ startDate, tokens })),
+};
+// Claude's last good reading: the 5-hour window 92% used with 82% of it
+// gone (above pace, in the 90% band), the week within pace, Opus at 0,
+// Sonnet's week reset at 09:40, after the reading (at 09:45 its row reads
+// "reset passed"), and extra usage enabled with nothing spent.
+const claudeUsage = {
+  five_hour: { utilization: 92, resets_at: "2026-09-30T10:40:00Z" },
+  seven_day: { utilization: 64, resets_at: "2026-10-02T20:00:00Z" },
+  seven_day_opus: { utilization: 0, resets_at: "2026-10-02T20:00:00Z" },
+  seven_day_sonnet: { utilization: 12, resets_at: "2026-09-30T09:40:00Z" },
+  extra_usage: { is_enabled: true, used_credits: 0, monthly_limit: 5000 },
+};
+const deepseekBalance = {
+  is_available: true,
+  balance_infos: [
+    {
+      currency: "USD",
+      total_balance: "4.12",
+      topped_up_balance: "4.12",
+      granted_balance: "0.00",
+    },
+  ],
+};
+// OpenRouter's key: a $20 limit with $12 left and nothing spent today; the
+// account's credits and its last days by model and provider, read only
+// with a management key (Sep 27 has no activity: a gap).
+export const openrouterPayloads = {
+  key: {
+    data: {
+      limit: 20,
+      limit_remaining: 12,
+      usage_daily: 0,
+      usage_weekly: 1.85,
+      usage_monthly: 6.4,
+    },
+  },
+  credits: { data: { total_credits: 25, total_usage: 9.8 } },
+  activity: {
+    data: (
+      [
+        [
+          "2026-09-29",
+          "deepseek/deepseek-v3.2",
+          "DeepSeek",
+          42,
+          812_300,
+          40_210,
+          0,
+          0.41,
+        ],
+        [
+          "2026-09-29",
+          "moonshotai/kimi-k2",
+          "Groq",
+          7,
+          120_400,
+          9_800,
+          1_200,
+          0.18,
+        ],
+        [
+          "2026-09-28",
+          "deepseek/deepseek-v3.2",
+          "DeepSeek",
+          31,
+          640_000,
+          30_500,
+          0,
+          0.33,
+        ],
+        [
+          "2026-09-26",
+          "moonshotai/kimi-k2",
+          "Groq",
+          3,
+          51_000,
+          4_100,
+          600,
+          0.07,
+        ],
+      ] as const
+    ).map(
+      ([date, model, provider, requests, input, output, reasoning, cost]) => ({
+        date,
+        model_permaslug: model,
+        provider_name: provider,
+        requests,
+        prompt_tokens: input,
+        completion_tokens: output,
+        reasoning_tokens: reasoning,
+        usage: cost,
+        byok_usage_inference: 0,
+      }),
+    ),
+  },
+};
+// OpenRouter as the reader leaves it without a management key: the key
+// alone, the balance saying what it needs, and the notice; an expected
+// state, so the allowance is current.
+export const openrouterKeyOnly = (now: number): Reading => {
+  const key = openrouterReading(openrouterPayloads.key, null, now);
+  return {
+    ...key,
+    metrics: [
+      { label: LABEL.accountBalance, value: "No management key", unit: null },
+      ...key.metrics,
+    ],
+    notice:
+      "A management key is required for the account balance and spending (OPENROUTER_MANAGEMENT_KEY).",
+  };
+};
+// And with one: the credits, the key and the spending.
+export const openrouterManaged = (now: number): Reading => {
+  const credits = openrouterReading(null, openrouterPayloads.credits, now);
+  const key = openrouterReading(openrouterPayloads.key, null, now);
+  return {
+    ...credits,
+    windows: key.windows,
+    metrics: [...credits.metrics, ...key.metrics],
+    details: [openrouterDetails(openrouterPayloads.activity, now)],
+  };
+};
+
+// The sample's usage, as the store held it after its refresh that ended at
+// 09:44:30: Codex current, with its token activity; Claude's last reading
+// from 09:31:30 kept after a refresh that failed on an expired login
+// (stale); DeepSeek current; OpenRouter current without a management key.
+export const usage: UsageState = {
+  at: clockAt("09:44:30"),
+  every: 120,
+  accounts: [
+    account("codex", {
+      status: "ready",
+      checkedAt: clockAt("09:44:29"),
+      error: null,
+      reading: {
+        ...codexReading(codexLimits, clockAt("09:44:28")),
+        details: [codexDetails(codexHistory, clockAt("09:44:28"))],
+      },
+    }),
+    account("claude", {
+      status: "stale",
+      checkedAt: clockAt("09:44:29"),
+      error: "Claude login expired; open Claude Code.",
+      reading: claudeReading(claudeUsage, clockAt("09:31:30")),
+    }),
+    account("deepseek", {
+      status: "ready",
+      checkedAt: clockAt("09:44:28"),
+      error: null,
+      reading: deepseekReading(deepseekBalance, clockAt("09:44:27")),
+    }),
+    account("openrouter", {
+      status: "ready",
+      checkedAt: clockAt("09:44:28"),
+      error: null,
+      reading: openrouterKeyOnly(clockAt("09:44:27")),
+    }),
+  ],
+};
+
+// The states the sample does not show, from the same refresh: Codex's
+// limits unavailable while its history read (the app-server refused the
+// limits), Claude never read (no login on the host), DeepSeek with an empty
+// balance and its notice, OpenRouter with a management key and its
+// spending.
+export const otherUsage: UsageState = {
+  ...usage,
+  accounts: [
+    account("codex", {
+      status: "unavailable",
+      checkedAt: clockAt("09:44:29"),
+      error: null,
+      reading: {
+        allowance: "unavailable",
+        source: "Codex account usage",
+        observedAt: clockAt("09:44:28"),
+        windows: [],
+        metrics: [],
+        notice: "Codex usage unavailable.",
+        details: [codexDetails(codexHistory, clockAt("09:44:28"))],
+      },
+    }),
+    account("claude", {
+      status: "unavailable",
+      checkedAt: clockAt("09:44:29"),
+      error: "No Claude login on this host. Open Claude Code and run /login.",
+      reading: null,
+    }),
+    account("deepseek", {
+      status: "ready",
+      checkedAt: clockAt("09:44:28"),
+      error: null,
+      reading: deepseekReading(
+        {
+          is_available: false,
+          balance_infos: [{ currency: "USD", total_balance: "0.00" }],
+        },
+        clockAt("09:44:27"),
+      ),
+    }),
+    account("openrouter", {
+      status: "ready",
+      checkedAt: clockAt("09:44:28"),
+      error: null,
+      reading: openrouterManaged(clockAt("09:44:27")),
+    }),
+  ],
+};
+
+// A store whose reads last ended at 09:32:30 and stalled there: no
+// refresh has failed, so every reading is stale by its age alone. Codex
+// reported its plan and credits but no quota window.
+export const agedUsage: UsageState = {
+  at: clockAt("09:32:30"),
+  every: 120,
+  accounts: [
+    account("codex", {
+      status: "ready",
+      checkedAt: clockAt("09:32:29"),
+      error: null,
+      reading: codexReading(
+        { rateLimits: { planType: "plus", credits: { balance: "12" } } },
+        clockAt("09:32:28"),
+      ),
+    }),
+    account("claude", {
+      status: "ready",
+      checkedAt: clockAt("09:32:29"),
+      error: null,
+      reading: claudeReading(claudeUsage, clockAt("09:32:28")),
+    }),
+    account("deepseek", {
+      status: "ready",
+      checkedAt: clockAt("09:32:28"),
+      error: null,
+      reading: deepseekReading(deepseekBalance, clockAt("09:32:27")),
+    }),
+    account("openrouter", {
+      status: "ready",
+      checkedAt: clockAt("09:32:28"),
+      error: null,
+      reading: openrouterKeyOnly(clockAt("09:32:27")),
+    }),
+  ],
+};
+
+// Before the first refresh has ended: every account still being read.
+export const firstUsage: UsageState = {
+  at: null,
+  every: 120,
+  accounts: ACCOUNT_IDS.map((id) =>
+    account(id, {
+      status: "loading",
+      checkedAt: null,
+      error: null,
+      reading: null,
+    }),
+  ),
 };

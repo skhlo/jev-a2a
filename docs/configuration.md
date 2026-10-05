@@ -96,6 +96,29 @@ configured".
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
 | `sheet` | Whether each run reads the health sheet (checkout, subagents, activity) beyond readiness. Off, a run costs one Paseo call per placement. Refused unless a boolean. | `true`  |
 
+### `usage`
+
+Optional and off by default: without it `router serve` reads no account
+and the board has no Usage tab. With it, `serve` reads this host's usage
+accounts on its own cadence for the
+[Usage view](board.md#usage); what each account reads, and with which
+login, is in [operating.md](operating.md#usage).
+
+```json
+"usage": { "every": 120 }
+```
+
+| Key        | Meaning                                                                                                                                | Default  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `every`    | Seconds after the end of one read before the next. Refused unless 30 to 3600.                                                          | `120`    |
+| `accounts` | Which accounts to read, among `codex`, `claude`, `deepseek` and `openrouter`; shown in that order. Refused empty or with a name twice. | all four |
+
+`router/config.example.json` leaves the section out on purpose: usage is
+opt-in, and copying the quick start should not start reading a host's
+accounts. Nor can `router/src/example-config.ts` hold it: that file is
+typed as the core's `Config`, which has none of the router's own
+sections (`serve`, `jev`, `telemetry`, `usage`).
+
 ### `home`
 
 The record's directory: `journal.jsonl` and, beside it, `telemetry.json`.
@@ -116,3 +139,8 @@ JSON file.
 | `TYPESAFE_API_KEY` | The router host, for Jev.                                             |
 | `ROUTER_TOKEN`     | The router host and every host with a client.                         |
 | `ROUTER_URL`       | Hosts that do not run the router: `serve.listen` as an `http://` URL. |
+
+With [`usage`](#usage) on, the router host may also hold, all optional,
+`OPENROUTER_MANAGEMENT_KEY`, `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`;
+what each reads, and where an account reads without one, is in
+[operating.md](operating.md#usage).

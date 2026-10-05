@@ -138,7 +138,8 @@ user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 Agents use `router reply`. `router observe <placement> --hold` keeps the
 router from sending to a session a person is typing in; `router resolve`
 lets an operator settle a send the router could not confirm; `router eval`
-judges a labeled request set. `router --help` lists every flag, including
+judges a labeled request set; `router usage` reads this host's usage
+accounts once and prints them. `router --help` lists every flag, including
 `--as` (which principal acts), `--text-file` for text a shell cannot quote,
 and `--config`.
 
@@ -167,6 +168,15 @@ answers, chooses, cancels, resolves and holds as its principals. The page
 works without JavaScript; with it, it refreshes every ten seconds and `?`
 lists the keys, with the palette switch. The same address serves the page's
 data as JSON (`board.json`), the contract `jev-router-board/1`.
+
+With a `usage` section in the configuration, the page gains a second tab,
+Usage: this host's Codex and Claude quota windows and its DeepSeek and
+OpenRouter balances, read with the host's own logins
+([docs/board.md](docs/board.md#usage),
+[operating](docs/operating.md#usage),
+[configuration](docs/configuration.md#usage)).
+
+![The Usage tab: subscription windows and API balances](router/design/screenshots/usage.png)
 
 More: [docs/board.md](docs/board.md) (what every part shows),
 [docs/board-model.md](docs/board-model.md) (the JSON).

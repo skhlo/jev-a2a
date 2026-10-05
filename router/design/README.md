@@ -14,9 +14,11 @@ page or the design; a user of the board needs only
 - `v0.12-dropped.txt`: the paths the page does not render, each with its
   reason. For v0.12 it lists none: the page renders every path for the
   board fixture.
-- `screenshots/board.png`, `screenshots/board-sheet.png`: the sample board,
-  the second with orchestrator@mbp's sheet open. Drawn from
-  `src/board.sample.json`, so they hold no live request text.
+- `screenshots/board.png`, `screenshots/board-sheet.png`,
+  `screenshots/usage.png`: the sample board, the second with
+  orchestrator@mbp's sheet open, the third the Usage view with Codex's
+  token activity open. Drawn from `src/board.sample.json`, so they hold
+  no live request text and only made-up usage.
   `pnpm exec node src/board-shots.ts` in `router/` redraws them with a
   Chromium on `PATH`.
 
@@ -93,3 +95,19 @@ that ended nothing.
 
 `pr.mergeable` is read as Paseo's word (`CONFLICTING` shows "conflicts"):
 a deviation in v0.11, the design's own rule in v0.12.
+
+## The Usage view, before a design
+
+The Usage view (`src/usage-page.ts`) has no design yet: it is a first cut
+from the design agent's first look (router T60), to be refined in v0.13.
+It uses the board's tokens, themes, head, type and density, and what it
+adds is built as generic parts, named for what they are so a later view
+can reuse them: builders beside `chip` and `frame` in `src/board-page.ts`
+(the meter with its pace tick, which also draws the board's context
+meter, the pairs, the table, the disclosure, `pace` and `band`) and their
+CSS (the bento pair, the head chip in a band, the ledger with its entries:
+lead, name, figure, wide meter, note, when, rest). The tabs are one list
+(`VIEWS`), and a panel the script swaps on refresh carries `data-part`.
+Its slots carry `data-path`s into the model's `usage`, with `pace()` and
+`max()` added to the formats; no conformance list holds them until the
+design binds them.

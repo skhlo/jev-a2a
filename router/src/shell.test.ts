@@ -32,6 +32,7 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
+  usage: null,
 });
 
 // An adapter whose next observation and send are scripted per run.

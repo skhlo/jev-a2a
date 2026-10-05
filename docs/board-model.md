@@ -24,11 +24,13 @@ Three things make the contract, `jev-router-board/1`:
 
 - the `BoardModel` type in `router/src/board.ts`, with `AgentSnapshot` and
   the sheet types (`Checkout`, `Subagents`, `Activity`) in
-  `router/src/telemetry.ts`; the names and shapes live there;
+  `router/src/telemetry.ts` and `UsageView` with its parts in
+  `router/src/usage.ts`; the names and shapes live there;
 - the sample in `router/src/board.sample.json`: the model built from the
   board's test fixture (`router/src/board-fixture.ts`, `sampleJournal`: the
   fixture plus the minute after it, with a participant-sent task), so it
-  holds no live request text. After changing the model or the fixture, run
+  holds no live request text and its usage is made up. After changing the
+  model or the fixture, run
   `pnpm exec node src/board-sample.ts` in `router/`; a test fails until the
   committed sample matches;
 - this page, for what a type cannot say: what `null` means where, how
@@ -109,3 +111,40 @@ records it.
 - `log` is the router's last twenty lines; each task's `log` is its own, as
   `router status <task>` shows them. `times` maps message ids to when they
   were recorded. `telemetryAt` is `null` without telemetry.
+- `usage` is `null` when the configuration has no `usage` section; the
+  Usage view is drawn from it alone. `at` is when the store's last refresh
+  ended, `null` before the first; `every` is the seconds between
+  refreshes. `accounts` are the configured ones in a fixed order (Codex,
+  Claude, DeepSeek, OpenRouter), `kind` `subscription` or `api`, `url` the
+  provider's own usage page.
+- An account's `status` is `loading` before its first refresh ends,
+  `ready`, `stale` (a reading kept after a failed refresh, older than ten
+  minutes, timed more than a minute ahead, or past a window's reset) or
+  `unavailable` (never read, or a reading of history alone). `reading` is
+  `null` when the account was never read, and is otherwise the last one
+  that succeeded, with its own `observedAt`; `checkedAt` is when the last
+  refresh of the account ended, whatever its outcome. `error` is `null`
+  after a refresh that succeeded, else the router's own sentence for the
+  failure: provider error text and credentials never enter the model.
+- `reading.allowance` says whether the reading holds a current allowance;
+  `unavailable` means history alone, and its `windows` are then empty. A
+  window's `usedPercent` is as reported (0 is a reading, not a default);
+  `minutes`, its length, and `resetsAt` are `null` when the provider did
+  not send them, and a window without both has no pace. A value the
+  provider did not send is left out of `metrics`, never sent as `0`; a
+  metric's `value` is a number, or words for one that is not a number
+  (`"No management key"`, a plan name), and `unit` is a currency code
+  (`USD`, `CNY`), a counted noun or `null`. The labels the view places by
+  name (`Account balance`, `Balance`, `Key remaining`, `Key limit`,
+  `Key allowance`, and the word "window" that ends a window's label) are
+  `LABEL` and `WINDOW_SUFFIX` in `router/src/usage.ts`.
+- `reading.details` is history behind the account, each with its own
+  `observedAt` and `status` (stale after ten minutes, or when the account's
+  last refresh failed), `throughDate` the last day it reports and `null`
+  without one, and `tables` whose rows carry `null` for a value not
+  reported. A column's `format` says what its cells are: `number`, `USD`,
+  `date` (a calendar day), `name` (a model or provider as the provider
+  wrote it) or `null` for words. A day with no data is an absent row, not
+  a zero row. A sum over a value not reported, or one too large to count
+  safely, is `null` in a row and left out of `metrics`, rather than
+  undercounted.

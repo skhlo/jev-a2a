@@ -15,6 +15,7 @@ import {
 import { fold } from "./shell.ts";
 import type { RouterConfig } from "./config.ts";
 import type { AgentSnapshot, Telemetry } from "./telemetry.ts";
+import { usageView, type UsageState, type UsageView } from "./usage.ts";
 import type { Entry } from "./journal.ts";
 import type {
   BlockedReason,
@@ -34,11 +35,12 @@ import type {
 } from "./types.ts";
 
 // The view model is a published contract: the BoardModel type below (with
-// AgentSnapshot and its sheet types in telemetry.ts), the sample generated
-// from the board fixture (board.sample.json), and the notes in
-// docs/board-model.md. A design binds its template to these names. A change
-// that removes or renames a field raises the major version here; adding a
-// field does not. Times are ISO strings, as the journal records them.
+// AgentSnapshot and its sheet types in telemetry.ts, UsageView and its types
+// in usage.ts), the sample generated from the board fixture
+// (board.sample.json), and the notes in docs/board-model.md. A design binds
+// its template to these names. A change that removes or renames a field
+// raises the major version here; adding a field does not. Times are ISO
+// strings, as the journal records them.
 export const BOARD_VERSION = "jev-router-board/1";
 
 // An agent's reply, without the digest the core keeps to recognise a repeat.
@@ -148,6 +150,9 @@ export type BoardModel = {
   log: State["log"];
   // When the placements' snapshots were taken; null without telemetry.
   telemetryAt: string | null;
+  // The accounts' usage, for the Usage tab; null when the configuration
+  // has no usage section.
+  usage: UsageView | null;
 };
 
 const FINISHED_SHOWN = 10;
@@ -186,6 +191,7 @@ export function boardModel(
   times: Record<string, string> = {},
   actor: Actor | null = null,
   telemetry: Telemetry | null = null,
+  usage: UsageState | null = null,
 ): BoardModel {
   const tasks = state.tasks.map((task) => taskView(task, state)).reverse();
   // Oldest first. Tasks list in submission order, which is not creation
@@ -255,6 +261,7 @@ export function boardModel(
     times,
     log: state.log.slice(-LOG_SHOWN),
     telemetryAt: telemetry?.at ?? null,
+    usage: usage && usageView(usage, now),
   };
 }
 

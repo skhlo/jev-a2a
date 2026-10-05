@@ -2302,9 +2302,16 @@ test("v0.12 escapes what it adds: the remote and its title, the who title, the m
   assert.ok(html.includes(`title="message M2 · you/${safe}">from`));
 });
 
-test("the README's screenshots: the sample board, and the same page with one sheet shown", () => {
+test("the README's screenshots: the sample board, the same page with one sheet shown, and the Usage view with one disclosure open", () => {
   const pages = shots();
-  assert.deepEqual(Object.keys(pages), ["board", "board-sheet"]);
+  assert.deepEqual(Object.keys(pages), ["board", "board-sheet", "usage"]);
+  assert.deepEqual(
+    [...(pages.usage ?? "").matchAll(/<details [^>]*>/g)].map((m) => [
+      m[0].includes(" open "),
+      m[0].match(/data-key="([^"]*)"/)?.[1],
+    ]),
+    [[true, "codex/Token activity"]],
+  );
   assert.equal(
     sheets(pages.board ?? "").filter((s) => !s.includes(" hidden>")).length,
     0,

@@ -1,7 +1,7 @@
 // The guards on both HTTP surfaces, exercised over real sockets on port 0.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import {
   BindError,
   boardListener,
   eventsListener,
+  keepReading,
   sameSite,
   serveRunner,
   sessionReader,
@@ -27,8 +28,10 @@ import {
   NOW,
   replacedJournal,
   telemetry,
+  usage,
 } from "./board-fixture.ts";
 import type { RouterConfig } from "./config.ts";
+import type { UsageState } from "./usage.ts";
 import { writeTelemetry } from "./telemetry.ts";
 import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
@@ -49,6 +52,7 @@ const config: RouterConfig = {
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
+  usage: null,
 };
 
 // Every caller is a current session unless a test says otherwise.
@@ -680,6 +684,62 @@ test("sameSite: browsers must come from the page; other clients pass", () => {
   assert.equal(sameSite({ origin: "not a url", host: "x" }), false);
 });
 
+test("board: the trailing-slash redirect stays on this host, directly and under Serve's mount, whatever the last segment says", async () => {
+  writeFileSync(
+    join(home, "journal.jsonl"),
+    `${JSON.stringify({ at: "t", event: { type: "tick", now: 1 } })}\n`,
+  );
+  const server = createServer(boardListener({ config, handle }));
+  const url = await serve(server);
+  const { port } = new URL(url);
+  // The path as sent, unnormalized, as a hostile link can make a browser
+  // send it.
+  const located = (path: string) =>
+    new Promise<{ status: number; location: string | null }>(
+      (resolve, reject) => {
+        const req = request(
+          { host: "127.0.0.1", port, path, method: "GET" },
+          (res) => {
+            res.resume();
+            const { location } = res.headers;
+            resolve({
+              status: res.statusCode ?? 0,
+              location: location ?? null,
+            });
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      },
+    );
+  try {
+    for (const path of [
+      "/http:evil.com",
+      "/https:evil.com",
+      "/.//evil.com",
+      "/router",
+      "/router/usage",
+      "/usage",
+    ]) {
+      const { status, location } = await located(path);
+      assert.equal(status, 302, path);
+      assert.ok(location, path);
+      // Where a browser lands: opened directly, and through Serve, which
+      // strips the /router mount before the router sees the path.
+      for (const page of [
+        new URL(`http://127.0.0.1:${port}${path}`),
+        new URL(`https://host.example.ts.net/router${path}`),
+      ]) {
+        const landed = new URL(location, page);
+        assert.equal(landed.origin, page.origin, `${path} from ${page.href}`);
+        assert.equal(landed.pathname, `${page.pathname}/`, path);
+      }
+    }
+  } finally {
+    server.close();
+  }
+});
+
 test("board: no identity or a forged site gets no action; a viewer's action runs and redirects", async () => {
   writeFileSync(
     join(home, "journal.jsonl"),
@@ -770,9 +830,11 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
       await fetch(`${url}/whoami`, { headers: me })
     ).json()) as { login: string };
     assert.equal(who.login, "me@example.com");
+    // The location is relative: it resolves to /router/ here and keeps a
+    // mount Serve stripped.
     const moved = await fetch(`${url}/router`, { redirect: "manual" });
     assert.equal(moved.status, 302);
-    assert.equal(moved.headers.get("location"), "/router/");
+    assert.equal(moved.headers.get("location"), "./router/");
     assert.equal((await fetch(`${url}/`, { method: "PUT" })).status, 405);
   } finally {
     server.close();
@@ -936,6 +998,11 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
     assert.equal(await theme(), "flexoki");
     assert.equal(await theme("router-theme=one-dark"), "one-dark");
     assert.equal(await theme("a=1; router-theme=one-dark; b=2"), "one-dark");
+    // Of two, the first: a browser sends the most specific path first.
+    assert.equal(
+      await theme("router-theme=one-dark; router-theme=flexoki"),
+      "one-dark",
+    );
     assert.equal(await theme("router-theme=solarized"), "flexoki");
     assert.equal(
       await theme('router-theme="><script>alert(1)</script>'),
@@ -1224,5 +1291,169 @@ test("board: the model carries the telemetry file beside the record; a bad file 
     ]);
   } finally {
     server.close();
+  }
+});
+
+test("usage: the store is read now and again a set time after each read ends, never two at once, until stopped", async () => {
+  const pending: { fn: () => void; ms: number }[] = [];
+  const timers = {
+    set: (fn: () => void, ms: number) => {
+      const handle = { fn, ms };
+      pending.push(handle);
+      return handle;
+    },
+    clear: (handle: { fn: () => void; ms: number }) => {
+      const at = pending.indexOf(handle);
+      if (at >= 0) pending.splice(at, 1);
+    },
+  };
+  let reads = 0;
+  let end: (() => void) | null = null;
+  const store = {
+    refresh: () =>
+      new Promise<void>((resolve) => {
+        reads += 1;
+        end = resolve;
+      }),
+  };
+  const finish = async () => {
+    const resolve = end;
+    assert.ok(resolve, "a read in progress");
+    end = null;
+    resolve();
+    await new Promise((settled) => setImmediate(settled));
+  };
+  const armed = () => pending.map((t) => t.ms);
+  const reading = keepReading(store, 120_000, { timers });
+  assert.equal(reads, 1, "a read at once");
+  assert.deepEqual(armed(), [], "nothing armed while it reads");
+  await finish();
+  assert.deepEqual(armed(), [120_000]);
+  pending.shift()?.fn();
+  assert.equal(reads, 2);
+  assert.deepEqual(armed(), []);
+  await finish();
+  assert.deepEqual(armed(), [120_000]);
+  reading.stop();
+  assert.deepEqual(armed(), [], "stop disarms the next read");
+  // Stopped during a read: its end arms nothing.
+  const again = keepReading(store, 120_000, { timers });
+  again.stop();
+  await finish();
+  assert.deepEqual(armed(), []);
+  assert.equal(reads, 3);
+});
+
+test("usage: a refresh that rejects logs one fixed line and reads again on schedule, and serve stays up", async () => {
+  const pending: (() => void)[] = [];
+  const timers = {
+    set: (fn: () => void) => {
+      pending.push(fn);
+      return fn;
+    },
+    clear: (fn: () => void) => {
+      const at = pending.indexOf(fn);
+      if (at >= 0) pending.splice(at, 1);
+    },
+  };
+  // An unhandled rejection would end serve; here it is caught and counted.
+  const unhandled: unknown[] = [];
+  const count = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", count);
+  try {
+    const lines: string[] = [];
+    let reads = 0;
+    const store = {
+      refresh: async () => {
+        reads += 1;
+        throw new Error("private provider error");
+      },
+    };
+    const settled = () => new Promise((done) => setImmediate(done));
+    const reading = keepReading(store, 120_000, {
+      timers,
+      log: (line) => lines.push(line),
+    });
+    await settled();
+    assert.deepEqual(lines, [
+      "usage: a refresh failed; the next one follows on schedule.",
+    ]);
+    assert.equal(pending.length, 1, "the next read is armed");
+    pending.shift()?.();
+    await settled();
+    assert.equal(reads, 2);
+    assert.equal(lines.length, 2);
+    reading.stop();
+    assert.deepEqual(pending, []);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", count);
+  }
+});
+
+test("board: the Usage view is at usage/, with the theme cookie and the same model as JSON; without usage it is a 404 that names the section", async () => {
+  const record = mkdtempSync(join(tmpdir(), "server-usage-"));
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const listen = (state: UsageState | null) =>
+    createServer(
+      boardListener({
+        config: { ...fixture, home: record },
+        handle,
+        now: () => NOW,
+        usage: state && (() => state),
+      }),
+    );
+  const on = listen(usage);
+  const off = listen(null);
+  const url = await serve(on);
+  const offUrl = await serve(off);
+  try {
+    const page = await fetch(`${url}/usage/`);
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
+    const html = await page.text();
+    assert.ok(html.includes("<title>Usage · Router</title>"));
+    assert.ok(html.includes('class="panel subscriptions"'));
+    // The board links to the Usage view when usage is on.
+    const board = await (await fetch(`${url}/`)).text();
+    assert.ok(board.includes('href="usage/"'));
+    // The theme is the page's cookie, as on the board.
+    const themed = await (
+      await fetch(`${url}/usage/`, {
+        headers: { cookie: "router-theme=one-dark" },
+      })
+    ).text();
+    assert.match(themed, /<html lang="en" data-theme="one-dark">/);
+    // Asked for JSON, usage/ is the board's model, usage included.
+    const model = await jsonObject(
+      await fetch(`${url}/usage/`, { headers: { accept: "application/json" } }),
+    );
+    assert.ok(isRecord(model.usage));
+    assert.equal(model.usage.at, "2026-09-30T09:44:30.000Z");
+    assert.deepEqual(await jsonObject(await fetch(`${url}/board.json`)), model);
+    // Without the slash, a relative redirect: under Serve's mount the
+    // browser comes back to /router/usage/.
+    const bare = await fetch(`${url}/usage`, { redirect: "manual" });
+    assert.equal(bare.status, 302);
+    assert.equal(bare.headers.get("location"), "./usage/");
+    // Usage off: the board has no Usage tab, and usage/ says why.
+    const none = await fetch(`${offUrl}/usage/`);
+    assert.equal(none.status, 404);
+    assert.equal(
+      await none.text(),
+      "Usage is off: the configuration has no usage section.",
+    );
+    const plainBoard = await (await fetch(`${offUrl}/`)).text();
+    assert.equal(plainBoard.includes('href="usage/"'), false);
+    assert.equal(
+      (await jsonObject(await fetch(`${offUrl}/board.json`))).usage,
+      null,
+    );
+  } finally {
+    on.close();
+    off.close();
   }
 });

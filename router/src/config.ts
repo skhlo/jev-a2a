@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { validateConfig } from "./core.ts";
 import type { Config } from "./types.ts";
+import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
 export type HostConfig = {
   // Paseo daemon endpoint: a websocket URL, or ssh://[user@]host[:port] to
@@ -42,10 +43,18 @@ export type RouterConfig = Config & {
   // Whether each run reads the health sheet (checkout, subagents, activity)
   // beyond the rail; off, a run costs one call per placement.
   telemetry: { sheet: boolean };
+  // Which accounts `router serve` reads for the Usage tab, every how many
+  // seconds; null, the default, reads none and shows no tab.
+  usage: { every: number; accounts: AccountId[] } | null;
 };
+
+// Seconds between usage reads when the usage section names none.
+export const USAGE_EVERY = 120;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+const isAccountId = (value: unknown): value is AccountId =>
+  ACCOUNT_IDS.some((id) => id === value);
 
 export function loadConfig(path: string): RouterConfig {
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -121,6 +130,30 @@ export function loadConfig(path: string): RouterConfig {
   const telemetry = isRecord(extra.telemetry) ? extra.telemetry : {};
   if (telemetry.sheet !== undefined && typeof telemetry.sheet !== "boolean")
     return fail("telemetry.sheet is true or false");
+  let usage: RouterConfig["usage"] = null;
+  if (extra.usage !== undefined) {
+    if (!isRecord(extra.usage))
+      return fail('usage is an object such as { "every": 120 }');
+    const every =
+      extra.usage.every === undefined ? USAGE_EVERY : extra.usage.every;
+    if (typeof every !== "number" || !(every >= 30 && every <= 3600))
+      return fail("usage.every is a number of seconds, 30 to 3600");
+    const listed: unknown = extra.usage.accounts ?? ACCOUNT_IDS;
+    const ids = Array.isArray(listed) ? listed.filter(isAccountId) : [];
+    if (
+      !Array.isArray(listed) ||
+      !ids.length ||
+      ids.length !== listed.length ||
+      new Set(ids).size !== ids.length
+    )
+      return fail(
+        `usage.accounts lists accounts once each, among ${ACCOUNT_IDS.join(", ")}`,
+      );
+    usage = {
+      every,
+      accounts: ACCOUNT_IDS.filter((id) => ids.includes(id)),
+    };
+  }
   return {
     ...config,
     home:
@@ -148,14 +181,18 @@ export function loadConfig(path: string): RouterConfig {
         : {}),
     },
     telemetry: { sheet: telemetry.sheet ?? true },
+    usage,
   };
 }
 
 // KEY=VALUE lines from a secrets file next to the configuration, applied to
 // the environment where the environment does not already set them. Secrets
-// never live in the JSON configuration.
-export function loadSecrets(path: string): void {
-  if (!existsSync(path)) return;
+// never live in the JSON configuration. Returns the names the file sets,
+// applied or already in the environment, so a child process the router
+// starts can be kept from all of them.
+export function loadSecrets(path: string): string[] {
+  if (!existsSync(path)) return [];
+  const names: string[] = [];
   for (const line of readFileSync(path, "utf8").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -163,6 +200,9 @@ export function loadSecrets(path: string): void {
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
-    if (value && process.env[key] === undefined) process.env[key] = value;
+    if (!value) continue;
+    names.push(key);
+    if (process.env[key] === undefined) process.env[key] = value;
   }
+  return names;
 }
