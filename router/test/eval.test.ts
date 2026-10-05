@@ -4,10 +4,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { curve, evaluate, parseSet, renderEval } from "./eval.ts";
-import { responsibilityTexts, routingQuestion } from "./core.ts";
-import type { JudgeResult } from "./jev.ts";
-import base from "./example-config.ts";
+import { curve, evaluate, parseSet, renderEval } from "../src/eval.ts";
+import { responsibilityTexts, routingQuestion } from "../src/core.ts";
+import type { JudgeResult } from "../src/jev.ts";
+import base from "../src/example-config.ts";
 
 const options = ["knowledge", "scratch", "none"];
 // The live roster the committed set is labeled against.

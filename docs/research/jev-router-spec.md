@@ -6,12 +6,12 @@ TypeSafe's Jev the same day. This is the authoritative
 design; the [original design](jev-router-design.html) is historical. herdr is
 not connected.
 
-| Artifact                    | Role                                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `router-core.js`            | Pure reducer implementing the contract below. No I/O, no built-in deployment.                                 |
-| `router-example-config.js`  | One example deployment. The page and tests load it; nothing in the core depends on it.                        |
-| `router-core.test.js`       | Scenario tests, an independent invariant oracle, random sequences. `node --test research/router-core.test.js` |
-| `jev-router-prototype.html` | Interactive view over the core with the example deployment. Open directly in a browser.                       |
+| Artifact                    | Role                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `router-core.js`            | Pure reducer implementing the contract below. No I/O, no built-in deployment.                                      |
+| `router-example-config.js`  | One example deployment. The page and tests load it; nothing in the core depends on it.                             |
+| `router-core.test.js`       | Scenario tests, an independent invariant oracle, random sequences. `node --test docs/research/router-core.test.js` |
+| `jev-router-prototype.html` | Interactive view over the core with the example deployment. Open directly in a browser.                            |
 
 ## The idea
 
@@ -102,7 +102,7 @@ the journal, so the poll costs calls, not record.
 ## Configuration
 
 The keys, their defaults and what validation refuses are in
-[`docs/configuration.md`](../docs/configuration.md). The decisions behind
+[`docs/configuration.md`](../configuration.md). The decisions behind
 the core's keys:
 
 - `policy.threshold` is picked per deployment with `router eval`, not
@@ -124,7 +124,7 @@ the core's keys:
 
 The same steps each time an agent joins the roster; the vault was the first
 (decided 2026-09-30, generalized 2026-10-01). The procedure is in
-[`docs/participants.md`](../docs/participants.md): the owner writes the
+[`docs/participants.md`](../participants.md): the owner writes the
 text next to the agent's own `AGENTS.md` and the router config copies it;
 labeled requests are added, phrased differently from the text's examples;
 `router eval` runs on a candidate config that carries the text and the
@@ -236,7 +236,7 @@ the task.
 
 ## Invariants
 
-Checked by the oracle in `router/src/core.test.ts` (the prototype's
+Checked by the oracle in `router/test/core.test.ts` (the prototype's
 `router-core.test.js` keeps the pre-notice subset) after every event of every
 test, including 400 random sequences of 120 events each, half with a
 non-deduplicating participant. The oracle derives eligibility, in-flight, status, judgment

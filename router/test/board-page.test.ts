@@ -13,7 +13,7 @@ import {
   messageTimes,
   type BoardModel,
   type PlacementView,
-} from "./board.ts";
+} from "../src/board.ts";
 import {
   age,
   amount,
@@ -33,7 +33,7 @@ import {
   time,
   wshort,
   type RenderOptions,
-} from "./board-page.ts";
+} from "../src/board-page.ts";
 import {
   agedUsage,
   answeredJournal,
@@ -50,24 +50,24 @@ import {
   telemetry,
   usage,
   viaJournal,
-} from "./board-fixture.ts";
-import { dataPaths } from "./design-paths.ts";
-import { sampleModel } from "./board-sample.ts";
-import { recording, shots } from "./board-shots.ts";
-import type { Entry } from "./journal.ts";
+} from "../src/board-fixture.ts";
+import { dataPaths } from "../src/design-paths.ts";
+import { sampleModel } from "../src/board-sample.ts";
+import { recording, shots } from "../src/board-shots.ts";
+import type { Entry } from "../src/journal.ts";
 import {
   emptySnapshot,
   type AgentSnapshot,
   type Telemetry,
-} from "./telemetry.ts";
-import type { Role } from "./types.ts";
+} from "../src/telemetry.ts";
+import type { Role } from "../src/types.ts";
 import {
   deepseekReading,
   LABEL,
   openrouterReading,
   WINDOW_SUFFIX,
   type UsageState,
-} from "./usage.ts";
+} from "../src/usage.ts";
 
 // Past every deadline in the fixture.
 const LATER = NOW + 3 * 60 * 60_000;

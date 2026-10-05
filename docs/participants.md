@@ -4,7 +4,7 @@ A participant is an agent or a service with a stable id, one or more hosts,
 and a responsibility text. This page covers writing that text and checking
 it with `router eval`, and what changes when a participant's own session
 sends work. The reasoning, with the measurements behind the text rules, is
-in the spec: [Connecting a participant](../research/jev-router-spec.md#connecting-a-participant).
+in the spec: [Connecting a participant](research/jev-router-spec.md#connecting-a-participant).
 
 ## The responsibility text
 
@@ -104,5 +104,5 @@ Limits:
 - When two deliveries of one request ask under the same message id, an
   answer must name its delivery (`--delivery`); the notices do.
 - This path was built on 2026-10-04 and has not yet been run live; the
-  spec's [Verified live, and not](../research/jev-router-spec.md#verified-live-and-not)
+  spec's [Verified live, and not](research/jev-router-spec.md#verified-live-and-not)
   keeps that list.

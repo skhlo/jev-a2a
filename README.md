@@ -32,7 +32,7 @@ a participant on one host (`coder@laptop`), with one current Paseo session.
 A **principal** is who acts on the record. A person is a requester, who
 submits, or an operator, who settles what the router cannot confirm; a
 participant acts through its session. A **delivery** is one request on its
-way to one placement. The [spec's vocabulary](research/jev-router-spec.md#vocabulary)
+way to one placement. The [spec's vocabulary](docs/research/jev-router-spec.md#vocabulary)
 has more.
 
 When a request names no recipient, Jev (a
@@ -214,11 +214,11 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
   participant's adapter does not deduplicate
   ([docs/participants.md](docs/participants.md#a-participant-as-the-sender)).
 - What has and has not been exercised live is listed in the spec:
-  [Verified live, and not](research/jev-router-spec.md#verified-live-and-not).
+  [Verified live, and not](docs/research/jev-router-spec.md#verified-live-and-not).
 
 ## Documentation
 
-- [research/jev-router-spec.md](research/jev-router-spec.md): the design
+- [docs/research/jev-router-spec.md](docs/research/jev-router-spec.md): the design
   and the contract. Start here for the reasoning.
 - [docs/configuration.md](docs/configuration.md): every config key, its
   default and what is refused.
@@ -236,13 +236,14 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 | Path                         | Contents                                                              |
 | ---------------------------- | --------------------------------------------------------------------- |
 | `router/src/`                | The router: a pure core (`core.ts`) and the shell around it           |
+| `router/test/`               | The router's tests; fixtures the scripts also read stay in `src/`     |
 | `router/config.example.json` | A one-host configuration that loads as it is; a test keeps it valid   |
 | `router/client/`             | The client for hosts that do not run the router                       |
 | `router/eval/`               | The maintainer's labeled request set                                  |
 | `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
 | `router/jev-router.service`  | The systemd user unit for `router serve`                              |
 | `docs/`                      | Reference pages                                                       |
-| `research/`                  | The spec, the executable model it was verified on, and background     |
+| `docs/research/`             | The spec, the executable model it was verified on, and background     |
 
 ```sh
 cd router
@@ -251,7 +252,7 @@ pnpm typecheck
 pnpm fmt:check
 ```
 
-CI runs these plus `node --test router-core.test.js` in `research/`, and
+CI runs these plus `node --test router-core.test.js` in `docs/research/`, and
 fails if the run changed `package.json` or the lockfile. Regenerating the
 sample and the screenshots after a view-model change:
 [docs/board-model.md](docs/board-model.md#the-contract) and

@@ -1,5 +1,6 @@
 // Shapes shared by the core, the shell and the tests. The contract is
-// ../../research/jev-router-spec.md; the core enforces it, these only name it.
+// ../../docs/research/jev-router-spec.md; the core enforces it, these
+// only name it.
 
 export type Role = "requester" | "operator";
 

@@ -7,7 +7,7 @@ in the same directory as that file.
 one-host file; a test keeps it loading. The loader is `router/src/config.ts`
 over the core's `validateConfig` in `router/src/core.ts`; what they refuse
 is listed with each key. The spec's
-[Configuration](../research/jev-router-spec.md#configuration) section says
+[Configuration](research/jev-router-spec.md#configuration) section says
 what is fixed on purpose and is not configuration.
 
 ## Keys
@@ -72,7 +72,7 @@ table form shows only the short id). Refused: a key that is not a
 configured placement, a host not in `hosts`, an empty value, a terminal
 named by anything but its full id, or a terminal for a participant that is
 `idempotent: true`. When a terminal is sent to is in the contract's
-adapters section ([jev-router-spec.md](../research/jev-router-spec.md)).
+adapters section ([jev-router-spec.md](research/jev-router-spec.md)).
 
 ### `terminals`
 

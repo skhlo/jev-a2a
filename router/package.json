@@ -5,12 +5,12 @@
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.8.0",
-  "description": "A prompt with an envelope and a record. Contract: ../research/jev-router-spec.md",
+  "description": "A prompt with an envelope and a record. Contract: ../docs/research/jev-router-spec.md",
   "bin": {
     "router": "./src/cli.ts"
   },
   "scripts": {
-    "test": "node --test \"src/**/*.test.ts\"",
+    "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check ."

@@ -1,7 +1,7 @@
 // Jev router core: a pure, deterministic model of the communication contract.
 // The shell authenticates callers, calls Jev and delivery adapters, and feeds
 // their results back as events. This module decides; it performs no I/O.
-// Contract: ../../research/jev-router-spec.md. Tests: core.test.ts.
+// Contract: ../../docs/research/jev-router-spec.md. Tests: ../test/core.test.ts.
 //
 // The core carries no deployment. A configuration supplies:
 //   policy        threshold, deadline, maxText, maxOpenTasks

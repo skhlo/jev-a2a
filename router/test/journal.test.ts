@@ -18,7 +18,7 @@ import {
   readJournal,
   readJournalSince,
   type JournalRead,
-} from "./journal.ts";
+} from "../src/journal.ts";
 import { scratch } from "./test-scratch.ts";
 
 const line = (n: number): string =>

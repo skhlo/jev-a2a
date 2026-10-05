@@ -15,7 +15,7 @@ import {
   identify,
   messageTimes,
   taskLog,
-} from "./board.ts";
+} from "../src/board.ts";
 import {
   answeredJournal,
   config,
@@ -24,10 +24,10 @@ import {
   NOW,
   telemetry,
   viaJournal,
-} from "./board-fixture.ts";
-import { boardSample, sampleModel, SAMPLE_PATH } from "./board-sample.ts";
-import { readJournal, type Entry } from "./journal.ts";
-import type { Event } from "./types.ts";
+} from "../src/board-fixture.ts";
+import { boardSample, sampleModel, SAMPLE_PATH } from "../src/board-sample.ts";
+import { readJournal, type Entry } from "../src/journal.ts";
+import type { Event } from "../src/types.ts";
 
 // Past every deadline in the fixture.
 const LATER = NOW + 3 * 60 * 60_000;

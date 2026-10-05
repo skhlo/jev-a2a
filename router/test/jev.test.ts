@@ -2,9 +2,9 @@
 // and the response mapping, against the shapes documented by TypeSafe.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { jevRequest, judge, parseJudgment } from "./jev.ts";
-import { initial, judgmentQuestion } from "./core.ts";
-import config from "./example-config.ts";
+import { jevRequest, judge, parseJudgment } from "../src/jev.ts";
+import { initial, judgmentQuestion } from "../src/core.ts";
+import config from "../src/example-config.ts";
 
 // A task as the core would hold it while routing; only source and text matter
 // to the question.
