@@ -11,15 +11,15 @@ import {
   checkoutOf,
   firstLine,
   pasteable,
+  promptEmpty,
   subagentsOf,
-  terminalReady,
+  terminalCondition,
   terminalSnapshotOf,
   type Daemon,
   type PaseoTerminal,
   type ProviderSubagent,
   type TimelineEntry,
 } from "./paseo.ts";
-import { terminalOf } from "./config.ts";
 
 const SEEN = "2026-09-30T09:44:50.000Z";
 
@@ -441,6 +441,10 @@ function scripted(status: PaseoAgent["status"], fail: string[] = []) {
       calls.push("terminals");
       return [];
     },
+    async screen() {
+      calls.push("screen");
+      return [];
+    },
     async input() {
       calls.push("input");
     },
@@ -519,8 +523,8 @@ test("with the sheet off, only the rail is read", async () => {
   assert.deepEqual(calls, ["refresh A1"]);
 });
 
-// A terminal as the daemon lists it, and a daemon holding one whose
-// activity the scripted hook changes when Enter arrives.
+// A terminal as the daemon lists it, and screens as Claude Code draws
+// them (from captures on 0.10.2 with Claude Code 2.1.289).
 const term = (
   activity: PaseoTerminal["activity"],
   title = "✳ Claude Code",
@@ -532,22 +536,65 @@ const term = (
   title,
   activity,
 });
-const idleAt = (changedAt: number): PaseoTerminal["activity"] => ({
+const finishedAt = (changedAt: number): PaseoTerminal["activity"] => ({
   state: "idle",
   attentionReason: "finished",
   changedAt,
 });
+const rule = "─".repeat(40);
+const status = [
+  "  ✻ | Opus 5.5 | xhigh | ctx 0%/1.0m",
+  "   source |  main | ⇣4",
+  "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
+];
+const atPrompt = (box: string): string[] => [
+  "source main ❯ claude",
+  " ▐▛███▛█   Claude Code v2.1.289",
+  "",
+  rule,
+  box,
+  rule,
+  ...status,
+  "",
+  "",
+];
+const EMPTY = atPrompt("❯");
+const TYPED = atPrompt("❯ half a line");
+const DIALOG = [
+  "● Bash(touch /tmp/marker)",
+  "  ⎿  Waiting…",
+  rule,
+  " Bash command",
+  " Create a marker file",
+  "╌".repeat(40),
+  " touch /tmp/marker",
+  "╌".repeat(40),
+  " Do you want to proceed?",
+  " ❯ 1. Yes",
+  "   2. Yes, and always allow access to /tmp from this project",
+  "   3. No",
+  " Esc to cancel · Tab to amend",
+];
+
+// A daemon holding one terminal, whose activity the scripted hook changes
+// when Enter arrives.
 function terminalDaemon(
   start: PaseoTerminal | null,
   onEnter: ((t: PaseoTerminal) => PaseoTerminal) | null,
+  screen: string[] = EMPTY,
 ) {
   let current = start;
   const inputs: string[] = [];
+  const reads: string[] = [];
   const { daemon } = scripted("idle");
   const terminals: Daemon = {
     ...daemon,
     async terminals() {
       return current ? [current] : [];
+    },
+    async screen(terminalId) {
+      reads.push(terminalId);
+      return screen;
     },
     async input(terminalId, data) {
       assert.equal(terminalId, "T1");
@@ -555,51 +602,50 @@ function terminalDaemon(
       if (data === "\r" && current && onEnter) current = onEnter(current);
     },
   };
-  return { daemon: terminals, inputs };
+  return { daemon: terminals, inputs, reads };
 }
-const quick = { receiptMs: 1_000, pause: () => Promise.resolve() };
+const quick = { receiptMs: 1_000, sleep: () => Promise.resolve() };
 
-test("a terminal session is named terminal:<id>; anything else is a Paseo agent", () => {
-  assert.equal(terminalOf("terminal:2bd05ba9"), "2bd05ba9");
-  assert.equal(terminalOf("terminal:"), null);
-  assert.equal(terminalOf("6c9370bc-d2ed-45bc-98c4-a0f1807fa42c"), null);
-});
-
-test("a terminal is ready when idle or finished with nothing asked of a person, or, before any activity, at Claude Code's idle mark", () => {
-  const cases: [PaseoTerminal, boolean][] = [
-    [term(idleAt(5)), true],
-    [term({ state: "idle", changedAt: 5 }), true],
-    [term({ state: "working", changedAt: 5 }, "◐ Claude Code"), false],
-    [
-      term({
-        state: "attention",
-        attentionReason: "needs_input",
-        changedAt: 5,
-      }),
-      false,
-    ],
+test("a terminal's condition: working by its activity or spinner, waiting at the idle mark, away when the title is not Claude Code's", () => {
+  const cases: [PaseoTerminal, string][] = [
+    [term(finishedAt(5)), "waiting"],
+    [term(null), "waiting"],
     [
       term({ state: "idle", attentionReason: "needs_input", changedAt: 5 }),
-      false,
+      "waiting",
     ],
-    [
-      term({ state: "attention", attentionReason: "finished", changedAt: 5 }),
-      true,
-    ],
-    [term(null), true],
-    [term(null, "◐ Claude Code"), false],
-    [term(null, "skhl@mbp:~/dotfiles"), false],
+    // A permission dialog: the title shows the idle mark, the activity
+    // stays working.
+    [term({ state: "working", changedAt: 5 }), "working"],
+    [term(null, "◐ Fix the bug"), "working"],
+    // The CLI exited: Paseo keeps the idle of its SessionEnd hook.
+    [term({ state: "idle", changedAt: 5 }, "skhl@mbp:~/dotfiles"), "away"],
+    [term(null, "~/dotfiles"), "away"],
+    [term(null, ""), "away"],
   ];
-  for (const [t, ready] of cases)
+  for (const [t, condition] of cases)
     assert.equal(
-      terminalReady(t),
-      ready,
+      terminalCondition(t),
+      condition,
       JSON.stringify([t.activity, t.title]),
     );
 });
 
-test("a terminal's snapshot says what its activity and title say, and nulls what a terminal does not report", () => {
-  const seen = terminalSnapshotOf(term(idleAt(Date.parse(SEEN))), SEEN);
+test("only an empty prompt box at the foot of the screen is a prompt to paste into", () => {
+  assert.equal(promptEmpty(EMPTY), true);
+  assert.equal(promptEmpty(EMPTY.map((l) => `${l}  `)), true);
+  assert.equal(promptEmpty(TYPED), false);
+  assert.equal(promptEmpty(DIALOG), false);
+  assert.equal(promptEmpty([]), false);
+  // A box left above a screenful of other output is not the one in use.
+  assert.equal(
+    promptEmpty([...EMPTY.slice(0, 9), ...Array(5).fill("shell output")]),
+    false,
+  );
+});
+
+test("a terminal's snapshot says what its condition and activity say, and nulls what a terminal does not report", () => {
+  const seen = terminalSnapshotOf(term(finishedAt(Date.parse(SEEN))), SEEN);
   assert.equal(seen.status, "idle");
   assert.equal(seen.attention, "finished");
   assert.equal(seen.attentionAt, SEEN);
@@ -613,27 +659,56 @@ test("a terminal's snapshot says what its activity and title say, and nulls what
   );
   assert.equal(working.status, "running");
   assert.equal(working.turnStartedAt, SEEN);
+  assert.equal(working.attention, null);
   assert.equal(working.title, "Fix the bug");
-  const asking = terminalSnapshotOf(
-    term({ state: "attention", attentionReason: "needs_input", changedAt: 0 }),
+  const away = terminalSnapshotOf(
+    term(finishedAt(5), "skhl@mbp:~/dotfiles"),
     SEEN,
   );
-  assert.equal(asking.status, "idle");
-  assert.equal(asking.attention, "permission");
-  assert.equal(terminalSnapshotOf(term(null), SEEN).status, "idle");
-  assert.equal(
-    terminalSnapshotOf(term(null, "zsh"), SEEN).status,
-    "initializing",
-  );
+  assert.equal(away.status, "closed");
+  assert.equal(away.attention, null);
+  assert.equal(away.title, "skhl@mbp:~/dotfiles");
 });
 
-test("observing a terminal reads the terminal list and joins its workspace; an unknown terminal is not found", async () => {
-  const { daemon } = terminalDaemon(term(idleAt(5)), null);
-  const seen = await adapterOver(daemon).observe("terminal:T1", SEEN);
+test("observing a terminal: ready only at an empty prompt box, the screen read only when it waits, the workspace joined; an unknown terminal is not found", async () => {
+  const idle = terminalDaemon(term(finishedAt(5)), null);
+  const seen = await adapterOver(idle.daemon).observe("terminal:T1", SEEN);
   assert.equal(seen?.ready, true);
   assert.equal(seen?.status, "idle");
   assert.equal(seen?.snapshot.checkout?.workspace, "feat-x");
   assert.equal(seen?.snapshot.subagents, null);
+  assert.deepEqual(idle.reads, ["T1"]);
+
+  const typed = terminalDaemon(term(finishedAt(5)), null, TYPED);
+  const busy = await adapterOver(typed.daemon).observe("terminal:T1", SEEN);
+  assert.equal(busy?.ready, false);
+  assert.equal(busy?.status, "at its prompt with text in it or a dialog open");
+
+  const working = terminalDaemon(
+    term({ state: "working", changedAt: 5 }),
+    null,
+  );
+  const run = await adapterOver(working.daemon).observe("terminal:T1", SEEN);
+  assert.equal(run?.ready, false);
+  assert.equal(run?.status, "working");
+  assert.deepEqual(working.reads, []);
+
+  const exited = terminalDaemon(term(finishedAt(5), "skhl@mbp:~"), null);
+  const gone = await adapterOver(exited.daemon).observe("terminal:T1", SEEN);
+  assert.equal(gone?.ready, false);
+  assert.equal(
+    gone?.status,
+    'no agent CLI in the terminal (title "skhl@mbp:~")',
+  );
+
+  const blind = terminalDaemon(term(null), null);
+  blind.daemon.screen = () => Promise.reject(new Error("capture failed"));
+  const unread = await adapterOver(blind.daemon).observe("terminal:T1", SEEN);
+  assert.equal(unread?.ready, false);
+  assert.deepEqual(unread?.notes, [
+    "screen of terminal:T1 not read: capture failed",
+  ]);
+
   assert.equal(
     await adapterOver(terminalDaemon(null, null).daemon).observe(
       "terminal:T1",
@@ -644,7 +719,7 @@ test("observing a terminal reads the terminal list and joins its workspace; an u
 });
 
 test("a terminal send is one bracketed paste and then Enter, accepted when the activity shows the prompt started a turn", async () => {
-  const { daemon, inputs } = terminalDaemon(term(idleAt(5)), (t) => ({
+  const { daemon, inputs } = terminalDaemon(term(finishedAt(5)), (t) => ({
     ...t,
     activity: { state: "working", changedAt: 9 },
   }));
@@ -660,36 +735,55 @@ test("a terminal send is one bracketed paste and then Enter, accepted when the a
   ]);
 });
 
-test("a turn that finished before the next look still confirms the send", async () => {
-  const { daemon } = terminalDaemon(term(idleAt(5)), (t) => ({
-    ...t,
-    activity: idleAt(9),
-  }));
-  assert.equal(
-    await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
-    "accepted",
-  );
+test("a turn that finished before the next look still confirms the send, from no activity too", async () => {
+  for (const start of [term(finishedAt(5)), term(null)]) {
+    const { daemon } = terminalDaemon(start, (t) => ({
+      ...t,
+      activity: finishedAt(9),
+    }));
+    assert.equal(
+      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      "accepted",
+    );
+  }
 });
 
-test("a terminal send is refused before any input when the terminal is gone or not ready, and unknown when no turn follows", async () => {
-  for (const start of [
-    null,
-    term({ state: "working", changedAt: 5 }, "◐ Claude Code"),
-    term({ state: "attention", attentionReason: "needs_input", changedAt: 5 }),
-  ]) {
-    const { daemon, inputs } = terminalDaemon(start, null);
+test("a terminal send is refused before any input unless the terminal waits at an empty prompt", async () => {
+  const refused: [PaseoTerminal | null, string[]][] = [
+    [null, EMPTY],
+    [term({ state: "working", changedAt: 5 }), DIALOG],
+    [term(null), DIALOG],
+    [term(finishedAt(5)), TYPED],
+    [term(finishedAt(5), "skhl@mbp:~/dotfiles"), EMPTY],
+  ];
+  for (const [start, screen] of refused) {
+    const { daemon, inputs } = terminalDaemon(start, null, screen);
     assert.equal(
       await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
       "not_sent",
+      JSON.stringify([start?.activity, start?.title, screen[4]]),
     );
     assert.deepEqual(inputs, []);
   }
-  const { daemon, inputs } = terminalDaemon(term(idleAt(5)), null);
-  assert.equal(
-    await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
-    "unknown",
-  );
-  assert.equal(inputs.length, 2);
+});
+
+test("a send is unknown when no turn follows, whatever else the activity does", async () => {
+  for (const after of [
+    null,
+    term(finishedAt(5)).activity,
+    { state: "idle" as const, attentionReason: null, changedAt: 9 },
+  ]) {
+    const { daemon, inputs } = terminalDaemon(term(finishedAt(5)), (t) => ({
+      ...t,
+      activity: after,
+    }));
+    assert.equal(
+      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      "unknown",
+      JSON.stringify(after),
+    );
+    assert.equal(inputs.length, 2);
+  }
 });
 
 test("pasteable keeps text, tabs and newlines and drops what could drive the terminal", () => {

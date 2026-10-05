@@ -16,20 +16,27 @@
 // The subagent list and the terminals are not on the public client; they
 // are on the DaemonClient the client is built over, exported under the
 // package's internal subpath. This builds the same pair createPaseoClient
-// builds, so one connection serves both; the lockfile pins the client, and
-// with it the subpath.
+// builds, so one connection serves both; package.json pins the client's
+// exact version, and with it the subpath.
 //
-// A placement's session may instead be a Paseo terminal running an agent
-// CLI, named `terminal:<id>` in `agents`. Verified on the 0.10.2 daemon with
-// Claude Code 2.1.289: the terminal record carries an `activity` that
-// Paseo's Claude hooks set (`working` on a submitted prompt, `idle` with
-// `finished` when the turn ends, `needs_input` at a permission prompt), and
-// null until the session's first prompt since the daemon started; the
-// title starts with Claude Code's idle mark (✳) at the prompt and a spinner
-// during a turn; a bracketed paste and then Enter arrive as one prompt, and
-// the activity turns within a second. A terminal takes raw input only: no
-// message key, no receipt, so the router confirms a send by the activity
-// change that follows it.
+// A placement's session may instead be Claude Code in a Paseo terminal,
+// named `terminal:<id>` in `agents`. Verified on the 0.10.2 daemon with
+// Claude Code 2.1.289:
+// - the terminal record carries an `activity` that Paseo's Claude hooks
+//   set: `working` on a submitted prompt, staying so while a permission
+//   dialog is open; `idle` with `finished` when the turn ends, and `idle`
+//   again on SessionEnd, which Paseo keeps after the CLI has exited. It is
+//   null until the session's first prompt since the daemon started and
+//   after an Esc or Ctrl-C. (`needs_input` comes only from Claude's
+//   idle-prompt notification, which means the session is at its prompt.)
+// - the title starts with the idle mark (✳) at the prompt and while a
+//   permission dialog is open, a spinner during a turn, and the shell's own
+//   title once the CLI exits;
+// - a bracketed paste and then Enter arrive as one prompt, and the
+//   activity turns within a second.
+// A terminal takes raw input only: no message key, no receipt, so the
+// router sends only to an empty prompt box and confirms a send by the
+// activity change that follows it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
@@ -43,6 +50,7 @@ import {
   DaemonClient,
   type FetchAgentTimelinePayload,
   type ProviderSubagentListPayload,
+  type TerminalStreamEvent,
 } from "@getpaseo/client/internal/daemon-client";
 import {
   ACTIVITY_KINDS,
@@ -92,9 +100,9 @@ export type AdapterOptions = {
   // the harness's own calls, HARNESS_ROOM more).
   tail?: number;
   // How long a terminal send waits for the activity change that confirms
-  // it, and the pause between looks. Tests shorten them.
+  // it, and the wait itself. Tests shorten them.
   receiptMs?: number;
-  pause?: (ms: number) => Promise<void>;
+  sleep?: (ms: number) => Promise<void>;
 };
 
 export type ProviderSubagent = ProviderSubagentListPayload["subagents"][number];
@@ -113,6 +121,8 @@ export type Daemon = {
   subagents(agentId: string): Promise<ProviderSubagent[]>;
   tail(agentId: string, limit: number): Promise<TimelineEntry[]>;
   terminals(): Promise<PaseoTerminal[]>;
+  // The terminal's visible lines, a dim cell read as a space.
+  screen(terminalId: string): Promise<string[]>;
   input(terminalId: string, data: string): Promise<void>;
   close(): Promise<void>;
 };
@@ -146,59 +156,82 @@ export const isReady = (
   (status === "idle" || (status === "closed" && !archived)) &&
   pendingPermissions === 0;
 
-// Claude Code's mark at the head of the terminal title while it waits at
-// its prompt; a spinner takes its place during a turn.
+// Claude Code's marks in the terminal title: ✳ at its head while the
+// session waits at its prompt, and also while a permission dialog is open;
+// a spinner glyph during a turn. Any other title is not Claude Code's.
 const IDLE_MARK = "✳ ";
+const SPINNER = /^[^\p{L}\p{N}\s~/]\s/u;
+// A rule line of Claude Code's prompt box.
+const RULE = /^─{20,}$/;
 
-// A terminal the router may send to now: its activity is idle or its turn
-// finished, with no prompt waiting on a person; with no activity yet, its
-// title shows the idle mark. A working session would take the paste as a
-// queued prompt, and one at a permission prompt would take it as the answer.
-export function terminalReady(t: PaseoTerminal): boolean {
-  const a = t.activity;
-  if (!a) return (t.title ?? "").startsWith(IDLE_MARK);
-  if (a.attentionReason === "needs_input") return false;
-  return a.state === "idle" || a.attentionReason === "finished";
+// What a terminal's record says of the agent CLI in it, in one place for
+// readiness, the run's report and the board:
+// - working: a turn runs, or waits on a permission dialog (which leaves
+//   the activity working), or, with no activity, the title shows a spinner;
+// - waiting: the title shows the idle mark and no turn runs;
+// - away: the title is not Claude Code's, so no agent CLI has the terminal
+//   (it exited, and the activity Paseo kept from its last hook is stale).
+export type TerminalCondition = "working" | "waiting" | "away";
+export function terminalCondition(t: PaseoTerminal): TerminalCondition {
+  const title = t.title ?? "";
+  if (t.activity?.state === "working") return "working";
+  if (title.startsWith(IDLE_MARK)) return "waiting";
+  return SPINNER.test(title) ? "working" : "away";
 }
 
-// The activity in a word, for the run's report.
-function terminalStatus(t: PaseoTerminal): string {
-  const a = t.activity;
-  if (!a) return `no activity yet, title "${t.title ?? ""}"`;
-  if (a.attentionReason === "needs_input" || a.state === "attention")
-    return "needs input";
-  return a.state === "working" ? "working" : "idle";
+// Claude Code's prompt box on the screen, empty: the last two rule lines
+// hold a lone ❯ (its dim placeholder read as spaces), with only the status
+// lines under them. A dialog takes the box's place, and a half-typed line
+// fills it; a paste into either would be answered or merged, so neither is
+// ready. The activity cannot tell: it is empty before the first prompt and
+// after an Esc, dialog or not.
+export function promptEmpty(lines: string[]): boolean {
+  const shown = lines.map((line) => line.trimEnd());
+  while (shown.length && !shown.at(-1)) shown.pop();
+  const rule = shown.findLastIndex((line) => RULE.test(line));
+  return (
+    rule >= 2 &&
+    shown[rule - 1] === "❯" &&
+    RULE.test(shown[rule - 2] ?? "") &&
+    shown.length - 1 - rule <= 6
+  );
 }
 
-// A terminal's record reduced to the board's fields: what its activity and
-// title say, its directory and checkout, and nothing a terminal does not
-// report (provider, model, context, usage).
+// The terminal in words, for the run's report.
+function terminalStatus(
+  t: PaseoTerminal,
+  condition: TerminalCondition,
+  empty: boolean,
+): string {
+  if (condition === "working") return "working";
+  if (condition === "away")
+    return `no agent CLI in the terminal (title "${t.title ?? ""}")`;
+  return empty ? "idle" : "at its prompt with text in it or a dialog open";
+}
+
+// A terminal's record reduced to the board's fields: what its condition
+// and activity say, its title without the mark, its directory and
+// checkout, and nothing a terminal does not report (provider, model,
+// context, usage).
 export function terminalSnapshotOf(
   t: PaseoTerminal,
   seen: string,
 ): AgentSnapshot {
+  const condition = terminalCondition(t);
   const a = t.activity ?? null;
   const at = a ? new Date(a.changedAt).toISOString() : null;
-  const asking =
-    a?.attentionReason === "needs_input" ||
-    (a?.state === "attention" && a.attentionReason !== "finished");
-  const status: AgentSnapshot["status"] = a
-    ? a.state === "working" && !asking
-      ? "running"
-      : "idle"
-    : (t.title ?? "").startsWith(IDLE_MARK)
-      ? "idle"
-      : "initializing";
+  const finished = condition === "waiting" && a?.attentionReason === "finished";
   return {
     seen,
-    status,
-    attention: asking
-      ? "permission"
-      : a?.attentionReason === "finished"
-        ? "finished"
-        : null,
-    attentionAt: asking || a?.attentionReason === "finished" ? at : null,
-    turnStartedAt: status === "running" ? at : null,
+    status:
+      condition === "working"
+        ? "running"
+        : condition === "waiting"
+          ? "idle"
+          : "closed",
+    attention: finished ? "finished" : null,
+    attentionAt: finished ? at : null,
+    turnStartedAt: condition === "working" && a ? at : null,
     lastUserMessageAt: null,
     permissions: [],
     provider: null,
@@ -208,7 +241,6 @@ export function terminalSnapshotOf(
     context: null,
     usage: null,
     error: null,
-    // The title without its leading mark (idle or spinner).
     title: t.title?.replace(/^[^\p{L}\p{N}\s]\s+/u, "") || null,
     cwd: t.cwd ?? null,
     checkout: null,
@@ -216,6 +248,12 @@ export function terminalSnapshotOf(
     activity: null,
   };
 }
+
+// A bracketed paste is followed by Enter only after this long, so the CLI
+// takes the paste as text first (300 ms verified with Pi and Claude Code);
+// the activity is looked at this often for the send's receipt.
+const PASTE_SETTLE_MS = 300;
+const RECEIPT_LOOK_MS = 250;
 
 // Text as a bracketed paste may carry it: no escape that could end the
 // paste early or drive the terminal, line breaks as newlines.
@@ -463,8 +501,8 @@ export function adapterOver(
   const sheet = options.sheet ?? true;
   const tail = options.tail ?? 8;
   const receiptMs = options.receiptMs ?? 10_000;
-  const pause =
-    options.pause ??
+  const sleep =
+    options.sleep ??
     ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
   const terminal = async (id: string): Promise<PaseoTerminal | null> =>
     (await daemon.terminals()).find((t) => t.id === id) ?? null;
@@ -493,17 +531,29 @@ export function adapterOver(
       return null;
     }
   };
-  // A terminal is observed from the daemon's terminal list: its activity
-  // and title for readiness, its workspace for the checkout. A terminal has
-  // no subagent list or timeline to read.
+  // Whether a terminal waiting at the idle mark shows an empty prompt
+  // box; a screen that cannot be read is not one, with a note.
+  const emptyPrompt = async (id: string, notes: string[]): Promise<boolean> =>
+    (await attempt(
+      "screen",
+      `terminal:${id}`,
+      async () => promptEmpty(await daemon.screen(id)),
+      notes,
+    )) ?? false;
+  // A terminal is observed from the daemon's terminal list, and, when it
+  // waits at the idle mark, its screen: ready only at an empty prompt box.
+  // Its workspace gives the checkout; a terminal has no subagent list or
+  // timeline to read.
   const observeTerminal = async (
     id: string,
     seen: string,
   ): Promise<Observation | null> => {
     const t = await terminal(id);
     if (!t) return null;
+    const condition = terminalCondition(t);
     const snapshot = terminalSnapshotOf(t, seen);
     const notes: string[] = [];
+    const empty = condition === "waiting" && (await emptyPrompt(id, notes));
     if (sheet) {
       const list = await listed(notes);
       const w =
@@ -512,18 +562,19 @@ export function adapterOver(
       snapshot.checkout = w ? checkoutOf(w) : null;
     }
     return {
-      ready: terminalReady(t),
-      status: terminalStatus(t),
+      ready: empty,
+      status: terminalStatus(t, condition, empty),
       pendingPermissions: 0,
       snapshot,
       ...(notes.length ? { notes } : {}),
     };
   };
   // A terminal send: refused before any input unless the terminal is there
-  // and ready; then the text as one bracketed paste and Enter after it.
-  // Accepted only once the activity shows the prompt started a turn; with
-  // no such change within receiptMs the prompt may sit unsent in the input
-  // or have run, so the outcome is unknown.
+  // and ready, looked at again now; then the text as one bracketed paste
+  // and Enter after it. Accepted only once the activity shows the prompt
+  // started a turn; with no such change within about receiptMs (plus the
+  // looks' own time) the prompt may sit unsent in the box or have run, so
+  // the outcome is unknown.
   const sendTerminal = async (
     id: string,
     text: string,
@@ -534,20 +585,25 @@ export function adapterOver(
     } catch {
       return "not_sent";
     }
-    if (!before || !terminalReady(before)) return "not_sent";
+    if (
+      !before ||
+      terminalCondition(before) !== "waiting" ||
+      !(await emptyPrompt(id, []))
+    )
+      return "not_sent";
     try {
       await daemon.input(id, `\x1b[200~${pasteable(text)}\x1b[201~`);
     } catch {
       return "not_sent";
     }
     try {
-      await pause(300);
+      await sleep(PASTE_SETTLE_MS);
       await daemon.input(id, "\r");
     } catch {
       return "unknown";
     }
-    for (let waited = 0; waited < receiptMs; waited += 250) {
-      await pause(250);
+    for (let waited = 0; waited < receiptMs; waited += RECEIPT_LOOK_MS) {
+      await sleep(RECEIPT_LOOK_MS);
       const now = await terminal(id).catch(() => null);
       if (started(before.activity, now?.activity)) return "accepted";
     }
@@ -648,6 +704,7 @@ export async function createPaseoAdapter(
           })
         ).entries,
       terminals: async () => (await daemonClient.listTerminals()).terminals,
+      screen: (terminalId) => screenOf(daemonClient, terminalId),
       async input(terminalId, data) {
         daemonClient.sendTerminalInput(terminalId, { type: "input", data });
       },
@@ -665,6 +722,41 @@ export async function createPaseoAdapter(
     },
     options,
   );
+}
+
+type TerminalState = Extract<
+  TerminalStreamEvent,
+  { type: "snapshot" }
+>["state"];
+
+// One snapshot of a terminal's grid, through a subscription released at
+// once. The capture call returns plain text even when asked for colour, and
+// Claude Code draws the placeholder in an empty prompt box dim (verified
+// with 2.1.289), so a dim cell reads as a space and the box reads empty.
+async function screenOf(
+  daemonClient: DaemonClient,
+  terminalId: string,
+): Promise<string[]> {
+  let release = (): Promise<void> => Promise.resolve();
+  try {
+    const state = await new Promise<TerminalState>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("no snapshot of the terminal within 5 s")),
+        5_000,
+      );
+      const subscription = daemonClient.observeTerminal(terminalId, (event) => {
+        if (event.type !== "snapshot") return;
+        clearTimeout(timer);
+        resolve(event.state);
+      });
+      release = () => subscription.release();
+    });
+    return state.grid.map((row) =>
+      row.map((cell) => (cell.dim ? " " : cell.char)).join(""),
+    );
+  } finally {
+    await release().catch(() => undefined);
+  }
 }
 
 type Tunnel = { port: number; close(): void; failure(): string | null };

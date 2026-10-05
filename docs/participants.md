@@ -65,7 +65,7 @@ others.
 
 - On a host that does not run the router, the client acts as the session
   `$PASEO_AGENT_ID`, which Paseo sets in the agent's environment, or
-  `terminal:$PASEO_TERMINAL_ID` for an agent CLI in a Paseo terminal.
+  `terminal:$PASEO_TERMINAL_ID` for Claude Code in a Paseo terminal.
 - On the router host the CLI acts as a person (the first requester, or
   `--as` / `$ROUTER_AS`), since an agent there also submits on a person's
   behalf; a session names itself with `--as <its session id>`.

@@ -84,8 +84,8 @@ Edit it to match yours:
 - `participants`: your agents, each with a responsibility text, and the
   same names under `permissions`, which say who may address whom;
 - `agents`: the Paseo agent id of each `participant@host`, from
-  `paseo agent ls -g --json`, or `terminal:<id>` for an agent CLI in a
-  Paseo terminal (see the configuration reference);
+  `paseo agent ls -g --json`, or `terminal:<id>` for Claude Code in a
+  Paseo terminal;
 - `secrets.env`: a `ROUTER_TOKEN` you choose, and `TYPESAFE_API_KEY` if
   you have one.
 
@@ -203,9 +203,10 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
   host that holds it can reply, submit, answer or choose as any participant
   session the record knows (not as a person).
 - A session is sent to only when the router has just seen it idle or closed
-  (not archived; the prompt resumes it), with no pending permission. A turn
-  a person starts in between is the one race left; holding the session
-  closes it.
+  (not archived; the prompt resumes it), with no pending permission, or, in
+  a terminal, at Claude Code's empty prompt. A turn a person starts in
+  between, or a line they start typing in a terminal, is the one race left;
+  holding the session closes it.
 - The board trusts the login header Tailscale Serve sets, so anything that
   can reach its loopback port can claim a login.
 - A participant that sends work is told each question, hand-back and end

@@ -101,17 +101,23 @@ test("client: --text-file posts the file as the reply text", async () => {
     assert.match(missing.stderr, /--text-file: .*ENOENT/);
     assert.equal(posted.length, 1);
 
-    // An agent CLI in a Paseo terminal replies as its terminal; with
-    // neither id there is no session to reply as.
+    // An agent CLI in a Paseo terminal replies as its terminal; a Paseo
+    // agent's id comes first; with neither there is no session to reply as.
     const terminal = await run(url, [...reply, "working"], {
       PASEO_TERMINAL_ID: "T9",
     });
     assert.equal(terminal.code, 0, terminal.stderr);
     assert.partialDeepStrictEqual(posted[1], { by: "terminal:T9" });
+    const agentFirst = await run(url, [...reply, "working"], {
+      PASEO_AGENT_ID: "A1",
+      PASEO_TERMINAL_ID: "T9",
+    });
+    assert.equal(agentFirst.code, 0, agentFirst.stderr);
+    assert.partialDeepStrictEqual(posted[2], { by: "A1" });
     const nobody = await run(url, [...reply, "working"], {});
     assert.equal(nobody.code, 2);
     assert.match(nobody.stderr, /\$PASEO_TERMINAL_ID are unset/);
-    assert.equal(posted.length, 2);
+    assert.equal(posted.length, 3);
   } finally {
     server.close();
   }

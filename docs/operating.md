@@ -40,6 +40,19 @@ starts between the look and the send is the one race left; holding the
 session (`router observe <participant@host> --hold`, or the lever on the
 board) closes it, and `--release` opens it again.
 
+A terminal placement, Claude Code in a Paseo terminal, is sent to only when
+the terminal's title shows Claude Code's idle mark (✳), its activity (set
+by Paseo's Claude hooks) shows no turn running, and the screen shows Claude
+Code's prompt box empty; a shell left after the CLI exits, a permission
+dialog and a half-typed line each fail one of these. The send is one
+bracketed paste and then Enter. It counts as accepted only once the
+activity shows a turn started; otherwise it is unknown and waits for
+`router resolve`, since a terminal takes no message key. A line a person
+starts typing between the look and the paste is the race here, and the hold
+closes it the same way. The session replies as
+`terminal:$PASEO_TERMINAL_ID`. The board shows no provider, model, context,
+subagents or activity tail for a terminal, which reports none of them.
+
 ## The record
 
 `home` (default `~/.local/state/jev-router/`) holds:
@@ -182,6 +195,7 @@ links, forms and redirects use relative URLs.
   agent id the daemon does not know shows `missing` in its health line;
   one whose host could not be reached shows `unreachable`, with the reason
   as a tooltip.
-- A terminal placement that reports `no activity yet` has had no prompt
-  since the Paseo daemon started, and its title lacks Claude Code's idle
-  mark. One prompt typed in the terminal gives it an activity.
+- A terminal placement's line in the run report says why it is not ready:
+  `working`, `at its prompt with text in it or a dialog open`, or `no agent
+  CLI in the terminal` when the title is not Claude Code's (the CLI exited;
+  start it again in that terminal).

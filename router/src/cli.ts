@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { mkdirSync, watch } from "node:fs";
 import {
+  callerSession,
   loadConfig,
   loadSecrets,
   USAGE_EVERY,
@@ -346,11 +347,8 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
       say(await shell.deliver());
       return 0;
     case "reply": {
-      // A reply's identity is the session's own, never chosen by hand: a
-      // Paseo agent's id, or the terminal an agent CLI runs in.
-      const terminal = process.env.PASEO_TERMINAL_ID;
-      const by =
-        process.env.PASEO_AGENT_ID || (terminal ? `terminal:${terminal}` : "");
+      // A reply's identity is the session's own, never chosen by hand.
+      const by = callerSession();
       if (!by)
         fail(
           "Replies come from a participant session: $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are unset.",

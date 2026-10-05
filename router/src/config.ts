@@ -8,11 +8,23 @@ import type { Config } from "./types.ts";
 import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
 // A placement's session in `agents`: a Paseo agent id, or `terminal:<id>`
-// for an agent CLI in a Paseo terminal (see paseo.ts). The terminal it
+// for Claude Code in a Paseo terminal (see paseo.ts). The terminal it
 // names, or null for an agent.
 const TERMINAL = "terminal:";
 export const terminalOf = (session: string): string | null =>
   session.startsWith(TERMINAL) ? session.slice(TERMINAL.length) || null : null;
+// Paseo's terminal ids are UUIDs; the short form a table prints matches
+// nothing the daemon lists.
+const TERMINAL_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The calling session as the record names it: a Paseo agent's id, or the
+// terminal an agent CLI runs in. Null outside a participant session.
+export const callerSession = (
+  env: Record<string, string | undefined> = process.env,
+): string | null =>
+  env.PASEO_AGENT_ID ||
+  (env.PASEO_TERMINAL_ID ? `${TERMINAL}${env.PASEO_TERMINAL_ID}` : null);
 
 export type HostConfig = {
   // Paseo daemon endpoint: a websocket URL, or ssh://[user@]host[:port] to
@@ -27,8 +39,9 @@ export type RouterConfig = Config & {
   home: string;
   // Machines named in participants[].hosts that this router can reach.
   hosts: Record<string, HostConfig>;
-  // Placement key ("participant@host") -> Paseo agent id. The agent id is the
-  // placement's session identity. Placements without an entry are not served.
+  // Placement key ("participant@host") -> its session: a Paseo agent id or
+  // terminal:<id> (see terminalOf). Placements without an entry are not
+  // served.
   agents: Record<string, string>;
   // Where `router serve` listens for events from other hosts, where it
   // serves the board (loopback; expose it through Tailscale Serve), and which
@@ -99,14 +112,19 @@ export function loadConfig(path: string): RouterConfig {
     const host = known.get(key);
     if (!host) fail(`agents names unknown placement ${key}`);
     else if (!hosts[host]) fail(`agents.${key}: host ${host} is not in hosts`);
-    if (typeof id !== "string" || !id || id === TERMINAL)
+    if (typeof id !== "string" || !id)
       return fail(`agents.${key} must be an agent id or terminal:<id>`);
+    const terminal = id.startsWith(TERMINAL) ? (terminalOf(id) ?? "") : null;
+    if (terminal !== null && !TERMINAL_ID.test(terminal))
+      fail(
+        `agents.${key} must name a terminal by its full id (paseo terminal ls --all --json)`,
+      );
     // A terminal takes no message key, so an unknown send to it must wait
     // for a person rather than be retried (see idempotent in core.ts).
     const participant = config.participants.find(
-      (p) => `${p.id}@${known.get(key)}` === key,
+      (p) => `${p.id}@${host}` === key,
     );
-    if (terminalOf(id) && participant?.idempotent)
+    if (terminal !== null && participant?.idempotent)
       fail(
         `agents.${key} is a terminal, which takes no message key, so ${participant.id} must be idempotent: false`,
       );

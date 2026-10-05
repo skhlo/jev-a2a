@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@getpaseo/client':
-        specifier: ^0.10.2
+        specifier: 0.10.2
         version: 0.10.2
     devDependencies:
       '@types/node':
