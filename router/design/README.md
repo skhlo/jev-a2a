@@ -108,9 +108,16 @@ where the page must work without its script:
   works, and an open whose fetch fails follows it (the design's links
   navigate);
 - a task row's second line wraps rather than squeeze the text after the
-  status below 8em, and the recipients move under it: the design's line
-  squeezed that text to nothing from 901px to about 930px when a row named
-  "no recipient", and to a few characters for a row with two recipients;
+  status below 8em, and the route (the sender, the recipients, a late
+  warning) moves under it whole: the design's line squeezed that text to
+  nothing from 901px to about 930px when a row named "no recipient", and to
+  a few characters for a row with two recipients. A recipient too long for
+  the line ends in an ellipsis, whole in its title, where the design's
+  scrolled the task list sideways;
+- a sheet's value row and an activity row wrap their parts, and a part
+  wider than the row ends in an ellipsis, whole in its title: from 901px
+  to about 1060px the design cut a long branch row mid-word and squeezed
+  the remote and an activity's text to nothing;
 - from 901px to 1180px the sheet is at least 320px wide and spills over
   the detail column, as it is an overlay: below about 1024px the tasks
   column is narrower than the sheet's head, which hid the close button and

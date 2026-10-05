@@ -821,18 +821,20 @@ test("v0.9: via in the head, from <via> on an open row, the notices table after 
     ),
   );
   // Finished: no "from" on its row.
-  assert.ok(!done.includes('data-path="finished[0].via">from'));
+  assert.ok(!done.includes('data-path="finished[0].via" title="from'));
   // Open: the row says from <via> before the recipient. The design spares
   // the sender its own placement, but a person is never a participant (a
   // principal may not share a participant's id), so every viewer sees it.
   const open = page(ME, {}, viaJournal);
   assert.ok(
     open.includes(
-      '<span class="to" data-path="open[0].via">from orchestrator@mbp</span><span class="to" data-path="open[0].recipient">incus</span>',
+      '<span class="route"><span class="to" data-path="open[0].via" title="from orchestrator@mbp">from orchestrator@mbp</span><span class="to" data-path="open[0].recipient" title="incus">incus</span></span>',
     ),
   );
   assert.ok(
-    page(null, {}, viaJournal).includes('data-path="open[0].via">from'),
+    page(null, {}, viaJournal).includes(
+      'data-path="open[0].via" title="from orchestrator@mbp">from',
+    ),
   );
 });
 
@@ -1552,12 +1554,12 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
   );
   assert.ok(
     o.includes(
-      '<div class="item" data-path="placements[0].agent.activity.items[2]"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[2].at)" title="2026-09-30 09:44Z">09:44:35Z</span><span class="kind" data-path="placements[0].agent.activity.items[2].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[2].tool">Read</span><span class="status" data-path="placements[0].agent.activity.items[2].status">completed</span><span class="text" data-path="placements[0].agent.activity.items[2].text" title="research/lab-images.md">research/lab-images.md</span></span></div>',
+      '<div class="item" data-path="placements[0].agent.activity.items[2]"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[2].at)" title="2026-09-30 09:44Z">09:44:35Z</span><span class="kind" data-path="placements[0].agent.activity.items[2].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[2].tool" title="Read">Read</span><span class="status" data-path="placements[0].agent.activity.items[2].status">completed</span><span class="text" data-path="placements[0].agent.activity.items[2].text" title="research/lab-images.md">research/lab-images.md</span></span></div>',
     ),
   );
   assert.ok(
     o.includes(
-      '<div class="item now" data-path="placements[0].agent.activity.items[4]" aria-current="true"><span class="mark work"></span><span class="at" data-path="hms(placements[0].agent.activity.items[4].at)" title="2026-09-30 09:44Z">09:44:40Z</span><span class="kind" data-path="placements[0].agent.activity.items[4].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[4].tool">Bash</span><span class="status running" data-path="placements[0].agent.activity.items[4].status">running</span>',
+      '<div class="item now" data-path="placements[0].agent.activity.items[4]" aria-current="true"><span class="mark work"></span><span class="at" data-path="hms(placements[0].agent.activity.items[4].at)" title="2026-09-30 09:44Z">09:44:40Z</span><span class="kind" data-path="placements[0].agent.activity.items[4].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[4].tool" title="Bash">Bash</span><span class="status running" data-path="placements[0].agent.activity.items[4].status">running</span>',
     ),
   );
   assert.ok(
@@ -1776,7 +1778,7 @@ test("v0.11 sheet: one per placement, hidden; the head repeats the card; Checkou
   );
   assert.ok(
     odd.includes(
-      '<div class="item" data-path="placements[0].agent.activity.items[0]"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[0].at)">—</span><span class="kind" data-path="placements[0].agent.activity.items[0].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[0].tool">&lt;Bash&gt;</span><span class="status role-err" data-path="placements[0].agent.activity.items[0].status">failed</span><span class="text" data-path="placements[0].agent.activity.items[0].text" title="echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;">echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;</span></span></div>',
+      '<div class="item" data-path="placements[0].agent.activity.items[0]"><span class="mark"></span><span class="at" data-path="hms(placements[0].agent.activity.items[0].at)">—</span><span class="kind" data-path="placements[0].agent.activity.items[0].kind">tool</span><span class="what"><span class="tool" data-path="placements[0].agent.activity.items[0].tool" title="&lt;Bash&gt;">&lt;Bash&gt;</span><span class="status role-err" data-path="placements[0].agent.activity.items[0].status">failed</span><span class="text" data-path="placements[0].agent.activity.items[0].text" title="echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;">echo \'&lt;script&gt;alert(1)&lt;/script&gt;\' &amp; &quot;done&quot;</span></span></div>',
     ),
   );
   assert.ok(!odd.includes("<script>alert"));
@@ -2014,7 +2016,7 @@ test("v0.12 stale on the page: in the warning role at the end of a card's status
   );
   assert.ok(
     html.includes(
-      '<span class="to" data-path="open[3].recipient">orchestrator</span></div>',
+      '<span class="to" data-path="open[3].recipient" title="orchestrator">orchestrator</span></span></div>',
     ),
   );
   // No other row or card is stale.
@@ -2029,7 +2031,7 @@ test("v0.12 stale on the page: in the warning role at the end of a card's status
   );
   assert.ok(
     quiet.includes(
-      '<span class="to" data-path="open[0].recipient">knowledge</span><span class="stale role-warn num" data-path="stale_task(open[0], at)">no reply 31m</span>',
+      '<span class="to" data-path="open[0].recipient" title="knowledge">knowledge</span><span class="stale role-warn num" data-path="stale_task(open[0], at)">no reply 31m</span>',
     ),
   );
   // The row's phrase is only for an open task.
@@ -3126,6 +3128,37 @@ test("v0.13 style: the rail a fixed 272px and the sheet at least 320px from 901p
     ),
   );
   assert.ok(css.includes(".task .line2 .sub { flex: 1 1 8em; min-width: 0;"));
+  // The route (sender, recipient, late warning) wraps whole and keeps to the
+  // right; a long name ends in an ellipsis, whole in its title.
+  for (const rule of [
+    ".task .line2 .route { display: flex; gap: 0 8px; align-items: baseline; max-width: 100%; margin-left: auto; }",
+    "white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }",
+  ])
+    assert.ok(css.includes(rule), rule);
+  assert.ok(!/\.task \.line2 \.to \{[^}]*margin-left/.test(css));
+  assert.ok(
+    html.includes(
+      '<span class="route"><span class="to" data-path="open[1].recipient" title="knowledge">knowledge</span></span>',
+    ),
+  );
+  // A sheet's value row and activity row wrap their parts rather than cut
+  // or squeeze one to nothing; a part wider than the row ends in an
+  // ellipsis, and the free-text ones carry their whole value as a title.
+  for (const rule of [
+    ".kv > dd { display: flex; flex-wrap: wrap; gap: 0 8px;",
+    ".kv > dd > * { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+    ".feed .item .what { display: flex; flex-wrap: wrap; gap: 0 8px;",
+    ".feed .item .tool, .feed .item .status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+    ".feed .item .text { flex: 1 1 8em; min-width: 0;",
+  ])
+    assert.ok(css.includes(rule), rule);
+  for (const titled of [
+    'data-path="placements[0].agent.checkout.project" title="A2A">',
+    'data-path="placements[0].agent.checkout.workspace" title="feat-notices">',
+    'data-path="placements[0].agent.checkout.branch" title="feat/notices">',
+    'data-path="placements[0].agent.activity.items[2].tool" title="Read">',
+  ])
+    assert.ok(html.includes(titled), titled);
   const records = block("@media (max-width: 1180px) {");
   for (const rule of [
     "table.rec, table.rec tbody { display: block; }",

@@ -1590,11 +1590,25 @@ ${body}
     if (!c)
       return section("Checkout", slot(cp, "checkout not read", "none", "p"));
     const rows: [string, string][] = [
-      ["project", slot(`${cp}.project`, esc(c.project))],
+      [
+        "project",
+        slot(
+          `${cp}.project`,
+          esc(c.project),
+          "",
+          "span",
+          ` title="${esc(c.project)}"`,
+        ),
+      ],
       [
         "workspace",
-        slot(`${cp}.workspace`, esc(c.workspace)) +
-          slot(`${cp}.kind`, esc(label(c.kind)), "muted"),
+        slot(
+          `${cp}.workspace`,
+          esc(c.workspace),
+          "",
+          "span",
+          ` title="${esc(c.workspace)}"`,
+        ) + slot(`${cp}.kind`, esc(label(c.kind)), "muted"),
       ],
       [
         "directory",
@@ -1608,7 +1622,13 @@ ${body}
       ],
     ];
     let branch = c.branch
-      ? slot(`${cp}.branch`, esc(c.branch), "mono")
+      ? slot(
+          `${cp}.branch`,
+          esc(c.branch),
+          "mono",
+          "span",
+          ` title="${esc(c.branch)}"`,
+        )
       : slot(`${cp}.branch`, "detached", "muted");
     // v0.12: the remote as owner/repo, the whole value as its title.
     if (c.remote)
@@ -1752,7 +1772,13 @@ ${body}
       const cls = `item${now ? " now" : ""}${it.kind === "error" ? " error" : QUIET.includes(it.kind) ? " quiet" : ""}`;
       let what = "";
       if (call) {
-        what += slot(`${ip}.tool`, esc(it.tool ?? "tool"), "tool");
+        what += slot(
+          `${ip}.tool`,
+          esc(it.tool ?? "tool"),
+          "tool",
+          "span",
+          ` title="${esc(it.tool ?? "tool")}"`,
+        );
         if (it.status)
           what += slot(
             `${ip}.status`,
@@ -2048,7 +2074,13 @@ ${usageRail}  <div class="foot open"><div><span class="kicker">Router log</span>
     // never is, since a principal may not share a participant's id).
     const from =
       t.via !== null && t.final === null
-        ? slot(`${path}.via`, `from ${esc(t.via)}`, "to")
+        ? slot(
+            `${path}.via`,
+            `from ${esc(t.via)}`,
+            "to",
+            "span",
+            ` title="from ${esc(t.via)}"`,
+          )
         : "";
     // Work that waits too long ends the line, in the warning role (v0.12).
     const late = staleTask(t, at, times);
@@ -2056,7 +2088,7 @@ ${usageRail}  <div class="foot open"><div><span class="kicker">Router log</span>
       <span class="dot ${dot}" data-path="${path}.status"></span>
       <div class="line1">${slot(`${path}.id`, esc(t.id), "id", "a", ` href="${href(t.id)}"`)}${slot(`${path}.text`, esc(t.text), "excerpt")}</div>
       ${ago(`age(times[${path}.messageId], at)`, times[t.messageId], "age num")}
-      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span>${from}${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to")}${late ? slot(`stale_task(${path}, at)`, esc(late), "stale role-warn num") : ""}</div>${peek(t, path)}
+      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span><span class="route">${from}${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to", "span", t.recipient ? ` title="${esc(t.recipient)}"` : "")}${late ? slot(`stale_task(${path}, at)`, esc(late), "stale role-warn num") : ""}</span></div>${peek(t, path)}
     </div>`;
   };
 
@@ -2656,12 +2688,14 @@ textarea::placeholder, .filter input::placeholder { color: var(--text-3); }
 .task .age { grid-column: 3; grid-row: 1; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; }
 .task .line2 { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); min-width: 0; margin-top: 1px; }
 .task .line2 .state { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; white-space: nowrap; color: var(--text-2); }
-/* The line wraps rather than squeeze the sub below 8em: the recipients move under it, still at the right. */
+/* The line wraps rather than squeeze the sub below 8em: the route (the sender, the recipient, a late warning) moves
+   under it whole, still at the right, and a name too long for the line ends in an ellipsis, whole in its title. */
 .task .line2 .sub { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; margin-left: auto; }
+.task .line2 .route { display: flex; gap: 0 8px; align-items: baseline; max-width: 100%; margin-left: auto; }
+.task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .task .line2 .to + .to::before, .task .line2 .to + .stale::before { content: "· "; }
 .task .line2 .to + .stale::before { color: var(--text-3); }
-.task .line2 .stale { white-space: nowrap; }
+.task .line2 .stale { white-space: nowrap; flex: none; }
 /* A notice never waits on the viewer: outcomes stay in the text colours, withdrawn muted. */
 td .outcome.withdrawn { color: var(--text-3); }
 .task.ask .state, .task.fail .state { color: var(--accent); }
@@ -2760,14 +2794,15 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .role-ok { color: var(--ok); }
 .role-warn { color: var(--warn); }
 .role-err { color: var(--err); }
-/* Checkout: label, value; the value is one line and ellipsizes. */
+/* Checkout: label, value. */
 .kv { display: grid; grid-template-columns: 84px 1fr; font-size: var(--fs-small); }
 .kv > dt, .kv > dd { margin: 0; padding: 5px 0; border-bottom: 1px solid var(--hair-soft); min-width: 0; }
 .kv > dt { color: var(--text-3); }
-.kv > dd { display: flex; gap: 8px; align-items: baseline; color: var(--text); overflow: hidden; white-space: nowrap; }
+/* A value row keeps each part whole and wraps the next one under it; a part wider than the row ends in an ellipsis,
+   whole in its title. An activity row does the same, its text taking the rest of a line or the next one. */
+.kv > dd { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; color: var(--text); }
 .kv > dt:nth-last-of-type(1), .kv > dd:last-of-type { border-bottom: 0; }
-.kv > dd > * { flex: none; }
-.kv > dd > .path, .kv > dd > .pr, .kv > dd > .remote { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kv > dd > * { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Subagents: a tree one level deep; a child hangs under its parent from a hairline guide. */
 .counts-line { font-size: var(--fs-small); color: var(--text-2); }
 .subs { display: grid; gap: 2px; }
@@ -2784,11 +2819,12 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .feed .item .mark.work { width: 8px; height: 8px; background: var(--text); animation: pulse 2s var(--std) infinite; }
 .feed .item .at { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
 .feed .item .kind { color: var(--text-2); }
-.feed .item .what { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
-.feed .item .tool { font-weight: 500; white-space: nowrap; }
-.feed .item .status { white-space: nowrap; color: var(--text-2); }
+.feed .item .what { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; min-width: 0; }
+.feed .item .tool { font-weight: 500; }
+.feed .item .tool, .feed .item .status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed .item .status { color: var(--text-2); }
 .feed .item .status.running { color: var(--text); }
-.feed .item .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.feed .item .text { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .feed .item.error, .feed .item.error .kind, .feed .item.error .text { color: var(--err); }
 .feed .item.quiet, .feed .item.quiet .kind, .feed .item.quiet .text { color: var(--text-3); }
 
