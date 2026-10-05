@@ -53,7 +53,7 @@ import {
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
 import { sampleModel } from "./board-sample.ts";
-import { shots } from "./board-shots.ts";
+import { recording, shots } from "./board-shots.ts";
 import type { Entry } from "./journal.ts";
 import {
   emptySnapshot,
@@ -2428,6 +2428,31 @@ test("the README's screenshots: the sample board with the rail's Usage section, 
   assert.deepEqual(shown(pages.board ?? ""), []);
   assert.deepEqual(shown(pages["board-usage"] ?? ""), []);
   assert.deepEqual(shown(pages["board-sheet"] ?? ""), ["orchestrator@mbp"]);
+});
+
+test("the README's recording: a frame after each run of the sample's record, with the task it touched open, the whole sample last", () => {
+  const frames = recording();
+  assert.deepEqual(
+    frames.map((f) => f.task),
+    // T1 and T2 arrive, T2 asks, T3 arrives, T2 is answered and works on,
+    // T3 finishes, T4 and T5 arrive and run, T6 arrives last.
+    [
+      ...["T1", "T2", "T2", "T3", "T2", "T2", "T2", "T2", "T3"],
+      ...["T4", "T4", "T5", "T5", "T5", "T5", "T6"],
+    ],
+  );
+  assert.equal(frames[0]?.html.includes('data-task="T2"'), false);
+  assert.equal(frames.at(-1)?.html, renderBoard(sampleModel(), { task: "T6" }));
+  assert.deepEqual(
+    frames.map((f) => f.seconds),
+    [...Array<number>(frames.length - 1).fill(1.5), 4],
+  );
+  // The telemetry is a snapshot from the sample's end: only its frame
+  // carries it.
+  assert.deepEqual(
+    frames.map((f) => f.html.includes("no telemetry")),
+    [...Array<boolean>(frames.length - 1).fill(true), false],
+  );
 });
 
 // ---- Usage (v0.13): the rail's section and the pop-up ----

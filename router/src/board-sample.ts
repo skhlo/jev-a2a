@@ -25,17 +25,27 @@ import {
 export const SAMPLE_PATH = join(import.meta.dirname, "board.sample.json");
 
 export function sampleModel(): BoardModel {
+  return sampleModelAt(sampleJournal.length);
+}
+
+// The sample as it stood after its first `end` entries, at the last one's
+// time. The telemetry is a snapshot from the sample's end, so only the
+// whole record carries it.
+export function sampleModelAt(end: number): BoardModel {
+  const entries = sampleJournal.slice(0, end);
+  const whole = end >= sampleJournal.length;
+  const now = whole ? NOW : Date.parse(entries.at(-1)?.at ?? "") || NOW;
   const actor = identify(
     { "tailscale-user-login": "me@example.com" },
     config.serve.identities,
   );
   return boardModel(
-    boardState(config, sampleJournal, NOW),
+    boardState(config, entries, now),
     config,
-    NOW,
-    messageTimes(sampleJournal),
+    now,
+    messageTimes(entries),
     actor,
-    telemetry,
+    whole ? telemetry : null,
     usage,
   );
 }
