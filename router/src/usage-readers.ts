@@ -90,10 +90,12 @@ export const childEnv = (
   );
 
 // A GET with a bearer key: twelve seconds, a megabyte, no redirect.
+export const FETCH_LIMITS = { timeoutMs: 12_000, maxBytes: 1_000_000 };
 export async function fetchJson(
   url: string,
   key: string,
   headers: Record<string, string> = {},
+  limits: typeof FETCH_LIMITS = FETCH_LIMITS,
 ): Promise<unknown> {
   let response: Response;
   try {
@@ -104,7 +106,7 @@ export async function fetchJson(
         ...headers,
       },
       redirect: "error",
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(limits.timeoutMs),
     });
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "TimeoutError")
@@ -118,7 +120,7 @@ export async function fetchJson(
   const chunks: Uint8Array[] = [];
   for await (const chunk of response.body) {
     size += chunk.byteLength;
-    if (size > 1_000_000)
+    if (size > limits.maxBytes)
       throw new ReadError("The usage response was too large.");
     chunks.push(chunk);
   }

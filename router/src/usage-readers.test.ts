@@ -6,12 +6,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   childEnv,
   createLoaders,
+  FETCH_LIMITS,
   fetchJson,
   readUsageRpc,
   type ReaderIo,
@@ -292,6 +293,89 @@ test("a provider request never follows a redirect with its credential, and says 
     assert.equal(failure.message, words);
   }
   assert.deepEqual(await fetchJson(`${base}/ok`, "fixture-key"), {});
+});
+
+test("a provider request reads at most a megabyte and waits at most twelve seconds", async (t) => {
+  assert.deepEqual(FETCH_LIMITS, { timeoutMs: 12_000, maxBytes: 1_000_000 });
+  const held: ServerResponse[] = [];
+  const server = createServer((req, res) => {
+    if (req.url === "/large") {
+      res.writeHead(200, { "content-type": "application/json" });
+      // Eleven chunks of 100 kB, past the megabyte.
+      const chunk = Buffer.alloc(100_000, 0x20);
+      for (let i = 0; i < 11; i += 1) res.write(chunk);
+      res.end("{}");
+    } else held.push(res);
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(
+    () =>
+      new Promise<void>((resolve) => {
+        for (const res of held) res.destroy();
+        server.close(() => resolve());
+      }),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  const failure = (promise: Promise<unknown>) =>
+    promise.then(
+      () => assert.fail("expected a failure"),
+      (e: unknown) => e,
+    );
+  const large = await failure(fetchJson(`${base}/large`, "fixture-key"));
+  assert.ok(large instanceof ReadError);
+  assert.equal(large.message, "The usage response was too large.");
+  // The same bound at a test's scale: a request that never answers.
+  const slow = await failure(
+    fetchJson(
+      `${base}/hang`,
+      "fixture-key",
+      {},
+      {
+        ...FETCH_LIMITS,
+        timeoutMs: 50,
+      },
+    ),
+  );
+  assert.ok(slow instanceof ReadError);
+  assert.equal(slow.message, "The usage request timed out.");
+});
+
+test("a source that fails with the provider's own text reads as the router's fixed sentence", async (t) => {
+  const home = await fixtureHome(t);
+  const leak = "private-provider-error";
+  const codex = await createLoaders(
+    home,
+    {},
+    io({
+      readUsageRpc: async (_command, _args, protocol) => {
+        if (protocol === "codex") throw new Error(leak);
+        return codexHistory;
+      },
+    }),
+  ).codex();
+  assert.equal(codex.allowance, "unavailable");
+  assert.equal(codex.notice, "Current limits could not be refreshed.");
+  const openrouter = await createLoaders(
+    home,
+    {
+      OPENROUTER_API_KEY: "fixture-api",
+      OPENROUTER_MANAGEMENT_KEY: "fixture-management",
+    },
+    io({
+      fetchJson: async (url) => {
+        if (url.endsWith("/activity")) return { data: [] };
+        throw new Error(leak);
+      },
+    }),
+  ).openrouter();
+  assert.equal(
+    openrouter.notice,
+    "The account balance could not be refreshed. Key usage could not be refreshed.",
+  );
+  assert.equal(JSON.stringify([codex, openrouter]).includes(leak), false);
 });
 
 test("Codex quota and history fail apart and keep their original times", async (t) => {
