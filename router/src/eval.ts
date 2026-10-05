@@ -23,7 +23,7 @@ export type Point = {
   handedBack: number; // the rest: none, under the threshold, or no answer
 };
 
-export const THRESHOLDS = [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95];
+const THRESHOLDS = [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -109,7 +109,7 @@ export async function evaluate(
 export const unanswered = (verdicts: Verdict[]): number =>
   verdicts.filter((v) => v.choice === null).length;
 
-export const correct = (v: Verdict): boolean => v.choice === v.expect;
+const correct = (v: Verdict): boolean => v.choice === v.expect;
 
 const dispatched = (v: Verdict, threshold: number): boolean =>
   v.choice !== null && v.choice !== "none" && v.p >= threshold;

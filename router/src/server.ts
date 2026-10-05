@@ -9,11 +9,7 @@
 // behind Tailscale Serve, which stamps the viewer's login on each request.
 // Serve strips its mount path, so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
-import type {
-  IncomingMessage,
-  RequestListener,
-  ServerResponse,
-} from "node:http";
+import type { IncomingMessage, RequestListener } from "node:http";
 import {
   actionEvent,
   asOf,
@@ -78,7 +74,7 @@ export type Timers<H> = {
   set: (fn: () => void, ms: number) => H;
   clear: (handle: H) => void;
 };
-export const nodeTimers: Timers<NodeJS.Timeout> = {
+const nodeTimers: Timers<NodeJS.Timeout> = {
   set: setTimeout,
   clear: clearTimeout,
 };
@@ -700,5 +696,3 @@ export async function bind(
     }
   }
 }
-
-export type { IncomingMessage, ServerResponse };

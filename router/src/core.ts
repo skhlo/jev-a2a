@@ -182,7 +182,7 @@ const retryable = (_state: State, delivery: Delivery, send: Send): boolean =>
   send.outcome === "unknown" && delivery.idempotent;
 // A send whose arrival is unconfirmed. It blocks other sends to its
 // placement: the participant may be starting a turn it must not lose.
-export const inFlight = (delivery: Delivery): boolean =>
+const inFlight = (delivery: Delivery): boolean =>
   isOpen(delivery) &&
   delivery.session !== null &&
   ["attempting", "unknown"].includes(currentSend(delivery).outcome);

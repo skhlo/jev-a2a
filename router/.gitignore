@@ -1,1 +1,3 @@
 node_modules/
+# Fallow's cache.
+.fallow/

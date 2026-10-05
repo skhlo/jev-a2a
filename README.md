@@ -242,6 +242,7 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 | `router/eval/`               | The maintainer's labeled request set                                  |
 | `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
 | `router/jev-router.service`  | The systemd user unit for `router serve`                              |
+| `router/AGENTS.md`           | Context for coding agents, with Fallow's commands                     |
 | `docs/`                      | Reference pages                                                       |
 | `docs/research/`             | The spec, the executable model it was verified on, and background     |
 
@@ -250,6 +251,7 @@ cd router
 pnpm test        # unit tests; no calls to Jev or Paseo
 pnpm typecheck
 pnpm fmt:check
+pnpm fallow      # unused files, exports and dependencies, duplicated code
 ```
 
 CI runs these plus `node --test router-core.test.js` in `docs/research/`, and
@@ -257,6 +259,9 @@ fails if the run changed `package.json` or the lockfile. Regenerating the
 sample and the screenshots after a view-model change:
 [docs/board-model.md](docs/board-model.md#the-contract) and
 [router/design/README.md](router/design/README.md#files).
+
+`pnpm fallow:health` reports complexity hotspots; it is advice, not a check,
+and CI does not run it.
 
 ## License
 

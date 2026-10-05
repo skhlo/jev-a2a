@@ -33,7 +33,7 @@ export type LockOptions = {
   now?: () => number;
 };
 
-export const LOCK_WAIT_MS = 90_000;
+const LOCK_WAIT_MS = 90_000;
 const LOCK_POLL_MS = 100;
 // A lock file younger than this with no readable pid is one being created.
 const LOCK_GRACE_MS = 2_000;

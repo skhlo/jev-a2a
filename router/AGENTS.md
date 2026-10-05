@@ -1,0 +1,83 @@
+# AGENTS.md
+
+This file gives coding agents project-specific context. Keep it short and
+update it when workflows change.
+
+## Project Overview
+
+- Primary app or package: `jev-router` (this folder), a router that sends
+  work between coding agents in Paseo sessions on several machines and
+  keeps one record of it. The contract is
+  `../docs/research/jev-router-spec.md`.
+- Main entry points: `src/cli.ts` (the `router` command, `router serve`
+  included); `client/router.mjs` (the client for hosts that only reply);
+  the scripts in `src/` run by hand with node, each under
+  `import.meta.main`.
+- Important directories: `src/` the router; `test/` its tests; `client/`;
+  `eval/` the labeled request set; `design/` the board design's paths and
+  the README's pictures; `../docs/` the reference pages.
+
+## Architecture Notes
+
+- Module boundaries: `src/core.ts` is a pure, deterministic model of the
+  contract and performs no I/O. `src/shell.ts` and the adapters around it
+  (`paseo.ts`, `jev.ts`, `journal.ts`, `server.ts`) perform the core's
+  commands and feed results back as events.
+- Generated or vendored code: `src/board.sample.json` and
+  `design/screenshots/`, each written by a script in `src/` (the README's
+  development section says when to run them); `pnpm-lock.yaml`, by pnpm.
+- Sensitive areas: the repository is public. Keep secrets, logins, private
+  paths and live request texts out of commits.
+
+## Commands
+
+The README's development section says what each does.
+
+- Install: `pnpm install`
+- Build: none; Node runs the TypeScript directly.
+- Test: `pnpm test`
+- Typecheck or lint: `pnpm typecheck`, `pnpm fmt:check`, `pnpm fallow`
+- Advice only: `pnpm fallow:health`
+
+## Fallow
+
+- Run fallow through pnpm in this folder (`pnpm exec fallow …`); its
+  configuration is `.fallowrc.jsonc`.
+- Before committing, run `pnpm fallow`: it is the check CI runs. Complexity
+  (`fallow health`, and the complexity part of `fallow audit`) is advice
+  here: read its findings, and do not add `fallow-ignore` comments to
+  silence them.
+- Use `fallow dead-code --format json --quiet`,
+  `fallow dupes --format json --quiet`, and
+  `fallow health --format json --quiet` for targeted checks.
+- Use `fallow list --entry-points --format json --quiet` to inspect
+  project shape.
+
+<!-- generated:task-matrix:start -->
+
+| When the agent is about to...                                     | Run                                                                                                                                                     |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| delete an "unused" export or file                                 | `fallow dead-code --trace <file>:<export>`                                                                                                              |
+| prove a TypeScript symbol's exact consumers before refactoring    | `fallow dead-code --type-aware --symbol-impact <file>:<export-or-class.method>`                                                                         |
+| find how one module reaches another                               | `fallow trace --path <from> <to>` (Reports `reachable: false` instead of failing when no import path exists; type-only hops are reported, not skipped.) |
+| delete an "unused" dependency                                     | `fallow dead-code --trace-dependency <name>`                                                                                                            |
+| commit or open a PR                                               | `fallow audit --base <ref>`                                                                                                                             |
+| read a diff before approving it                                   | `fallow review --base <ref> --brief` (orientation, never gates: deterministic and always exit 0, unlike the audit row)                                  |
+| prioritize refactoring                                            | `fallow health --hotspots --targets`                                                                                                                    |
+| ask who owns code                                                 | `fallow health --ownership`                                                                                                                             |
+| check untested-but-reachable code                                 | `fallow health --coverage-gaps`                                                                                                                         |
+| consolidate duplication                                           | `fallow dupes --trace dup:<fingerprint>`                                                                                                                |
+| find feature flags                                                | `fallow flags`                                                                                                                                          |
+| check which architecture rules apply to a file before changing it | `fallow guard <files>`                                                                                                                                  |
+| surface security candidates                                       | `fallow security`                                                                                                                                       |
+| understand a finding                                              | `fallow explain <issue-type>`                                                                                                                           |
+| scope a monorepo                                                  | `--workspace <glob> / --changed-workspaces <ref>` (global flags, prefix any command)                                                                    |
+
+<!-- generated:task-matrix:end -->
+
+## Agent Rules
+
+- Do not edit: the generated files above by hand; regenerate them with
+  their owner.
+- Preferred style: what the surrounding code does; Prettier formats
+  everything (`pnpm fmt`).
