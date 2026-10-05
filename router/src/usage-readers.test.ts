@@ -268,6 +268,9 @@ test("a provider request never follows a redirect with its credential, and says 
       res.writeHead(302, { Location: "/secret-target" }).end();
     else if (req.url === "/denied")
       res.writeHead(401).end("token fixture-key is invalid");
+    else if (req.url === "/forbidden")
+      res.writeHead(403).end("token fixture-key is forbidden");
+    else if (req.url === "/broken") res.writeHead(500).end("provider trace");
     else if (req.url === "/html") res.end("<html>private provider page</html>");
     else {
       destination = true;
@@ -293,7 +296,9 @@ test("a provider request never follows a redirect with its credential, and says 
   assert.ok(header instanceof ReadError);
   assert.equal(header.message, "The usage request could not be made.");
   for (const [path, words] of [
-    ["/denied", "The usage request failed (HTTP 401)."],
+    ["/denied", "The provider refused the credential (HTTP 401)."],
+    ["/forbidden", "The provider refused the credential (HTTP 403)."],
+    ["/broken", "The usage request failed (HTTP 500)."],
     ["/html", "The usage response was not JSON."],
   ] as const) {
     const failure = await fetchJson(`${base}${path}`, "fixture-key").catch(
@@ -303,6 +308,87 @@ test("a provider request never follows a redirect with its credential, and says 
     assert.equal(failure.message, words);
   }
   assert.deepEqual(await fetchJson(`${base}/ok`, "fixture-key"), {});
+});
+
+test("a refused credential says what to do next, per account, through the real request", async (t) => {
+  // Each provider path answers with a status and the provider's own text,
+  // or with a payload.
+  const answers: Record<string, number | object> = {
+    "/api/oauth/usage": 401,
+    "/user/balance": 401,
+    "/api/v1/key": 401,
+    "/api/v1/credits": 403,
+    "/api/v1/activity": 403,
+  };
+  const server = createServer((req, res) => {
+    const answer = answers[req.url ?? ""] ?? 404;
+    if (typeof answer === "number")
+      res.writeHead(answer).end("private provider text");
+    else res.end(JSON.stringify(answer));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const base = `http://127.0.0.1:${address.port}`;
+  // The real request, to the local server in place of the provider's host.
+  const readers = io({
+    fetchJson: (url, key, headers) =>
+      fetchJson(`${base}${new URL(url).pathname}`, key, headers),
+    clock: () => now,
+  });
+  const home = await fixtureHome(t);
+  await mkdir(join(home, ".claude"));
+  await writeFile(
+    join(home, ".claude/.credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: "file-token", expiresAt: now + 3_600_000 },
+    }),
+  );
+  const env = {
+    DEEPSEEK_API_KEY: "fixture-deepseek",
+    OPENROUTER_API_KEY: "fixture-api",
+    OPENROUTER_MANAGEMENT_KEY: "fixture-management",
+  };
+  const errors = async (given: NodeJS.ProcessEnv) => {
+    const loaders = createLoaders(home, given, readers);
+    const store = createUsageStore(
+      {
+        claude: loaders.claude,
+        deepseek: loaders.deepseek,
+        openrouter: loaders.openrouter,
+      },
+      () => now,
+    );
+    await store.refresh();
+    const state = store.state();
+    assert.equal(JSON.stringify(state).includes("private"), false);
+    return Object.fromEntries(state.accounts.map((a) => [a.id, a.error]));
+  };
+  assert.deepEqual(await errors(env), {
+    claude:
+      "Claude refused the login (HTTP 401): open Claude Code and run /login.",
+    deepseek:
+      "DeepSeek refused the API key (HTTP 401): check the provider API key (DEEPSEEK_API_KEY or Pi's auth.json).",
+    openrouter:
+      "OpenRouter refused the API key (HTTP 401): check the provider API key (OPENROUTER_API_KEY or Pi's auth.json).",
+  });
+  // The credits take the management key, and say so.
+  assert.equal(
+    (await errors({ OPENROUTER_MANAGEMENT_KEY: "fixture-management" }))
+      .openrouter,
+    "OpenRouter refused the management key (HTTP 403): check OPENROUTER_MANAGEMENT_KEY.",
+  );
+  // With the key read, the refused management key is the account's notice,
+  // and the spending it reads says it could not be refreshed.
+  answers["/api/v1/key"] = openrouterPayloads.key;
+  const reading = await createLoaders(home, env, readers).openrouter();
+  assert.equal(reading.allowance, "ready");
+  assert.equal(
+    reading.notice,
+    "OpenRouter refused the management key (HTTP 403): check OPENROUTER_MANAGEMENT_KEY. Model & provider spending could not be refreshed.",
+  );
 });
 
 test("a provider request reads at most a megabyte and waits at most twelve seconds", async (t) => {

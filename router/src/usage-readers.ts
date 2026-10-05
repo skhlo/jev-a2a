@@ -89,6 +89,16 @@ export const childEnv = (
     ),
   );
 
+// The provider refused the credential (HTTP 401 or 403). A loader turns it
+// into what to do about it, for the credential it sent.
+class RefusedError extends ReadError {
+  status: number;
+  constructor(status: number) {
+    super(`The provider refused the credential (HTTP ${status}).`);
+    this.status = status;
+  }
+}
+
 // A GET with a bearer key: twelve seconds, a megabyte, no redirect. Every
 // failure is one of the router's sentences: the platform's own error text
 // (a refused redirect, a header it would not send) can carry the key.
@@ -119,6 +129,8 @@ export async function fetchJson(
         : "The usage request could not be made.",
     );
   }
+  if (response.status === 401 || response.status === 403)
+    throw new RefusedError(response.status);
   if (!response.ok)
     throw new ReadError(`The usage request failed (HTTP ${response.status}).`);
   if (!response.body) throw new ReadError("The usage response was empty.");
@@ -374,6 +386,27 @@ function combine(
   };
 }
 
+// What a refused credential reads as, per credential: who refused what,
+// and the next step.
+const REFUSED = {
+  claude: ["Claude", "login", "open Claude Code and run /login."],
+  deepseek: [
+    "DeepSeek",
+    "API key",
+    "check the provider API key (DEEPSEEK_API_KEY or Pi's auth.json).",
+  ],
+  openrouterKey: [
+    "OpenRouter",
+    "API key",
+    "check the provider API key (OPENROUTER_API_KEY or Pi's auth.json).",
+  ],
+  openrouterManagement: [
+    "OpenRouter",
+    "management key",
+    "check OPENROUTER_MANAGEMENT_KEY.",
+  ],
+} as const;
+
 export type ReaderIo = {
   readUsageRpc?: typeof readUsageRpc;
   fetchJson?: typeof fetchJson;
@@ -394,6 +427,24 @@ export function createLoaders(
   const fetchUsage = io.fetchJson ?? fetchJson;
   const clock = io.clock ?? Date.now;
   const appServer = ["app-server", "--listen", "stdio://"];
+  // A provider request whose refused credential reads as the next step:
+  // `who` refused `what`, then `next`.
+  const request = async (
+    url: string,
+    key: string,
+    [who, what, next]: readonly [string, string, string],
+    headers: Record<string, string> = {},
+  ): Promise<unknown> => {
+    try {
+      return await fetchUsage(url, key, headers);
+    } catch (error: unknown) {
+      if (error instanceof RefusedError)
+        throw new ReadError(
+          `${who} refused the ${what} (HTTP ${error.status}): ${next}`,
+        );
+      throw error;
+    }
+  };
   const codexEnv = childEnv(env, secrets);
   const codexLimits = retained(async () =>
     codexReading(
@@ -410,7 +461,11 @@ export function createLoaders(
   const openrouterKey = retained(async (key: string | undefined) =>
     key
       ? openrouterReading(
-          await fetchUsage("https://openrouter.ai/api/v1/key", key),
+          await request(
+            "https://openrouter.ai/api/v1/key",
+            key,
+            REFUSED.openrouterKey,
+          ),
           null,
           clock(),
         )
@@ -420,7 +475,11 @@ export function createLoaders(
     key
       ? openrouterReading(
           null,
-          await fetchUsage("https://openrouter.ai/api/v1/credits", key),
+          await request(
+            "https://openrouter.ai/api/v1/credits",
+            key,
+            REFUSED.openrouterManagement,
+          ),
           clock(),
         )
       : null,
@@ -428,7 +487,11 @@ export function createLoaders(
   const openrouterHistory = retained(async (key: string | undefined) =>
     key
       ? openrouterDetails(
-          await fetchUsage("https://openrouter.ai/api/v1/activity", key),
+          await request(
+            "https://openrouter.ai/api/v1/activity",
+            key,
+            REFUSED.openrouterManagement,
+          ),
           clock(),
         )
       : null,
@@ -453,9 +516,12 @@ export function createLoaders(
     claude: async () => {
       const token = await claudeToken(home, env, clock());
       return claudeReading(
-        await fetchUsage("https://api.anthropic.com/api/oauth/usage", token, {
-          "anthropic-beta": "oauth-2025-04-20",
-        }),
+        await request(
+          "https://api.anthropic.com/api/oauth/usage",
+          token,
+          REFUSED.claude,
+          { "anthropic-beta": "oauth-2025-04-20" },
+        ),
         clock(),
       );
     },
@@ -466,7 +532,11 @@ export function createLoaders(
           "No DeepSeek API key on this host: set DEEPSEEK_API_KEY or add one to Pi's auth.json.",
         );
       return deepseekReading(
-        await fetchUsage("https://api.deepseek.com/user/balance", key),
+        await request(
+          "https://api.deepseek.com/user/balance",
+          key,
+          REFUSED.deepseek,
+        ),
         clock(),
       );
     },
