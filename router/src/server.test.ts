@@ -1,17 +1,15 @@
 // The guards on both HTTP surfaces, exercised over real sockets on port 0.
-import test, { after, type TestContext } from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request, type Server } from "node:http";
 import {
   appendFileSync,
   existsSync,
-  mkdtempSync,
   readFileSync,
   renameSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { scratch, sharedScratch } from "./test-scratch.ts";
 import { join } from "node:path";
 import {
   bind,
@@ -47,15 +45,9 @@ import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
 
-// The record the tests share, and a scratch one a test makes for itself;
-// each is removed when its tests end.
-const home = mkdtempSync(join(tmpdir(), "server-"));
-after(() => rmSync(home, { recursive: true }));
-const scratch = (t: TestContext, prefix: string): string => {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  t.after(() => rmSync(dir, { recursive: true }));
-  return dir;
-};
+// The record the tests share; a test that needs its own makes a scratch
+// one.
+const home = sharedScratch("server-");
 const config: RouterConfig = {
   ...base,
   home,

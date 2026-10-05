@@ -2,8 +2,8 @@
 // misbehaves, and that the record survives a configuration change.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
+import { scratch } from "./test-scratch.ts";
 import { join } from "node:path";
 import { coreConfig, openShell, type ShellOptions } from "./shell.ts";
 import { readJournal } from "./journal.ts";
@@ -86,8 +86,8 @@ const scripted = (script: Script): ShellOptions => ({
   now: () => 1_000,
 });
 
-test("a failed observation records not ready: an earlier idle does not send this run", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a failed observation records not ready: an earlier idle does not send this run", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   // Run 1: the agent is idle and nothing is queued.
   let shell = await openShell(config, scripted({}));
@@ -138,8 +138,8 @@ test("a failed observation records not ready: an earlier idle does not send this
   await shell.close();
 });
 
-test("a quiet run records nothing: the tick is held until an event follows it, and an observation only when it changed the placement", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a quiet run records nothing: the tick is held until an event follows it, and an observation only when it changed the placement", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   const types = (): unknown[] => readJournal(home).map((e) => e.event.type);
   let clock = 1_000;
@@ -215,8 +215,8 @@ test("a quiet run records nothing: the tick is held until an event follows it, a
   assert.deepEqual(types().slice(sofar + 1), ["tick", "observe"]);
 });
 
-test("a key conflict aborts the run with the send left attempting", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a key conflict aborts the run with the send left attempting", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   const shell = await openShell(
     config,
@@ -249,8 +249,8 @@ test("a key conflict aborts the run with the send left attempting", async () => 
   await next.close();
 });
 
-test("a configuration change is recorded, and earlier events still replay", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a configuration change is recorded, and earlier events still replay", async (t) => {
+  const home = scratch(t, "shell-");
   const loose = configFor(home);
   const judged = {
     ...scripted({}),
@@ -330,8 +330,8 @@ test("a configuration change is recorded, and earlier events still replay", asyn
   await shell.close();
 });
 
-test("a record older than its first configured line replays under that configuration", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a record older than its first configured line replays under that configuration", async (t) => {
+  const home = scratch(t, "shell-");
   // Written on a day the threshold was 0.9 and nothing recorded it yet: the
   // judgment at 0.85 handed back, and the person chose. Then the first
   // configured line arrived.
@@ -374,8 +374,8 @@ test("a record older than its first configured line replays under that configura
   await shell.close();
 });
 
-test("a participant sender is told a question and the end through the adapter, each once, at its idle session", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a participant sender is told a question and the end through the adapter, each once, at its idle session", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   const sent: { key: string; text: string }[] = [];
   let refuse = false;
@@ -543,8 +543,8 @@ test("a participant sender is told a question and the end through the adapter, e
   await shell.close();
 });
 
-test("a run that dies inside a notice's send is recovered like a send: unknown on the next open, repeated with the first text", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a run that dies inside a notice's send is recovered like a send: unknown on the next open, repeated with the first text", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   const sent: { key: string; text: string }[] = [];
   const script = {
@@ -630,8 +630,8 @@ test("a run that dies inside a notice's send is recovered like a send: unknown o
   await shell.close();
 });
 
-test("a hand-back is told with the choice to make, and a failed end with each delivery's last word", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a hand-back is told with the choice to make, and a failed end with each delivery's last word", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   const sent: { key: string; text: string }[] = [];
   const unsure = {
@@ -746,8 +746,8 @@ test("a failed send is not_sent only when the daemon refused before sending", ()
   );
 });
 
-test("each run hands the telemetry sink one snapshot per served placement, stamped with the run's clock: the daemon's, missing, or unreachable", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("each run hands the telemetry sink one snapshot per served placement, stamped with the run's clock: the daemon's, missing, or unreachable", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   const written: Telemetry[] = [];
   const options = (observe: NonNullable<Script["observe"]>): ShellOptions => ({
@@ -847,8 +847,8 @@ test("each run hands the telemetry sink one snapshot per served placement, stamp
   assert.equal(written.length, 3);
 });
 
-test("a telemetry write that fails is reported and the run still sends", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a telemetry write that fails is reported and the run still sends", async (t) => {
+  const home = scratch(t, "shell-");
   const config = configFor(home);
   const sent: string[] = [];
   const shell = await openShell(config, {
@@ -878,8 +878,8 @@ test("a telemetry write that fails is reported and the run still sends", async (
   );
 });
 
-test("a sheet read the adapter could not make is one telemetry line of the report; the observation stands and the run still sends", async () => {
-  const home = mkdtempSync(join(tmpdir(), "shell-"));
+test("a sheet read the adapter could not make is one telemetry line of the report; the observation stands and the run still sends", async (t) => {
+  const home = scratch(t, "shell-");
   const sent: string[] = [];
   const shell = await openShell(
     configFor(home),

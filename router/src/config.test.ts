@@ -2,13 +2,13 @@
 // defaults, and that the environment wins over the file.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
+import { sharedScratch } from "./test-scratch.ts";
 import { join } from "node:path";
 import { loadConfig, loadSecrets } from "./config.ts";
 import base from "./example-config.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "config-"));
+const dir = sharedScratch("config-");
 let n = 0;
 const write = (value: unknown): string => {
   const path = join(dir, `config-${n++}.json`);

@@ -6,14 +6,12 @@ import {
   appendFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   renameSync,
   statSync,
   truncateSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   openJournal,
@@ -21,13 +19,13 @@ import {
   readJournalSince,
   type JournalRead,
 } from "./journal.ts";
+import { scratch } from "./test-scratch.ts";
 
-const fresh = (): string => mkdtempSync(join(tmpdir(), "journal-"));
 const line = (n: number): string =>
   `${JSON.stringify({ at: "t", event: { type: "tick", now: n } })}\n`;
 
-test("the lock is exclusive while held and free once released", async () => {
-  const home = fresh();
+test("the lock is exclusive while held and free once released", async (t) => {
+  const home = scratch(t, "journal-");
   const first = await openJournal(home);
   assert.equal(
     readFileSync(join(home, "journal.lock"), "utf8"),
@@ -43,8 +41,8 @@ test("the lock is exclusive while held and free once released", async () => {
   second.release();
 });
 
-test("a dead owner's lock is reclaimed; a lock being created is not", async () => {
-  const home = fresh();
+test("a dead owner's lock is reclaimed; a lock being created is not", async (t) => {
+  const home = scratch(t, "journal-");
   const lock = join(home, "journal.lock");
   const dead = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
   assert.equal(dead.status, 0);
@@ -74,16 +72,16 @@ test("a dead owner's lock is reclaimed; a lock being created is not", async () =
   upgraded.release();
 });
 
-test("release only removes a lock this process owns", async () => {
-  const home = fresh();
+test("release only removes a lock this process owns", async (t) => {
+  const home = scratch(t, "journal-");
   const journal = await openJournal(home);
   writeFileSync(join(home, "journal.lock"), "999999");
   journal.release();
   assert.equal(readFileSync(join(home, "journal.lock"), "utf8"), "999999");
 });
 
-test("a torn final line is dropped by the writer and skipped by the reader", async () => {
-  const home = fresh();
+test("a torn final line is dropped by the writer and skipped by the reader", async (t) => {
+  const home = scratch(t, "journal-");
   const path = join(home, "journal.jsonl");
   writeFileSync(path, `${line(1)}${line(2)}${line(3).slice(0, 12)}`);
   assert.equal(readJournal(home).length, 2);
@@ -102,8 +100,8 @@ test("a torn final line is dropped by the writer and skipped by the reader", asy
   again.release();
 });
 
-test("a reader goes on from its mark: a missing journal, appends, a torn line, a truncation, a replacement of the same size and a rewrite", () => {
-  const home = fresh();
+test("a reader goes on from its mark: a missing journal, appends, a torn line, a truncation, a replacement of the same size and a rewrite", (t) => {
+  const home = scratch(t, "journal-");
   const path = join(home, "journal.jsonl");
   const nows = (read: JournalRead): unknown[] =>
     read.entries.map((entry) => entry.event.now);
@@ -152,8 +150,8 @@ test("a reader goes on from its mark: a missing journal, appends, a torn line, a
   assert.deepEqual(readJournal(home), rewritten.entries);
 });
 
-test("corrupt lines are refused, including a null event", () => {
-  const home = fresh();
+test("corrupt lines are refused, including a null event", (t) => {
+  const home = scratch(t, "journal-");
   const path = join(home, "journal.jsonl");
   for (const bad of ['{"at":"t","event":null}', '{"at":1,"event":{}}', "[]"]) {
     writeFileSync(path, `${bad}\n`);
