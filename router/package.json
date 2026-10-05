@@ -15,7 +15,7 @@
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "fallow": "fallow --only dead-code,dupes --fail-on-issues",
-    "fallow:health": "fallow health --report-only"
+    "fallow:health": "rm -rf .coverage && NODE_V8_COVERAGE=.coverage pnpm test && fallow health --report-only --coverage .coverage"
   },
   "dependencies": {
     "@getpaseo/client": "0.10.2"

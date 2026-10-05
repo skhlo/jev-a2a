@@ -1,3 +1,5 @@
 node_modules/
 # Fallow's cache.
 .fallow/
+# The tests' coverage, written by pnpm fallow:health.
+.coverage/
