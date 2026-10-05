@@ -656,6 +656,16 @@ test("only an empty prompt box at the foot of the screen, with the cursor in it,
     claudePromptEmpty({ ...EMPTY, lines: EMPTY.lines.map((l) => `${l}  `) }),
     true,
   );
+  // A named session draws its name into the box's top rule.
+  const topped = (top: string): Screen => ({
+    ...EMPTY,
+    lines: EMPTY.lines.map((line, i) => (i === 3 ? top : line)),
+  });
+  assert.equal(
+    claudePromptEmpty(topped(`${"─".repeat(30)} resuming previous session ─`)),
+    true,
+  );
+  assert.equal(claudePromptEmpty(topped("resuming previous session")), false);
   assert.equal(claudePromptEmpty(TYPED), false);
   assert.equal(claudePromptEmpty(DIALOG), false);
   assert.equal(claudePromptEmpty(screen([], null)), false);

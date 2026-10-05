@@ -360,7 +360,8 @@ turn ends, `idle` again on SessionEnd and kept after the CLI exits), and is
 null before the first prompt since the daemon started and after an Esc or
 Ctrl-C; the title starts with `✳` at the prompt and in a permission dialog,
 with a spinner during a turn, and is the shell's once the CLI exits; a
-bracketed paste then Enter arrives as one prompt. Input is raw keystrokes:
+named session draws its name into the prompt box's top rule; a bracketed
+paste then Enter arrives as one prompt. Input is raw keystrokes:
 no message key, no receipt. Therefore:
 
 - `ready` requires the `✳` title, no `working` activity, and Claude Code's

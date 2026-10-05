@@ -154,8 +154,10 @@ export const isReady = (
 // a spinner frame during a turn. A title without one is not Claude Code's.
 const MARK = /^([✳◐◓◑◒])\s+/u;
 const IDLE = "✳";
-// A rule line of Claude Code's prompt box.
+// A rule line of Claude Code's prompt box, and its top rule, which carries
+// a named session's name near its end ("──── my session ─").
 const RULE = /^─{20,}$/;
+const TOP_RULE = /^─{20,}(?: .+ ─+)?$/;
 
 // What a terminal's record says of Claude Code in it, in one place for
 // readiness, the run's report and the board:
@@ -196,7 +198,7 @@ export function claudePromptEmpty(screen: Screen): boolean {
   return (
     rule >= 2 &&
     shown[rule - 1] === "❯" &&
-    RULE.test(shown[rule - 2] ?? "") &&
+    TOP_RULE.test(shown[rule - 2] ?? "") &&
     shown.length - 1 - rule <= 6 &&
     screen.cursorRow === rule - 1
   );
