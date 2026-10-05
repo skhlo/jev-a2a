@@ -155,7 +155,7 @@ test("the head: Usage's own chips (the worst window in its band, the stale count
   const head = headOf(page);
   assert.ok(
     head.includes(
-      '<span class="err" data-path="max(usage.accounts[].reading.windows[].usedPercent)"><b>92%</b> Claude 5-hour</span>',
+      '<span class="err" data-path="max(usage.accounts[].reading.windows[].usedPercent)"><b>92%</b> Claude 5-hour · stale</span>',
     ),
   );
   assert.deepEqual(textsOf(head, "count(usage.accounts[].status=stale)"), [
@@ -179,6 +179,28 @@ test("the head: Usage's own chips (the worst window in its band, the stale count
   assert.deepEqual(textsOf(later, "count(usage.accounts[].status=stale)"), [
     "4 stale",
   ]);
+  // An hour on, Claude's 5-hour reset has passed: its 92% is no longer the
+  // worst window, and the next one, from a reading as stale, says so.
+  const hour = headOf(renderUsage(withUsage(model(usage, NOW + 60 * 60_000))));
+  assert.deepEqual(
+    textsOf(hour, "max(usage.accounts[].reading.windows[].usedPercent)"),
+    ["78% Codex 7-day · stale"],
+  );
+  assert.ok(!hour.includes("92%"));
+  // A current reading's worst window has no word after it.
+  const fresh = structuredClone(usage);
+  const claude = fresh.accounts[1];
+  assert.ok(claude?.reading);
+  claude.reading.observedAt = NOW - 30_000;
+  claude.error = null;
+  claude.status = "ready";
+  assert.deepEqual(
+    textsOf(
+      headOf(renderUsage(withUsage(model(fresh)))),
+      "max(usage.accounts[].reading.windows[].usedPercent)",
+    ),
+    ["92% Claude 5-hour"],
+  );
 });
 
 test("subscriptions: a row per window with the share used, the meter and its pace tick, the reset and what is left; colour only in a band or ahead of pace", () => {
@@ -308,6 +330,23 @@ test("balances: the balance leading, the key beside it, neutral; a missing manag
     ["$15.20"],
   );
   assert.ok(managed.includes("By model and provider"));
+  // History alone: no balance to lead with, said as a subscription says it,
+  // and the history under it.
+  const historyOnly = structuredClone(otherUsage);
+  const alone = historyOnly.accounts[3];
+  assert.ok(alone?.reading);
+  alone.status = "unavailable";
+  Object.assign(alone.reading, {
+    allowance: "unavailable",
+    windows: [],
+    metrics: [],
+  });
+  const row = account(renderUsage(withUsage(model(historyOnly))), 3);
+  assert.ok(strip(row).includes("OpenRouterCurrent limits are unavailable"));
+  assert.ok(!row.includes('class="figure leading"'));
+  assert.ok(
+    row.includes('data-key="openrouter/Model &amp; provider spending"'),
+  );
 });
 
 test("details behind a disclosure per account, keyed for the script, with tables of mono numerals; day tables show sixty days and no invented ones", () => {
@@ -321,12 +360,14 @@ test("details behind a disclosure per account, keyed for the script, with tables
   assert.doesNotMatch(page, /<details [^>]*\bopen\b/);
   assert.ok(
     page.includes(
-      '<th>Date</th><th class="num">Tokens</th></tr><tr><td>2026-09-29</td><td class="num">3,388,100</td></tr>',
+      '<th class="mono">Date</th><th class="num">Tokens</th></tr><tr><td class="mono">2026-09-29</td><td class="num">3,388,100</td></tr>',
     ),
   );
   // Sep 21 had no bucket: a gap, not a zero; Sep 27 reported zero.
   assert.ok(!page.includes("2026-09-21"));
-  assert.ok(page.includes('<td>2026-09-27</td><td class="num">0</td>'));
+  assert.ok(
+    page.includes('<td class="mono">2026-09-27</td><td class="num">0</td>'),
+  );
   // Seventy days: the latest sixty, said so; a table without days is whole.
   const m = sampleModel();
   const detail = m.usage?.accounts[0]?.reading?.details[0];
@@ -347,7 +388,7 @@ test("details behind a disclosure per account, keyed for the script, with tables
     },
     {
       title: "By model",
-      columns: [{ key: "model", label: "Model", format: null }],
+      columns: [{ key: "model", label: "Model", format: "name" }],
       rows: days.map((_, i) => ({ model: `model-${i}` })),
     },
   ];
@@ -358,9 +399,9 @@ test("details behind a disclosure per account, keyed for the script, with tables
     ),
   );
   assert.equal(long.match(/<td class="num">—<\/td>/g)?.length, 60);
-  assert.ok(!long.includes(`<td>${days[9]}</td>`));
-  assert.ok(long.includes(`<td>${days[10]}</td>`));
-  assert.equal(long.match(/<td>model-\d+<\/td>/g)?.length, 70);
+  assert.ok(!long.includes(`<td class="mono">${days[9]}</td>`));
+  assert.ok(long.includes(`<td class="mono">${days[10]}</td>`));
+  assert.equal(long.match(/<td class="mono">model-\d+<\/td>/g)?.length, 70);
 });
 
 test("data labels render as text: a hostile label, value, notice or title is escaped everywhere", () => {

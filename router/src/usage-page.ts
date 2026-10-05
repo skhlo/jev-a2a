@@ -94,11 +94,13 @@ const BESIDE: string[] = [LABEL.keyRemaining, LABEL.keyLimit];
 // Day-keyed tables show their latest sixty days; gaps stay gaps.
 const DAYS_SHOWN = 60;
 
-// How a table column draws: counts and amounts as numerals; dates and names
-// a machine wrote as text for now.
+// How a table column draws: counts and amounts as numerals, dates and names
+// a machine wrote in mono, words as text.
 const KIND: Record<string, Column["kind"]> = {
   number: "num",
   USD: "num",
+  date: "mono",
+  name: "mono",
 };
 
 export function renderUsage(
@@ -118,12 +120,14 @@ export function renderUsage(
 
   // The worst subscription window, then how many accounts are stale,
   // unavailable or still being read; the board's chips stay on the board.
+  // A window whose reset has passed says nothing of now and is left out; one
+  // from a stale reading says so.
   const windows = subscriptions.flatMap(({ a, path }) =>
-    (a.reading?.windows ?? []).map((w, k) => ({
-      a,
-      w,
-      path: `${path}.reading.windows[${k}]`,
-    })),
+    (a.reading?.allowance === "unavailable" ? [] : (a.reading?.windows ?? []))
+      .map((w, k) => ({ a, w, path: `${path}.reading.windows[${k}]` }))
+      .filter(
+        ({ w }) => !w.resetsAt || Date.parse(w.resetsAt) > Date.parse(at),
+      ),
   );
   const worst = windows.reduce<(typeof windows)[number] | null>(
     (top, x) => (!top || x.w.usedPercent > top.w.usedPercent ? x : top),
@@ -136,7 +140,7 @@ export function renderUsage(
       ? chip(
           "max(usage.accounts[].reading.windows[].usedPercent)",
           pct(worst.w.usedPercent),
-          `${esc(worst.a.name)} ${esc(windowName(worst.w.label))}`,
+          `${esc(worst.a.name)} ${esc(windowName(worst.w.label))}${worst.a.status === "stale" ? " · stale" : ""}`,
           band(worst.w.usedPercent),
         )
       : "",
@@ -364,6 +368,11 @@ export function renderUsage(
   const balance = (a: AccountView, path: string): string => {
     const r = a.reading;
     if (!r) return bare(a, path, nothing(a)) + more(a, path, []);
+    if (r.allowance === "unavailable")
+      return (
+        bare(a, path, "Current limits are unavailable") +
+        more(a, path, metricsOf(a, path))
+      );
     const find = (label: string) => {
       for (const [k, m] of r.metrics.entries())
         if (m.label === label) return { k, m };
