@@ -58,8 +58,11 @@ if (import.meta.main) {
           "--no-sandbox",
           "--hide-scrollbars",
           "--window-size=1440,1000",
-          // Lets the sheet's slide and the pop-up's rise finish before the
-          // picture is taken.
+          // The page's reduced-motion rule draws the sheet and the pop-up
+          // in place, without their slide and rise, which a picture taken
+          // in virtual time would catch at their start; the budget lets
+          // the script place the pop-up first.
+          "--force-prefers-reduced-motion",
           "--virtual-time-budget=2000",
           `--screenshot=${join(SHOTS_DIR, `${name}.png`)}`,
           `file://${file}`,
