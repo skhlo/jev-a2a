@@ -45,7 +45,7 @@ import {
   unanswered,
   type Labeled,
 } from "./eval.ts";
-import { openShell, type Shell } from "./shell.ts";
+import { openShell, type Shell, type ShellOptions } from "./shell.ts";
 import { agentLine, readTelemetry, writeTelemetry } from "./telemetry.ts";
 import { textOption } from "./text.ts";
 import type { Event, Role, State, Task } from "./types.ts";
@@ -157,17 +157,16 @@ function fail(message: string): never {
 
 const crash = process.env.ROUTER_CRASH;
 const apiKey = process.env.TYPESAFE_API_KEY;
-const open = (): Promise<Shell> =>
-  openShell(config, {
-    adapter: (endpoint) =>
-      createPaseoAdapter(endpoint, { sheet: config.telemetry.sheet }),
-    judge: apiKey
-      ? (question) => judge(question, { ...config.jev, apiKey })
-      : null,
-    telemetry: (telemetry) => writeTelemetry(config.home, telemetry),
-    crash:
-      crash === "after_attempt" || crash === "after_send" ? crash : undefined,
-  });
+const shellOptions: ShellOptions = {
+  adapter: (endpoint) =>
+    createPaseoAdapter(endpoint, { sheet: config.telemetry.sheet }),
+  judge: apiKey
+    ? (question) => judge(question, { ...config.jev, apiKey })
+    : null,
+  telemetry: (telemetry) => writeTelemetry(config.home, telemetry),
+  crash:
+    crash === "after_attempt" || crash === "after_send" ? crash : undefined,
+};
 
 if (command === "serve") {
   await serve(config);
@@ -176,7 +175,7 @@ if (command === "serve") {
 } else if (command === "usage") {
   await readUsage(config);
 } else {
-  const shell = await open();
+  const shell = await openShell(config, shellOptions);
   let exitCode = 0;
   try {
     exitCode = await main(shell, config);
@@ -198,11 +197,10 @@ async function serve(config: RouterConfig): Promise<void> {
   // writes the record without passing through serve, so the runner also
   // watches the journal file.
   mkdirSync(config.home, { recursive: true });
-  // The wake, the events endpoint and the board read one kept fold of the
-  // record.
+  // One kept fold of the record for all of serve (see recordReader).
   const record = recordReader(config);
   const runner = serveRunner({
-    open,
+    open: () => openShell(config, { ...shellOptions, record }),
     delayMs: config.serve.wake * 1000,
     pollMs: config.serve.poll * 1000,
     waits: waitsReader(config, record),

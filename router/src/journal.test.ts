@@ -87,10 +87,10 @@ test("a torn final line is dropped by the writer and skipped by the reader", asy
   assert.equal(readJournal(home).length, 2);
   const journal = await openJournal(home);
   assert.equal(readFileSync(path, "utf8"), `${line(1)}${line(2)}`);
-  assert.equal(journal.entries().length, 2);
+  assert.equal(readJournal(home).length, 2);
   journal.append({ type: "tick", now: 4 });
-  assert.equal(journal.entries().length, 3);
-  assert.equal(journal.entries()[2]?.event.now, 4);
+  assert.equal(readJournal(home).length, 3);
+  assert.equal(readJournal(home)[2]?.event.now, 4);
   journal.release();
   // Multi-byte text is truncated at the right byte.
   const korean = `${JSON.stringify({ at: "t", event: { type: "note", text: "한글" } })}\n`;

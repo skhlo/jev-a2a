@@ -1,7 +1,8 @@
-// The imperative shell. One run: lock the journal, fold it into state, mark
-// interrupted attempts unknown, move the clock, apply the caller's event,
-// then perform the core's commands for every placement this router can reach
-// and record each result. Nothing survives a run except the journal.
+// The imperative shell. One run: lock the journal, read its fold into state,
+// mark interrupted attempts unknown, move the clock, apply the caller's
+// event, then perform the core's commands for every placement this router
+// can reach and record each result. A run keeps nothing but what it appends
+// to the journal; the fold serve keeps between runs is that journal's.
 import {
   allDeliveries,
   blockedReason,
@@ -67,6 +68,14 @@ export type ShellOptions = {
   telemetry?: (telemetry: Telemetry) => void;
   // Test hook for the crash-recovery acceptance: exit at a chosen point.
   crash?: "after_attempt" | "after_send" | undefined;
+  // The record as serve's kept fold holds it (see journalFolder): its state
+  // and whether the journal has a `configured` line. It is read once the
+  // run holds the lock, so no other writer appends while it is read, and
+  // the run never changes it in place (reduce returns a new state). Folding
+  // the whole journal instead blocked serve's event loop for a full replay
+  // on every run. Absent, the run folds the journal itself, as the CLI's
+  // one-shot commands do.
+  record?: () => Readonly<{ state: State; configured: boolean }>;
 };
 
 // A journal holds only accepted events, so a rejection on replay means the
@@ -143,11 +152,12 @@ function foldMore(state: State, entries: Entry[]): State {
 // and so is one whose first `configured` line has just arrived, as that
 // line sets where the fold starts. A read returns the state and the lines
 // it folded: those since the last read (`from` "mark") or the whole record
-// (`from` "start").
+// (`from` "start"), and whether the journal has a `configured` line.
 export type JournalFold = Readonly<{
   state: State;
   entries: Entry[];
   from: "start" | "mark";
+  configured: boolean;
 }>;
 export function journalFolder(config: RouterConfig): () => JournalFold {
   let state: State | null = null;
@@ -163,7 +173,7 @@ export function journalFolder(config: RouterConfig): () => JournalFold {
         : fold(config, got.entries);
     if (got.from === "start") configured = !!configuredIn(got.entries);
     mark = got.mark;
-    return { state, entries: got.entries, from: got.from };
+    return { state, entries: got.entries, from: got.from, configured };
   };
 }
 
@@ -185,9 +195,10 @@ export async function openShell(
     }
     return adapter;
   };
-  const entries = journal.entries();
+  const read = options.record ?? journalFolder(config);
+  let configured: boolean;
   try {
-    state = fold(config, entries);
+    ({ state, configured } = read());
   } catch (error) {
     journal.release();
     throw error;
@@ -235,7 +246,7 @@ export async function openShell(
   // rules that applied at the time. Record it first, and again whenever it
   // changes.
   if (
-    !entries.some(({ event }) => event.type === "configured") ||
+    !configured ||
     canonical(coreConfig(config)) !== canonical(state.config)
   ) {
     const recorded = reduce(state, {
