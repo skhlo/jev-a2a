@@ -559,13 +559,13 @@ const status = [
   "   source |  main | ⇣4",
   "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
 ];
-const atPrompt = (box: string): Screen =>
+const atPrompt = (box: string, top = rule): Screen =>
   screen(
     [
       "source main ❯ claude",
       " ▐▛███▛█   Claude Code v2.1.289",
       "",
-      rule,
+      top,
       box,
       rule,
       ...status,
@@ -656,6 +656,13 @@ test("only an empty prompt box at the foot of the screen, with the cursor in it,
     claudePromptEmpty({ ...EMPTY, lines: EMPTY.lines.map((l) => `${l}  `) }),
     true,
   );
+  // A named session's top rule ends in its name, right-aligned, after as
+  // many dashes as the box's width leaves.
+  const name = "resuming previous session";
+  const named = `${"─".repeat(rule.length - name.length - 3)} ${name} ─`;
+  assert.equal(claudePromptEmpty(atPrompt("❯", named)), true);
+  assert.equal(claudePromptEmpty(atPrompt("❯ half a line", named)), false);
+  assert.equal(claudePromptEmpty(atPrompt("❯", name)), false);
   assert.equal(claudePromptEmpty(TYPED), false);
   assert.equal(claudePromptEmpty(DIALOG), false);
   assert.equal(claudePromptEmpty(screen([], null)), false);
