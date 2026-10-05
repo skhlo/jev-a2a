@@ -10,6 +10,7 @@ import {
   BindError,
   boardListener,
   eventsListener,
+  keepReading,
   sameSite,
   serveRunner,
   sessionReader,
@@ -27,8 +28,10 @@ import {
   NOW,
   replacedJournal,
   telemetry,
+  usage,
 } from "./board-fixture.ts";
 import type { RouterConfig } from "./config.ts";
+import type { UsageState } from "./usage.ts";
 import { writeTelemetry } from "./telemetry.ts";
 import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
@@ -49,6 +52,7 @@ const config: RouterConfig = {
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
+  usage: null,
 };
 
 // Every caller is a current session unless a test says otherwise.
@@ -770,9 +774,11 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
       await fetch(`${url}/whoami`, { headers: me })
     ).json()) as { login: string };
     assert.equal(who.login, "me@example.com");
+    // The location is relative: it resolves to /router/ here and keeps a
+    // mount Serve stripped.
     const moved = await fetch(`${url}/router`, { redirect: "manual" });
     assert.equal(moved.status, 302);
-    assert.equal(moved.headers.get("location"), "/router/");
+    assert.equal(moved.headers.get("location"), "router/");
     assert.equal((await fetch(`${url}/`, { method: "PUT" })).status, 405);
   } finally {
     server.close();
@@ -1224,5 +1230,122 @@ test("board: the model carries the telemetry file beside the record; a bad file 
     ]);
   } finally {
     server.close();
+  }
+});
+
+test("usage: the store is read now and again a set time after each read ends, never two at once, until stopped", async () => {
+  const pending: { fn: () => void; ms: number }[] = [];
+  const timers = {
+    set: (fn: () => void, ms: number) => {
+      const handle = { fn, ms };
+      pending.push(handle);
+      return handle;
+    },
+    clear: (handle: { fn: () => void; ms: number }) => {
+      const at = pending.indexOf(handle);
+      if (at >= 0) pending.splice(at, 1);
+    },
+  };
+  let reads = 0;
+  let end: (() => void) | null = null;
+  const store = {
+    refresh: () =>
+      new Promise<void>((resolve) => {
+        reads += 1;
+        end = resolve;
+      }),
+  };
+  const finish = async () => {
+    const resolve = end;
+    assert.ok(resolve, "a read in progress");
+    end = null;
+    resolve();
+    await new Promise((settled) => setImmediate(settled));
+  };
+  const armed = () => pending.map((t) => t.ms);
+  const reading = keepReading(store, 120_000, timers);
+  assert.equal(reads, 1, "a read at once");
+  assert.deepEqual(armed(), [], "nothing armed while it reads");
+  await finish();
+  assert.deepEqual(armed(), [120_000]);
+  pending.shift()?.fn();
+  assert.equal(reads, 2);
+  assert.deepEqual(armed(), []);
+  await finish();
+  assert.deepEqual(armed(), [120_000]);
+  reading.stop();
+  assert.deepEqual(armed(), [], "stop disarms the next read");
+  // Stopped during a read: its end arms nothing.
+  const again = keepReading(store, 120_000, timers);
+  again.stop();
+  await finish();
+  assert.deepEqual(armed(), []);
+  assert.equal(reads, 3);
+});
+
+test("board: the Usage view is at usage/, with the theme cookie and the same model as JSON; without usage it is a 404 that names the section", async () => {
+  const record = mkdtempSync(join(tmpdir(), "server-usage-"));
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const listen = (state: UsageState | null) =>
+    createServer(
+      boardListener({
+        config: { ...fixture, home: record },
+        handle,
+        now: () => NOW,
+        usage: state && (() => state),
+      }),
+    );
+  const on = listen(usage);
+  const off = listen(null);
+  const url = await serve(on);
+  const offUrl = await serve(off);
+  try {
+    const page = await fetch(`${url}/usage/`);
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
+    const html = await page.text();
+    assert.ok(html.includes("<title>Usage · Router</title>"));
+    assert.ok(html.includes('class="panel subscriptions"'));
+    // The board links to the Usage view when usage is on.
+    const board = await (await fetch(`${url}/`)).text();
+    assert.ok(board.includes('href="usage/"'));
+    // The theme is the page's cookie, as on the board.
+    const themed = await (
+      await fetch(`${url}/usage/`, {
+        headers: { cookie: "router-theme=one-dark" },
+      })
+    ).text();
+    assert.match(themed, /<html lang="en" data-theme="one-dark">/);
+    // Asked for JSON, usage/ is the board's model, usage included.
+    const model = await jsonObject(
+      await fetch(`${url}/usage/`, { headers: { accept: "application/json" } }),
+    );
+    assert.ok(isRecord(model.usage));
+    assert.equal(model.usage.at, "2026-09-30T09:44:30.000Z");
+    assert.deepEqual(await jsonObject(await fetch(`${url}/board.json`)), model);
+    // Without the slash, a relative redirect: under Serve's mount the
+    // browser comes back to /router/usage/.
+    const bare = await fetch(`${url}/usage`, { redirect: "manual" });
+    assert.equal(bare.status, 302);
+    assert.equal(bare.headers.get("location"), "usage/");
+    // Usage off: the board has no Usage tab, and usage/ says why.
+    const none = await fetch(`${offUrl}/usage/`);
+    assert.equal(none.status, 404);
+    assert.equal(
+      await none.text(),
+      "Usage is off: the configuration has no usage section.",
+    );
+    const plainBoard = await (await fetch(`${offUrl}/`)).text();
+    assert.equal(plainBoard.includes('href="usage/"'), false);
+    assert.equal(
+      (await jsonObject(await fetch(`${offUrl}/board.json`))).usage,
+      null,
+    );
+  } finally {
+    on.close();
+    off.close();
   }
 });

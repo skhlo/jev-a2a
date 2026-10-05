@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { validateConfig } from "./core.ts";
 import type { Config } from "./types.ts";
+import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
 export type HostConfig = {
   // Paseo daemon endpoint: a websocket URL, or ssh://[user@]host[:port] to
@@ -42,6 +43,9 @@ export type RouterConfig = Config & {
   // Whether each run reads the health sheet (checkout, subagents, activity)
   // beyond the rail; off, a run costs one call per placement.
   telemetry: { sheet: boolean };
+  // Which accounts `router serve` reads for the Usage tab, every how many
+  // seconds; null, the default, reads none and shows no tab.
+  usage: { every: number; accounts: AccountId[] } | null;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -121,6 +125,28 @@ export function loadConfig(path: string): RouterConfig {
   const telemetry = isRecord(extra.telemetry) ? extra.telemetry : {};
   if (telemetry.sheet !== undefined && typeof telemetry.sheet !== "boolean")
     return fail("telemetry.sheet is true or false");
+  let usage: RouterConfig["usage"] = null;
+  if (extra.usage !== undefined) {
+    if (!isRecord(extra.usage))
+      return fail('usage is an object such as { "every": 120 }');
+    const every = extra.usage.every === undefined ? 120 : extra.usage.every;
+    if (typeof every !== "number" || !(every >= 30 && every <= 3600))
+      return fail("usage.every is a number of seconds, 30 to 3600");
+    const listed: unknown = extra.usage.accounts ?? ACCOUNT_IDS;
+    if (
+      !Array.isArray(listed) ||
+      !listed.length ||
+      new Set(listed).size !== listed.length ||
+      !listed.every((id) => ACCOUNT_IDS.some((known) => known === id))
+    )
+      return fail(
+        `usage.accounts lists accounts once each, among ${ACCOUNT_IDS.join(", ")}`,
+      );
+    usage = {
+      every,
+      accounts: ACCOUNT_IDS.filter((id) => listed.includes(id)),
+    };
+  }
   return {
     ...config,
     home:
@@ -148,6 +174,7 @@ export function loadConfig(path: string): RouterConfig {
         : {}),
     },
     telemetry: { sheet: telemetry.sheet ?? true },
+    usage,
   };
 }
 

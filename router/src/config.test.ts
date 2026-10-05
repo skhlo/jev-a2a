@@ -34,7 +34,23 @@ test("a valid file gets its defaults", () => {
   assert.equal(config.serve.poll, 0);
   assert.equal(config.jev.model, "jev-latest");
   assert.deepEqual(config.telemetry, { sheet: true });
+  assert.equal(config.usage, null, "usage is opt-in");
   assert.match(config.home, /jev-router$/);
+  // Usage on: every two minutes and all four accounts unless narrowed; a
+  // narrowed list is read in the page's order.
+  assert.deepEqual(loadConfig(write({ ...valid, usage: {} })).usage, {
+    every: 120,
+    accounts: ["codex", "claude", "deepseek", "openrouter"],
+  });
+  assert.deepEqual(
+    loadConfig(
+      write({
+        ...valid,
+        usage: { every: 300, accounts: ["openrouter", "codex"] },
+      }),
+    ).usage,
+    { every: 300, accounts: ["codex", "openrouter"] },
+  );
   const explicit = loadConfig(
     write({
       ...valid,
@@ -87,6 +103,14 @@ test("what the router refuses, with the reason", () => {
       { ...valid, telemetry: { sheet: "yes" } },
       /telemetry.sheet is true or false/,
     ],
+    [{ ...valid, usage: true }, /usage is an object/],
+    [{ ...valid, usage: { every: 10 } }, /usage.every is a number of seconds/],
+    [{ ...valid, usage: { every: "120" } }, /usage.every/],
+    [{ ...valid, usage: { every: 3601 } }, /usage.every/],
+    [{ ...valid, usage: { accounts: [] } }, /usage.accounts lists accounts/],
+    [{ ...valid, usage: { accounts: ["codex", "codex"] } }, /once each/],
+    [{ ...valid, usage: { accounts: ["pi"] } }, /among codex, claude/],
+    [{ ...valid, usage: { accounts: "codex" } }, /usage.accounts/],
     [{ ...valid, serve: { board: "100.64.0.1:7678" } }, /loopback/],
     [{ ...valid, serve: { identities: ["me"] } }, /identities maps/],
     [

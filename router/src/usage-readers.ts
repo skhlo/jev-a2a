@@ -1,0 +1,509 @@
+// The usage readers: each account's sources, read with this host's own
+// logins. A port of API Dash's providers.ts. Requests are bounded in time and
+// size and refuse redirects, so a credential never follows one. Credentials
+// are read for the request and dropped: never written, cached, logged or put
+// in a reading, and a provider's error text never becomes a message. A
+// credential helper (a `!command` in Pi's auth.json) is never run.
+//
+// Codex: `account/rateLimits/read` and `account/usage/read` from `codex
+// app-server` over stdio; the app-server keeps its own login and may refresh
+// it, so its auth file is never read here. Claude: the OAuth usage endpoint
+// with Claude Code's credential file, which Claude Code itself refreshes;
+// the router never refreshes it, and an expired one reads as such. DeepSeek
+// and OpenRouter: their APIs, with keys from the environment or Pi's
+// auth.json, and OpenRouter's management key from the environment (the
+// router's secrets.env).
+import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import {
+  aged,
+  claudeReading,
+  codexReading,
+  deepseekReading,
+  isStale,
+  openrouterReading,
+  ReadError,
+  record,
+} from "./usage.ts";
+import type {
+  AccountId,
+  Loader,
+  Metric,
+  Reading,
+  UsageDetail,
+} from "./usage.ts";
+import { codexDetails, openrouterDetails } from "./usage-details.ts";
+
+async function jsonFile(path: string): Promise<Record<string, unknown>> {
+  try {
+    return record(JSON.parse(await readFile(path, "utf8")));
+  } catch {
+    return {};
+  }
+}
+// A key as stored, unless it is empty, spans lines or is a credential
+// helper's command.
+function usableKey(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    value.trim() &&
+    !value.startsWith("!") &&
+    !/[\r\n]/.test(value)
+    ? value.trim()
+    : undefined;
+}
+// `<PROVIDER>_API_KEY`, else the provider's API-key entry in Pi's auth.json.
+async function apiKey(
+  home: string,
+  provider: "openrouter" | "deepseek",
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  const fromEnv = usableKey(env[`${provider.toUpperCase()}_API_KEY`]);
+  if (fromEnv) return fromEnv;
+  const auth = await jsonFile(join(home, ".pi/agent/auth.json"));
+  const credential = record(auth[provider]);
+  return credential.type === "api_key" ? usableKey(credential.key) : undefined;
+}
+
+// The router's own credentials, which a provider's subprocess has no use for.
+const ROUTER_SECRETS = [
+  "ROUTER_TOKEN",
+  "TYPESAFE_API_KEY",
+  "ROUTER_CLAUDE_OAUTH_TOKEN",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "OPENROUTER_API_KEY",
+  "OPENROUTER_MANAGEMENT_KEY",
+  "DEEPSEEK_API_KEY",
+];
+export const childEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+  Object.fromEntries(
+    Object.entries(env).filter(([key]) => !ROUTER_SECRETS.includes(key)),
+  );
+
+// A GET with a bearer key: twelve seconds, a megabyte, no redirect.
+export async function fetchJson(
+  url: string,
+  key: string,
+  headers: Record<string, string> = {},
+): Promise<unknown> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Accept: "application/json",
+        ...headers,
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(12_000),
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "TimeoutError")
+      throw new ReadError("The usage request timed out.");
+    throw error;
+  }
+  if (!response.ok)
+    throw new ReadError(`The usage request failed (HTTP ${response.status}).`);
+  if (!response.body) throw new ReadError("The usage response was empty.");
+  let size = 0;
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of response.body) {
+    size += chunk.byteLength;
+    if (size > 1_000_000)
+      throw new ReadError("The usage response was too large.");
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  } catch {
+    throw new ReadError("The usage response was not JSON.");
+  }
+}
+
+// One request to the Codex app-server over stdio: initialize, then
+// `account/rateLimits/read` ("codex") or `account/usage/read`
+// ("codex-usage"), then a bounded shutdown. It settles once the child has
+// closed. The child runs in the temporary directory, without the router's
+// own credentials in its environment.
+export function readUsageRpc(
+  command: string,
+  args: string[],
+  protocol: "codex" | "codex-usage",
+  timeoutMs = 15_000,
+  env: NodeJS.ProcessEnv = childEnv(process.env),
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: tmpdir(),
+      env,
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    const lines = createInterface({ input: child.stdout });
+    let outcome: { value?: unknown; error?: Error } | undefined;
+    let settled = false;
+    let initialized = false;
+    let outputSize = 0;
+    let stop: NodeJS.Timeout | undefined;
+    let closeDeadline: NodeJS.Timeout | undefined;
+    const settle = (closeError?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearTimeout(stop);
+      clearTimeout(closeDeadline);
+      const error = outcome?.error ?? closeError;
+      if (error) reject(error);
+      else resolve(outcome?.value);
+    };
+    const timeout = setTimeout(
+      () => finish(undefined, new ReadError("Codex usage timed out.")),
+      timeoutMs,
+    );
+    const finish = (value?: unknown, error?: Error) => {
+      if (outcome || settled) return;
+      outcome = error ? { value, error } : { value };
+      clearTimeout(timeout);
+      lines.close();
+      child.stdin.end();
+      child.stdout.resume();
+      child.kill("SIGTERM");
+      stop = setTimeout(() => {
+        child.kill("SIGKILL");
+        closeDeadline = setTimeout(
+          () => settle(new ReadError("The Codex app-server did not close.")),
+          1000,
+        );
+      }, 1000);
+    };
+    const send = (message: Record<string, unknown>) =>
+      child.stdin.write(JSON.stringify(message) + "\n");
+    child.stdin.on("error", () =>
+      finish(undefined, new ReadError("Codex usage connection closed.")),
+    );
+    child.stdout.prependListener("data", (chunk: Buffer) => {
+      outputSize += chunk.length;
+      if (outputSize > 1_000_000)
+        finish(undefined, new ReadError("Codex usage response too large."));
+    });
+    child.on("error", () =>
+      finish(undefined, new ReadError("The codex CLI is not available.")),
+    );
+    child.once("close", () => {
+      lines.close();
+      // A valid response starts our own shutdown. The app-server may turn
+      // that signal into a nonzero exit code; it does not void the reading.
+      settle(!outcome ? new ReadError("Codex usage exited early.") : undefined);
+    });
+    lines.on("line", (line) => {
+      if (outcome || settled) return;
+      if (line.length > 1_000_000)
+        return finish(
+          undefined,
+          new ReadError("Codex usage response too large."),
+        );
+      let response: Record<string, unknown>;
+      try {
+        response = record(JSON.parse(line));
+      } catch {
+        return;
+      }
+      if (response.id === 1 && !initialized) {
+        if (response.error || !("result" in response))
+          return finish(
+            undefined,
+            new ReadError("Codex usage initialization failed."),
+          );
+        initialized = true;
+        send({ method: "initialized" });
+        send({
+          method:
+            protocol === "codex-usage"
+              ? "account/usage/read"
+              : "account/rateLimits/read",
+          id: 2,
+          params: {},
+        });
+      } else if (response.id === 2 && initialized) {
+        finish(
+          response.result,
+          response.error || !("result" in response)
+            ? new ReadError("Codex usage unavailable.")
+            : undefined,
+        );
+      }
+    });
+    send({
+      method: "initialize",
+      id: 1,
+      params: {
+        clientInfo: { name: "jev_router", title: "Jev router", version: "1" },
+      },
+    });
+  });
+}
+
+// Claude Code's OAuth access token: $ROUTER_CLAUDE_OAUTH_TOKEN, else the
+// credential file Claude Code keeps and refreshes. A general
+// CLAUDE_CODE_OAUTH_TOKEN inherited from an agent's environment is not used.
+async function claudeToken(
+  home: string,
+  env: NodeJS.ProcessEnv,
+  now: number,
+): Promise<string> {
+  const fromEnv = usableKey(env.ROUTER_CLAUDE_OAUTH_TOKEN);
+  if (fromEnv) return fromEnv;
+  const dir = env.CLAUDE_CONFIG_DIR || join(home, ".claude");
+  const file = await jsonFile(join(dir, ".credentials.json"));
+  const oauth = record(file.claudeAiOauth);
+  const token = usableKey(oauth.accessToken);
+  if (!token)
+    throw new ReadError(
+      "No Claude login on this host. Open Claude Code and run /login.",
+    );
+  if (typeof oauth.expiresAt === "number" && oauth.expiresAt <= now)
+    throw new ReadError("Claude login expired; open Claude Code.");
+  return token;
+}
+
+// A source that keeps its last value: a failure, a missing value or an
+// older one returns the previous value as failed, with the error. Only
+// normalized values are kept, never a payload or a credential.
+export type Kept<T> = { value: T | null; failed: boolean; error: unknown };
+export function retained<T extends { observedAt: number }, A extends unknown[]>(
+  load: (...args: A) => Promise<T | null>,
+) {
+  let previous: T | null = null;
+  return async (...args: A): Promise<Kept<T>> => {
+    try {
+      const value = await load(...args);
+      if (value === null) throw new Error("Source not read.");
+      if (previous && value.observedAt < previous.observedAt)
+        throw new Error("Source older than the kept value.");
+      previous = value;
+      return { value, failed: false, error: null };
+    } catch (error: unknown) {
+      return { value: previous, failed: true, error };
+    }
+  };
+}
+
+// The router's words for a failure: a reader's own sentence, else `fallback`.
+const said = (error: unknown, fallback: string): string =>
+  error instanceof ReadError ? error.message : fallback;
+
+// An account from its current allowance and its histories, which are read
+// and kept apart: history alone is a reading with the allowance
+// unavailable, and each failure adds a notice naming what failed. Nothing
+// at all throws the allowance's error.
+export function combine(
+  source: string,
+  allowance: Kept<Reading>,
+  histories: (Kept<UsageDetail> & { name: string })[],
+  now: number,
+  notices: string[],
+): Reading {
+  const details = histories.flatMap(({ value, failed }) =>
+    value
+      ? [
+          {
+            ...value,
+            status:
+              failed || aged(value.observedAt, now)
+                ? ("stale" as const)
+                : ("ready" as const),
+          },
+        ]
+      : [],
+  );
+  if (!allowance.value && !details.length)
+    throw allowance.error instanceof ReadError
+      ? allowance.error
+      : new Error("Usage unavailable.");
+  const base = allowance.value ?? {
+    allowance: "unavailable" as const,
+    source,
+    observedAt: Math.max(...details.map((d) => d.observedAt)),
+    windows: [],
+    metrics: [],
+    notice: null,
+    details: [],
+  };
+  return {
+    ...base,
+    allowance: !allowance.value
+      ? "unavailable"
+      : allowance.failed || isStale(allowance.value, now)
+        ? "stale"
+        : "ready",
+    details,
+    notice:
+      [
+        base.notice,
+        ...notices,
+        ...histories
+          .filter((h) => h.failed)
+          .map((h) => `${h.name} could not be refreshed.`),
+      ]
+        .filter(Boolean)
+        .join(" ") || null,
+  };
+}
+
+export type ReaderIo = {
+  readUsageRpc?: typeof readUsageRpc;
+  fetchJson?: typeof fetchJson;
+  clock?: () => number;
+};
+
+// One loader per account, reading as `home`'s user with `env`. Each source
+// is kept apart, so one that fails never hides another.
+export function createLoaders(
+  home: string,
+  env: NodeJS.ProcessEnv = process.env,
+  io: ReaderIo = {},
+): Record<AccountId, Loader> {
+  const rpc = io.readUsageRpc ?? readUsageRpc;
+  const fetchUsage = io.fetchJson ?? fetchJson;
+  const clock = io.clock ?? Date.now;
+  const appServer = ["app-server", "--listen", "stdio://"];
+  const codexLimits = retained(async () =>
+    codexReading(
+      await rpc("codex", appServer, "codex", 15_000, childEnv(env)),
+      clock(),
+    ),
+  );
+  const codexHistory = retained(async () =>
+    codexDetails(
+      await rpc("codex", appServer, "codex-usage", 15_000, childEnv(env)),
+      clock(),
+    ),
+  );
+  const openrouterKey = retained(async (key: string | undefined) =>
+    key
+      ? openrouterReading(
+          await fetchUsage("https://openrouter.ai/api/v1/key", key),
+          null,
+          clock(),
+        )
+      : null,
+  );
+  const openrouterCredits = retained(async (key: string | undefined) =>
+    key
+      ? openrouterReading(
+          null,
+          await fetchUsage("https://openrouter.ai/api/v1/credits", key),
+          clock(),
+        )
+      : null,
+  );
+  const openrouterHistory = retained(async (key: string | undefined) =>
+    key
+      ? openrouterDetails(
+          await fetchUsage("https://openrouter.ai/api/v1/activity", key),
+          clock(),
+        )
+      : null,
+  );
+  return {
+    codex: async () => {
+      const [limits, history] = await Promise.all([
+        codexLimits(),
+        codexHistory(),
+      ]);
+      return combine(
+        "Codex account usage",
+        limits,
+        [{ name: "Token activity", ...history }],
+        clock(),
+        limits.failed
+          ? [said(limits.error, "Current limits could not be refreshed.")]
+          : [],
+      );
+    },
+    // One source: a failure keeps the last reading, in the store.
+    claude: async () => {
+      const token = await claudeToken(home, env, clock());
+      return claudeReading(
+        await fetchUsage("https://api.anthropic.com/api/oauth/usage", token, {
+          "anthropic-beta": "oauth-2025-04-20",
+        }),
+        clock(),
+      );
+    },
+    deepseek: async () => {
+      const key = await apiKey(home, "deepseek", env);
+      if (!key)
+        throw new ReadError(
+          "No DeepSeek API key on this host: set DEEPSEEK_API_KEY or add one to Pi's auth.json.",
+        );
+      return deepseekReading(
+        await fetchUsage("https://api.deepseek.com/user/balance", key),
+        clock(),
+      );
+    },
+    // The key's usage needs its API key; the account's balance and spending
+    // need a management key. Without one the account reads its key alone,
+    // and says the balance needs the management key.
+    openrouter: async () => {
+      const key = await apiKey(home, "openrouter", env);
+      const management = usableKey(env.OPENROUTER_MANAGEMENT_KEY);
+      if (!key && !management)
+        throw new ReadError(
+          "No OpenRouter key on this host: set OPENROUTER_API_KEY or add one to Pi's auth.json, and OPENROUTER_MANAGEMENT_KEY for the account.",
+        );
+      const [usage, credits, history] = await Promise.all([
+        openrouterKey(key),
+        openrouterCredits(management),
+        openrouterHistory(management),
+      ]);
+      const values = [credits.value, usage.value].filter(
+        (v): v is Reading => v !== null,
+      );
+      const metrics: Metric[] = values.flatMap((v) => v.metrics);
+      if (!management && !credits.value)
+        metrics.unshift({
+          label: "Account balance",
+          value: "No management key",
+          unit: null,
+        });
+      const notices = [
+        !management
+          ? "A management key is required for the account balance and spending (OPENROUTER_MANAGEMENT_KEY)."
+          : credits.failed
+            ? said(credits.error, "The account balance could not be refreshed.")
+            : null,
+        !key
+          ? "No OpenRouter API key on this host, so key usage is not read."
+          : usage.failed
+            ? said(usage.error, "Key usage could not be refreshed.")
+            : null,
+      ].filter((n): n is string => n !== null);
+      const allowance: Kept<Reading> = {
+        value: values.length
+          ? {
+              allowance: "ready",
+              source: "OpenRouter API",
+              observedAt: Math.min(...values.map((v) => v.observedAt)),
+              windows: values.flatMap((v) => v.windows),
+              metrics,
+              notice: null,
+              details: [],
+            }
+          : null,
+        failed: Boolean(
+          (credits.failed && credits.value) || (usage.failed && usage.value),
+        ),
+        error: usage.error ?? credits.error,
+      };
+      return combine(
+        "OpenRouter activity",
+        allowance,
+        management ? [{ name: "Model & provider spending", ...history }] : [],
+        clock(),
+        notices,
+      );
+    },
+  };
+}

@@ -5,9 +5,10 @@
 //
 // Events: replies, answers, requests and choices from other hosts, behind
 // the bearer token.
-// Board: the page, its view model as JSON, and its actions, on loopback
-// behind Tailscale Serve, which stamps the viewer's login on each request.
-// Serve strips its mount path, so board routes match by suffix.
+// Board: the page (the board, and the Usage view at usage/), its view model
+// as JSON, and its actions, on loopback behind Tailscale Serve, which
+// stamps the viewer's login on each request. Serve strips its mount path,
+// so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
 import type {
   IncomingMessage,
@@ -23,6 +24,8 @@ import {
   type Actor,
 } from "./board.ts";
 import { renderBoard } from "./board-page.ts";
+import { renderUsage } from "./usage-page.ts";
+import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
@@ -45,6 +48,9 @@ export type ServerDeps = {
   log?: (line: string) => void;
   // The board's clock; a test fixes it to read a fixture's record.
   now?: () => number;
+  // The usage store as it stands, for the board model; absent or null
+  // when usage is off.
+  usage?: (() => UsageState) | null;
 };
 
 const EVENT_TYPES = ["submit", "choose", "update", "answer"];
@@ -236,6 +242,32 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   };
 }
 
+// The usage store's own cadence, apart from the runs: a refresh now, and
+// the next `everyMs` after each one ends, so two never overlap.
+export function keepReading<H>(
+  store: Pick<UsageStore, "refresh">,
+  everyMs: number,
+  given?: Timers<H>,
+): { stop(): void } {
+  const timers = (given ?? nodeTimers) as Timers<H>;
+  let next: H | null = null;
+  let stopped = false;
+  const read = (): void => {
+    next = null;
+    void store.refresh().finally(() => {
+      if (!stopped) next = timers.set(read, everyMs);
+    });
+  };
+  read();
+  return {
+    stop() {
+      stopped = true;
+      if (next !== null) timers.clear(next);
+      next = null;
+    },
+  };
+}
+
 // Whether `by` is a session the record knows, read without the journal
 // lock, as the board reads it: the events endpoint must not contend with
 // the run it is about to queue.
@@ -407,6 +439,7 @@ export function boardListener(
       messageTimes(entries),
       actor,
       readTelemetryOnce(),
+      deps.usage?.() ?? null,
     );
   };
   const readTelemetryOnce = (): Telemetry | null => {
@@ -474,10 +507,17 @@ export function boardListener(
     }
     if (!path.endsWith("/") && !path.endsWith("/board.json")) {
       // Under a mount such as /router, the page's relative links need the
-      // trailing slash.
-      res.writeHead(302, { location: `${path}/` }).end();
+      // trailing slash. The location is relative too: Serve strips the
+      // mount, so /router/usage arrives as /usage, and only the last
+      // segment with its slash comes back to /router/usage/.
+      res
+        .writeHead(302, {
+          location: `${path.slice(path.lastIndexOf("/") + 1)}/`,
+        })
+        .end();
       return;
     }
+    const usagePage = path.endsWith("/usage/");
     // A record the code cannot replay is reported, not fatal: the events
     // listener in the same process must stay up.
     let view: ReturnType<typeof model>;
@@ -488,10 +528,23 @@ export function boardListener(
       log(`board: cannot read the record: ${message}`);
       return plain(500, `The record cannot be read: ${message}`);
     }
-    // One model, as JSON or as the page, under the same identity.
+    // One model, as JSON or as either view of the page, under the same
+    // identity.
     if (path.endsWith("/board.json") || wantsJson(req.headers.accept)) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(view));
+    } else if (usagePage) {
+      if (!view.usage)
+        return plain(
+          404,
+          "Usage is off: the configuration has no usage section.",
+        );
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        renderUsage(view, {
+          theme: cookie(req.headers.cookie, "router-theme"),
+        }),
+      );
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       // The selected task is in the URL so a reload and a shared link open

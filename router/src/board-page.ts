@@ -8,6 +8,10 @@
 // script; the script keeps a person's state across refreshes and adds the
 // filter, the keys, the peek, the sheet, the full router log and the help
 // with its theme switch.
+//
+// The board is one view of the router page; the head, the frame, the
+// tokens, the themes, the help and the script are the page's, shared with
+// the Usage view (usage-page.ts), as are the generic parts in the CSS.
 import type {
   BoardModel,
   DeliveryView,
@@ -25,9 +29,9 @@ import type {
 
 // ---- Formats: the generator's helpers over the same fields ----
 
-const DASH = "—";
+export const DASH = "—";
 
-const esc = (value: unknown): string =>
+export const esc = (value: unknown): string =>
   String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -46,7 +50,7 @@ export const time = (iso: string | null | undefined): string => {
 };
 
 // A stretch of time in its largest unit, floored: 45s, 14m, 2h 05m, 3d.
-const span = (ms: number): string => {
+export const span = (ms: number): string => {
   const s = Math.abs(Math.trunc(ms / 1000));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
@@ -73,7 +77,8 @@ export const hms = (iso: string | null | undefined): string => {
   return at ? `${at.toISOString().slice(11, 19)}Z` : DASH;
 };
 
-const thousands = (value: number): string => value.toLocaleString("en-US");
+export const thousands = (value: number): string =>
+  value.toLocaleString("en-US");
 
 // diff(additions, deletions): "+a −d", the minus sign U+2212.
 export const diff = (additions: number, deletions: number): string =>
@@ -117,21 +122,22 @@ const fullDate = (at: Date, seconds = false): string =>
 
 // The full date behind a clock or an age, as a title. The design printed
 // the clock alone, which is ambiguous for anything older than a day.
-const dated = (iso: string | null | undefined, prefix = ""): string => {
+export const dated = (iso: string | null | undefined, prefix = ""): string => {
   const at = instant(iso);
   return at ? ` title="${prefix}${fullDate(at)}"` : "";
+};
+
+// A time to the second with its date, or a dash.
+export const stamp = (iso: string | null): string => {
+  const at = instant(iso);
+  return at ? fullDate(at, true) : DASH;
 };
 
 // The nav tick's title: when the model was built and the telemetry taken,
 // to the second, and the contract (v0.12). The design gives the clocks
 // alone; a telemetry file can be a day old.
-const built = (model: BoardModel): string => {
-  const stamp = (iso: string | null): string => {
-    const at = instant(iso);
-    return at ? fullDate(at, true) : DASH;
-  };
-  return `built ${stamp(model.at)} · ${model.telemetryAt ? `telemetry ${stamp(model.telemetryAt)}` : "no telemetry"} · ${model.version}`;
-};
+const built = (model: BoardModel): string =>
+  `built ${stamp(model.at)} · ${model.telemetryAt ? `telemetry ${stamp(model.telemetryAt)}` : "no telemetry"} · ${model.version}`;
 
 // repo(url): a remote as owner/repo: the scheme and host (or the scp form's
 // user@host:) and a trailing .git stripped; anything else as it is (v0.12).
@@ -201,7 +207,7 @@ const fullId = (id: string): string =>
   UUID.test(id) ? ` title="${esc(id)}"` : "";
 
 // An element that names the model path it reads.
-const slot = (
+export const slot = (
   path: string,
   html: string,
   cls = "",
@@ -418,6 +424,99 @@ const HELP_KEYS: [string, string][] = [
   ["esc", "close"],
 ];
 
+// ---- The page's frame, shared by its views ----
+
+export type View = "board" | "usage";
+export type Theme = (typeof THEMES)[number];
+
+// The palette a cookie names, else the default, so the cookie cannot put
+// text into the page.
+export const themeOf = (name: string | null | undefined): Theme =>
+  THEMES.find((t) => t === name) ?? THEMES[0];
+
+// A chip in the head: a count or a figure in bold, then its words.
+export const chip = (path: string, html: string, cls = ""): string =>
+  slot(path, html, cls);
+
+// The head (v0.12's nav), the same element on every view: the brand, who
+// is viewing (cut short, the whole line as its title), the view's chips,
+// its tick and the tabs, the open one marked. The links are relative, as
+// Tailscale Serve strips the page's mount path; the Usage tab is there
+// while the model carries usage, and the one JSON link is the model both
+// views draw.
+export const head = (
+  model: BoardModel,
+  view: View,
+  chips: string,
+  tick: string,
+): string => {
+  const { actor } = model;
+  const principals =
+    actor?.principals
+      .map(
+        (p) => `${p.principal}${p.role === p.principal ? "" : ` (${p.role})`}`,
+      )
+      .join(", ") ?? "";
+  const who = actor
+    ? `${actor.login} · ${principals}`
+    : "reading only · not identified";
+  const up = view === "board" ? "" : "../";
+  const tab = (name: View, words: string, href: string): string =>
+    `<a${name === view ? ' class="active"' : ""} href="${href}">${words}</a>`;
+  return `<header class="nav">
+  <span class="brand">Router</span>
+  <span class="who" title="${esc(who)}">${
+    actor
+      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", esc(principals))}`
+      : slot("actor", esc(who))
+  }</span>
+  <span class="counts">${chips}</span>
+  <span class="spacer"></span>
+  ${tick}
+  <nav>${tab("board", "Board", up || "./")}${model.usage ? tab("usage", "Usage", view === "usage" ? "./" : "usage/") : ""}<a href="${up}board.json">JSON</a></nav>
+</header>`;
+};
+
+// The document around a view: the head, the view's main, the key line, the
+// help with the view's keys and the theme switch, the style and the script.
+export const frame = (parts: {
+  model: BoardModel;
+  theme: Theme;
+  refreshSeconds: number;
+  title: string;
+  comment: string;
+  notice: string;
+  head: string;
+  main: string;
+  keys: string;
+  help: [string, string][];
+}): string => `<!doctype html>
+<html lang="en" data-theme="${parts.theme}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${parts.title}</title>
+<style>${STYLE}</style>
+</head>
+<body>
+${parts.comment}
+${parts.notice}
+<div id="app" data-refresh="${parts.refreshSeconds}">
+${parts.head}
+${parts.main}
+<footer class="keys">
+  ${parts.keys}
+  <span class="spacer"></span>
+  <span>refreshes every ${parts.refreshSeconds}s</span>
+</footer>
+</div>
+<div class="help" role="dialog" aria-label="Keys" hidden>
+  <div class="top"><span class="kicker">Keys</span><span class="spacer"></span><kbd class="k">?</kbd></div>
+  <div class="grid">${parts.help.map(([key, does]) => `<kbd>${esc(key)}</kbd><span>${esc(does)}</span>`).join("")}</div>
+  <div class="theme"><span>theme</span><span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === parts.theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span></div>
+</div>
+<script>${SCRIPT}</script>
+</body></html>
+`;
+
 export type RenderOptions = {
   refreshSeconds?: number;
   // Outcome of the last action, shown until dismissed.
@@ -451,7 +550,6 @@ export function renderBoard(
 ): string {
   const { actor, at, times } = model;
   const refreshSeconds = options.refreshSeconds ?? 10;
-  const theme = THEMES.find((name) => name === options.theme) ?? THEMES[0];
   const roleOf = (principal: string): Role | undefined =>
     actor?.principals.find((p) => p.principal === principal)?.role;
   // The principal a post is signed as. A post does not name one: the
@@ -563,30 +661,21 @@ export function renderBoard(
   // "updated <time>" with the build, the telemetry and the contract in its
   // title; the theme switch is in the help.
   const pill = (path: string, n: number, words: string, cls = ""): string =>
-    slot(path, `<b>${n}</b> ${words}`, cls);
+    chip(path, `<b>${n}</b> ${words}`, cls);
   const held = model.placements.filter((p) => p.hold).length;
   const agentCount = model.placements.length;
-  const principals =
-    actor?.principals
-      .map(
-        (p) => `${p.principal}${p.role === p.principal ? "" : ` (${p.role})`}`,
-      )
-      .join(", ") ?? "";
-  const who = actor
-    ? `${actor.login} · ${principals}`
-    : "reading only · not identified";
-  const nav = `<header class="nav">
-  <span class="brand">Router</span>
-  <span class="who" title="${esc(who)}">${
-    actor
-      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", esc(principals))}`
-      : slot("actor", esc(who))
-  }</span>
-  <span class="counts">${pill("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${pill("count(open[] not in needsYou)", flight.length, "in flight")}${pill("count(placements[].hold)", held, "held")}${pill("count(placements)", agentCount, noun(agentCount, "agent"))}</span>
-  <span class="spacer"></span>
-  ${slot("time(at)", `updated ${time(at)}`, "tick", "span", ` title="${esc(built(model))}"`)}
-  <nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>
-</header>`;
+  const nav = head(
+    model,
+    "board",
+    `${pill("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${pill("count(open[] not in needsYou)", flight.length, "in flight")}${pill("count(placements[].hold)", held, "held")}${pill("count(placements)", agentCount, noun(agentCount, "agent"))}`,
+    slot(
+      "time(at)",
+      `updated ${time(at)}`,
+      "tick",
+      "span",
+      ` title="${esc(built(model))}"`,
+    ),
+  );
 
   // ---- Agents ----
 
@@ -1588,41 +1677,27 @@ ${
     ? `<div class="notice" role="status"><span>${esc(options.notice)}</span><a href="./${selected ? href(selected) : ""}">Dismiss</a></div>`
     : "";
 
-  return `<!doctype html>
-<html lang="en" data-theme="${theme}"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Router</title>
-<style>${STYLE}</style>
-</head>
-<body>
-<!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
+  return frame({
+    model,
+    theme: themeOf(options.theme),
+    refreshSeconds,
+    title: "Router",
+    comment: `<!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
      what it reads, as in the board design v0.12: a plain path indexes the
      model, and time(), hms(), age(), left(), count(), percent(), diff(),
      counts() and repo() are formats over it; stale() and stale_task() name
-     work that waits too long. -->
-${notice}
-<div id="app" data-refresh="${refreshSeconds}">
-${nav}
-<main class="bento">
+     work that waits too long. -->`,
+    notice,
+    head: nav,
+    main: `<main class="bento">
 ${agents}
 ${tasksPanel}
 ${detail()}
 ${model.placements.map((p, i) => sheetOf(p, i)).join("\n")}
-</main>
-<footer class="keys">
-  <span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>l</kbd> log</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>
-  <span class="spacer"></span>
-  <span>refreshes every ${refreshSeconds}s</span>
-</footer>
-</div>
-<div class="help" role="dialog" aria-label="Keys" hidden>
-  <div class="top"><span class="kicker">Keys</span><span class="spacer"></span><kbd class="k">?</kbd></div>
-  <div class="grid">${HELP_KEYS.map(([key, does]) => `<kbd>${esc(key)}</kbd><span>${esc(does)}</span>`).join("")}</div>
-  <div class="theme"><span>theme</span><span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span></div>
-</div>
-<script>${SCRIPT}</script>
-</body></html>
-`;
+</main>`,
+    keys: `<span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>l</kbd> log</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>`,
+    help: HELP_KEYS,
+  });
 }
 
 // ---- CSS: the generator's, then what the live page adds ----
@@ -1958,6 +2033,65 @@ a.btn, .card a.id { text-decoration: none; }
 .notice { position: fixed; z-index: 70; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: baseline; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
 /* On a screen without a keyboard the footer's l and ? are buttons (the script marks them). */
 .keys > span[data-key] { cursor: pointer; }
+/* Generic parts, named for what they are so any view can take them (the Usage view first). */
+/* A bento of two panels, or of one. */
+.bento.pair { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.bento.single { grid-template-columns: minmax(0, 1fr); max-width: 1000px; }
+/* Head chips in a role: a figure in a band reads in the band's colour. */
+.nav .counts .warn, .nav .counts .warn b { color: var(--warn); }
+.nav .counts .err, .nav .counts .err b { color: var(--err); }
+/* Ledger: dense rows at the board's row density, a hairline between groups. Fixed cell widths align the
+   columns: the lead names the group on its first row (empty after it), the name takes the rest, a figure
+   and the times are mono. A .more block under the group, under the name column, holds its badge and
+   notices, its other figures as pairs, and its disclosures. A figure in a band, and a note ahead of pace,
+   take the role's colour; nothing else does. */
+.ledger { display: grid; padding: 0 10px 10px; }
+.entry { display: flex; align-items: center; gap: 12px; min-width: 0; padding: var(--row-pad); font-size: var(--fs-small); color: var(--text-2); }
+.entry.first { border-top: 1px solid var(--hair-soft); }
+.ledger > .entry.first:first-child { border-top: 0; }
+.entry > .lead { flex: 0 0 88px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text); }
+.entry > a.lead { text-decoration-color: transparent; }
+.entry > a.lead:hover { text-decoration-color: var(--hair-strong); }
+.entry > .name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.entry > .figure { flex: 0 0 auto; min-width: 44px; text-align: right; font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.entry > .figure.leading { min-width: 120px; text-align: left; }
+.entry > .meter.wide { flex: 0 0 168px; }
+.entry > .note { flex: 0 0 76px; white-space: nowrap; color: var(--text-3); }
+.entry > .note.ahead { color: var(--warn); }
+.entry > .when, .entry > .rest { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.entry > .when { flex: 0 0 128px; }
+.entry > .rest { flex: 0 0 68px; color: var(--text-3); }
+.entry.warn > .figure { color: var(--warn); }
+.entry.err > .figure { color: var(--err); }
+.more { display: grid; gap: 4px; padding: 0 10px 8px calc(10px + 88px + 12px); font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
+.more > p { overflow-wrap: anywhere; }
+.more .badge { margin-right: 6px; }
+/* The meter, wide: the bar takes the cell. A pace tick marks how much of the window has passed; the
+   bar reads warn from 75% and err from 90%. */
+.meter.wide .bar { flex: 1; width: auto; }
+.meter.err { color: var(--err); }
+.meter.err .bar i { background: var(--err); }
+.meter .bar.paced { position: relative; overflow: visible; }
+.meter .bar.paced i { border-radius: 2px; }
+.meter .bar .pace { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); }
+/* Pairs: a label and its figure, inline, wrapping. */
+.pairs { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; }
+.pairs > div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.pairs dt { color: var(--text-3); }
+.pairs dd { margin: 0; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text); font-variant-numeric: tabular-nums; }
+/* A disclosure: a summary line with a chevron, its body indented under it. */
+.disclosure > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 3px 0; cursor: pointer; list-style: none; color: var(--text); }
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before { content: "▸"; font-family: var(--mono); color: var(--text-3); display: inline-block; transition: transform var(--t-fast) var(--std); }
+.disclosure[open] > summary::before { transform: rotate(90deg); }
+.disclosure > summary .n { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.disclosure > .body { display: grid; gap: 6px; padding: 4px 0 8px 14px; min-width: 0; }
+.disclosure h4 { margin: 4px 0 0; }
+.disclosure h4 .n { margin-left: 6px; text-transform: none; letter-spacing: 0; }
+/* A table that scrolls sideways inside its panel, never the page; numerals mono and right-aligned. */
+.scroll-x { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
+.scroll-x td, .scroll-x th { white-space: nowrap; }
+td.num, th.num { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); }
 /* The design is drawn for a desktop; a narrow screen gets one column that
    scrolls as a page. */
 @media (max-width: 900px) {
@@ -1970,6 +2104,22 @@ a.btn, .card a.id { text-decoration: none; }
   .panel, .scroll { overflow: visible; }
   /* One column: the sheet takes the screen. */
   .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
+  .bento.pair, .bento.single { grid-template-columns: minmax(0, 1fr); }
+  /* The head's chips wrap rather than widen the page. */
+  .nav .counts { flex-wrap: wrap; }
+  /* A ledger row wraps: the lead on its own line, then the name with its figures, the meter across, the
+     note and the time under it; .more drops its indent. */
+  .entry { flex-wrap: wrap; row-gap: 4px; }
+  .entry > .lead { flex: 1 1 100%; }
+  .entry > .lead:empty { display: none; }
+  .entry > .name { order: 1; }
+  .entry > .figure { order: 2; }
+  .entry > .figure.leading { order: 0; min-width: 0; }
+  .entry > .rest { order: 3; flex: 0 0 auto; }
+  .entry > .meter.wide { order: 4; flex: 1 1 100%; }
+  .entry > .note { order: 5; flex: 0 0 auto; }
+  .entry > .when { order: 6; flex: 0 0 auto; margin-left: auto; }
+  .more { padding-left: 10px; }
 }
 `;
 
@@ -2019,11 +2169,28 @@ const fold = () => {
 const logOpen = () => localStorage.getItem("router-log") === "open";
 const showLog = () => $(".agents .foot")?.classList.toggle("open", logOpen());
 const toggleLog = () => {
+  if (!$(".agents .foot")) return false;
   if (logOpen()) localStorage.removeItem("router-log");
   else localStorage.setItem("router-log", "open");
   showLog();
   return true;
 };
+
+// Disclosures open on this device, by data-key: a refresh and a reload keep
+// them open. The server draws them closed, so restoring only opens. Toggle
+// does not bubble, so it is heard on the way down.
+const opened = () => [].concat(stored(localStorage, "router-open", []));
+const unfold = () => {
+  const open = opened();
+  $$("details[data-key]").forEach((d) => { if (open.includes(d.dataset.key)) d.open = true; });
+};
+document.addEventListener("toggle", (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.dataset.key) return;
+  const open = opened().filter((key) => key !== d.dataset.key);
+  if (d.open) open.push(d.dataset.key);
+  localStorage.setItem("router-open", JSON.stringify(open));
+}, true);
 
 // Drafts, by the data-path of the form or peek they are typed in, kept with
 // the fields that name their item: a draft never fills another item's form
@@ -2090,12 +2257,12 @@ document.addEventListener("click", (e) => {
 });
 
 // Every few seconds the page fetches itself for the selected task and swaps
-// the nav counts, the three panels and the sheets. A panel or the open
-// sheet stays as it is while it holds the focus (unless the focus is on a
-// row or a card the new panel has too) or a text selection, so what is
-// being typed, read or copied is not pulled away. The notice is outside
-// the swapped parts.
-const PARTS = [".nav .counts", ".nav .tick", ".agents", ".tasks", ".detail"];
+// the nav counts, the three panels and the sheets (on the Usage view, its
+// two panels). A panel or the open sheet stays as it is while it holds the
+// focus (unless the focus is on a row or a card the new panel has too) or a
+// text selection, so what is being typed, read or copied is not pulled
+// away. The notice is outside the swapped parts.
+const PARTS = [".nav .counts", ".nav .tick", ".agents", ".tasks", ".detail", ".subscriptions", ".balances"];
 const refresh = async (id = selected()) => {
   if (document.hidden) return;
   let doc;
@@ -2146,6 +2313,7 @@ const refresh = async (id = selected()) => {
   if (selected() && selected() !== new URLSearchParams(location.search).get("task")) history.replaceState(null, "", "?task=" + encodeURIComponent(selected()));
   fold();
   showLog();
+  unfold();
   filter();
   drafts();
 };
@@ -2231,7 +2399,11 @@ const KEYS = {
     return true;
   },
   l: toggleLog,
-  "/": () => { $(".filter input")?.focus(); return true; },
+  "/": () => {
+    const input = $(".filter input");
+    input?.focus();
+    return Boolean(input);
+  },
   "?": () => { $(".help").hidden = !$(".help").hidden; return true; },
 };
 // A screen without a keyboard still opens the log and the help, where the
@@ -2284,6 +2456,7 @@ if (back && params.has("notice") && !params.has("task") && back !== selected() &
 paint();
 fold();
 showLog();
+unfold();
 filter();
 drafts();
 `;

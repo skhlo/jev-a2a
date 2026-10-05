@@ -1080,5 +1080,292 @@
       "text": "T6: no confident owner (environment 0.62). The sender must choose."
     }
   ],
-  "telemetryAt": "2026-09-30T09:44:51.000Z"
+  "telemetryAt": "2026-09-30T09:44:51.000Z",
+  "usage": {
+    "at": "2026-09-30T09:44:30.000Z",
+    "every": 120,
+    "accounts": [
+      {
+        "id": "codex",
+        "name": "Codex",
+        "kind": "subscription",
+        "url": "https://chatgpt.com/codex/settings/usage",
+        "status": "ready",
+        "checkedAt": "2026-09-30T09:44:29.000Z",
+        "error": null,
+        "reading": {
+          "allowance": "ready",
+          "source": "Codex account usage",
+          "observedAt": "2026-09-30T09:44:28.000Z",
+          "windows": [
+            {
+              "label": "5-hour window",
+              "usedPercent": 41,
+              "minutes": 300,
+              "resetsAt": "2026-09-30T13:15:00.000Z"
+            },
+            {
+              "label": "7-day window",
+              "usedPercent": 78,
+              "minutes": 10080,
+              "resetsAt": "2026-10-01T02:00:00.000Z"
+            }
+          ],
+          "metrics": [
+            {
+              "label": "Plan",
+              "value": "pro",
+              "unit": null
+            },
+            {
+              "label": "Credits",
+              "value": 0,
+              "unit": null
+            }
+          ],
+          "notice": null,
+          "details": [
+            {
+              "title": "Token activity",
+              "observedAt": "2026-09-30T09:44:28.000Z",
+              "status": "ready",
+              "throughDate": "2026-09-29",
+              "metrics": [
+                {
+                  "label": "Lifetime tokens",
+                  "value": 48213900,
+                  "unit": "tokens"
+                },
+                {
+                  "label": "Peak daily tokens",
+                  "value": 3912000,
+                  "unit": "tokens"
+                },
+                {
+                  "label": "Current streak",
+                  "value": 2,
+                  "unit": "days"
+                },
+                {
+                  "label": "Longest streak",
+                  "value": 14,
+                  "unit": "days"
+                }
+              ],
+              "tables": [
+                {
+                  "title": "Daily token history",
+                  "columns": [
+                    {
+                      "key": "date",
+                      "label": "Date",
+                      "format": null
+                    },
+                    {
+                      "key": "tokens",
+                      "label": "Tokens",
+                      "format": "number"
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "date": "2026-09-29",
+                      "tokens": 3388100
+                    },
+                    {
+                      "date": "2026-09-28",
+                      "tokens": 2640700
+                    },
+                    {
+                      "date": "2026-09-27",
+                      "tokens": 0
+                    },
+                    {
+                      "date": "2026-09-26",
+                      "tokens": 1530000
+                    },
+                    {
+                      "date": "2026-09-25",
+                      "tokens": 2876300
+                    },
+                    {
+                      "date": "2026-09-24",
+                      "tokens": 3015400
+                    },
+                    {
+                      "date": "2026-09-23",
+                      "tokens": 2211900
+                    },
+                    {
+                      "date": "2026-09-22",
+                      "tokens": 1720500
+                    },
+                    {
+                      "date": "2026-09-20",
+                      "tokens": 980200
+                    },
+                    {
+                      "date": "2026-09-19",
+                      "tokens": 2450800
+                    },
+                    {
+                      "date": "2026-09-18",
+                      "tokens": 3912000
+                    },
+                    {
+                      "date": "2026-09-17",
+                      "tokens": 1876000
+                    },
+                    {
+                      "date": "2026-09-16",
+                      "tokens": 2104300
+                    }
+                  ]
+                }
+              ],
+              "notice": "Account-wide history through 2026-09-29. The latest reported day can lag behind the live quota."
+            }
+          ]
+        }
+      },
+      {
+        "id": "claude",
+        "name": "Claude",
+        "kind": "subscription",
+        "url": "https://claude.ai/settings/usage",
+        "status": "stale",
+        "checkedAt": "2026-09-30T09:44:29.000Z",
+        "error": "Claude login expired; open Claude Code.",
+        "reading": {
+          "allowance": "ready",
+          "source": "Claude usage",
+          "observedAt": "2026-09-30T09:31:30.000Z",
+          "windows": [
+            {
+              "label": "5-hour window",
+              "usedPercent": 92,
+              "minutes": 300,
+              "resetsAt": "2026-09-30T10:40:00.000Z"
+            },
+            {
+              "label": "7-day window",
+              "usedPercent": 64,
+              "minutes": 10080,
+              "resetsAt": "2026-10-02T20:00:00.000Z"
+            },
+            {
+              "label": "7-day · Opus",
+              "usedPercent": 0,
+              "minutes": 10080,
+              "resetsAt": "2026-10-02T20:00:00.000Z"
+            }
+          ],
+          "metrics": [
+            {
+              "label": "Extra usage spent",
+              "value": 0,
+              "unit": "USD"
+            },
+            {
+              "label": "Extra usage limit",
+              "value": 50,
+              "unit": "USD"
+            }
+          ],
+          "notice": null,
+          "details": []
+        }
+      },
+      {
+        "id": "deepseek",
+        "name": "DeepSeek",
+        "kind": "api",
+        "url": "https://platform.deepseek.com/usage",
+        "status": "ready",
+        "checkedAt": "2026-09-30T09:44:28.000Z",
+        "error": null,
+        "reading": {
+          "allowance": "ready",
+          "source": "DeepSeek balance API",
+          "observedAt": "2026-09-30T09:44:27.000Z",
+          "windows": [],
+          "metrics": [
+            {
+              "label": "Balance",
+              "value": 4.12,
+              "unit": "USD"
+            },
+            {
+              "label": "Topped up",
+              "value": 4.12,
+              "unit": "USD"
+            },
+            {
+              "label": "Granted",
+              "value": 0,
+              "unit": "USD"
+            }
+          ],
+          "notice": null,
+          "details": []
+        }
+      },
+      {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "kind": "api",
+        "url": "https://openrouter.ai/activity",
+        "status": "ready",
+        "checkedAt": "2026-09-30T09:44:28.000Z",
+        "error": null,
+        "reading": {
+          "allowance": "ready",
+          "source": "OpenRouter API",
+          "observedAt": "2026-09-30T09:44:27.000Z",
+          "windows": [
+            {
+              "label": "Key allowance",
+              "usedPercent": 40,
+              "minutes": null,
+              "resetsAt": null
+            }
+          ],
+          "metrics": [
+            {
+              "label": "Account balance",
+              "value": "No management key",
+              "unit": null
+            },
+            {
+              "label": "Key remaining",
+              "value": 12,
+              "unit": "USD"
+            },
+            {
+              "label": "Key limit",
+              "value": 20,
+              "unit": "USD"
+            },
+            {
+              "label": "Key spend today",
+              "value": 0,
+              "unit": "USD"
+            },
+            {
+              "label": "Key spend this week",
+              "value": 1.85,
+              "unit": "USD"
+            },
+            {
+              "label": "Key spend this month",
+              "value": 6.4,
+              "unit": "USD"
+            }
+          ],
+          "notice": "A management key is required for the account balance and spending (OPENROUTER_MANAGEMENT_KEY).",
+          "details": []
+        }
+      }
+    ]
+  }
 }
