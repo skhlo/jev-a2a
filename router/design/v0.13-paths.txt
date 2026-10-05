@@ -24,6 +24,9 @@ age(times[open[2].messageId], at)
 age(times[open[3].messageId], at)
 age(times[open[4].messageId], at)
 age(times[placements[1].delivery.messageId], at)
+age(usage.accounts[0].checkedAt, at)
+age(usage.accounts[1].reading.observedAt, at)
+age(usage.accounts[2].checkedAt, at)
 count(finished)
 count(log)
 count(needsYou[].items)
@@ -33,6 +36,8 @@ count(placements)
 count(placements[0].agent.subagents.running)
 count(placements[5].agent.subagents.running)
 count(placements[].hold)
+count(usage.accounts[].kind=api)
+count(usage.accounts[].kind=subscription)
 counts(placements[0].agent.subagents.counts)
 counts(placements[1].agent.subagents.counts)
 diff(placements[1].agent.checkout.diff.additions, placements[1].agent.checkout.diff.deletions)
@@ -44,7 +49,9 @@ finished[0].deliveries[0].end.by
 finished[0].deliveries[0].end.reason
 finished[0].deliveries[0].id
 finished[0].deliveries[0].placement
-finished[0].deliveries[0].send
+finished[0].deliveries[0].send.kind
+finished[0].deliveries[0].send.messageId
+finished[0].deliveries[0].send.outcome
 finished[0].deliveries[0].sends[0]
 finished[0].deliveries[0].sends[1]
 finished[0].deliveries[0].session
@@ -110,6 +117,12 @@ left(open[1].deadline, at), time(open[1].deadline)
 left(open[2].deadline, at)
 left(open[3].deadline, at), time(open[3].deadline)
 left(open[4].deadline, at), time(open[4].deadline)
+left(usage.accounts[0].reading.windows[0].resetsAt, at)
+left(usage.accounts[0].reading.windows[1].resetsAt, at)
+left(usage.accounts[1].reading.windows[0].resetsAt, at)
+left(usage.accounts[1].reading.windows[1].resetsAt, at)
+left(usage.accounts[1].reading.windows[2].resetsAt, at)
+left(usage.accounts[1].reading.windows[3].resetsAt, at)
 log[0]
 log[10]
 log[11]
@@ -153,7 +166,8 @@ open[0].deliveries[0]
 open[0].deliveries[0].id
 open[0].deliveries[0].latest
 open[0].deliveries[0].placement
-open[0].deliveries[0].send
+open[0].deliveries[0].send.kind
+open[0].deliveries[0].send.messageId
 open[0].deliveries[0].send.outcome
 open[0].deliveries[0].sends[0]
 open[0].deliveries[0].session
@@ -171,6 +185,9 @@ open[1].deliveries[0]
 open[1].deliveries[0].id
 open[1].deliveries[0].placement
 open[1].deliveries[0].send
+open[1].deliveries[0].send.kind
+open[1].deliveries[0].send.messageId
+open[1].deliveries[0].send.outcome
 open[1].deliveries[0].sends[0]
 open[1].deliveries[0].session
 open[1].id
@@ -200,7 +217,9 @@ open[3].deliveries[0].id
 open[3].deliveries[0].latest.kind
 open[3].deliveries[0].placement
 open[3].deliveries[0].question.text
-open[3].deliveries[0].send
+open[3].deliveries[0].send.kind
+open[3].deliveries[0].send.messageId
+open[3].deliveries[0].send.outcome
 open[3].deliveries[0].sends[0]
 open[3].deliveries[0].sends[1]
 open[3].deliveries[0].session
@@ -238,6 +257,10 @@ open[4].source
 open[4].status
 open[4].status, open[4].a2a
 open[4].text
+pace(usage.accounts[0].reading.windows[0], at)
+pace(usage.accounts[0].reading.windows[1], at)
+pace(usage.accounts[1].reading.windows[0], at)
+pace(usage.accounts[1].reading.windows[1], at)
 percent(placements[0].agent.context.used, placements[0].agent.context.max)
 percent(placements[1].agent.context.used, placements[1].agent.context.max)
 percent(placements[2].agent.context.used, placements[2].agent.context.max)
@@ -424,3 +447,79 @@ time(times[open[3].deliveries[0].latest.messageId])
 time(times[open[3].messageId])
 time(times[open[4].messageId])
 time(times[placements[1].delivery.messageId])
+time(usage.at), usage.every
+usage
+usage.accounts[0]
+usage.accounts[0].error
+usage.accounts[0].name
+usage.accounts[0].reading
+usage.accounts[0].reading.details[0]
+usage.accounts[0].reading.details[0].metrics[0]
+usage.accounts[0].reading.details[0].metrics[1]
+usage.accounts[0].reading.details[0].metrics[2]
+usage.accounts[0].reading.details[0].metrics[3]
+usage.accounts[0].reading.details[0].notice
+usage.accounts[0].reading.details[0].tables[0]
+usage.accounts[0].reading.details[0].throughDate
+usage.accounts[0].reading.details[0].title
+usage.accounts[0].reading.metrics[0]
+usage.accounts[0].reading.metrics[1]
+usage.accounts[0].reading.windows[0]
+usage.accounts[0].reading.windows[0].label
+usage.accounts[0].reading.windows[0].usedPercent
+usage.accounts[0].reading.windows[0].usedPercent, pace(usage.accounts[0].reading.windows[0], at)
+usage.accounts[0].reading.windows[1]
+usage.accounts[0].reading.windows[1].label
+usage.accounts[0].reading.windows[1].usedPercent
+usage.accounts[0].reading.windows[1].usedPercent, pace(usage.accounts[0].reading.windows[1], at)
+usage.accounts[0].status
+usage.accounts[0].url
+usage.accounts[1]
+usage.accounts[1].error
+usage.accounts[1].name
+usage.accounts[1].reading.metrics[0]
+usage.accounts[1].reading.metrics[1]
+usage.accounts[1].reading.windows[0]
+usage.accounts[1].reading.windows[0].label
+usage.accounts[1].reading.windows[0].usedPercent
+usage.accounts[1].reading.windows[0].usedPercent, pace(usage.accounts[1].reading.windows[0], at)
+usage.accounts[1].reading.windows[1]
+usage.accounts[1].reading.windows[1].label
+usage.accounts[1].reading.windows[1].usedPercent
+usage.accounts[1].reading.windows[1].usedPercent, pace(usage.accounts[1].reading.windows[1], at)
+usage.accounts[1].reading.windows[2]
+usage.accounts[1].reading.windows[2].label
+usage.accounts[1].reading.windows[2].usedPercent
+usage.accounts[1].reading.windows[2].usedPercent, pace(usage.accounts[1].reading.windows[2], at)
+usage.accounts[1].reading.windows[3]
+usage.accounts[1].reading.windows[3].label
+usage.accounts[1].reading.windows[3].usedPercent
+usage.accounts[1].reading.windows[3].usedPercent, pace(usage.accounts[1].reading.windows[3], at)
+usage.accounts[1].status
+usage.accounts[1].url
+usage.accounts[2]
+usage.accounts[2].error
+usage.accounts[2].name
+usage.accounts[2].reading
+usage.accounts[2].reading.metrics[0]
+usage.accounts[2].reading.metrics[0].label
+usage.accounts[2].reading.metrics[0].value
+usage.accounts[2].reading.metrics[1]
+usage.accounts[2].reading.metrics[2]
+usage.accounts[2].status
+usage.accounts[2].url
+usage.accounts[3]
+usage.accounts[3].name
+usage.accounts[3].reading.metrics[0]
+usage.accounts[3].reading.metrics[0].label
+usage.accounts[3].reading.metrics[0].value
+usage.accounts[3].reading.metrics[1].label
+usage.accounts[3].reading.metrics[1].value
+usage.accounts[3].reading.metrics[2].value
+usage.accounts[3].reading.metrics[3]
+usage.accounts[3].reading.metrics[4]
+usage.accounts[3].reading.metrics[5]
+usage.accounts[3].reading.notice
+usage.accounts[3].reading.windows[0]
+usage.accounts[3].reading.windows[0].usedPercent
+usage.accounts[3].url

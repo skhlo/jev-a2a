@@ -5,10 +5,9 @@
 //
 // Events: replies, answers, requests and choices from other hosts, behind
 // the bearer token.
-// Board: the page (the board, and the Usage view at usage/), its view model
-// as JSON, and its actions, on loopback behind Tailscale Serve, which
-// stamps the viewer's login on each request. Serve strips its mount path,
-// so board routes match by suffix.
+// Board: the page, its view model as JSON, and its actions, on loopback
+// behind Tailscale Serve, which stamps the viewer's login on each request.
+// Serve strips its mount path, so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
 import type {
   IncomingMessage,
@@ -17,21 +16,19 @@ import type {
 } from "node:http";
 import {
   actionEvent,
+  asOf,
   boardModel,
-  boardState,
   identify,
   messageTimes,
   type Actor,
 } from "./board.ts";
 import { renderBoard } from "./board-page.ts";
-import { renderUsage } from "./usage-page.ts";
 import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
-import { readJournal } from "./journal.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
-import { fold, servedBy } from "./shell.ts";
+import { journalFolder, servedBy } from "./shell.ts";
 import { waitsOnSessions } from "./core.ts";
-import type { Event, Outcome } from "./types.ts";
+import type { Event, Outcome, State } from "./types.ts";
 
 export type Run = { outcome: Outcome; report: string[] };
 
@@ -61,10 +58,11 @@ export type SessionStatus = "current" | "replaced" | null;
 // Whether the record has work waiting only for a session this router
 // serves, read without the lock, as the board reads it. Serve asks after
 // its own runs and whenever another writer (the CLI on this host) appends.
-export const waitsReader = (config: RouterConfig) => (): boolean => {
-  const state = fold(config, readJournal(config.home));
-  return waitsOnSessions(state, servedBy(config, state));
-};
+export const waitsReader =
+  (config: RouterConfig, record: RecordReader) => (): boolean => {
+    const { state } = record();
+    return waitsOnSessions(state, servedBy(config, state));
+  };
 
 // The serve runner: one run at a time through a queue (so the journal lock
 // is never contended from inside the server), and a look again every
@@ -276,13 +274,39 @@ export function keepReading<H>(
   };
 }
 
+// The record as the board, the wake and the events endpoint read it,
+// without the lock: the journal's kept fold (see journalFolder) with the
+// message times beside it. A read returns the same record until the journal
+// changes. Serve makes one and hands it to all three, so the record is
+// folded once for them.
+type BoardRecord = {
+  state: State;
+  times: Readonly<Record<string, string>>;
+};
+export type RecordReader = () => BoardRecord;
+export function recordReader(config: RouterConfig): RecordReader {
+  const folded = journalFolder(config);
+  let record: BoardRecord | null = null;
+  return () => {
+    const { state, entries, from } = folded();
+    if (!record || from === "start")
+      record = { state, times: Object.freeze(messageTimes(entries)) };
+    else if (entries.length)
+      record = {
+        state,
+        times: Object.freeze({ ...record.times, ...messageTimes(entries) }),
+      };
+    return record;
+  };
+}
+
 // Whether `by` is a session the record knows, read without the journal
 // lock, as the board reads it: the events endpoint must not contend with
 // the run it is about to queue.
 export const sessionReader =
-  (config: RouterConfig) =>
+  (record: RecordReader) =>
   (by: string): SessionStatus => {
-    const state = fold(config, readJournal(config.home));
+    const { state } = record();
     if (!state.sessions[by]) return null;
     return Object.values(state.placements).some((p) => p.session === by)
       ? "current"
@@ -429,9 +453,9 @@ function wantsJson(accept: string | undefined): boolean {
 }
 
 export function boardListener(
-  deps: Omit<ServerDeps, "sessionOf">,
+  deps: Omit<ServerDeps, "sessionOf"> & { record: RecordReader },
 ): RequestListener {
-  const { config } = deps;
+  const { config, record } = deps;
   const log = deps.log ?? ((): void => undefined);
   const now = deps.now ?? Date.now;
   // A bad telemetry file is logged once, not on every refresh: each
@@ -439,12 +463,12 @@ export function boardListener(
   // once a read passes without one, so the same damage returning is news.
   const telemetryErrors = new Set<string>();
   const model = (at: number, actor: Actor | null) => {
-    const entries = readJournal(config.home);
+    const { state, times } = record();
     return boardModel(
-      boardState(config, entries, at),
+      asOf(state, at),
       config,
       at,
-      messageTimes(entries),
+      times,
       actor,
       readTelemetryOnce(),
       deps.usage?.() ?? null,
@@ -513,6 +537,12 @@ export function boardListener(
       );
       return;
     }
+    if (path.endsWith("/favicon.ico")) {
+      // The board has no icon. Said at once, without reading the record:
+      // the redirect below would send the browser to a whole board.
+      res.writeHead(204, { "cache-control": "max-age=86400" }).end();
+      return;
+    }
     if (!path.endsWith("/") && !path.endsWith("/board.json")) {
       // Under a mount such as /router, the page's relative links need the
       // trailing slash. The location is relative too: Serve strips the
@@ -527,7 +557,15 @@ export function boardListener(
         .end();
       return;
     }
-    const usagePage = path.endsWith("/usage/");
+    if (path.endsWith("/usage/")) {
+      // The Usage tab is now the board's pop-up (v0.13): its address goes
+      // back to the board, relative and on this host as above, with the
+      // pop-up open while usage is on.
+      res
+        .writeHead(302, { location: `../${deps.usage ? "?usage" : ""}` })
+        .end();
+      return;
+    }
     // A record the code cannot replay is reported, not fatal: the events
     // listener in the same process must stay up.
     let view: ReturnType<typeof model>;
@@ -538,36 +576,21 @@ export function boardListener(
       log(`board: cannot read the record: ${message}`);
       return plain(500, `The record cannot be read: ${message}`);
     }
-    // One model, as JSON or as either view of the page, under the same
-    // identity.
+    // One model, as JSON or as the page, under the same identity.
     if (path.endsWith("/board.json") || wantsJson(req.headers.accept)) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(view));
-    } else if (usagePage) {
-      const { usage } = view;
-      if (!usage)
-        return plain(
-          404,
-          "Usage is off: the configuration has no usage section.",
-        );
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(
-        renderUsage(
-          { ...view, usage },
-          {
-            theme: cookie(req.headers.cookie, "router-theme"),
-          },
-        ),
-      );
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       // The selected task is in the URL so a reload and a shared link open
-      // it; the palette is the page's cookie, which renderBoard checks.
+      // it, and so is an open usage pop-up for a page without a script;
+      // the palette is the page's cookie, which renderBoard checks.
       res.end(
         renderBoard(view, {
           notice: url.searchParams.get("notice"),
           task: url.searchParams.get("task"),
           theme: cookie(req.headers.cookie, "router-theme"),
+          usage: url.searchParams.has("usage"),
         }),
       );
     }

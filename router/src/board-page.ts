@@ -1,17 +1,14 @@
-// The board's page: the v0.12 console of the board design (skhlo/designs, tag
-// jev-a2a-v0.12, scripts/gen-jev-a2a-board.py), drawn on the server from the
-// view model and the viewer. The template translates the generator's HTML
-// functions and carries its CSS: every slot keeps the data-path the design
-// gives it, rows keep data-task and groups data-group, so the live page can
-// be compared with the design mechanically. Forms post to the board's
-// actions endpoint with its own fields. The page reads and posts without a
-// script; the script keeps a person's state across refreshes and adds the
-// filter, the keys, the peek, the sheet, the full router log and the help
-// with its theme switch.
-//
-// The board is one view of the router page; the head, the frame, the
-// tokens, the themes, the help and the script are the page's, shared with
-// the Usage view (usage-page.ts), as are the generic parts in the CSS.
+// The board's page: the v0.13 console of the board design (skhlo/designs, tag
+// jev-a2a-v0.13, commit 4a0b0ab, scripts/gen-jev-a2a-board.py), drawn on the
+// server from the view model and the viewer. The template translates the
+// generator's HTML functions and carries its CSS: every slot keeps the
+// data-path the design gives it, rows keep data-task and groups data-group,
+// so the live page can be compared with the design mechanically. Forms post
+// to the board's actions endpoint with its own fields. The page reads and
+// posts without a script; the script keeps a person's state across
+// refreshes and adds the filter, the keys, the peek, the sheet, the usage
+// pop-up, opening a task in place, the full router log and the help with
+// its theme switch.
 import type {
   BoardModel,
   DeliveryView,
@@ -26,12 +23,23 @@ import type {
   StuckReason,
   UpdateKind,
 } from "./types.ts";
+import {
+  LABEL,
+  WINDOW_SUFFIX,
+  type AccountView,
+  type ColumnFormat,
+  type DataTable,
+  type Metric,
+  type ReadingView,
+  type UsageView,
+  type WindowView,
+} from "./usage.ts";
 
 // ---- Formats: the generator's helpers over the same fields ----
 
-export const DASH = "—";
+const DASH = "—";
 
-export const esc = (value: unknown): string =>
+const esc = (value: unknown): string =>
   String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -50,7 +58,7 @@ export const time = (iso: string | null | undefined): string => {
 };
 
 // A stretch of time in its largest unit, floored: 45s, 14m, 2h 05m, 3d.
-export const span = (ms: number): string => {
+const span = (ms: number): string => {
   const s = Math.abs(Math.trunc(ms / 1000));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
@@ -67,7 +75,7 @@ export const age = (iso: string | null | undefined, at: string): string =>
   iso ? span(Date.parse(at) - Date.parse(iso)) : DASH;
 
 // percent(used, max): a share as a whole percentage.
-export const percent = (used: number, max: number): number =>
+const percent = (used: number, max: number): number =>
   Math.round((100 * used) / max);
 
 // hms(t): the clock with its seconds, HH:MM:SSZ, for activity rows, where
@@ -77,8 +85,7 @@ export const hms = (iso: string | null | undefined): string => {
   return at ? `${at.toISOString().slice(11, 19)}Z` : DASH;
 };
 
-export const thousands = (value: number): string =>
-  value.toLocaleString("en-US");
+const thousands = (value: number): string => value.toLocaleString("en-US");
 
 // diff(additions, deletions): "+a −d", the minus sign U+2212.
 export const diff = (additions: number, deletions: number): string =>
@@ -122,13 +129,13 @@ const fullDate = (at: Date, seconds = false): string =>
 
 // The full date behind a clock or an age, as a title. The design printed
 // the clock alone, which is ambiguous for anything older than a day.
-export const dated = (iso: string | null | undefined, prefix = ""): string => {
+const dated = (iso: string | null | undefined, prefix = ""): string => {
   const at = instant(iso);
   return at ? ` title="${prefix}${fullDate(at)}"` : "";
 };
 
 // A time to the second with its date, or a dash.
-export const stamp = (iso: string | null): string => {
+const stamp = (iso: string | null): string => {
   const at = instant(iso);
   return at ? fullDate(at, true) : DASH;
 };
@@ -151,6 +158,111 @@ export const repo = (url: string): string => {
     rest = rest.slice(rest.indexOf(":") + 1);
   return rest.endsWith(".git") ? rest.slice(0, -4) : rest;
 };
+
+// ---- Usage formats (v0.13): the account part of the model ----
+
+// dh(ms): a reset in days and hours, "2d 10h" (and "2d 0h"), "16h" under a
+// day, "<1h" under an hour.
+export const dh = (ms: number): string => {
+  const s = Math.max(0, Math.trunc(ms / 1000));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  return d ? `${d}d ${h}h` : h ? `${h}h` : "<1h";
+};
+
+// A money amount in its currency: cents, or a sub-cent amount to its
+// precision.
+const currencyText = (value: number, currency: string): string =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    currencyDisplay: currency === "USD" ? "narrowSymbol" : "symbol",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: Math.abs(value) < 0.01 && value !== 0 ? 4 : 2,
+  }).format(value);
+
+// amount(value, unit): money in its currency, a count with its unit (agreeing
+// with one), words as they are, and a dash for a value not reported.
+export const amount = (
+  value: string | number | null | undefined,
+  unit: string | null,
+): string => {
+  if (value === null || value === undefined) return DASH;
+  if (typeof value === "string") return value;
+  if (!Number.isFinite(value)) return DASH;
+  if (unit === "USD" || unit === "CNY") return currencyText(value, unit);
+  if (!unit) return thousands(value);
+  return `${thousands(value)} ${value === 1 && unit.endsWith("s") ? unit.slice(0, -1) : unit}`;
+};
+
+// A window's label without the word the normalizers end it with.
+const windowName = (label: string): string =>
+  label.endsWith(WINDOW_SUFFIX) ? label.slice(0, -WINDOW_SUFFIX.length) : label;
+
+// wshort(w): a window's length as the rail writes it: "7D" in whole days,
+// else "5H" in whole hours, else minutes.
+export const wshort = (minutes: number): string =>
+  minutes % 1440 === 0
+    ? `${minutes / 1440}D`
+    : minutes % 60 === 0
+      ? `${minutes / 60}H`
+      : `${minutes}M`;
+
+// A reading's windows, which say nothing of now while its allowance is
+// unavailable: a reading of history alone.
+const windowsOf = (r: ReadingView | null): WindowView[] =>
+  r && r.allowance !== "unavailable" ? r.windows : [];
+
+// shown_windows(a): the windows of an account's rail row, with their index
+// in the reading: account-wide (no " · " scope in the label), with a length,
+// longest first, so 7D comes before 5H.
+const shownWindows = (r: ReadingView | null): { k: number; w: WindowView }[] =>
+  windowsOf(r)
+    .map((w, k) => ({ k, w }))
+    .filter(({ w }) => w.minutes && !w.label.includes(" · "))
+    .sort((a, b) => (b.w.minutes ?? 0) - (a.w.minutes ?? 0));
+
+// passed(w, at): the window's reset is known and at or before `at`. Its
+// share is history then: no band, no pace, no time left.
+const passed = (w: WindowView, at: string): boolean =>
+  w.resetsAt !== null && Date.parse(w.resetsAt) <= Date.parse(at);
+
+// The length of the window whose reset a rail row shows: always the week's,
+// as the design fixed it; an account without one shows no reset.
+const WEEK_MINUTES = 7 * 1440;
+
+// The figures a balance leads with or shows on its key's row; the rest go to
+// the account's details.
+const LEADING: string[] = [LABEL.accountBalance, LABEL.balance];
+const BESIDE: string[] = [LABEL.keyRemaining, LABEL.keyLimit];
+
+// A day-keyed table lists its latest fourteen days; the rest wait behind
+// "all n days".
+const DAYS_SHOWN = 14;
+
+// How a table column draws: counts and amounts as numerals, dates and names
+// a machine wrote in mono, words as text.
+const COLUMN_KIND: Record<ColumnFormat, Column["kind"]> = {
+  number: "num",
+  USD: "num",
+  date: "mono",
+  name: "mono",
+};
+
+// The providers' marks in the rail, by account id: Simple Icons 16.34.0
+// (CC0), "claude" and "openai", on a 24×24 view box in currentColor. The
+// marks themselves belong to their owners. A map, so a lookup finds
+// only these and never a property every object inherits.
+const MARKS = new Map<string, string>([
+  [
+    "claude",
+    "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z",
+  ],
+  [
+    "codex",
+    "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z",
+  ],
+]);
 
 // A task's first line, for the detail title: the design sized the title for
 // the sample's short texts, and a real request runs to pages. The full text
@@ -205,9 +317,15 @@ const STATUS_CLS: Record<string, string> = {
 const shortId = (id: string): string => (UUID.test(id) ? id.slice(0, 8) : id);
 const fullId = (id: string): string =>
   UUID.test(id) ? ` title="${esc(id)}"` : "";
+// short(id) as the design applies it to a send's message id (v0.13): an id
+// over twelve characters shows its first eight, the whole id as its title.
+const shortSlot = (path: string, id: string): string =>
+  id.length > 12
+    ? slot(path, esc(id.slice(0, 8)), "", "span", ` title="${esc(id)}"`)
+    : slot(path, esc(id));
 
 // An element that names the model path it reads.
-export const slot = (
+const slot = (
   path: string,
   html: string,
   cls = "",
@@ -401,148 +519,58 @@ const ASKING: TaskView["status"][] = [
   "uncertain",
 ];
 
-export const THEMES = ["flexoki", "one-dark"] as const;
+const THEMES = ["flexoki", "one-dark"] as const;
 const THEME_NAMES: Record<(typeof THEMES)[number], string> = {
   flexoki: "Flexoki",
   "one-dark": "One Dark",
 };
 
-// The help (v0.12): the keys in two columns, then the theme switch. The
-// design names ⌘↩ alone; the script takes Ctrl ↩ as well.
+// The help (v0.13): the keys in two columns, the pop-up's under their own
+// kicker, then the theme switch. The design names ⌘↩ alone; the script takes
+// Ctrl ↩ as well. u and the pop-up's keys show while the model carries
+// usage.
 const HELP_KEYS: [string, string][] = [
-  ["j / k", "move"],
+  ["↑ / ↓", "move"],
+  ["↵ / →", "open"],
+  ["← / esc", "back, close"],
   ["space", "peek"],
-  ["↵", "open"],
-  ["→", "open the peek's task"],
   ["s", "sheet"],
   ["a", "answer"],
   ["c", "cancel"],
-  ["h", "hold / release"],
-  ["l", "router log"],
+  ["p", "hold / release"],
+  ["r", "router log"],
+  ["u", "usage"],
   ["/", "filter"],
+  ["?", "keys"],
   ["⌘↩", "send the form (or Ctrl ↩)"],
-  ["esc", "close"],
+];
+const HELP_USAGE_KEYS: [string, string][] = [
+  ["↑ / ↓", "accounts"],
+  ["→ / ↵", "open details"],
+  ["←", "close details"],
 ];
 
-// ---- The page's frame, shared by its views ----
-
-// The page's views, in the nav's order: each tab's words, its directory
-// beside the board's, and whether the model has anything for it. The nav
-// and the View type both come from this list.
-const VIEWS = [
-  { name: "board", words: "Board", dir: "", shown: () => true },
-  {
-    name: "usage",
-    words: "Usage",
-    dir: "usage/",
-    shown: (model: BoardModel) => model.usage !== null,
-  },
-] as const;
-type View = (typeof VIEWS)[number]["name"];
 type Theme = (typeof THEMES)[number];
 
 // The palette a cookie names, else the default, so the cookie cannot put
 // text into the page.
-export const themeOf = (name: string | null | undefined): Theme =>
+const themeOf = (name: string | null | undefined): Theme =>
   THEMES.find((t) => t === name) ?? THEMES[0];
 
-// A chip in the head: a count or a figure in bold, then its words, in a
-// role's tone (`attn`, `warn`, `err`) or none. `words` is markup.
-export const chip = (
+// ---- Generic parts ----
+//
+// Each is named for what it is, so any part of the page can take it: the
+// head's chips, the context meter, the rail's usage rows and the usage
+// pop-up. Every text passes through esc here or in the caller's slot.
+
+// A chip in the head: a count in bold, then its words, in the `attn` tone
+// or none. `words` is markup.
+const chip = (
   path: string,
   figure: string | number,
   words: string,
   tone = "",
 ): string => slot(path, `<b>${figure}</b> ${words}`, tone);
-
-// The head (v0.12's nav), the same element on every view: the brand, who
-// is viewing (cut short, the whole line as its title), the view's chips,
-// its tick and the tabs, the open one marked. The links are relative, as
-// Tailscale Serve strips the page's mount path; the Usage tab is there
-// while the model carries usage, and the one JSON link is the model both
-// views draw.
-export const head = (
-  model: BoardModel,
-  view: View,
-  chips: string,
-  tick: string,
-): string => {
-  const { actor } = model;
-  const principals =
-    actor?.principals
-      .map(
-        (p) => `${p.principal}${p.role === p.principal ? "" : ` (${p.role})`}`,
-      )
-      .join(", ") ?? "";
-  const who = actor
-    ? `${actor.login} · ${principals}`
-    : "reading only · not identified";
-  // Every view but the board's is one directory below it.
-  const up = VIEWS.find((v) => v.name === view)?.dir ? "../" : "";
-  const tabs = VIEWS.filter((v) => v.name === view || v.shown(model))
-    .map(
-      (v) =>
-        `<a${v.name === view ? ' class="active"' : ""} data-view="${v.name}" href="${v.name === view ? "./" : `${up}${v.dir}` || "./"}">${v.words}</a>`,
-    )
-    .join("");
-  return `<header class="nav">
-  <span class="brand">Router</span>
-  <span class="who" title="${esc(who)}">${
-    actor
-      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", esc(principals))}`
-      : slot("actor", esc(who))
-  }</span>
-  <span class="counts">${chips}</span>
-  <span class="spacer"></span>
-  ${tick}
-  <nav>${tabs}<a href="${up}board.json">JSON</a></nav>
-</header>`;
-};
-
-// The document around a view: the head, the view's main, the key line, the
-// help with the view's keys and the theme switch, the style and the script.
-export const frame = (parts: {
-  theme: Theme;
-  refreshSeconds: number;
-  title: string;
-  comment: string;
-  notice: string;
-  head: string;
-  main: string;
-  keys: string;
-  help: [string, string][];
-}): string => `<!doctype html>
-<html lang="en" data-theme="${parts.theme}"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${parts.title}</title>
-<style>${STYLE}</style>
-</head>
-<body>
-${parts.comment}
-${parts.notice}
-<div id="app" data-refresh="${parts.refreshSeconds}">
-${parts.head}
-${parts.main}
-<footer class="keys">
-  ${parts.keys}
-  <span class="spacer"></span>
-  <span>refreshes every ${parts.refreshSeconds}s</span>
-</footer>
-</div>
-<div class="help" role="dialog" aria-label="Keys" hidden>
-  <div class="top"><span class="kicker">Keys</span><span class="spacer"></span><kbd class="k">?</kbd></div>
-  <div class="grid">${parts.help.map(([key, does]) => `<kbd>${esc(key)}</kbd><span>${esc(does)}</span>`).join("")}</div>
-  <div class="theme"><span>theme</span><span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === parts.theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span></div>
-</div>
-<script>${SCRIPT}</script>
-</body></html>
-`;
-
-// ---- Generic parts, shared by the views ----
-//
-// Each is named for what it is, so any view can take it; its CSS is in
-// STYLE under "Generic parts". Every text passes through esc here or in
-// the caller's slot.
 
 // pace(w, at): how much of a window of `minutes` ending at `resetsAt` has
 // passed at `at`, as a percentage, and whether `usedPercent` runs ahead of
@@ -563,71 +591,113 @@ export const pace = (
   return { elapsed, ahead: w.usedPercent > elapsed + 2 };
 };
 
-// band(share): warn from 75%, err from 90%, else nothing.
-export const band = (share: number): "" | "warn" | "err" =>
-  share >= 90 ? "err" : share >= 75 ? "warn" : "";
+// band(share): warn from 75%, err from 90%, else nothing, by the share as
+// shown: 74.5 reads 75%, in warn (v0.13).
+export const band = (share: number): "" | "warn" | "err" => {
+  const shown = Math.round(share);
+  return shown >= 90 ? "err" : shown >= 75 ? "warn" : "";
+};
 
 // meter: a bar filled to `share` percent in a role's tone, with a pace
-// tick at `pace` percent and the figure after it. Small by default (the
-// board's context meter); `wide` takes its cell (a quota window).
-export const meter = (m: {
-  share: number;
+// tick at `pace` percent and the figure after it (classed num unless the
+// figure names its own class); a null share draws the track alone. Small by
+// default (the board's context meter and the rail's windows); `wide` takes
+// its cell (the pop-up's windows).
+const meter = (m: {
+  share: number | null;
   tone?: string;
   wide?: boolean;
   path?: string;
   title?: string;
   pace?: number | null;
-  figure?: { path: string; text: string };
+  pacePath?: string;
+  figure?: { path: string; text: string; cls?: string };
 }): string => {
-  const fill = Math.min(100, Math.max(0, m.share));
+  const fill =
+    m.share === null
+      ? ""
+      : `<i style="width: ${Math.min(100, Math.max(0, m.share))}%"></i>`;
   const tick =
     m.pace === undefined || m.pace === null
       ? ""
-      : `<b class="pace" style="left: ${m.pace.toFixed(1)}%"></b>`;
-  return `<span class="meter${m.wide ? " wide" : ""}${m.tone ? ` ${m.tone}` : ""}"${m.path ? ` data-path="${esc(m.path)}"` : ""}${m.title ? ` title="${esc(m.title)}"` : ""}><span class="bar${tick ? " paced" : ""}"><i style="width: ${fill}%"></i>${tick}</span>${m.figure ? slot(m.figure.path, m.figure.text, "num") : ""}</span>`;
+      : `<b class="pace" style="left: ${m.pace.toFixed(1)}%"${m.pacePath ? ` data-path="${esc(m.pacePath)}"` : ""}></b>`;
+  return `<span class="meter${m.wide ? " wide" : ""}${m.tone ? ` ${m.tone}` : ""}"${m.path ? ` data-path="${esc(m.path)}"` : ""}${m.title ? ` title="${esc(m.title)}"` : ""}><span class="bar${tick ? " paced" : ""}">${fill}${tick}</span>${m.figure ? slot(m.figure.path, m.figure.text, m.figure.cls ?? "num") : ""}</span>`;
 };
 
 // pairs: labels and their figures, inline and wrapping, each reading its
 // own path. Labels and figures are text.
-export const pairs = (
+const pairs = (
   items: { path: string; label: string; value: string }[],
 ): string =>
   items.length
     ? `<dl class="pairs">${items.map((i) => `<div data-path="${esc(i.path)}"><dt>${esc(i.label)}</dt><dd>${esc(i.value)}</dd></div>`).join("")}</dl>`
     : "";
 
-// table: a titled table at the board's row density that scrolls sideways
-// inside its box, never the page. A column is text, mono (a date, a name a
-// machine wrote) or num (mono, right-aligned); `note` follows the title.
-// Cells are text.
-export type Column = { label: string; kind: "text" | "mono" | "num" };
-export const table = (t: {
+// table: a titled table as wide as its content that scrolls sideways in its
+// own box, never the page. A column is text, mono (a date, a name a machine
+// wrote) or num (mono, right-aligned). A gap row is a missing day: a dash in
+// each number, its other cells empty. With `bars`, a bar after each row's
+// cells shows its `bar`, 0 to 100. `more` rows wait behind a button that
+// names them, in a block the script opens and keeps open by its key (as a
+// disclosure's); a page without a script shows them. Cells are text; a null
+// one is a dash.
+type Column = { label: string; kind: "text" | "mono" | "num" };
+type Row = { cells: (string | null)[]; gap?: boolean; bar?: number };
+const table = (t: {
   path: string;
   title: string;
-  note?: string;
   columns: Column[];
-  rows: string[][];
+  rows: Row[];
+  bars?: boolean;
+  more?: { key: string; words: string; rows: Row[] };
 }): string => {
+  const title = `<h4 class="kicker" data-path="${esc(t.path)}">${esc(t.title)}</h4>`;
+  if (!t.rows.length) return `${title}<p class="hint">No rows reported.</p>`;
   const cls = (kind: Column["kind"]): string =>
     kind === "text" ? "" : ` class="${kind}"`;
-  const body = t.rows.length
-    ? `<div class="scroll-x"><table><tr>${t.columns.map((c) => `<th${cls(c.kind)}>${esc(c.label)}</th>`).join("")}</tr>${t.rows.map((r) => `<tr>${t.columns.map((c, k) => `<td${cls(c.kind)}>${esc(r[k] ?? DASH)}</td>`).join("")}</tr>`).join("")}</table></div>`
-    : `<p class="hint">No rows reported.</p>`;
-  return `<h4 class="kicker" data-path="${esc(t.path)}">${esc(t.title)}${t.note ? `<span class="n">${esc(t.note)}</span>` : ""}</h4>${body}`;
+  const row = (r: Row): string => {
+    const cells = t.columns
+      .map((c, k) => {
+        const text = r.cells[k] ?? (r.gap && c.kind !== "num" ? "" : DASH);
+        return `<td${cls(c.kind)}>${esc(text)}</td>`;
+      })
+      .join("");
+    const bar = !t.bars
+      ? ""
+      : r.bar === undefined
+        ? "<td></td>"
+        : `<td class="bar"><i style="width: ${Math.round(r.bar)}%"></i></td>`;
+    return `<tr${r.gap ? ' class="gap"' : ""}>${cells}${bar}</tr>`;
+  };
+  // A heading is text, right-aligned over numbers.
+  const head = `${t.columns.map((c) => `<th${c.kind === "num" ? ' class="num"' : ""}>${esc(c.label)}</th>`).join("")}${t.bars ? "<th></th>" : ""}`;
+  const more = t.more?.rows.length ? t.more : null;
+  const all = more
+    ? `<tr class="all"><td colspan="${t.columns.length + (t.bars ? 1 : 0)}"><button type="button" class="days">${esc(more.words)}</button></td></tr>`
+    : "";
+  const older = more
+    ? `<tbody class="older" data-key="${esc(more.key)}">${more.rows.map(row).join("")}</tbody>`
+    : "";
+  return `${title}<div class="scroll-x"><table class="data"><thead><tr>${head}</tr></thead><tbody>${t.rows.map(row).join("")}${all}</tbody>${older}</table></div>`;
 };
 
-// disclosure: a summary line that opens its body, keyed so the script
-// keeps it open across refreshes on this device. `summary` and `body` are
-// markup.
-export const disclosure = (d: {
+// disclosure: a toggle and the block it opens, keyed so the script keeps
+// the block open or shut across refreshes on this device. The server draws
+// the block open, so a page without a script shows it; the script shuts
+// each block not kept open, at start and after each refresh. `label` and
+// `title` are text, `body` markup; `id` ties the toggle to its block.
+const disclosure = (d: {
   key: string;
+  id: string;
   path: string;
-  summary: string;
+  label: string;
+  title: string;
+  blockPath: string;
   body: string;
-}): string => `<details class="disclosure" data-key="${esc(d.key)}" data-path="${esc(d.path)}">
-      <summary>${d.summary}</summary>
-      <div class="body">${d.body}</div>
-    </details>`;
+}): { toggle: string; block: string } => ({
+  toggle: `<button type="button" class="toggle" data-path="${esc(d.path)}" aria-expanded="true" aria-controls="${esc(d.id)}" title="${esc(d.title)}">${esc(d.label)}</button>`,
+  block: `<div class="more" id="${esc(d.id)}" data-key="${esc(d.key)}" data-path="${esc(d.blockPath)}">${d.body}</div>`,
+});
 
 export type RenderOptions = {
   refreshSeconds?: number;
@@ -638,6 +708,9 @@ export type RenderOptions = {
   // The palette, from the router-theme cookie. Anything but a palette name
   // gets the default, so the cookie cannot put text into the page.
   theme?: string | null;
+  // Whether the usage pop-up is drawn open, from the page's `usage` query
+  // parameter: how a page without a script opens it.
+  usage?: boolean;
 };
 
 // A needs-you item with its place in the model and what the viewer may do.
@@ -769,23 +842,540 @@ export function renderBoard(
 
   // ---- Nav ----
 
-  // v0.12: who ellipsizes with the whole text as its title; the tick reads
-  // "updated <time>" with the build, the telemetry and the contract in its
-  // title; the theme switch is in the help.
+  // v0.12, which v0.13 keeps: who ellipsizes with the whole text as its
+  // title; the tick reads "updated <time>" with the build, the telemetry and
+  // the contract in its title; the theme switch is in the help. The links
+  // are relative, as Tailscale Serve strips the page's mount path. The empty
+  // .br breaks the head's line on a narrow screen (v0.13).
   const held = model.placements.filter((p) => p.hold).length;
   const agentCount = model.placements.length;
-  const nav = head(
-    model,
-    "board",
-    `${chip("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${chip("count(open[] not in needsYou)", flight.length, "in flight")}${chip("count(placements[].hold)", held, "held")}${chip("count(placements)", agentCount, noun(agentCount, "agent"))}`,
-    slot(
-      "time(at)",
-      `updated ${time(at)}`,
-      "tick",
-      "span",
-      ` title="${esc(built(model))}"`,
-    ),
+  const principals =
+    actor?.principals
+      .map(
+        (p) => `${p.principal}${p.role === p.principal ? "" : ` (${p.role})`}`,
+      )
+      .join(", ") ?? "";
+  const who = actor
+    ? `${actor.login} · ${principals}`
+    : "reading only · not identified";
+  const nav = `<header class="nav">
+  <span class="brand">Router</span>
+  <span class="who" title="${esc(who)}">${
+    actor
+      ? `${slot("actor.login", esc(actor.login))} · ${slot("actor.principals[]", esc(principals))}`
+      : slot("actor", esc(who))
+  }</span>
+  <span class="br"></span>
+  <span class="counts">${chip("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${chip("count(open[] not in needsYou)", flight.length, "in flight")}${chip("count(placements[].hold)", held, "held")}${chip("count(placements)", agentCount, noun(agentCount, "agent"))}</span>
+  <span class="spacer"></span>
+  ${slot("time(at)", `updated ${time(at)}`, "tick", "span", ` title="${esc(built(model))}"`)}
+  <nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>
+</header>`;
+
+  // ---- Usage (v0.13) ----
+
+  // The account part of the model: a section in the rail with one row per
+  // subscription account, and the pop-up with every account, which a row or
+  // u opens beside the rail. Neither is drawn while the model carries no
+  // usage. Without a script a row is a link to this page with the pop-up
+  // drawn open (`?usage`), and while it is open the row and its close
+  // button are links back; the script toggles the pop-up in place.
+  const usage = model.usage;
+  const usageOpen = Boolean(usage && options.usage);
+  const usageClose = selected ? href(selected) : "./";
+  const usageHref = usageOpen
+    ? usageClose
+    : esc(`?${selected ? `task=${encodeURIComponent(selected)}&` : ""}usage`);
+  const readAt = usage?.at ? `read ${time(usage.at)}` : "not read yet";
+  // An account that is not current: its tooltip says why, and it carries a
+  // badge.
+  const notCurrent = (a: AccountView): boolean =>
+    a.status === "stale" || a.status === "unavailable";
+  // What an account that is not current says of its age: the reading's
+  // while stale, the last check's while unavailable.
+  const ageOf = (
+    a: AccountView,
+    path: string,
+  ): { words: string; path: string; at: string } | null =>
+    a.status === "stale" && a.reading
+      ? {
+          words: "last reading",
+          path: `age(${path}.reading.observedAt, at)`,
+          at: a.reading.observedAt,
+        }
+      : a.status === "unavailable" && a.checkedAt
+        ? {
+            words: "checked",
+            path: `age(${path}.checkedAt, at)`,
+            at: a.checkedAt,
+          }
+        : null;
+  const until = (iso: string): number => Date.parse(iso) - Date.parse(at);
+  const subscriptions = (usage?.accounts ?? []).flatMap((a, i) =>
+    a.kind === "subscription" ? [{ a, i }] : [],
   );
+
+  // A rail row, built from the agent card's parts. Line 1: the provider's
+  // mark, the name, the status word where a card puts its status, and at
+  // the right the week's reset in days and hours, a dash once passed.
+  // Line 2: the shown windows, each its length and the context meter's
+  // look with a pace tick and the share, in the band's role, or warn above
+  // pace without one; a passed reset keeps the track alone. A stale row
+  // dims, and the tooltip names its age and error and each window.
+  const usageRow = (a: AccountView, i: number): string => {
+    const path = `usage.accounts[${i}]`;
+    const tip = [a.name];
+    const old = ageOf(a, path);
+    if (notCurrent(a))
+      tip.push(
+        `${a.status}${old ? `, ${old.words} ${age(old.at, at)} ago` : ""}${a.error ? `: ${a.error}` : ""}`,
+      );
+    const shown = shownWindows(a.reading);
+    const wins = shown.map(({ k, w }) => {
+      const wp = `${path}.reading.windows[${k}]`;
+      const n = Math.round(Math.max(0, w.usedPercent));
+      const figure = { path: `${wp}.usedPercent`, text: `${n}%`, cls: "" };
+      const length = `<span class="w" title="${esc(w.label)}">${wshort(w.minutes ?? 0)}</span>`;
+      if (passed(w, at)) {
+        tip.push(`${windowName(w.label)} ${n}%, reset passed`);
+        return `<span class="win dim" data-path="${wp}">${length}${meter({ share: null, figure })}</span>`;
+      }
+      const p = pace(w, at);
+      tip.push(
+        `${windowName(w.label)} ${n}%${p ? (p.ahead ? ", above pace" : ", within pace") : ""}${w.resetsAt ? `, resets in ${span(until(w.resetsAt))}` : ""}`,
+      );
+      return `<span class="win" data-path="${wp}">${length}${meter({
+        share: Math.max(0, w.usedPercent),
+        tone: band(w.usedPercent) || (p?.ahead ? "warn" : ""),
+        pace: p?.elapsed ?? null,
+        pacePath: `pace(${wp}, at)`,
+        figure,
+      })}</span>`;
+    });
+    const week = shown.find(({ w }) => w.minutes === WEEK_MINUTES);
+    const reset = week
+      ? slot(
+          `left(${path}.reading.windows[${week.k}].resetsAt, at)`,
+          week.w.resetsAt && !passed(week.w, at)
+            ? dh(until(week.w.resetsAt))
+            : DASH,
+          "rs",
+        )
+      : "";
+    if (!shown.length) {
+      wins.push(
+        `<span class="none">${a.status === "loading" ? "…" : DASH}</span>`,
+      );
+      if (a.status === "loading") tip.push("reading");
+      else if (a.reading?.allowance === "unavailable")
+        tip.push("current limits are unavailable");
+      else if (a.status === "ready") tip.push("no quota windows reported");
+    }
+    tip.push(readAt);
+    const mark = MARKS.get(a.id);
+    return `<a class="acct${a.status === "stale" ? " stale" : ""}${shown.length ? "" : " off"}" href="${usageHref}" data-path="${path}" aria-expanded="${usageOpen}" aria-controls="usage" title="${esc(tip.join(" · "))}"><span class="l1">${mark ? `<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${mark}"/></svg>` : ""}${slot(`${path}.name`, esc(a.name), "nm")}${slot(`${path}.status`, a.status === "loading" ? "reading" : esc(a.status), `st${a.status === "ready" ? "" : " off"}`)}${reset}</span><span class="l2">${wins.join("")}</span></a>`;
+  };
+  // Pinned under the cards, above the router log; balances stay in the
+  // pop-up.
+  const usageRail = subscriptions.length
+    ? `  <section class="usage-rail" aria-label="Usage" data-path="usage">
+    <h2 class="col-h"><span class="kicker">Usage</span>${slot("count(usage.accounts[].kind=subscription)", count(subscriptions.length, "account"), "n")}</h2>
+    <div class="accts">${subscriptions.map(({ a, i }) => usageRow(a, i)).join("")}</div>
+  </section>
+`
+    : "";
+
+  // The pop-up's rows share one six-column grid (lead | name | figure |
+  // meter | note | when), so every row draws all six cells.
+  const entry = (
+    cells: [string, string, string, string, string, string],
+    path: string,
+    cls = "",
+  ): string => {
+    const [lead, name, figure, gauge, note, when] = cells;
+    return `<div class="entry${cls}" data-path="${esc(path)}">${lead || '<span class="lead"></span>'}${name || '<span class="name"></span>'}${figure || '<span class="figure"></span>'}${gauge || '<span class="meter"></span>'}${note || '<span class="note"></span>'}${when || '<span class="when"></span>'}</div>`;
+  };
+  const badge = (a: AccountView, path: string, cls = ""): string =>
+    notCurrent(a)
+      ? slot(`${path}.status`, esc(a.status), `badge sm${cls}`)
+      : "";
+  // An account's lead: its name as the toggle of its details, and from
+  // 900px down its badge after it (the badge's own place is the lead of
+  // the account's second line).
+  const lead = (a: AccountView, path: string, toggle: string): string =>
+    `<span class="lead">${toggle}${badge(a, path, " at-narrow")}</span>`;
+  // A row with nothing to measure: the account and why, from the name to
+  // the when column.
+  const bare = (path: string, head: string, words: string): string =>
+    `<div class="entry first bare" data-path="${path}">${head}${slot(`${path}.reading`, words, "name quiet")}</div>`;
+  const nothing = (a: AccountView): string =>
+    a.status === "loading" ? "Reading…" : "No current reading";
+
+  // A subscription: a row per window, the account's name on the first. The
+  // share in the band's role, the wide meter with its pace tick, "above
+  // pace" in warn, the time to the reset with its date as the tooltip; a
+  // passed reset dims its row, with no band and no note.
+  const subscriptionRows = (
+    a: AccountView,
+    path: string,
+    leadOf: (row: number) => string,
+  ): string[] => {
+    const r = a.reading;
+    const current = windowsOf(r);
+    if (!current.length)
+      return [
+        bare(
+          path,
+          leadOf(0),
+          r?.allowance === "unavailable"
+            ? "Current limits are unavailable"
+            : r
+              ? "No quota windows reported"
+              : nothing(a),
+        ),
+      ];
+    return current.map((w, k) => {
+      const wp = `${path}.reading.windows[${k}]`;
+      const over = passed(w, at);
+      const used = Math.max(0, w.usedPercent);
+      const tone = over ? "" : band(used);
+      const p = pace(w, at);
+      const when = w.resetsAt
+        ? slot(
+            `left(${wp}.resetsAt, at)`,
+            over ? "reset passed" : `resets in ${span(until(w.resetsAt))}`,
+            "when",
+            "span",
+            dated(w.resetsAt, "resets "),
+          )
+        : slot(`${wp}.resetsAt`, DASH, "when");
+      return entry(
+        [
+          leadOf(k),
+          slot(
+            `${wp}.label`,
+            esc(windowName(w.label)),
+            "name",
+            "span",
+            ` title="${esc(w.label)}"`,
+          ),
+          slot(`${wp}.usedPercent`, `${Math.round(used)}%`, "figure"),
+          meter({
+            share: over ? null : used,
+            tone,
+            wide: true,
+            path: `${wp}.usedPercent, pace(${wp}, at)`,
+            pace: p?.elapsed ?? null,
+            ...(p
+              ? { title: `${Math.round(p.elapsed)}% of the window has passed` }
+              : {}),
+          }),
+          p?.ahead ? slot(`pace(${wp}, at)`, "above pace", "note ahead") : "",
+          when,
+        ],
+        wp,
+        `${k ? "" : " first"}${over ? " passed" : ""}${tone ? ` ${tone}` : ""}`,
+      );
+    });
+  };
+
+  // A balance: its balance leading, a row per currency the provider
+  // reports, neutral; words in place of an amount ("No management key")
+  // span the row with the reading's notice as their tooltip. Then the key's
+  // row: what is left, a neutral meter of its allowance used, and "of" its
+  // limit.
+  const balanceRows = (
+    a: AccountView,
+    path: string,
+    leadOf: (row: number) => string,
+  ): string[] => {
+    const r = a.reading;
+    if (!r) return [bare(path, leadOf(0), nothing(a))];
+    if (r.allowance === "unavailable")
+      return [bare(path, leadOf(0), "Current limits are unavailable")];
+    const find = (label: string): { k: number; m: Metric } | null => {
+      const k = r.metrics.findIndex((m) => m.label === label);
+      const m = r.metrics[k];
+      return m ? { k, m } : null;
+    };
+    const leading = r.metrics.flatMap((m, k) =>
+      LEADING.includes(m.label) ? [{ k, m }] : [],
+    );
+    const rows = leading.length
+      ? leading.map(({ k, m }, j) => {
+          const mp = `${path}.reading.metrics[${k}]`;
+          const name = slot(`${mp}.label`, "balance", "name");
+          return typeof m.value === "string"
+            ? `<div class="entry${j ? "" : " first"}" data-path="${mp}">${leadOf(j) || '<span class="lead"></span>'}${name}${slot(`${mp}.value`, esc(m.value), "words", "span", ` title="${esc(r.notice ?? m.value)}"`)}</div>`
+            : entry(
+                [
+                  leadOf(j),
+                  name,
+                  slot(`${mp}.value`, esc(amount(m.value, m.unit)), "figure"),
+                  "",
+                  "",
+                  "",
+                ],
+                mp,
+                j ? "" : " first",
+              );
+        })
+      : [
+          entry(
+            [
+              leadOf(0),
+              slot(`${path}.reading.metrics`, "balance", "name"),
+              slot(`${path}.reading.metrics`, DASH, "figure"),
+              "",
+              "",
+              "",
+            ],
+            path,
+            " first",
+          ),
+        ];
+    const remaining = find(LABEL.keyRemaining);
+    const limit = find(LABEL.keyLimit);
+    const k = r.windows.findIndex((w) => w.label === LABEL.keyAllowance);
+    const w = r.windows[k];
+    if (remaining || w) {
+      const rp = remaining
+        ? `${path}.reading.metrics[${remaining.k}]`
+        : `${path}.reading.metrics`;
+      const wp = w ? `${path}.reading.windows[${k}]` : rp;
+      rows.push(
+        entry(
+          [
+            leadOf(rows.length),
+            slot(`${rp}.label`, "key left", "name"),
+            remaining
+              ? slot(
+                  `${rp}.value`,
+                  esc(amount(remaining.m.value, remaining.m.unit)),
+                  "figure",
+                )
+              : slot(`${rp}.value`, DASH, "figure"),
+            w
+              ? meter({
+                  share: Math.max(0, w.usedPercent),
+                  wide: true,
+                  path: `${wp}.usedPercent`,
+                  title: `${Math.round(Math.max(0, w.usedPercent))}% of the key allowance used`,
+                })
+              : "",
+            "",
+            limit
+              ? slot(
+                  `${path}.reading.metrics[${limit.k}].value`,
+                  `of ${esc(amount(limit.m.value, limit.m.unit))}`,
+                  "when quiet",
+                )
+              : "",
+          ],
+          wp,
+        ),
+      );
+    }
+    return rows;
+  };
+
+  // A provider's table. A day-keyed one lists every calendar day from its
+  // newest to its oldest, newest first: the latest fourteen, the rest
+  // behind "all n days", a missing day as a gap row (a gap, not a zero);
+  // with exactly one numeric column, a bar after it, scaled to that
+  // column's largest value among the days shown.
+  const dataTable = (path: string, t: DataTable, key: string): string => {
+    const columns = t.columns.map((c) => ({
+      label: c.label,
+      kind: c.format ? COLUMN_KIND[c.format] : ("text" as const),
+    }));
+    const cellsOf = (r: DataTable["rows"][number]): (string | null)[] =>
+      t.columns.map((c) => {
+        const value = r[c.key];
+        return value === null || value === undefined
+          ? null
+          : amount(value, c.format === "USD" ? "USD" : null);
+      });
+    const date = t.columns.find((c) => c.format === "date");
+    const numbers = t.columns.filter(
+      (c) => c.format === "number" || c.format === "USD",
+    );
+    const byDay = new Map<string, DataTable["rows"]>();
+    for (const r of t.rows) {
+      const day = date ? String(r[date.key]) : "";
+      byDay.set(day, [...(byDay.get(day) ?? []), r]);
+    }
+    const dayMs = [...byDay.keys()].map((day) => Date.parse(`${day}T00:00Z`));
+    if (!date || !t.rows.length || dayMs.some(Number.isNaN))
+      return table({
+        path,
+        title: t.title,
+        columns,
+        rows: t.rows.map((r) => ({ cells: cellsOf(r) })),
+      });
+    const newest = Math.max(...dayMs);
+    const days: string[] = [];
+    for (let ms = newest; ms >= Math.min(...dayMs); ms -= 86_400_000)
+      days.push(new Date(ms).toISOString().slice(0, 10));
+    const bars = numbers.length === 1 ? numbers[0] : undefined;
+    const valueOf = (r: DataTable["rows"][number]): number => {
+      const v = bars ? r[bars.key] : 0;
+      return typeof v === "number" ? v : 0;
+    };
+    const shownDays = days.slice(0, DAYS_SHOWN);
+    const top = Math.max(
+      0,
+      ...shownDays.flatMap((day) => (byDay.get(day) ?? []).map(valueOf)),
+    );
+    const rowsOf = (list: string[]): Row[] =>
+      list.flatMap((day): Row[] => {
+        const found = byDay.get(day);
+        if (!found)
+          return [
+            {
+              cells: t.columns.map((c) => (c === date ? day : null)),
+              gap: true,
+            },
+          ];
+        return found.map((r) => ({
+          cells: cellsOf(r),
+          ...(bars ? { bar: top ? (100 * valueOf(r)) / top : 0 } : {}),
+        }));
+      });
+    return table({
+      path,
+      title: t.title,
+      columns,
+      rows: rowsOf(shownDays),
+      bars: bars !== undefined,
+      more: {
+        key,
+        words: `all ${days.length} days`,
+        rows: rowsOf(days.slice(DAYS_SHOWN)),
+      },
+    });
+  };
+
+  // An account's details, under its rows at the name column: its other
+  // figures as pairs, the reading's notice, the provider's usage page, then
+  // each history with its date, pairs, tables and notice.
+  const metricPairs = (items: { path: string; m: Metric }[]): string =>
+    pairs(
+      items.map(({ path, m }) => ({
+        path,
+        label: m.label,
+        value: amount(m.value, m.unit),
+      })),
+    );
+  const details = (a: AccountView, path: string, skip: string[]): string => {
+    const r = a.reading;
+    const metrics = (r?.metrics ?? []).flatMap((m, k) =>
+      skip.includes(m.label)
+        ? []
+        : [{ path: `${path}.reading.metrics[${k}]`, m }],
+    );
+    const histories = (r?.details ?? []).map((d, k) => {
+      const dp = `${path}.reading.details[${k}]`;
+      const meta =
+        (d.throughDate
+          ? slot(`${dp}.throughDate`, `through ${esc(d.throughDate)}`, "n")
+          : "") +
+        (d.status === "stale"
+          ? slot(
+              `age(${dp}.observedAt, at)`,
+              `last reading ${age(d.observedAt, at)} ago`,
+              "n",
+              "span",
+              dated(d.observedAt),
+            ) + slot(`${dp}.status`, "stale", "badge sm")
+          : "");
+      return `<section class="dt" data-path="${dp}"><h4>${slot(`${dp}.title`, esc(d.title))}${meta}</h4>${metricPairs(d.metrics.map((m, j) => ({ path: `${dp}.metrics[${j}]`, m })))}${d.tables.map((t, j) => dataTable(`${dp}.tables[${j}]`, t, `usage ${a.id} ${d.title} ${t.title}`)).join("")}${d.notice ? slot(`${dp}.notice`, esc(d.notice), "hint", "p") : ""}</section>`;
+    });
+    return `${metricPairs(metrics)}${r?.notice ? slot(`${path}.reading.notice`, esc(r.notice), "hint", "p") : ""}<p><a href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" data-path="${path}.url">usage page ↗</a></p>${histories.join("")}`;
+  };
+
+  // An account: its rows, then while it is stale or unavailable its badge
+  // and status line (the reading's or the check's age, then the error),
+  // then its details. The badge takes the lead of the account's second row,
+  // so every row keeps its height; an account of one row puts it in the
+  // status line's lead.
+  const account = (a: AccountView, i: number): string => {
+    const path = `usage.accounts[${i}]`;
+    const more = disclosure({
+      key: `usage ${a.id}`,
+      id: `usage-more-${a.id}`,
+      path: `${path}.name`,
+      label: a.name,
+      title: `${a.name} · details`,
+      blockPath: path,
+      body: details(
+        a,
+        path,
+        a.kind === "subscription" ? [] : [...LEADING, ...BESIDE],
+      ),
+    });
+    // The first row leads with the toggle, the second with the badge.
+    const badgeHtml = badge(a, path);
+    const leadOf = (row: number): string =>
+      row === 0
+        ? lead(a, path, more.toggle)
+        : row === 1 && badgeHtml
+          ? `<span class="lead badge-lead">${badgeHtml}</span>`
+          : "";
+    const rows =
+      a.kind === "subscription"
+        ? subscriptionRows(a, path, leadOf)
+        : balanceRows(a, path, leadOf);
+    const old = ageOf(a, path);
+    const bits = [
+      ...(old
+        ? [
+            `${old.words} ${slot(old.path, age(old.at, at), "mono", "span", dated(old.at))} ago`,
+          ]
+        : []),
+      ...(a.error && a.status !== "ready"
+        ? [slot(`${path}.error`, esc(a.error))]
+        : []),
+    ];
+    const unplaced = rows.length > 1 ? "" : badgeHtml;
+    const status =
+      bits.length || unplaced
+        ? `<div class="status"><span class="lead badge-lead">${unplaced}</span><p>${bits.join(" · ")}</p></div>`
+        : "";
+    return `<div class="account ${esc(a.status)}" data-path="${path}" data-account="${esc(a.id)}">${rows.join("")}${status}${more.block}</div>`;
+  };
+
+  // The pop-up: a top line with the store's freshness and the close button,
+  // then Subscriptions and Balances with their counts. It sits after the
+  // board (from 900px down it is the page), and the script places it beside
+  // the rail and keeps it open across refreshes.
+  const usagePopup = (u: UsageView): string => {
+    const groups = (
+      [
+        ["subscription", "Subscriptions"],
+        ["api", "Balances"],
+      ] as const
+    ).flatMap(([kind, title]) => {
+      const mine = u.accounts.flatMap((a, i) =>
+        a.kind === kind ? [account(a, i)] : [],
+      );
+      return mine.length
+        ? [
+            `<h3 class="group-h"><span class="kicker">${title}</span>${slot(`count(usage.accounts[].kind=${kind})`, String(mine.length), "n")}</h3><div class="ledger">${mine.join("")}</div>`,
+          ]
+        : [];
+    });
+    const fresh = u.at
+      ? `read ${time(u.at)} · every ${u.every % 60 ? `${u.every}s` : span(u.every * 1000)}`
+      : "not read yet";
+    const tip = `${u.at ? `usage read ${stamp(u.at)}` : "usage not read yet"} · every ${u.every}s`;
+    return `<aside class="usage" id="usage" role="dialog" aria-label="Usage" data-path="usage"${usageOpen ? "" : " hidden"}>
+  <div class="top"><span class="kicker">Usage</span>${slot("time(usage.at), usage.every", fresh, "fresh", "span", ` title="${esc(tip)}"`)}<span class="spacer"></span><kbd class="k">u</kbd><a class="close" href="${usageClose}" role="button" aria-label="Close" title="Close (u, esc)">×</a></div>
+  <div class="body">
+${groups.join("\n")}
+  </div>
+</aside>`;
+  };
 
   // ---- Agents ----
 
@@ -1000,11 +1590,25 @@ ${body}
     if (!c)
       return section("Checkout", slot(cp, "checkout not read", "none", "p"));
     const rows: [string, string][] = [
-      ["project", slot(`${cp}.project`, esc(c.project))],
+      [
+        "project",
+        slot(
+          `${cp}.project`,
+          esc(c.project),
+          "",
+          "span",
+          ` title="${esc(c.project)}"`,
+        ),
+      ],
       [
         "workspace",
-        slot(`${cp}.workspace`, esc(c.workspace)) +
-          slot(`${cp}.kind`, esc(label(c.kind)), "muted"),
+        slot(
+          `${cp}.workspace`,
+          esc(c.workspace),
+          "",
+          "span",
+          ` title="${esc(c.workspace)}"`,
+        ) + slot(`${cp}.kind`, esc(label(c.kind)), "muted"),
       ],
       [
         "directory",
@@ -1018,7 +1622,13 @@ ${body}
       ],
     ];
     let branch = c.branch
-      ? slot(`${cp}.branch`, esc(c.branch), "mono")
+      ? slot(
+          `${cp}.branch`,
+          esc(c.branch),
+          "mono",
+          "span",
+          ` title="${esc(c.branch)}"`,
+        )
       : slot(`${cp}.branch`, "detached", "muted");
     // v0.12: the remote as owner/repo, the whole value as its title.
     if (c.remote)
@@ -1162,7 +1772,13 @@ ${body}
       const cls = `item${now ? " now" : ""}${it.kind === "error" ? " error" : QUIET.includes(it.kind) ? " quiet" : ""}`;
       let what = "";
       if (call) {
-        what += slot(`${ip}.tool`, esc(it.tool ?? "tool"), "tool");
+        what += slot(
+          `${ip}.tool`,
+          esc(it.tool ?? "tool"),
+          "tool",
+          "span",
+          ` title="${esc(it.tool ?? "tool")}"`,
+        );
         if (it.status)
           what += slot(
             `${ip}.status`,
@@ -1214,13 +1830,14 @@ ${activitySection(ap, a)}
     const asks = dot === "ask";
     const levers = leversOf(p, path);
     // The name opens the placement's health sheet, as s does on the
-    // focused card (v0.11).
+    // focused card (v0.11); its title names it whole, as the name
+    // ellipsizes from 1180px down (v0.13).
     const name = slot(
       `${path}.key`,
       esc(p.key),
       "key",
       "span",
-      ' role="button" aria-haspopup="dialog" title="Open the sheet (s)"',
+      ` role="button" aria-haspopup="dialog" title="${esc(p.key)} · open the sheet (s)"`,
     );
     // v0.12: "seen" belongs to a card with a delivery; a card without one
     // shows the status line alone.
@@ -1320,8 +1937,9 @@ ${tele(line, "", levers)}`,
     );
   };
 
-  // The rail: the cards in state order, then the router log, collapsed to
-  // its kicker line and newest line; l opens the whole block (v0.12).
+  // The rail: the cards in state order, then the Usage section (v0.13),
+  // then the router log, collapsed to its kicker line and newest line; r
+  // opens the whole block (v0.12, l until v0.13).
   const agents = `<aside class="panel agents" aria-label="Agents" data-part="agents">
   <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}</h2>
   <div class="scroll"><div class="cards">
@@ -1331,7 +1949,7 @@ ${model.placements
   .map(([p, i]) => card(p, i))
   .join("\n")}
   </div></div>
-  <div class="foot open"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)} · <kbd class="k">l</kbd></div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
+${usageRail}  <div class="foot open"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)} · <kbd class="k">r</kbd></div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
 </aside>`;
 
   // ---- Tasks ----
@@ -1456,7 +2074,13 @@ ${model.placements
     // never is, since a principal may not share a participant's id).
     const from =
       t.via !== null && t.final === null
-        ? slot(`${path}.via`, `from ${esc(t.via)}`, "to")
+        ? slot(
+            `${path}.via`,
+            `from ${esc(t.via)}`,
+            "to",
+            "span",
+            ` title="from ${esc(t.via)}"`,
+          )
         : "";
     // Work that waits too long ends the line, in the warning role (v0.12).
     const late = staleTask(t, at, times);
@@ -1464,7 +2088,7 @@ ${model.placements
       <span class="dot ${dot}" data-path="${path}.status"></span>
       <div class="line1">${slot(`${path}.id`, esc(t.id), "id", "a", ` href="${href(t.id)}"`)}${slot(`${path}.text`, esc(t.text), "excerpt")}</div>
       ${ago(`age(times[${path}.messageId], at)`, times[t.messageId], "age num")}
-      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span>${from}${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to")}${late ? slot(`stale_task(${path}, at)`, esc(late), "stale role-warn num") : ""}</div>${peek(t, path)}
+      <div class="line2">${slot(`${path}.status`, esc(label(t.status)), "state")}<span class="sub">${waitsOn}${sub(path, t)}</span><span class="route">${from}${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : "no recipient", "to", "span", t.recipient ? ` title="${esc(t.recipient)}"` : "")}${late ? slot(`stale_task(${path}, at)`, esc(late), "stale role-warn num") : ""}</span></div>${peek(t, path)}
     </div>`;
   };
 
@@ -1738,12 +2362,14 @@ ${forms}
             times[d.latest.messageId],
           )
         : DASH;
-      return `<tr data-path="${dp}"><td>${slot(`${dp}.id`, esc(d.id), "mono")}</td><td>${slot(`${dp}.placement`, esc(d.placement), "mono")}</td><td>${slot(`${dp}.send`, `${esc(d.send.kind)} ${esc(d.send.messageId)} · ${esc(d.send.outcome)}`, "mono")}</td><td>${state}</td><td>${last}</td><td>${slot(`${dp}.session`, d.session ? esc(shortId(d.session)) : DASH, "mono", "span", d.session ? fullId(d.session) : "")}</td></tr>`;
+      // v0.13: the send in three slots, its message id through short().
+      const send = `${slot(`${dp}.send.kind`, esc(d.send.kind))} ${shortSlot(`${dp}.send.messageId`, d.send.messageId)} · ${slot(`${dp}.send.outcome`, esc(d.send.outcome))}`;
+      return `<tr data-path="${dp}"><td class="key">${slot(`${dp}.id`, esc(d.id), "mono")}</td><td class="key">${slot(`${dp}.placement`, esc(d.placement), "mono")}</td><td data-label="Send"><span class="mono">${send}</span></td><td class="key">${state}</td><td data-label="Last reply">${last}</td><td data-label="Session">${slot(`${dp}.session`, d.session ? esc(shortId(d.session)) : DASH, "mono", "span", d.session ? fullId(d.session) : "")}</td></tr>`;
     });
     // What a participant sender was told at the placement it sent from.
     const notices = t.notices.map((n, ni) => {
       const np = `${path}.notices[${ni}]`;
-      return `<tr data-path="${np}"><td>${slot(`${np}.key`, esc(n.key), "mono")}</td><td>${slot(`${np}.kind`, esc(n.kind))}</td><td>${slot(`${np}.session`, n.session ? esc(shortId(n.session)) : DASH, "mono", "span", n.session ? fullId(n.session) : "")}</td><td>${slot(`${np}.outcome`, esc(n.outcome), `outcome ${esc(n.outcome)}`)}</td></tr>`;
+      return `<tr data-path="${np}"><td class="key">${slot(`${np}.key`, esc(n.key), "mono")}</td><td data-label="Kind">${slot(`${np}.kind`, esc(n.kind))}</td><td data-label="Session">${slot(`${np}.session`, n.session ? esc(shortId(n.session)) : DASH, "mono", "span", n.session ? fullId(n.session) : "")}</td><td class="key">${slot(`${np}.outcome`, esc(n.outcome), `outcome ${esc(n.outcome)}`)}</td></tr>`;
     });
     const judgments = t.judgments.map((j, ji) => {
       const jp = `${path}.judgments[${ji}]`;
@@ -1752,7 +2378,7 @@ ${forms}
           .sort((a, b) => b[1] - a[1])
           .map(([id, p]) => `${esc(id)} ${p.toFixed(2)}`)
           .join(", ") || DASH;
-      return `<tr data-path="${jp}"><td>${slot(`${jp}.choice`, esc(j.choice), "mono")}</td><td>${slot(`${jp}.probabilities`, table, "mono")}</td><td>${slot(`${jp}.model`, esc(j.model ?? DASH), "mono")}</td><td>${slot(`${jp}.valid`, j.valid ? "valid" : "invalid")}</td><td>${slot(`${jp}.threshold`, j.threshold.toFixed(2), "num")}</td></tr>`;
+      return `<tr data-path="${jp}"><td class="key">${slot(`${jp}.choice`, esc(j.choice), "mono")}</td><td data-label="Probabilities">${slot(`${jp}.probabilities`, table, "mono")}</td><td data-label="Model">${slot(`${jp}.model`, esc(j.model ?? DASH), "mono")}</td><td class="key">${slot(`${jp}.valid`, j.valid ? "valid" : "invalid")}</td><td data-label="Threshold">${slot(`${jp}.threshold`, j.threshold.toFixed(2), "num")}</td></tr>`;
     });
     const log = t.log
       .map((e) => `${String(e.n).padStart(3)} ${e.actor}: ${e.text}`)
@@ -1771,19 +2397,19 @@ ${forms}
 ${
   deliveries.length
     ? `    <div><h3 class="kicker">Deliveries</h3>
-      <table><tr><th>Delivery</th><th>Placement</th><th>Send</th><th>State</th><th>Last reply</th><th>Session</th></tr>${deliveries.join("")}</table></div>`
+      <table class="rec"><tr><th>Delivery</th><th>Placement</th><th>Send</th><th>State</th><th>Last reply</th><th>Session</th></tr>${deliveries.join("")}</table></div>`
     : `    <div class="hint" data-path="${path}.deliveries">No delivery yet.</div>`
 }
 ${
   t.via === null || !notices.length
     ? ""
     : `    <div><h3 class="kicker">Notices to ${slot(`${path}.via`, esc(t.via), "mono")}</h3>
-      <table><tr><th>Notice</th><th>Kind</th><th>Session</th><th>Outcome</th></tr>${notices.join("")}</table></div>`
+      <table class="rec"><tr><th>Notice</th><th>Kind</th><th>Session</th><th>Outcome</th></tr>${notices.join("")}</table></div>`
 }
 ${
   judgments.length
     ? `    <div><h3 class="kicker">Jev</h3>
-      <table><tr><th>Choice</th><th>Probabilities</th><th>Model</th><th></th><th>Threshold</th></tr>${judgments.join("")}</table></div>`
+      <table class="rec"><tr><th>Choice</th><th>Probabilities</th><th>Model</th><th></th><th>Threshold</th></tr>${judgments.join("")}</table></div>`
     : ""
 }
     <div class="code" data-path="${path}.log"><div class="top"><span>log · ${esc(t.id)} · ${count(t.log.length, "line")}</span></div><pre>${esc(log)}</pre></div>
@@ -1796,26 +2422,65 @@ ${
     ? `<div class="notice" role="status"><span>${esc(options.notice)}</span><a href="./${selected ? href(selected) : ""}">Dismiss</a></div>`
     : "";
 
-  return frame({
-    theme: themeOf(options.theme),
-    refreshSeconds,
-    title: "Router",
-    comment: `<!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
-     what it reads, as in the board design v0.12: a plain path indexes the
+  // The help and the key line (v0.13). u and the pop-up's keys are there
+  // while the model carries usage; the footer's r and ? take a tap, for a
+  // screen without a keyboard.
+  const helpKeys: [string, string][] = HELP_KEYS.flatMap(
+    ([key, does]): [string, string][] =>
+      key !== "u"
+        ? [[key, does]]
+        : !usage
+          ? []
+          : [
+              [
+                key,
+                subscriptions.length
+                  ? `${does}, or click an account under the agents`
+                  : does,
+              ],
+            ],
+  );
+  const keyRows = (keys: [string, string][]): string =>
+    keys
+      .map(([key, does]) => `<kbd>${esc(key)}</kbd><span>${esc(does)}</span>`)
+      .join("");
+  const theme = themeOf(options.theme);
+
+  return `<!doctype html>
+<html lang="en" data-theme="${theme}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Router</title>
+<style>${STYLE}</style>
+</head>
+<body>
+<!-- Rendered from the ${esc(model.version)} view model. Every slot's data-path names
+     what it reads, as in the board design v0.13: a plain path indexes the
      model, and time(), hms(), age(), left(), count(), percent(), diff(),
-     counts() and repo() are formats over it; stale() and stale_task() name
-     work that waits too long. -->`,
-    notice,
-    head: nav,
-    main: `<main class="bento">
+     counts(), repo() and pace() are formats over it; stale() and
+     stale_task() name work that waits too long. -->
+${notice}
+<div id="app" data-refresh="${refreshSeconds}">
+${nav}
+<main class="bento">
 ${agents}
 ${tasksPanel}
 ${detail()}
 ${model.placements.map((p, i) => sheetOf(p, i)).join("\n")}
-</main>`,
-    keys: `<span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>space</kbd> peek</span><span><kbd>↵</kbd> open</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>h</kbd> hold</span><span><kbd>l</kbd> log</span><span><kbd>/</kbd> filter</span><span><kbd>?</kbd> keys</span>`,
-    help: HELP_KEYS,
-  });
+</main>
+<footer class="keys">
+  <span><kbd>↑↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>space</kbd> peek</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>p</kbd> hold</span><span data-key="r" role="button"><kbd>r</kbd> log</span>${usage ? "<span><kbd>u</kbd> usage</span>" : ""}<span><kbd>/</kbd> filter</span><span data-key="?" role="button"><kbd>?</kbd> keys</span>
+  <span class="spacer"></span>
+  <span>refreshes every ${refreshSeconds}s</span>
+</footer>
+</div>
+${usage ? `${usagePopup(usage)}\n` : ""}<div class="help" role="dialog" aria-label="Keys" hidden>
+  <div class="top"><span class="kicker">Keys</span><span class="spacer"></span><kbd class="k">?</kbd></div>
+  <div class="grid">${keyRows(helpKeys)}${usage ? `<span class="sub kicker">In usage</span>${keyRows(HELP_USAGE_KEYS)}` : ""}</div>
+  <div class="theme"><span>theme</span><span class="themes" role="group" aria-label="Theme">${THEMES.map((name) => `<button type="button" data-theme="${name}"${name === theme ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"'}>${THEME_NAMES[name]}</button>`).join("")}</span></div>
+</div>
+<script>${SCRIPT}</script>
+</body></html>
+`;
 }
 
 // ---- CSS: the generator's, then what the live page adds ----
@@ -1832,9 +2497,9 @@ const STYLE = `
 :root, html[data-theme="flexoki"] {
   --canvas: #100F0F; --surface: #1C1B1A; --surface-2: #282726; --text: #CECDC3; --text-2: #878580; --text-3: #575653;
   --hair: #282726; --hair-soft: #1F1E1D; --hair-strong: #403E3C;
-  --ok: #879A39; --warn: #DA702C; --err: #D14D41;
   --wash: rgba(206,205,195,.05); --press: rgba(206,205,195,.10);
   --accent: #4385BE; --accent-soft: rgba(67,133,190,.16); --accent-line: rgba(67,133,190,.4); --on-accent: #FFFCF0;
+  --ok: #879A39; --warn: #DA702C; --err: #D14D41;
   --shadow: rgba(0,0,0,.45);
 }
 /* Flexoki light: bg paper, bg-2 base-50, ui base-100/150/200, tx black/base-600/base-300, accent blue-600; roles green/orange/red-600. */
@@ -1842,9 +2507,9 @@ const STYLE = `
   html[data-theme="flexoki"] {
     --canvas: #FFFCF0; --surface: #F2F0E5; --surface-2: #E6E4D9; --text: #100F0F; --text-2: #6F6E69; --text-3: #B7B5AC;
     --hair: #E6E4D9; --hair-soft: #ECEAE0; --hair-strong: #CECDC3;
-    --ok: #66800B; --warn: #BC5215; --err: #AF3029;
     --wash: rgba(16,15,15,.04); --press: rgba(16,15,15,.08);
     --accent: #205EA6; --accent-soft: rgba(32,94,166,.10); --accent-line: rgba(32,94,166,.35); --on-accent: #FFFCF0;
+    --ok: #66800B; --warn: #BC5215; --err: #AF3029;
     --shadow: rgba(16,15,15,.18);
   }
 }
@@ -1852,9 +2517,9 @@ const STYLE = `
 html[data-theme="one-dark"] {
   --canvas: #282C33; --surface: #2F343E; --surface-2: #363C46; --text: #DCE0E5; --text-2: #A9AFBC; --text-3: #878A98;
   --hair: #363C46; --hair-soft: #30353F; --hair-strong: #464B57;
-  --ok: #A1C181; --warn: #DEC184; --err: #D07277;
   --wash: rgba(220,224,229,.05); --press: #454A56;
   --accent: #74ADE8; --accent-soft: rgba(116,173,232,.14); --accent-line: rgba(116,173,232,.4); --on-accent: #282C33;
+  --ok: #A1C181; --warn: #DEC184; --err: #D07277;
   --shadow: rgba(0,0,0,.45);
 }
 @media (prefers-reduced-motion: reduce) { * { transition-duration: 0ms !important; animation: none !important; } }
@@ -1872,17 +2537,38 @@ h1, h2, h3, p { margin: 0; }
 .id { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-2); }
 
 /* Frame: nav, bento, key line; the bento fills what is left and its panels scroll inside. */
-#app { position: relative; height: 100vh; display: grid; grid-template-rows: 52px 1fr 40px; }
+#app { position: relative; height: 100vh; display: grid; grid-template-rows: 52px 1fr 40px; grid-template-columns: minmax(0, 1fr); }
 /* min-width: 0, so the page's grid lets the nav be narrower than its
    children's full text and .who truncates instead of widening the page. */
 .nav { display: flex; align-items: center; gap: 14px; padding: 0 20px; min-width: 0; background: var(--canvas); border-bottom: 1px solid var(--hair); }
 .nav .brand { font-weight: 500; font-size: 17px; letter-spacing: -.2px; }
 .nav .who { flex: 0 1 auto; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-small); color: var(--text-3); }
 .nav .counts { display: flex; gap: 6px; margin-left: 4px; }
-.nav .counts span { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; padding: 4px 10px; border-radius: 100px; border: 1px solid var(--hair); color: var(--text-2); white-space: nowrap; }
-.nav .counts span b { font-weight: 500; color: var(--text); margin-right: 4px; }
+.nav .br { display: none; }
+.nav .counts > span { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; padding: 4px 10px; border-radius: 100px; border: 1px solid var(--hair); color: var(--text-2); white-space: nowrap; }
+.nav .counts > span b { font-weight: 500; color: var(--text); margin-right: 4px; }
 .nav .counts .attn { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 .nav .counts .attn b { color: var(--accent); }
+/* The rail's Usage section (v0.13): pinned under the cards, above the router log; one two-line row per subscription
+   account, from the card's parts. Colour per figure only; a stale row dims; a passed window keeps its track only. */
+.agents .usage-rail { flex: none; border-top: 1px solid var(--hair); padding-top: 4px; }
+.accts { display: grid; gap: 2px; padding: 0 10px 8px; }
+.acct { display: grid; gap: 5px; width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background var(--t-fast) var(--std); }
+.acct:hover { background: var(--wash); }
+.acct .l1 { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs); }
+.acct .mark { width: 12px; height: 12px; flex: 0 0 12px; color: var(--text); }
+.acct .nm { font-weight: 500; letter-spacing: -.1px; white-space: nowrap; }
+.acct .st { font-size: var(--fs-small); color: var(--text-3); white-space: nowrap; }
+.acct .st.off { color: var(--text-2); }
+.acct .rs { margin-left: auto; font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.acct .l2 { display: flex; gap: 14px; min-width: 0; padding-left: 20px; }
+.acct .win { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.acct .win .w { flex: none; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.acct .win .meter { flex: 1 1 auto; min-width: 0; font-variant-numeric: tabular-nums; }
+.acct .win .meter .bar { flex: 1 1 auto; width: auto; min-width: 20px; }
+.acct .win.dim .meter { color: var(--text-3); }
+.acct .none { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.acct.stale > * { opacity: .55; }
 .nav .spacer, .row .spacer, .col-h .spacer, .keys .spacer { flex: 1; }
 .nav .tick { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; cursor: help; }
 .nav nav { display: flex; gap: 4px; align-items: center; }
@@ -1895,6 +2581,7 @@ h1, h2, h3, p { margin: 0; }
 .themes button.on { background: var(--press); color: var(--text); }
 
 .bento { min-height: 0; width: 100%; max-width: 1600px; margin: 0 auto; padding: 10px 12px; display: grid; grid-template-columns: 3fr 4fr 5fr; gap: 10px; }
+.bento > .agents { grid-area: 1 / 1; } .bento > .tasks { grid-area: 1 / 2; } .bento > .detail { grid-area: 1 / 3; }
 .panel { position: relative; min-height: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--hair); border-radius: 12px; display: flex; flex-direction: column; }
 .scroll { min-height: 0; overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
 .kicker { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .6px; text-transform: uppercase; color: var(--text-3); }
@@ -1955,74 +2642,12 @@ h1, h2, h3, p { margin: 0; }
 .card .name .meter + .age { margin-left: 0; }
 .card .tele { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
 .card.idle .tele { grid-column: 1 / -1; }
-.card .tele .line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A status line too long to share the row with the levers keeps the row; the levers wrap under it, right-aligned. */
+.card .tele .line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .tele .lever { margin-left: auto; }
 .card .tele .ask { color: var(--accent); font-weight: 500; }
 .card .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
 .card .tele .seen, .card .tele .k { color: var(--text-3); }
-/* The sheet (v0.11): one placement's health, laid over the tasks column from the rail's right edge; the
-   detail stays whole and nothing dims. Positioned in the tasks panel's grid area, it spans the board's full
-   height and takes the column's width (at most 560px), so it never cuts into the detail. */
-.bento { position: relative; }
-.bento > .sheet { grid-area: 1 / 2 / 2 / 3; position: absolute; inset: 0 auto 0 0; z-index: 50; width: 100%; max-width: 560px; background: var(--surface); border: 1px solid var(--hair-strong); border-radius: 12px; box-shadow: 0 24px 48px var(--shadow); display: flex; flex-direction: column; overflow: hidden; animation: slide var(--t-mid) var(--emph) both; }
-.bento > .sheet[hidden] { display: none; }
-@keyframes slide { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
-.sheet .head { padding: 14px 18px 12px; border-bottom: 1px solid var(--hair); display: grid; gap: 6px; }
-.sheet .head .name { display: flex; align-items: center; gap: 10px; }
-.sheet .head .name .dot { margin-top: 0; }
-.sheet .head h2 { margin: 0; flex: 1; min-width: 0; font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
-.sheet .close { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--text-3); font-size: 18px; line-height: 1; cursor: pointer; transition: background var(--t-fast) var(--std), color var(--t-fast) var(--std); }
-.sheet .close:hover { background: var(--wash); color: var(--text); }
-.sheet .head .tele { display: flex; gap: 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
-.sheet .head .tele .line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sheet .head .tele .ask { color: var(--accent); font-weight: 500; }
-.sheet .head .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
-.sheet .head .tele .k, .sheet .head .tele .seen { color: var(--text-3); }
-.sheet .head .rig { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-.sheet .body { min-height: 0; overflow-y: auto; padding: 4px 18px 18px; display: grid; align-content: start; gap: 4px; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
-.sheet section { padding: 12px 0 8px; border-bottom: 1px solid var(--hair-soft); display: grid; gap: 6px; }
-.sheet section:last-child { border-bottom: 0; }
-.sheet section > h3 { margin: 0; display: flex; align-items: baseline; gap: 10px; }
-.sheet section > h3 .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-3); }
-.sheet p { margin: 0; }
-.sheet .none { font-size: var(--fs-small); color: var(--text-3); }
-.sheet .muted { color: var(--text-3); }
-/* Roles colour words, never fills. */
-.role-ok { color: var(--ok); }
-.role-warn { color: var(--warn); }
-.role-err { color: var(--err); }
-/* Checkout: label, value; the value is one line and ellipsizes. */
-.kv { display: grid; grid-template-columns: 84px 1fr; font-size: var(--fs-small); }
-.kv > dt, .kv > dd { margin: 0; padding: 5px 0; border-bottom: 1px solid var(--hair-soft); min-width: 0; }
-.kv > dt { color: var(--text-3); }
-.kv > dd { display: flex; gap: 8px; align-items: baseline; color: var(--text); overflow: hidden; white-space: nowrap; }
-.kv > dt:nth-last-of-type(1), .kv > dd:last-of-type { border-bottom: 0; }
-.kv > dd > * { flex: none; }
-.kv > dd > .path, .kv > dd > .pr, .kv > dd > .remote { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* Subagents: a tree one level deep; a child hangs under its parent from a hairline guide. */
-.counts-line { font-size: var(--fs-small); color: var(--text-2); }
-.subs { display: grid; gap: 2px; }
-.subs .kids { margin-left: 3px; padding-left: 16px; border-left: 1px solid var(--hair-strong); display: grid; gap: 2px; }
-.subagent { display: grid; grid-template-columns: 8px auto 1fr 84px 84px; column-gap: 10px; align-items: center; padding: 5px 0; font-size: var(--fs-small); }
-.subagent .dot { margin-top: 0; }
-.subagent .title { font-weight: 500; color: var(--text); white-space: nowrap; }
-.subagent .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
-.subagent .when { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; text-align: right; }
-/* Activity: the last eight, oldest first; a running tool is the current row, in the text colour with the pulse dot. */
-.feed { display: grid; }
-.feed .item { display: grid; grid-template-columns: 8px 70px 76px 1fr; column-gap: 10px; align-items: baseline; padding: 4px 0; font-size: var(--fs-small); color: var(--text); }
-.feed .item .mark { align-self: center; width: 6px; height: 6px; border-radius: 50%; }
-.feed .item .mark.work { width: 8px; height: 8px; background: var(--text); animation: pulse 2s var(--std) infinite; }
-.feed .item .at { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
-.feed .item .kind { color: var(--text-2); }
-.feed .item .what { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
-.feed .item .tool { font-weight: 500; white-space: nowrap; }
-.feed .item .status { white-space: nowrap; color: var(--text-2); }
-.feed .item .status.running { color: var(--text); }
-.feed .item .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
-.feed .item.error, .feed .item.error .kind, .feed .item.error .text { color: var(--err); }
-.feed .item.quiet, .feed .item.quiet .kind, .feed .item.quiet .text { color: var(--text-3); }
 .meter { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-2); }
 .meter .bar { width: 44px; height: 4px; border-radius: 2px; background: var(--hair-strong); overflow: hidden; }
 .meter .bar i { display: block; height: 100%; background: var(--text-2); }
@@ -2033,7 +2658,7 @@ h1, h2, h3, p { margin: 0; }
 .agents .foot { flex: none; padding: 10px 16px 12px; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: var(--fs-mono); line-height: 1.6; color: var(--text-3); display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
 .agents .foot .k { margin-left: 2px; }
 .agents .foot:not(.open) .tail > div:not(:last-child) { display: none; }
-/* Open (l): the cards take what they need; the log fills the rest, newest line at the bottom, at least four lines. */
+/* Open (r): the cards take what they need; the log fills the rest, newest line at the bottom, at least four lines. */
 .agents:has(.foot.open) .scroll { flex: 0 1 auto; }
 .agents .foot.open { flex: 1 1 0; min-height: calc(4 * 1.6 * var(--fs-mono) + 46px); /* four lines plus the heading line and padding */ }
 /* A line clipped at the top fades out instead of showing half its height. */
@@ -2061,23 +2686,26 @@ textarea::placeholder, .filter input::placeholder { color: var(--text-3); }
 .task .line1 { grid-column: 2; display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .task .line1 .excerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs); color: var(--text); }
 .task .age { grid-column: 3; grid-row: 1; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; }
-.task .line2 { grid-column: 2 / -1; display: flex; gap: 8px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); min-width: 0; margin-top: 1px; }
+.task .line2 { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); min-width: 0; margin-top: 1px; }
 .task .line2 .state { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; white-space: nowrap; color: var(--text-2); }
-.task .line2 .sub { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; }
+/* The line wraps rather than squeeze the sub below 8em: the route (the sender, the recipient, a late warning) moves
+   under it whole, still at the right, and a name too long for the line ends in an ellipsis, whole in its title. */
+.task .line2 .sub { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task .line2 .route { display: flex; gap: 0 8px; align-items: baseline; max-width: 100%; margin-left: auto; }
+.task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .task .line2 .to + .to::before, .task .line2 .to + .stale::before { content: "· "; }
 .task .line2 .to + .stale::before { color: var(--text-3); }
-.task .line2 .stale { white-space: nowrap; }
+.task .line2 .stale { white-space: nowrap; flex: none; }
 /* A notice never waits on the viewer: outcomes stay in the text colours, withdrawn muted. */
 td .outcome.withdrawn { color: var(--text-3); }
 .task.ask .state, .task.fail .state { color: var(--accent); }
 .task.done .excerpt { color: var(--text-2); }
 .task.done.canceled .state { color: var(--text-3); }
 
-/* Detail: head, the one form the viewer can act with, transcript, then the facts. */
+/* Detail: head, transcript, the one form the viewer can act with, then the facts. */
 .detail .head { padding: 14px 18px 12px; border-bottom: 1px solid var(--hair); }
 .detail .head .title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.detail .head h2 { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
+.detail .head h2 { flex: 1 1 0; min-width: 0; font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .detail .head h2 .id { color: var(--text-3); margin-right: 6px; }
 .detail .head .meta { margin-top: 4px; font-size: var(--fs-small); color: var(--text-2); }
 .detail .head .meta [title] { cursor: help; }
@@ -2126,15 +2754,241 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .peek .q { white-space: pre-wrap; font-size: var(--fs); color: var(--text); line-height: 1.5; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); border: 1px solid var(--accent-line); }
 /* The help: the keys in two columns, bottom right over the detail; the theme switch is its last row. */
 .help { position: fixed; z-index: 70; right: 24px; bottom: 52px; width: 320px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--hair-strong); box-shadow: 0 24px 48px var(--shadow); display: grid; gap: 8px; animation: rise var(--t-fast) var(--std) both; }
+.help[hidden] { display: none; }
 .help .top { display: flex; align-items: center; }
 .help .top .spacer { flex: 1; }
-.help .grid { display: grid; grid-template-columns: 48px 1fr; column-gap: 12px; row-gap: 3px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); }
+.help .grid { display: grid; grid-template-columns: 56px 1fr; column-gap: 12px; row-gap: 3px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); }
 .help .grid kbd { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); }
+.help .grid .sub { grid-column: 1 / -1; margin-top: 6px; }
 .help .theme { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--hair); font-size: var(--fs-small); color: var(--text-2); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* The sheet: one placement's health, laid over the tasks column from the rail's right edge; nothing dims.
+   Positioned in the tasks panel's grid area, it spans the board's full height and takes the column's width, at
+   most 560px, so the detail stays whole; only from 901px to 1180px may it spill over the detail (see that query).
+   Every placement's sheet is in the page, hidden, until the script shows one. */
+.bento { position: relative; }
+.bento > .sheet { grid-area: 1 / 2 / 2 / 3; position: absolute; inset: 0 auto 0 0; z-index: 50; width: 100%; max-width: 560px; background: var(--surface); border: 1px solid var(--hair-strong); border-radius: 12px; box-shadow: 0 24px 48px var(--shadow); display: flex; flex-direction: column; overflow: hidden; animation: slide var(--t-mid) var(--emph) both; }
+@keyframes slide { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.sheet .head { padding: 14px 18px 12px; border-bottom: 1px solid var(--hair); display: grid; gap: 6px; }
+.sheet .head .name { display: flex; align-items: center; gap: 10px; }
+.sheet .head .name .dot { margin-top: 0; }
+.sheet .head h2 { font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
+.sheet .head h2 { flex: 1; min-width: 0; }
+.sheet .close, .usage .close { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--text-3); font-size: 18px; line-height: 1; cursor: pointer; transition: background var(--t-fast) var(--std), color var(--t-fast) var(--std); }
+.sheet .close:hover, .usage .close:hover { background: var(--wash); color: var(--text); }
+.sheet .head .tele { display: flex; gap: 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
+.sheet .head .tele .line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet .head .tele .ask { color: var(--accent); font-weight: 500; }
+.sheet .head .tele .err { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; cursor: help; }
+.sheet .head .tele .k, .sheet .head .tele .seen { color: var(--text-3); }
+.sheet .head .rig { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.sheet .body { min-height: 0; overflow-y: auto; padding: 4px 18px 18px; display: grid; align-content: start; gap: 4px; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
+.sheet section { padding: 12px 0 8px; border-bottom: 1px solid var(--hair-soft); display: grid; gap: 6px; }
+.sheet section:last-child { border-bottom: 0; }
+.sheet section > h3 { display: flex; align-items: baseline; gap: 10px; }
+.sheet section > h3 .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-3); }
+.sheet .none { font-size: var(--fs-small); color: var(--text-3); }
+.sheet .muted { color: var(--text-3); }
+/* Roles colour words, never fills. */
+.role-ok { color: var(--ok); }
+.role-warn { color: var(--warn); }
+.role-err { color: var(--err); }
+/* Checkout: label, value. */
+.kv { display: grid; grid-template-columns: 84px 1fr; font-size: var(--fs-small); }
+.kv > dt, .kv > dd { margin: 0; padding: 5px 0; border-bottom: 1px solid var(--hair-soft); min-width: 0; }
+.kv > dt { color: var(--text-3); }
+/* A value row keeps each part whole and wraps the next one under it; a part wider than the row ends in an ellipsis,
+   whole in its title. An activity row does the same, its text taking the rest of a line or the next one. */
+.kv > dd { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; color: var(--text); }
+.kv > dt:nth-last-of-type(1), .kv > dd:last-of-type { border-bottom: 0; }
+.kv > dd > * { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Subagents: a tree one level deep; a child hangs under its parent from a hairline guide. */
+.counts-line { font-size: var(--fs-small); color: var(--text-2); }
+.subs { display: grid; gap: 2px; }
+.subs .kids { margin-left: 3px; padding-left: 16px; border-left: 1px solid var(--hair-strong); display: grid; gap: 2px; }
+.subagent { display: grid; grid-template-columns: 8px auto 1fr 84px 84px; column-gap: 10px; align-items: center; padding: 5px 0; font-size: var(--fs-small); }
+.subagent .dot { margin-top: 0; }
+.subagent .title { font-weight: 500; color: var(--text); white-space: nowrap; }
+.subagent .desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.subagent .when { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; text-align: right; }
+/* Activity: the last eight, oldest first; a running tool is the current row, in the text colour with the pulse dot. */
+.feed { display: grid; }
+.feed .item { display: grid; grid-template-columns: 8px 70px 76px 1fr; column-gap: 10px; align-items: baseline; padding: 4px 0; font-size: var(--fs-small); color: var(--text); }
+.feed .item .mark { align-self: center; width: 6px; height: 6px; border-radius: 50%; }
+.feed .item .mark.work { width: 8px; height: 8px; background: var(--text); animation: pulse 2s var(--std) infinite; }
+.feed .item .at { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
+.feed .item .kind { color: var(--text-2); }
+.feed .item .what { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; min-width: 0; }
+.feed .item .tool { font-weight: 500; }
+.feed .item .tool, .feed .item .status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed .item .status { color: var(--text-2); }
+.feed .item .status.running { color: var(--text); }
+.feed .item .text { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.feed .item.error, .feed .item.error .kind, .feed .item.error .text { color: var(--err); }
+.feed .item.quiet, .feed .item.quiet .kind, .feed .item.quiet .text { color: var(--text-3); }
+
+/* Usage (v0.13): a pop-up beside the rail, over the tasks column as the health sheet, the board in view behind it (no
+   scrim); the surface, border, radius and shadow of the sheet. Its body scrolls between the head and the key line. */
+.usage { position: fixed; z-index: 65; top: 62px; left: 12px; width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 62px - 46px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--hair-strong); border-radius: 12px; box-shadow: 0 24px 48px var(--shadow); overflow: hidden; animation: rise var(--t-fast) var(--std) both; }
+.usage[hidden] { display: none; }
+.usage .top { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--hair); }
+.usage .top .spacer { flex: 1; }
+.usage .fresh { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; cursor: help; }
+.usage .body { min-height: 0; overflow-y: auto; padding-bottom: 8px; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
+.usage .group-h { display: flex; align-items: baseline; gap: 10px; padding: 12px 10px 4px; }
+.usage .group-h .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-3); }
+/* Ledger: one six-column grid for both groups, so subscriptions and balances align: lead 84 | name | figure 64 |
+   meter 140 | note 72 | when 128, at the board's row density, a hairline between accounts. */
+.ledger { display: grid; }
+.account + .account { border-top: 1px solid var(--hair-soft); }
+.entry { display: grid; grid-template-columns: 84px minmax(96px, 1fr) 64px 140px 72px 128px; column-gap: 6px; align-items: start; padding: var(--row-pad); font-size: var(--fs-small); color: var(--text-2); }
+.entry > * { min-width: 0; line-height: 18px; }
+.entry > .lead { display: grid; justify-items: start; }
+.entry .toggle { display: flex; gap: 5px; align-items: baseline; max-width: 100%; padding: 0; border: 0; background: none; font-weight: 500; color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry .toggle::before { content: "▸"; flex: none; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); transition: transform var(--t-fast) var(--std); }
+.entry .toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.entry > .name { color: var(--text); overflow-wrap: anywhere; }
+.entry > .name.muted { color: var(--text-2); cursor: help; }
+.entry > .name.quiet { color: var(--text-3); }
+.entry.bare > .name { grid-column: 2 / -1; }
+.entry > .words { grid-column: 3 / -1; color: var(--text-2); cursor: help; overflow-wrap: anywhere; }
+.entry > .figure { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.entry > .meter { display: flex; height: 18px; }
+.entry > .note { white-space: nowrap; color: var(--text-3); }
+.entry > .note.ahead { color: var(--warn); }
+.entry > .when { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.entry > .when[title] { cursor: help; }
+.entry > .when.quiet { color: var(--text-3); }
+.entry.warn > .figure { color: var(--warn); }
+.entry.err > .figure { color: var(--err); }
+/* A passed reset says nothing of now: the figure and time in text-3, the meter's track alone. */
+.entry.passed > .figure, .entry.passed > .when { color: var(--text-3); }
+/* A stale account dims every cell but its lead, band hues with them; its status line stays at text-2. */
+.account.stale .entry > :not(.lead) { opacity: .55; }
+/* The note's warn hue reads strong even at .55; a stale account's note drops to text-2 with the rest. */
+.account.stale .entry > .note.ahead { color: var(--text-2); }
+.badge.sm { font-size: calc(var(--fs-mono) - 1.5px); padding: 1px 6px; line-height: 14px; }
+.badge.at-narrow { display: none; }
+.account .status { display: grid; grid-template-columns: 84px minmax(0, 1fr); column-gap: 6px; align-items: start; padding: 0 10px 8px; font-size: var(--fs-small); line-height: 18px; color: var(--text-2); overflow-wrap: anywhere; }
+.account .status .mono { color: var(--text); }
+/* The wide meter takes its cell; the 2px pace tick marks the elapsed share of the window. */
+.meter.wide .bar { flex: 1; width: auto; }
+.meter.err { color: var(--err); }
+.meter.err .bar i { background: var(--err); }
+.meter .bar.paced { position: relative; overflow: visible; }
+.meter .bar.paced i { border-radius: 2px; }
+.meter .bar .pace { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); }
+/* Details: under the account's rows, indented to the name column. */
+.more { display: grid; gap: 6px; padding: 0 10px 12px calc(10px + 84px + 6px); font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
+.more[hidden] { display: none; }
+.more .dt { display: grid; gap: 6px; min-width: 0; padding-top: 4px; }
+.more h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0; font-size: var(--fs-small); font-weight: 500; color: var(--text); }
+.more h4 .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 400; color: var(--text-3); }
+.more h4.kicker { margin-top: 2px; }
+.pairs { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; }
+.pairs > div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.pairs dt { color: var(--text-3); }
+.pairs dd { margin: 0; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text); font-variant-numeric: tabular-nums; }
+/* A table is as wide as its content and scrolls sideways in its own box, never the page. */
+.scroll-x { max-width: 100%; width: fit-content; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
+table.data { width: fit-content; }
+table.data td, table.data th { padding: 1px 14px 1px 0; line-height: 18px; }
+.scroll-x td, .scroll-x th { white-space: nowrap; }
+td.num, th.num { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); font-variant-numeric: tabular-nums; }
+table.data td:last-child, table.data th:last-child { text-align: left; }
+table.data td.num:last-child, table.data th.num:last-child { text-align: right; }
+table.data td.bar { width: 88px; padding-right: 0; }
+table.data td.bar i { display: block; height: 4px; border-radius: 2px; background: var(--text-3); }
+table.data tr.gap td { color: var(--text-3); }
+table.data tr.all td { border-bottom: 0; }
+.days { padding: 0; border: 0; background: none; color: var(--text-2); font-size: var(--fs-small); text-decoration: underline; text-decoration-color: var(--hair-strong); text-underline-offset: 3px; cursor: pointer; }
+
+/* 901-1180px: the rail is a fixed 272px column, the tasks and detail share the rest. */
+@media (min-width: 901px) and (max-width: 1180px) {
+  .bento { grid-template-columns: 272px minmax(0, 4fr) minmax(0, 5fr); }
+  .nav .who { max-width: 160px; }
+  /* The sheet is an overlay, so it spills over the detail rather than hide its close button (design/README.md). */
+  .bento > .sheet { min-width: 320px; }
+}
+/* 1279px and less: a card's first line holds the dot, the name (one line, ellipsized) and the meter; its status
+   takes its own line under the name, then the health row with the lever, and the facts table's heads may wrap.
+   The design draws the card this way from 1180px down; design/README.md says why the page starts higher. */
+@media (max-width: 1279px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .card .stats { min-width: 0; overflow: hidden; }
+  .card .body { grid-template-columns: minmax(0, 1fr); }
+  .card .name .key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card.idle .body { grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; }
+  .card.idle .tele { display: contents; }
+  .card.idle .name { grid-area: 1 / 1; }
+  .card.idle .tele > .meter { grid-area: 1 / 2; align-self: center; }
+  .card.idle .what { grid-area: 2 / 1 / 3 / 3; }
+  .card.idle .tele > .line { grid-area: 3 / 1; font-size: var(--fs-small); color: var(--text-2); }
+  .card.idle .tele > .lever { grid-area: 3 / 2; align-self: center; }
+  table.rec th { white-space: normal; }
+}
+/* 1180px and less: facts tables become records (the detail column is too narrow for six columns from here down):
+   the key cells on the first line, the rest labelled on the second. */
+@media (max-width: 1180px) {
+  table.rec, table.rec tbody { display: block; }
+  table.rec tr:has(> th) { display: none; }
+  table.rec tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 6px 0; border-bottom: 1px solid var(--hair-soft); }
+  table.rec tr::before { content: ""; order: 1; flex: 0 0 100%; }
+  table.rec td { order: 2; display: block; min-width: 0; padding: 0; border: 0; text-align: left; overflow-wrap: anywhere; }
+  table.rec td.key { order: 0; }
+  table.rec td[data-label]::before { content: attr(data-label) " "; color: var(--text-3); }
+}
+/* 900px and less: one column that scrolls as a page, in DOM order (rail, tasks, detail). */
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  body { overflow: visible; }
+  #app { height: auto; min-height: 100vh; grid-template-rows: auto auto auto; }
+  /* The head wraps: brand, who and the links on the first line; the chips and the tick below. */
+  .nav { flex-wrap: wrap; gap: 6px 10px; padding: 10px 14px; }
+  .nav .who { flex: 1 1 0; max-width: none; }
+  .nav .spacer { display: none; }
+  .nav nav { order: 1; }
+  .nav .br { display: block; order: 2; flex: 0 0 100%; height: 0; }
+  .nav .counts { order: 3; flex-wrap: wrap; margin-left: 0; }
+  .nav .tick { order: 4; }
+  .bento { grid-template-columns: minmax(0, 1fr); padding: 8px; }
+  .bento > .agents, .bento > .tasks, .bento > .detail { grid-area: auto; }
+  .panel, .scroll { overflow: visible; }
+  /* The sheet, the usage and the peek take the screen's width. */
+  .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
+  .peek { left: 12px; right: 12px; width: auto; top: 120px; }
+  .peek::before { display: none; }
+  /* The open usage is the page: the board under it hides, and the sheet scrolls as a page. */
+  .usage { position: absolute; inset: 0 0 auto 0; min-height: 100vh; width: auto; max-height: none; overflow: visible; border: 0; border-radius: 0; box-shadow: none; }
+  .usage .body { overflow: visible; }
+  body:has(> .usage:not([hidden])) > #app { display: none; }
+  .usage .top kbd { display: none; }
+  /* The key line keeps only what a tap can do. */
+  .keys { padding: 8px 14px; gap: 18px; }
+  .keys > span:not([data-key]) { display: none; }
+  .keys > span[data-key] { cursor: pointer; padding: 4px 0; }
+  /* A ledger row wraps: the lead on its own line, then the name with its figure, the meter across, the note left
+     and the time right; the status line and the details drop their indent. */
+  .entry { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .entry > :empty { display: none; }
+  .entry > .lead { flex: 1 1 100%; display: flex; align-items: baseline; gap: 8px; }
+  .entry > .name { order: 1; flex: 1 1 0; }
+  .entry > .figure, .entry > .words { order: 2; }
+  .entry > .meter { order: 4; flex: 1 1 100%; height: 10px; }
+  .entry > .note { order: 5; }
+  .entry > .when { order: 6; margin-left: auto; }
+  .account .status, .more { padding-left: 10px; }
+  /* The badge follows the name; the second line's lead holds nothing then. */
+  .badge.at-narrow { display: inline-block; }
+  .entry > .lead.badge-lead { display: none; }
+  .account .status { display: block; }
+  .account .status > .lead { display: none; }
+}
+
 /* The live page. A row opens its task through the link on its id, stretched
    over the row, so rows work without a script; the row shows its focus. */
-.task[hidden], .peek[hidden], .help[hidden] { display: none; }
+.task[hidden], .peek[hidden], .bento > .sheet[hidden] { display: none; }
 .task a.id { text-decoration: none; }
 .task a.id::after { content: ""; position: absolute; inset: 0; border-radius: 8px; }
 .task a.id:focus-visible { outline: none; }
@@ -2149,113 +3003,21 @@ a.btn, .card a.id { text-decoration: none; }
 .peek .q.wait { background: transparent; border-color: var(--hair-strong); }
 .choices input { flex: 1; min-width: 10rem; padding: 6px 12px; border: 1px solid var(--hair); border-radius: 100px; background: var(--canvas); color: var(--text); }
 .notice { position: fixed; z-index: 70; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: baseline; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
-/* On a screen without a keyboard the footer's l and ? are buttons (the script marks them). */
 .keys > span[data-key] { cursor: pointer; }
-/* Generic parts, named for what they are so any view can take them (the Usage view first). */
-/* A bento of two panels, or of one. */
-.bento.pair { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
-.bento.single { grid-template-columns: minmax(0, 1fr); max-width: 1000px; }
-/* A pair stacks below 1360px. A ledger row of quota windows needs about 750px (the lead 88, the figure
-   44, the wide meter 168, the note 76, the reset 128, what is left 68, the gaps and a name), which the
-   pair's wider column has only from there. Stacked, the main area scrolls between the head and the keys,
-   and each panel takes its whole height. */
-@media (max-width: 1359px) {
-  .bento.pair { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; overflow-y: auto; }
-  .bento.pair > .panel, .bento.pair .scroll { overflow: visible; }
-}
-/* Head chips in a role: a figure in a band reads in the band's colour. */
-.nav .counts .warn, .nav .counts .warn b { color: var(--warn); }
-.nav .counts .err, .nav .counts .err b { color: var(--err); }
-/* Ledger: dense rows at the board's row density, a hairline between groups. Fixed cell widths align the
-   columns: the lead names the group on its first row (empty after it), the name takes the rest, a figure
-   and the times are mono. A .more block under the group, under the name column, holds its badge and
-   notices, its other figures as pairs, and its disclosures. A figure in a band, and a note ahead of pace,
-   take the role's colour; nothing else does. */
-.ledger { display: grid; padding: 0 10px 10px; }
-.entry { display: flex; align-items: center; gap: 12px; min-width: 0; padding: var(--row-pad); font-size: var(--fs-small); color: var(--text-2); }
-.entry.first { border-top: 1px solid var(--hair-soft); }
-.ledger > .entry.first:first-child { border-top: 0; }
-.entry > .lead { flex: 0 0 88px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text); }
-.entry > a.lead { text-decoration-color: transparent; }
-.entry > a.lead:hover { text-decoration-color: var(--hair-strong); }
-.entry > .name { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
-.entry > .figure { flex: 0 0 auto; min-width: 44px; text-align: right; font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.entry > .figure.leading { min-width: 120px; text-align: left; }
-.entry > .meter.wide { flex: 0 0 168px; }
-.entry > .note { flex: 0 0 76px; white-space: nowrap; color: var(--text-3); }
-.entry > .note.ahead { color: var(--warn); }
-.entry > .when, .entry > .rest { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.entry > .when { flex: 0 0 128px; }
-.entry > .rest { flex: 0 0 68px; color: var(--text-3); }
-.entry.warn > .figure { color: var(--warn); }
-.entry.err > .figure { color: var(--err); }
-.more { display: grid; gap: 4px; padding: 0 10px 8px calc(10px + 88px + 12px); font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
-.more > p { overflow-wrap: anywhere; }
-.more .badge { margin-right: 6px; }
-/* The meter, wide: the bar takes the cell. A pace tick marks how much of the window has passed; the
-   bar reads warn from 75% and err from 90%. */
-.meter.wide .bar { flex: 1; width: auto; }
-.meter.err { color: var(--err); }
-.meter.err .bar i { background: var(--err); }
-.meter .bar.paced { position: relative; overflow: visible; }
-.meter .bar.paced i { border-radius: 2px; }
-.meter .bar .pace { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); }
-/* Pairs: a label and its figure, inline, wrapping. */
-.pairs { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; }
-.pairs > div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
-.pairs dt { color: var(--text-3); }
-.pairs dd { margin: 0; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text); font-variant-numeric: tabular-nums; }
-/* A disclosure: a summary line with a chevron, its body indented under it. */
-.disclosure > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 3px 0; cursor: pointer; list-style: none; color: var(--text); }
-.disclosure > summary::-webkit-details-marker { display: none; }
-.disclosure > summary::before { content: "▸"; font-family: var(--mono); color: var(--text-3); display: inline-block; transition: transform var(--t-fast) var(--std); }
-.disclosure[open] > summary::before { transform: rotate(90deg); }
-.disclosure > summary .n { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
-.disclosure > .body { display: grid; gap: 6px; padding: 4px 0 8px 14px; min-width: 0; }
-.disclosure h4 { margin: 4px 0 0; }
-.disclosure h4 .n { margin-left: 6px; text-transform: none; letter-spacing: 0; }
-/* A table that scrolls sideways inside its panel, never the page; numerals mono and right-aligned. */
-.scroll-x { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
-.scroll-x td, .scroll-x th { white-space: nowrap; }
-td.num, th.num { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); }
-/* The design is drawn for a desktop; a narrow screen gets one column that
-   scrolls as a page. */
-@media (max-width: 900px) {
-  body { overflow: auto; }
-  #app { height: auto; min-height: 100vh; grid-template-rows: auto 1fr auto; }
-  .nav, .keys { flex-wrap: wrap; padding: 8px 14px; }
-  /* minmax(0, ...) lets the column be narrower than an ellipsized line's
-     full text, so the line ellipsizes instead of widening the page. */
-  .bento { grid-template-columns: minmax(0, 1fr); }
-  .panel, .scroll { overflow: visible; }
-  /* One column: the sheet takes the screen. */
-  .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
-  .bento.pair, .bento.single { grid-template-columns: minmax(0, 1fr); }
-  /* The head's chips wrap rather than widen the page. */
-  .nav .counts { flex-wrap: wrap; }
-  /* A ledger row wraps: the lead on its own line, then the name with its figures, the meter across, the
-     note and the time under it; a leading figure takes a line of its own, with the name and a small
-     meter under it; .more drops its indent. */
-  .entry { flex-wrap: wrap; row-gap: 4px; }
-  .entry > .lead { flex: 1 1 100%; }
-  .entry > .lead:empty { display: none; }
-  .entry > .name { order: 1; }
-  .entry > .figure { order: 2; }
-  .entry > .figure.leading { order: 0; flex: 1 1 100%; min-width: 0; }
-  .entry > .meter:not(.wide) { order: 2; }
-  .entry > .rest { order: 3; flex: 0 0 auto; }
-  .entry > .meter.wide { order: 4; flex: 1 1 100%; }
-  .entry > .note { order: 5; flex: 0 0 auto; }
-  .entry > .when { order: 6; flex: 0 0 auto; margin-left: auto; }
-  .more { padding-left: 10px; }
-}
+/* A usage row and the pop-up's close button are links, so a page without a script opens and closes the pop-up
+   (?usage); the script toggles it in place. */
+a.acct, .usage a.close { text-decoration: none; }
+.usage a.close { display: inline-grid; place-items: center; }
+/* A day table's older rows show without a script; "all n days" shows while the script keeps them shut. */
+table.data:has(> tbody.older:not([hidden])) tr.all { display: none; }
 `;
 
 // ---- Script: reads the rendered page and its data attributes only ----
 
 // The page works without it. It keeps what a person is doing across
-// refreshes and adds the filter, the keys, the peek, the sheet, the full
-// router log and the help with its theme switch.
+// refreshes and adds the filter, the keys, the peek, the sheet, the usage
+// pop-up in place, opening a task in place, the full router log and the
+// help with its theme switch.
 const SCRIPT = `
 const root = document.documentElement;
 const $ = (selector, from = document) => from.querySelector(selector);
@@ -2264,18 +3026,13 @@ const stored = (store, key, fallback) => {
   try { return JSON.parse(store.getItem(key)) ?? fallback; } catch { return fallback; }
 };
 const selected = () => $(".detail")?.dataset.task;
+const narrow = matchMedia("(max-width: 900px)");
 
 // Theme: the server paints the cookie's palette. A palette chosen on this
 // device, in the help, wins and goes into both stores, so the next page
-// paints it first. The cookie's path is the board's directory, from the
-// Board tab's relative link on \`page\`, so every view reads the one
-// cookie: /router/ and /router/usage/ both set path=/router, the path a
-// board page gives a cookie by default.
+// paints it first. The cookie takes the page's directory, which is the
+// board's: the page is served only there.
 const THEMES = ["flexoki", "one-dark"];
-const themeCookie = (name, board, page) => {
-  const dir = new URL(board, page).pathname;
-  return "router-theme=" + name + "; path=" + (dir.length > 1 ? dir.slice(0, -1) : dir) + "; max-age=31536000; samesite=lax";
-};
 const paint = () => $$(".themes button").forEach((b) => {
   b.classList.toggle("on", b.dataset.theme === root.dataset.theme);
   b.setAttribute("aria-pressed", String(b.dataset.theme === root.dataset.theme));
@@ -2283,7 +3040,7 @@ const paint = () => $$(".themes button").forEach((b) => {
 const theme = (name) => {
   root.dataset.theme = name;
   localStorage.setItem("router-theme", name);
-  document.cookie = themeCookie(name, $('.nav [data-view="board"]')?.getAttribute("href") ?? "./", location.href);
+  document.cookie = "router-theme=" + name + "; max-age=31536000; samesite=lax";
   paint();
 };
 const saved = localStorage.getItem("router-theme");
@@ -2296,9 +3053,9 @@ const fold = () => {
   $$(".group").forEach((g) => g.classList.toggle("collapsed", shut.includes(g.dataset.group)));
 };
 
-// The router log: collapsed to its newest line until l opens the whole
+// The router log: collapsed to its newest line until r opens the whole
 // block, which stays open across refreshes, on this device. The server
-// renders it open, so a page without a script, which l needs, shows every
+// renders it open, so a page without a script, which r needs, shows every
 // line in the open layout; the script sets it from the stored choice at
 // start and after each refresh, before the page is painted.
 const logOpen = () => localStorage.getItem("router-log") === "open";
@@ -2311,21 +3068,26 @@ const toggleLog = () => {
   return true;
 };
 
-// Disclosures open on this device, by data-key: a refresh and a reload keep
-// them open. The server draws them closed, so restoring only opens. Toggle
-// does not bubble, so it is heard on the way down.
+// Blocks a toggle opens, by data-key, on this device: an account's details
+// and a day table's older rows, in the usage pop-up. The server draws them
+// open, so a page without a script shows them; the script shuts each one
+// not kept open, at start and after each refresh, before the page is
+// painted.
 const opened = () => [].concat(stored(localStorage, "router-open", []));
+const showBlock = (block, open) => {
+  block.hidden = !open;
+  if (block.id) $$('[aria-controls="' + CSS.escape(block.id) + '"]').forEach((t) => t.setAttribute("aria-expanded", String(open)));
+};
 const unfold = () => {
   const open = opened();
-  $$("details[data-key]").forEach((d) => { if (open.includes(d.dataset.key)) d.open = true; });
+  $$(".usage [data-key]").forEach((block) => showBlock(block, open.includes(block.dataset.key)));
 };
-document.addEventListener("toggle", (e) => {
-  const d = e.target;
-  if (!(d instanceof HTMLDetailsElement) || !d.dataset.key) return;
-  const open = opened().filter((key) => key !== d.dataset.key);
-  if (d.open) open.push(d.dataset.key);
-  localStorage.setItem("router-open", JSON.stringify(open));
-}, true);
+const keepBlock = (block, open) => {
+  showBlock(block, open);
+  const keys = opened().filter((key) => key !== block.dataset.key);
+  if (open) keys.push(block.dataset.key);
+  localStorage.setItem("router-open", JSON.stringify(keys));
+};
 
 // Drafts, by the data-path of the form or peek they are typed in, kept with
 // the fields that name their item: a draft never fills another item's form
@@ -2347,11 +3109,16 @@ const filter = () => {
   });
 };
 
-// The peek opens beside its row, above the panels.
+// The peek opens beside its row, above the panels; from 900px down the CSS
+// places it across the screen.
 const peek = () => $(".peek:not([hidden])");
 const openPeek = (p) => {
   peek()?.setAttribute("hidden", "");
   p.hidden = false;
+  if (narrow.matches) {
+    p.style.left = p.style.top = "";
+    return;
+  }
   const r = p.parentElement.getBoundingClientRect();
   p.style.left = Math.max(8, Math.min(r.right + 16, innerWidth - p.offsetWidth - 8)) + "px";
   p.style.top = Math.max(8, Math.min(r.top - 8, innerHeight - p.offsetHeight - 8)) + "px";
@@ -2383,29 +3150,109 @@ const openSheet = (key) => {
   s.hidden = false;
   return true;
 };
-document.addEventListener("click", (e) => {
-  const key = e.target.closest(".card .name .key");
-  if (key) openSheet(key.textContent);
-  else if (e.target.closest(".sheet .close")) closeSheet();
-  // A lever in the sheet leaves the page; the sheet comes back with it.
-  else if (e.target.closest(".sheet a")) sessionStorage.setItem("router-sheet", sheet()?.dataset.key ?? "");
-});
+
+// The usage pop-up (v0.13): a rail row or u opens it beside the rail, over
+// the tasks column, moved left to stay 12px inside the viewport; from 900px
+// down the CSS makes it the page. A row, u, esc, its close button or a click
+// outside closes it. Opening puts the focus on an account's toggle (the
+// row's, from a row), and closing gives it back.
+const usage = () => $(".usage");
+const usageOpen = () => Boolean(usage() && !usage().hidden);
+const place = () => {
+  const u = usage();
+  if (!u) return;
+  if (u.hidden || narrow.matches) {
+    u.style.left = "";
+    return;
+  }
+  const rail = $(".agents")?.getBoundingClientRect().right ?? 0;
+  u.style.left = Math.max(12, Math.min(rail + 8, innerWidth - 12 - u.offsetWidth)) + "px";
+};
+const syncUsage = () => {
+  $$(".acct").forEach((a) => a.setAttribute("aria-expanded", String(usageOpen())));
+  place();
+};
+// The element that opened the pop-up, and how to find it again when a
+// refresh has replaced it: a row by its task, else by its tag and path.
+let usageFrom = null;
+const finder = (el) => {
+  const task = el?.matches(".task a.id") && el.closest(".task").dataset.task;
+  if (task) return '.task[data-task="' + CSS.escape(task) + '"] a.id';
+  return el?.dataset?.path ? el.localName + '[data-path="' + CSS.escape(el.dataset.path) + '"]' : null;
+};
+const setUsage = (open, from = null) => {
+  const u = usage();
+  if (!u) return false;
+  const was = usageOpen();
+  u.hidden = !open;
+  syncUsage();
+  if (open && !was) {
+    const el = from ?? document.activeElement;
+    usageFrom = { el, find: finder(el) };
+    const toggle = (from && $('.toggle[data-path="' + CSS.escape(from.dataset.path + ".name") + '"]', u)) || $(".toggle", u);
+    toggle?.focus({ preventScroll: true });
+  } else if (!open && was) {
+    const to = usageFrom?.el.isConnected ? usageFrom.el : usageFrom?.find && $(usageFrom.find);
+    const lost = u.contains(document.activeElement) || document.activeElement === document.body;
+    if (lost && to) to.focus();
+    else if (u.contains(document.activeElement)) document.activeElement.blur();
+    usageFrom = null;
+  }
+  return true;
+};
+addEventListener("resize", place);
 
 // Every few seconds the page fetches itself for the selected task and swaps
-// the nav counts and tick, every panel the page marks with data-part, and
-// the sheets. A panel or the open sheet stays as it is while it holds the
-// focus (unless the focus is on a row or a card the new panel has too) or a
-// text selection, so what is being typed, read or copied is not pulled
-// away. The notice is outside the swapped parts.
+// the nav counts and tick, every panel the page marks with data-part, the
+// sheets and the usage pop-up. A panel or an open overlay stays as it is
+// while it holds the focus (unless the focus is on a row, a card, a usage
+// row or an account's toggle that the new page has too) or a text
+// selection, so what is being typed, read or copied is not pulled away.
+// Opening a task in place is the same fetch, which swaps the detail
+// whatever it holds; a later open supersedes an earlier one still on its
+// way, and no periodic fetch starts while an open is on its way, so the
+// open lands and its address and focus follow it. The notice is outside
+// the swapped parts.
 const parts = () => [".nav .counts", ".nav .tick", ...$$("[data-part]").map((el) => '[data-part="' + CSS.escape(el.dataset.part) + '"]')];
-const refresh = async (id = selected()) => {
-  if (document.hidden) return;
-  let doc;
+let fetches = 0;
+// The open on its way, until its fetch settles: its task, the hash its link
+// names, and whether it adds its link to the history (an open the viewer
+// started) or finds the address set (Back, Forward, the task an action
+// returns to).
+let opening = null;
+// How long an open waits for its page before it follows its link.
+const OPEN_WAIT_MS = 12000;
+// An open that cannot fetch follows its link instead. A link that differs
+// from the address only by its hash (or not at all, as after Back) would
+// not load the page, so the address takes the link and the page loads
+// again.
+const follow = (open, query) => {
+  const link = new URL((query || location.pathname) + open.hash, location.href);
+  if (link.pathname + link.search !== location.pathname + location.search) return location.assign(link);
+  if (open.push && link.hash !== location.hash) history.pushState(null, "", link);
+  else history.replaceState(null, "", link);
+  location.reload();
+};
+const refresh = async (open = null) => {
+  if (!open && (opening || document.hidden)) return;
+  const id = open ? open.id : selected();
+  const mine = ++fetches;
+  const query = id ? "?task=" + encodeURIComponent(id) : "";
+  let doc = null;
   try {
-    const r = await fetch(location.pathname + (id ? "?task=" + encodeURIComponent(id) : ""), { cache: "no-store", headers: { accept: "text/html" } });
-    if (!r.ok) return;
+    const r = await fetch(location.pathname + query, { cache: "no-store", headers: { accept: "text/html" }, signal: open ? AbortSignal.timeout(OPEN_WAIT_MS) : null });
+    if (!r.ok) throw new Error(r.statusText);
     doc = new DOMParser().parseFromString(await r.text(), "text/html");
-  } catch { return; }
+  } catch {
+    doc = null;
+  }
+  if (mine !== fetches) return;
+  // The open has settled, so the timed refreshes go on whatever it found.
+  if (open) opening = null;
+  if (!doc) {
+    if (open) follow(open, query);
+    return;
+  }
   const focus = document.activeElement;
   const sel = document.getSelection();
   const range = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null;
@@ -2413,46 +3260,137 @@ const refresh = async (id = selected()) => {
   const selectedIn = (el) => range !== null && range.intersectsNode(el);
   const row = focus?.matches(".task a.id") ? focus.closest(".task").dataset.task : null;
   const card = focus?.matches(".card") ? focus.dataset.path : null;
-  const open = peek();
-  const peeked = open && '.task[data-task="' + CSS.escape(open.parentElement.dataset.task) + '"] .peek[data-path="' + CSS.escape(open.dataset.path) + '"]';
+  const acct = focus?.matches(".acct") ? focus.dataset.path : null;
+  const toggle = focus?.matches(".usage .toggle") ? focus.getAttribute("aria-controls") : null;
+  const kept = row || card || acct || toggle;
+  const peeked = peek() && '.task[data-task="' + CSS.escape(peek().parentElement.dataset.task) + '"] .peek[data-path="' + CSS.escape(peek().dataset.path) + '"]';
   const shown = sheet()?.dataset.key ?? "";
   const words = $(".filter input")?.value ?? "";
   for (const part of parts()) {
     const old = $(part);
     const next = $(part, doc);
-    if (!old || !next || (old.contains(focus) && !row && !card) || selectedIn(old)) continue;
+    const swap = open && part === '[data-part="detail"]' && old?.dataset.task !== next?.dataset.task;
+    if (!old || !next || (!swap && ((old.contains(focus) && !kept) || selectedIn(old)))) continue;
     const top = $(".scroll", old)?.scrollTop ?? 0;
     old.replaceWith(next);
     const scroll = $(".scroll", next);
-    if (scroll) scroll.scrollTop = top;
+    if (scroll) scroll.scrollTop = swap ? 0 : top;
   }
-  if (row) $('.task[data-task="' + CSS.escape(row) + '"] a.id')?.focus();
-  if (card) $('.card[data-path="' + CSS.escape(card) + '"]')?.focus();
-  if (peeked && !peek() && $(peeked)) openPeek($(peeked));
   // The hidden sheets are swapped whole; the open one keeps its element,
   // its scroll and its slide, and takes the new head and body, unless it
   // holds the focus or a selection. It goes when its placement is gone.
-  const kept = sheet();
-  $$(".bento > .sheet").forEach((s) => s !== kept && s.remove());
+  const showing = sheet();
+  $$(".bento > .sheet").forEach((s) => s !== showing && s.remove());
   $$(".bento > .sheet", doc).forEach((s) => s.dataset.key !== shown && $(".bento").append(s));
   const fresh = shown && sheetFor(shown, doc);
-  if (kept && !fresh) kept.remove();
-  else if (kept && fresh && !kept.contains(focus) && !selectedIn(kept)) {
-    const top = $(".body", kept).scrollTop;
-    kept.dataset.path = fresh.dataset.path;
-    kept.replaceChildren(...fresh.children);
-    $(".body", kept).scrollTop = top;
+  if (showing && !fresh) showing.remove();
+  else if (showing && fresh && !showing.contains(focus) && !selectedIn(showing)) {
+    const top = $(".body", showing).scrollTop;
+    showing.dataset.path = fresh.dataset.path;
+    showing.replaceChildren(...fresh.children);
+    $(".body", showing).scrollTop = top;
   }
+  // The pop-up likewise: shut, it is swapped whole; open, it keeps its
+  // element, its scroll and its place, and takes the new content. It comes
+  // and goes with the usage section.
+  const u = usage();
+  const next = $(".usage", doc);
+  if (!u && next) $(".help").before(next);
+  else if (u && !next) u.remove();
+  else if (u?.hidden) u.replaceWith(next);
+  else if (u && ((!u.contains(focus) || toggle) && !selectedIn(u))) {
+    const top = $(".body", u).scrollTop;
+    u.replaceChildren(...next.children);
+    $(".body", u).scrollTop = top;
+  }
+  if (row) $('.task[data-task="' + CSS.escape(row) + '"] a.id')?.focus();
+  if (card) $('.card[data-path="' + CSS.escape(card) + '"]')?.focus();
+  if (acct) $('.acct[data-path="' + CSS.escape(acct) + '"]')?.focus();
+  if (toggle) $('.usage .toggle[aria-controls="' + CSS.escape(toggle) + '"]')?.focus();
+  if (peeked && !peek() && $(peeked)) openPeek($(peeked));
   const input = $(".filter input");
   if (input && input !== focus) input.value = words;
-  if (selected() && selected() !== new URLSearchParams(location.search).get("task")) history.replaceState(null, "", "?task=" + encodeURIComponent(selected()));
+  // The address follows: an open the viewer started adds its link to the
+  // history, as following it would (a link to the address itself adds
+  // nothing). When the page shows another task than the address names (the
+  // bare page, a task that has gone), the address takes it, keeping its
+  // notice and hash.
+  if (open?.push && query + open.hash !== location.search + location.hash) history.pushState(null, "", (query || location.pathname) + open.hash);
+  const here = new URLSearchParams(location.search);
+  if (selected() && selected() !== here.get("task")) {
+    here.set("task", selected());
+    history.replaceState(null, "", "?" + here + location.hash);
+  }
+  // An Answer lever's open goes to its form.
+  const target = open?.hash && document.getElementById(decodeURIComponent(open.hash.slice(1)));
+  if (target) {
+    target.scrollIntoView({ block: "nearest" });
+    $("textarea", target)?.focus();
+  }
   fold();
   showLog();
   unfold();
+  syncUsage();
   filter();
   drafts();
 };
-setInterval(refresh, Number($("#app").dataset.refresh) * 1000);
+setInterval(() => refresh(), Number($("#app").dataset.refresh) * 1000);
+
+// Opening a task in place (v0.13): a link to a task (a row's id, a card's
+// task, the peek's Open task, an Answer lever) marks its row at once, then
+// swaps in the page fetched for the task; an Answer lever then goes to its
+// form. Back and Forward open the task their entry names. The link still
+// works without the script, and a modified click keeps the browser's own.
+const openTask = (id, hash = "", push = true) => {
+  const row = id && $('.task[data-task="' + CSS.escape(id) + '"]');
+  if (row) {
+    $$(".task[aria-current]").forEach((r) => {
+      r.classList.remove("selected");
+      r.removeAttribute("aria-current");
+    });
+    row.classList.add("selected");
+    row.setAttribute("aria-current", "true");
+  }
+  opening = { id, hash, push };
+  return refresh(opening);
+};
+addEventListener("popstate", () => {
+  const id = new URLSearchParams(location.search).get("task");
+  if (id !== selected()) openTask(id, location.hash, false);
+});
+const plain = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+
+document.addEventListener("click", (e) => {
+  if (e.defaultPrevented || !plain(e)) return;
+  const key = e.target.closest(".card .name .key");
+  if (key) return openSheet(key.textContent);
+  if (e.target.closest(".sheet .close")) return closeSheet();
+  // A lever in the sheet leaves the page; the sheet comes back with it.
+  if (e.target.closest(".sheet a:not([href^='?task='])")) sessionStorage.setItem("router-sheet", sheet()?.dataset.key ?? "");
+  const acct = e.target.closest(".acct");
+  if (acct) {
+    e.preventDefault();
+    return setUsage(!usageOpen(), acct);
+  }
+  if (e.target.closest(".usage .close")) {
+    e.preventDefault();
+    return setUsage(false);
+  }
+  const toggle = e.target.closest(".usage .toggle");
+  const block = toggle && document.getElementById(toggle.getAttribute("aria-controls"));
+  if (block) return keepBlock(block, block.hidden);
+  const days = e.target.closest(".usage .days");
+  const older = days && $(".older", days.closest("table"));
+  if (older) return keepBlock(older, true);
+  if (usageOpen() && !e.target.closest(".usage")) setUsage(false);
+  const link = e.target.closest('a[href^="?task="]');
+  if (link) {
+    e.preventDefault();
+    const url = new URL(link.href);
+    peek()?.setAttribute("hidden", "");
+    openTask(url.searchParams.get("task"), url.hash);
+  }
+});
 
 document.addEventListener("input", (e) => {
   const field = e.target;
@@ -2486,9 +3424,13 @@ document.addEventListener("click", (e) => {
   fold();
 });
 
-// The keys the footer names. Each returns whether it did something.
+// The keys the footer and the help name (v0.13). Each returns whether it
+// did something.
 const typing = (el) => el?.matches("input, textarea, select");
-const move = (step) => {
+// ↑ ↓ move between the rows from a row, a card or nothing in particular;
+// on a button, a link or a scrolling table they are the browser's.
+const move = (step, el) => {
+  if (el && el !== document.body && !el.matches(".task a.id, .card")) return false;
   const links = $$(".group:not(.collapsed) .task:not([hidden]) a.id");
   const at = links.indexOf(document.activeElement);
   const next = at < 0 ? $(".task[aria-current] a.id") ?? links[0] : links[Math.min(links.length - 1, Math.max(0, at + step))];
@@ -2505,18 +3447,57 @@ const agentCard = (el) =>
   el?.closest(".card") ??
   (sheet() && cardFor(sheet().dataset.key)) ??
   $$(".card").find((c) => $("a.id", c)?.textContent === selected());
+// ↵ or →: the focused row's task, or the focused card's sheet.
+const openKey = (row, el) => {
+  if (row) {
+    peek()?.setAttribute("hidden", "");
+    openTask(row.dataset.task);
+    return true;
+  }
+  const key = el?.matches(".card") && $(".name .key", el)?.textContent;
+  return key ? openSheet(key) : false;
+};
+// ← or esc: close the help, then the usage, then the peek, then the sheet.
+const back = () => {
+  if (!$(".help").hidden) $(".help").hidden = true;
+  else if (usageOpen()) setUsage(false);
+  else if (peek()) closePeek();
+  else if (sheet()) closeSheet();
+  else return false;
+  return true;
+};
+// In the usage pop-up: ↑ ↓ move between the accounts, → or ↵ open the
+// focused account's details, ← closes them, or the pop-up when they are
+// shut.
+const USAGE_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"];
+const usageKey = (key, el) => {
+  const toggles = $$(".usage .toggle");
+  const at = toggles.indexOf(el);
+  const block = at >= 0 && document.getElementById(el.getAttribute("aria-controls"));
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    const next = at < 0 ? toggles[0] : toggles[Math.min(toggles.length - 1, Math.max(0, at + (key === "ArrowDown" ? 1 : -1)))];
+    next?.focus();
+    return Boolean(next);
+  }
+  if (key === "ArrowLeft") {
+    if (block && !block.hidden) keepBlock(block, false);
+    else setUsage(false);
+    return true;
+  }
+  if (!block) return false;
+  keepBlock(block, true);
+  return true;
+};
 const KEYS = {
-  j: () => move(1),
-  k: () => move(-1),
+  ArrowDown: (row, el) => move(1, el),
+  ArrowUp: (row, el) => move(-1, el),
+  Enter: openKey,
+  ArrowRight: openKey,
+  ArrowLeft: back,
   " ": (row) => {
     const p = row && $(".peek", row);
     if (!p) return false;
     if (p === peek()) closePeek(); else openPeek(p);
-    return true;
-  },
-  ArrowRight: (row) => {
-    if (!row || !row.contains(peek())) return false;
-    location.assign($("a.id", row).href);
     return true;
   },
   a: () => {
@@ -2526,14 +3507,15 @@ const KEYS = {
   },
   c: () => press($(".detail .actions button")),
   // The focused agent, or the one working on the selected task.
-  h: (row, el) => press(agentCard(el) && $("button[data-path$='.hold']", agentCard(el))),
+  p: (row, el) => press(agentCard(el) && $("button[data-path$='.hold']", agentCard(el))),
   s: (row, el) => {
     const key = agentCard(el) && $(".name .key", agentCard(el))?.textContent;
     if (!key) return false;
     if (sheet()?.dataset.key === key) closeSheet(); else openSheet(key);
     return true;
   },
-  l: toggleLog,
+  r: toggleLog,
+  u: () => setUsage(!usageOpen()),
   "/": () => {
     const input = $(".filter input");
     input?.focus();
@@ -2542,11 +3524,7 @@ const KEYS = {
   "?": () => { $(".help").hidden = !$(".help").hidden; return true; },
 };
 // A screen without a keyboard still opens the log and the help, where the
-// theme switch is: the footer's l and ? take a click.
-$$(".keys > span").forEach((s) => {
-  const key = $("kbd", s)?.textContent;
-  if (key === "l" || key === "?") s.dataset.key = key;
-});
+// theme switch is: the footer's r and ? take a tap.
 document.addEventListener("click", (e) => {
   const key = e.target.closest(".keys > span[data-key]")?.dataset.key;
   if (key) KEYS[key]();
@@ -2557,10 +3535,7 @@ document.addEventListener("keydown", (e) => {
   if (e.isComposing || e.keyCode === 229) return;
   const el = document.activeElement;
   if (e.key === "Escape") {
-    if (!$(".help").hidden) $(".help").hidden = true;
-    else if (peek()) closePeek();
-    else if (sheet()) closeSheet();
-    else if (typing(el)) el.blur();
+    if (!back() && typing(el)) el.blur();
     return;
   }
   if (e.key === "Enter" && el?.matches("form textarea")) {
@@ -2572,26 +3547,42 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (typing(el) || e.metaKey || e.ctrlKey || e.altKey) return;
+  // ⇧ with an arrow or ↵ is the browser's (selecting, a new window).
+  if (e.shiftKey && (e.key.startsWith("Arrow") || e.key === "Enter")) return;
+  // While the pop-up is open, and the help is not over it, its arrows and
+  // ↵ move between its accounts from a toggle, the pop-up or nothing in
+  // particular.
+  const inUsage = !el || el === document.body || el === usage() || el.matches(".usage .toggle");
+  if (usageOpen() && $(".help").hidden && USAGE_KEYS.includes(e.key) && inUsage) {
+    if (usageKey(e.key, el)) e.preventDefault();
+    return;
+  }
   const row = el?.matches(".task a.id") ? el.closest(".task") : null;
   if (KEYS[e.key]?.(row, el)) e.preventDefault();
 });
 
 // An action returns to the bare page with its notice; reopen the task it
-// was taken on.
-const back = sessionStorage.getItem("router-task");
+// was taken on. A page drawn with the pop-up open (?usage, the link a page
+// without a script follows) keeps it open and drops the parameter.
+const returned = sessionStorage.getItem("router-task");
 sessionStorage.removeItem("router-task");
 const sheetBack = sessionStorage.getItem("router-sheet");
 sessionStorage.removeItem("router-sheet");
 if (sheetBack) openSheet(sheetBack);
 const params = new URLSearchParams(location.search);
-if (back && params.has("notice") && !params.has("task") && back !== selected() && $('.task[data-task="' + CSS.escape(back) + '"]')) {
-  history.replaceState(null, "", "?task=" + encodeURIComponent(back) + "&notice=" + encodeURIComponent(params.get("notice")));
-  refresh(back);
+if (params.has("usage")) {
+  params.delete("usage");
+  history.replaceState(null, "", location.pathname + (params.toString() ? "?" + params : ""));
+}
+if (returned && params.has("notice") && !params.has("task") && returned !== selected() && $('.task[data-task="' + CSS.escape(returned) + '"]')) {
+  history.replaceState(null, "", "?task=" + encodeURIComponent(returned) + "&notice=" + encodeURIComponent(params.get("notice")));
+  openTask(returned, "", false);
 }
 paint();
 fold();
 showLog();
 unfold();
+syncUsage();
 filter();
 drafts();
 `;

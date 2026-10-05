@@ -23,6 +23,7 @@ import {
 import { describeNeed, newMessageId, taskLog } from "./board.ts";
 import {
   serveRunner,
+  recordReader,
   sessionReader,
   waitsReader,
   bind,
@@ -197,11 +198,14 @@ async function serve(config: RouterConfig): Promise<void> {
   // writes the record without passing through serve, so the runner also
   // watches the journal file.
   mkdirSync(config.home, { recursive: true });
+  // The wake, the events endpoint and the board read one kept fold of the
+  // record.
+  const record = recordReader(config);
   const runner = serveRunner({
     open,
     delayMs: config.serve.wake * 1000,
     pollMs: config.serve.poll * 1000,
-    waits: waitsReader(config),
+    waits: waitsReader(config, record),
     log: (line) => console.log(line),
     watch: (onChange) => {
       const watcher = watch(config.home, (_kind, name) => {
@@ -226,7 +230,8 @@ async function serve(config: RouterConfig): Promise<void> {
   const deps = {
     config,
     handle,
-    sessionOf: sessionReader(config),
+    record,
+    sessionOf: sessionReader(record),
     log: (line: string) => console.log(line),
     usage: store && (() => ({ ...store.state(), every: usage.every })),
   };

@@ -99,10 +99,10 @@ configured".
 ### `usage`
 
 Optional and off by default: without it `router serve` reads no account
-and the board has no Usage tab. With it, `serve` reads this host's usage
-accounts on its own cadence for the
-[Usage view](board.md#usage); what each account reads, and with which
-login, is in [operating.md](operating.md#usage).
+and the board shows no usage. With it, `serve` reads this host's usage
+accounts on its own cadence for the board's
+[Usage section and pop-up](board.md#usage); what each account reads, and
+with which login, is in [operating.md](operating.md#usage).
 
 ```json
 "usage": { "every": 120 }

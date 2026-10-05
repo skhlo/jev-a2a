@@ -4,9 +4,11 @@
 import {
   appendFileSync,
   closeSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   rmSync,
   statSync,
   truncateSync,
@@ -69,16 +71,88 @@ export async function openJournal(
 // one whole line per call, so a final line without its newline is a write in
 // progress and is left for the next read.
 export function readJournal(home: string): Entry[] {
-  let text = "";
+  return readJournalSince(home, null).entries;
+}
+
+// Where a read left the journal: the file (its inode), its size and
+// modification time then, the bytes read (up to the end of the last whole
+// line), and that line, which must still end there for a later read to go
+// on from it.
+export type JournalMark = Readonly<{
+  ino: number;
+  size: number;
+  mtimeMs: number;
+  offset: number;
+  last: string;
+}>;
+
+// What a read found: the whole lines after `mark` (`from` "mark"), or, when
+// the journal is not the one the mark was taken on, every line (`from`
+// "start"); and the mark to pass next time, null while there is no
+// journal. The writer only appends, but `repair` truncates a torn last line
+// and a journal can be replaced, so a file that shrank, has another inode or
+// no longer holds the mark's line where it ended is read from the start.
+export type JournalRead = {
+  entries: Entry[];
+  from: "start" | "mark";
+  mark: JournalMark | null;
+};
+
+export function readJournalSince(
+  home: string,
+  mark: JournalMark | null,
+): JournalRead {
+  let fd: number;
   try {
-    text = readFileSync(join(home, "journal.jsonl"), "utf8");
+    fd = openSync(join(home, "journal.jsonl"), "r");
   } catch (error: unknown) {
     if (!isCode(error, "ENOENT")) throw error;
-    return [];
+    return { entries: [], from: "start", mark: null };
   }
-  const lines = text.split("\n");
-  lines.pop();
-  return lines.filter((line) => line.trim()).map((line) => parseEntry(line));
+  try {
+    const stat = fstatSync(fd);
+    const read = (length: number, position: number): Buffer => {
+      const buffer = Buffer.alloc(length);
+      let done = 0;
+      while (done < length) {
+        const n = readSync(fd, buffer, done, length - done, position + done);
+        if (n === 0) break;
+        done += n;
+      }
+      return buffer.subarray(0, done);
+    };
+    const same =
+      mark !== null && stat.ino === mark.ino && stat.size >= mark.size;
+    if (same && stat.size === mark.size && stat.mtimeMs === mark.mtimeMs)
+      return { entries: [], from: "mark", mark };
+    const ended = Buffer.from(`${mark?.last ?? ""}\n`);
+    const goOn =
+      same &&
+      (mark.offset === 0 ||
+        (mark.offset >= ended.length &&
+          read(ended.length, mark.offset - ended.length).equals(ended)));
+    const start = goOn ? mark.offset : 0;
+    const bytes = read(stat.size - start, start);
+    // Whole lines only, cut at a newline byte, so no character is split.
+    const whole = bytes.subarray(0, bytes.lastIndexOf(0x0a) + 1);
+    const lines = whole.toString("utf8").split("\n");
+    lines.pop();
+    return {
+      entries: lines
+        .filter((line) => line.trim())
+        .map((line) => parseEntry(line)),
+      from: goOn ? "mark" : "start",
+      mark: {
+        ino: stat.ino,
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        offset: start + whole.length,
+        last: lines.at(-1) ?? (goOn ? mark.last : ""),
+      },
+    };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 // A final line without its newline is a write that died mid-way. It was

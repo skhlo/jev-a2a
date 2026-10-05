@@ -4,12 +4,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { sharedScratch } from "./test-scratch.ts";
 import { textOption } from "./text.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "text-"));
+const dir = sharedScratch("text-");
 const file = join(dir, "reply.md");
 const body =
   'Merged: skhlo/designs@abc\n\n- `jsx/card.jsx`\n- "quoted" $(not run)';

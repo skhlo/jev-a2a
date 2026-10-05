@@ -146,12 +146,12 @@ export type BoardModel = {
   open: TaskView[];
   finished: TaskView[];
   // When each message was recorded, by message id.
-  times: Record<string, string>;
+  times: Readonly<Record<string, string>>;
   log: State["log"];
   // When the placements' snapshots were taken; null without telemetry.
   telemetryAt: string | null;
-  // The accounts' usage, for the Usage tab; null when the configuration
-  // has no usage section.
+  // The accounts' usage, for the rail's Usage section and the usage
+  // pop-up; null when the configuration has no usage section.
   usage: UsageView | null;
 };
 
@@ -167,8 +167,14 @@ export function boardState(
   entries: Entry[],
   now: number,
 ): State {
-  return reduce(fold(config, entries), { type: "tick", now });
+  return asOf(fold(config, entries), now);
 }
+
+// The same from a fold already made, which a reader may keep between
+// requests while the journal is unchanged; the fold itself is left as it
+// was.
+export const asOf = (folded: State, now: number): State =>
+  reduce(folded, { type: "tick", now });
 
 export function messageTimes(entries: Entry[]): Record<string, string> {
   const times: Record<string, string> = {};
@@ -188,7 +194,7 @@ export function boardModel(
   state: State,
   config: RouterConfig,
   now: number,
-  times: Record<string, string> = {},
+  times: Readonly<Record<string, string>> = {},
   actor: Actor | null = null,
   telemetry: Telemetry | null = null,
   usage: UsageState | null = null,

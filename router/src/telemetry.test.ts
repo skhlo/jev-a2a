@@ -3,10 +3,10 @@
 // readable is "no telemetry".
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PaseoAgent } from "@getpaseo/client";
+import { scratch } from "./test-scratch.ts";
 import { isReady, snapshotOf } from "./paseo.ts";
 import {
   agentLine,
@@ -131,8 +131,8 @@ test("snapshotOf reads every field, and nulls what the daemon left out", () => {
   );
 });
 
-test("the file round-trips, is replaced whole, and anything else reads as no telemetry", () => {
-  const home = mkdtempSync(join(tmpdir(), "telemetry-"));
+test("the file round-trips, is replaced whole, and anything else reads as no telemetry", (t) => {
+  const home = scratch(t, "telemetry-");
   const errors: string[] = [];
   const onError = (message: string): void => {
     errors.push(message);
@@ -202,8 +202,8 @@ test("the file round-trips, is replaced whole, and anything else reads as no tel
   ]);
 });
 
-test("the sheet round-trips, and a damaged sheet field reads as not read while the rail stays", () => {
-  const home = mkdtempSync(join(tmpdir(), "telemetry-"));
+test("the sheet round-trips, and a damaged sheet field reads as not read while the rail stays", (t) => {
+  const home = scratch(t, "telemetry-");
   const sheet: AgentSnapshot = {
     ...emptySnapshot(SEEN, "missing"),
     status: "running",

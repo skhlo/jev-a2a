@@ -17,7 +17,12 @@ import {
   waitsOnSessions,
 } from "./core.ts";
 import type { RouterConfig } from "./config.ts";
-import { openJournal, type Entry } from "./journal.ts";
+import {
+  openJournal,
+  readJournalSince,
+  type Entry,
+  type JournalMark,
+} from "./journal.ts";
 import { RouterBug, type Adapter } from "./paseo.ts";
 import {
   emptySnapshot,
@@ -101,14 +106,23 @@ export const servedBy =
     );
   };
 
+const configuredIn = (entries: Entry[]): Entry["event"] | undefined =>
+  entries.find((e) => e.event.type === "configured")?.event;
+
 // A record that predates its first `configured` line was written under that
 // configuration, not under today's: start from it, so the rules of the time
 // hold for the whole record.
 export function fold(config: RouterConfig, entries: Entry[]): State {
-  const first = entries.find((e) => e.event.type === "configured")?.event;
-  let state = initial(
-    first ? validateConfig(first.config) : coreConfig(config),
+  const first = configuredIn(entries);
+  return foldMore(
+    initial(first ? validateConfig(first.config) : coreConfig(config)),
+    entries,
   );
+}
+
+// Folds `entries` onto `state`, the fold of the record before them. The core
+// returns a new state for each event, so `state` itself is left as it was.
+function foldMore(state: State, entries: Entry[]): State {
   for (const { event } of entries) {
     // The journal holds events the core accepted; the core re-validates on
     // replay and the throw below catches anything that no longer fits.
@@ -119,6 +133,38 @@ export function fold(config: RouterConfig, entries: Entry[]): State {
       );
   }
   return state;
+}
+
+// The journal folded without the lock and kept between reads: a read folds
+// only the lines appended since the last one onto the state it left, as a
+// replay clones the state at every event (1.2 to 2.4 s a read on a live
+// record) and the journal changes at least every serve.poll. A journal that
+// is not the one read before (cut back, replaced) is folded from the start,
+// and so is one whose first `configured` line has just arrived, as that
+// line sets where the fold starts. A read returns the state and the lines
+// it folded: those since the last read (`from` "mark") or the whole record
+// (`from` "start").
+export type JournalFold = Readonly<{
+  state: State;
+  entries: Entry[];
+  from: "start" | "mark";
+}>;
+export function journalFolder(config: RouterConfig): () => JournalFold {
+  let state: State | null = null;
+  let mark: JournalMark | null = null;
+  let configured = false;
+  return () => {
+    let got = readJournalSince(config.home, mark);
+    if (got.from === "mark" && !configured && configuredIn(got.entries))
+      got = readJournalSince(config.home, null);
+    state =
+      state && got.from === "mark"
+        ? foldMore(state, got.entries)
+        : fold(config, got.entries);
+    if (got.from === "start") configured = !!configuredIn(got.entries);
+    mark = got.mark;
+    return { state, entries: got.entries, from: got.from };
+  };
 }
 
 export async function openShell(

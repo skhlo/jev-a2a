@@ -112,11 +112,11 @@ records it.
   `router status <task>` shows them. `times` maps message ids to when they
   were recorded. `telemetryAt` is `null` without telemetry.
 - `usage` is `null` when the configuration has no `usage` section; the
-  Usage view is drawn from it alone. `at` is when the store's last refresh
-  ended, `null` before the first; `every` is the seconds between
-  refreshes. `accounts` are the configured ones in a fixed order (Codex,
-  Claude, DeepSeek, OpenRouter), `kind` `subscription` or `api`, `url` the
-  provider's own usage page.
+  rail's Usage section and the usage pop-up are drawn from it alone. `at`
+  is when the store's last refresh ended, `null` before the first; `every`
+  is the seconds between refreshes. `accounts` are the configured ones in
+  a fixed order (Codex, Claude, DeepSeek, OpenRouter), `kind`
+  `subscription` or `api`, `url` the provider's own usage page.
 - An account's `status` is `loading` before its first refresh ends,
   `ready`, `stale` (a reading kept after a failed refresh, older than ten
   minutes, timed more than a minute ahead, or past a window's reset) or

@@ -3,9 +3,9 @@
 // the page itself.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratch } from "./test-scratch.ts";
 import {
   actionEvent,
   BOARD_VERSION,
@@ -55,15 +55,15 @@ test("the fixture is a journal: every event was accepted", () => {
   );
 });
 
-test("readJournal skips a line still being written", () => {
-  const home = mkdtempSync(join(tmpdir(), "board-"));
+test("readJournal skips a line still being written", (t) => {
+  const home = scratch(t, "board-");
   const path = join(home, "journal.jsonl");
   const line = JSON.stringify({ at: "t", event: { type: "tick", now: 1 } });
   writeFileSync(path, `${line}\n${line}\n${line.slice(0, 10)}`);
   assert.equal(readJournal(home).length, 2);
   writeFileSync(path, `${line}\n${line}\n${line}\n`);
   assert.equal(readJournal(home).length, 3);
-  assert.deepEqual(readJournal(mkdtempSync(join(tmpdir(), "board-"))), []);
+  assert.deepEqual(readJournal(scratch(t, "board-")), []);
   assert.equal(readFileSync(path, "utf8").split("\n").length, 4);
 });
 
@@ -575,7 +575,7 @@ test("the sample holds what v0.12 binds: a session mid-turn with no delivery, a 
   );
 });
 
-test("the sample holds usage in the states the Usage view binds: a current subscription with history, a stale one kept after a failed refresh, a balance, and a key without management data", () => {
+test("the sample holds usage in the states the usage section and pop-up bind: a current subscription with history, a stale one kept after a failed refresh, a balance, and a key without management data", () => {
   const usage = sampleModel().usage;
   assert.ok(usage);
   assert.equal(usage.every, 120);

@@ -165,18 +165,22 @@ Opened directly, the page is read-only. Put it behind Tailscale Serve
 it from another device and to act: the board reads the login Serve reports
 (`/whoami` shows the headers), and a login listed in `serve.identities`
 answers, chooses, cancels, resolves and holds as its principals. The page
-works without JavaScript; with it, it refreshes every ten seconds and `?`
-lists the keys, with the palette switch. The same address serves the page's
-data as JSON (`board.json`), the contract `jev-router-board/1`.
+works without JavaScript; with it, it refreshes every ten seconds, opens a
+task in place and takes keys: the arrows move between tasks and open one,
+`←` or `esc` goes back, `u` opens the usage, `p` holds or releases, `r`
+opens the router log and `?` lists the rest
+([docs/board.md](docs/board.md#the-script)). The same address serves the
+page's data as JSON (`board.json`), the contract `jev-router-board/1`.
 
-With a `usage` section in the configuration, the page gains a second tab,
-Usage: this host's Codex and Claude quota windows and its DeepSeek and
-OpenRouter balances, read with the host's own logins
-([docs/board.md](docs/board.md#usage),
+With a `usage` section in the configuration, the rail gains a Usage
+section with this host's Codex and Claude quota windows. A rail row, or
+`u`, opens the Usage pop-up beside it, which adds the DeepSeek and
+OpenRouter balances and each account's history, read with the host's own
+logins ([docs/board.md](docs/board.md#usage),
 [operating](docs/operating.md#usage),
 [configuration](docs/configuration.md#usage)).
 
-![The Usage tab: subscription windows and API balances](router/design/screenshots/usage.png)
+![The usage pop-up beside the rail: subscription windows and API balances](router/design/screenshots/board-usage.png)
 
 More: [docs/board.md](docs/board.md) (what every part shows),
 [docs/board-model.md](docs/board-model.md) (the JSON).

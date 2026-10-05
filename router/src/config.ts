@@ -43,8 +43,8 @@ export type RouterConfig = Config & {
   // Whether each run reads the health sheet (checkout, subagents, activity)
   // beyond the rail; off, a run costs one call per placement.
   telemetry: { sheet: boolean };
-  // Which accounts `router serve` reads for the Usage tab, every how many
-  // seconds; null, the default, reads none and shows no tab.
+  // Which accounts `router serve` reads for the board's usage, every how
+  // many seconds; null, the default, reads none and the board shows none.
   usage: { every: number; accounts: AccountId[] } | null;
 };
 

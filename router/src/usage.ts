@@ -5,7 +5,8 @@
 // `router serve` keeps in memory and refreshes on its own cadence. Nothing
 // here does I/O: usage-readers.ts reads the providers, usage-details.ts
 // shapes the history behind an account, and the board model carries
-// `usageView` of the store for the Usage tab and the JSON.
+// `usageView` of the store for the board's usage section and pop-up and
+// the JSON.
 //
 // The rules API Dash settled: absent is never zero (a value the provider did
 // not send is left out, not counted as 0); a failed source keeps its last
@@ -44,7 +45,7 @@ export type AccountId = (typeof ACCOUNTS)[number]["id"];
 export type AccountKind = (typeof ACCOUNTS)[number]["kind"];
 export const ACCOUNT_IDS: AccountId[] = ACCOUNTS.map((a) => a.id);
 
-// The labels the Usage view places by name, written here by the
+// The labels the usage pop-up places by name, written here by the
 // normalizers and read there: the balance a row leads with, an API key's
 // figures and allowance, and the word a window's label ends with.
 export const LABEL = {

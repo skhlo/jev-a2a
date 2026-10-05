@@ -2,15 +2,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request, type Server } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { scratch, sharedScratch } from "./test-scratch.ts";
 import {
   bind,
   BindError,
   boardListener,
   eventsListener,
   keepReading,
+  recordReader,
   sameSite,
   serveRunner,
   sessionReader,
@@ -20,7 +27,8 @@ import {
   type Run,
   type SessionStatus,
 } from "./server.ts";
-import { BOARD_VERSION } from "./board.ts";
+import { BOARD_VERSION, messageTimes } from "./board.ts";
+import { coreConfig, fold } from "./shell.ts";
 import {
   config as fixture,
   extend,
@@ -37,7 +45,9 @@ import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
 
-const home = mkdtempSync(join(tmpdir(), "server-"));
+// The record the tests share; a test that needs its own makes a scratch
+// one.
+const home = sharedScratch("server-");
 const config: RouterConfig = {
   ...base,
   home,
@@ -66,6 +76,10 @@ const handle = (event: Event): Promise<Run> => {
     report: ["delivered"],
   });
 };
+
+// A board over its configuration's record, as serve hands it one.
+const boardOf = (deps: Omit<Parameters<typeof boardListener>[0], "record">) =>
+  boardListener({ ...deps, record: recordReader(deps.config) });
 
 async function serve(server: Server): Promise<string> {
   await new Promise<void>((resolve) =>
@@ -249,13 +263,13 @@ test("events: a person is refused; a replaced session may reply and answer but n
   }
 });
 
-test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", () => {
-  const record = mkdtempSync(join(tmpdir(), "server-sessions-"));
+test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", (t) => {
+  const record = scratch(t, "server-sessions-");
   writeFileSync(
     join(record, "journal.jsonl"),
     replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
-  const sessionOf = sessionReader({ ...fixture, home: record });
+  const sessionOf = sessionReader(recordReader({ ...fixture, home: record }));
   assert.equal(sessionOf("A1"), "current");
   assert.equal(sessionOf("K2"), "current");
   assert.equal(sessionOf("K1"), "replaced");
@@ -269,14 +283,15 @@ test("sessionReader: reads the record without the journal lock and tells a curre
   assert.ok(!existsSync(join(record, "journal.lock")));
 });
 
-test("waitsReader: reads the record without the lock and says whether a served session is worth looking at again", () => {
-  const record = mkdtempSync(join(tmpdir(), "server-waits-"));
+test("waitsReader: reads the record without the lock and says whether a served session is worth looking at again", (t) => {
+  const record = scratch(t, "server-waits-");
   const write = (entries: Entry[]): void =>
     writeFileSync(
       join(record, "journal.jsonl"),
       entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
     );
-  const waits = waitsReader({ ...fixture, home: record });
+  const served = { ...fixture, home: record };
+  const waits = waitsReader(served, recordReader(served));
   // The fixture: a question open, a session working, a placement held.
   // Nothing there moves by looking again.
   write(journal);
@@ -689,7 +704,7 @@ test("board: the trailing-slash redirect stays on this host, directly and under 
     join(home, "journal.jsonl"),
     `${JSON.stringify({ at: "t", event: { type: "tick", now: 1 } })}\n`,
   );
-  const server = createServer(boardListener({ config, handle }));
+  const server = createServer(boardOf({ config, handle }));
   const url = await serve(server);
   const { port } = new URL(url);
   // The path as sent, unnormalized, as a hostile link can make a browser
@@ -747,7 +762,7 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
   );
   const logged: string[] = [];
   const server = createServer(
-    boardListener({ config, handle, log: (line) => logged.push(line) }),
+    boardOf({ config, handle, log: (line) => logged.push(line) }),
   );
   const url = await serve(server);
   const before = handled.length;
@@ -841,14 +856,14 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
   }
 });
 
-test("board: asked for JSON, the board serves its model, identified as the page is", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-model-"));
+test("board: asked for JSON, the board serves its model, identified as the page is", async (t) => {
+  const record = scratch(t, "server-model-");
   writeFileSync(
     join(record, "journal.jsonl"),
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   const server = createServer(
-    boardListener({
+    boardOf({
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -961,14 +976,14 @@ const formsIn = (html: string) =>
     };
   });
 
-test("board: the page opens the task in its URL, paints a known palette, and every form posts as before", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-page-"));
+test("board: the page opens the task in its URL, paints a known palette, and every form posts as before", async (t) => {
+  const record = scratch(t, "server-page-");
   writeFileSync(
     join(record, "journal.jsonl"),
     replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   const server = createServer(
-    boardListener({
+    boardOf({
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -1087,14 +1102,14 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
   }
 });
 
-test("board: a record the code cannot replay is a 500, not a crash", async () => {
-  const broken = mkdtempSync(join(tmpdir(), "server-broken-"));
+test("board: a record the code cannot replay is a 500, not a crash, and the icon request does not read it", async (t) => {
+  const broken = scratch(t, "server-broken-");
   writeFileSync(
     join(broken, "journal.jsonl"),
     `${JSON.stringify({ at: "t", event: { type: "attempt", deliveryId: "D9" } })}\n`,
   );
   const server = createServer(
-    boardListener({ config: { ...config, home: broken }, handle }),
+    boardOf({ config: { ...config, home: broken }, handle }),
   );
   const url = await serve(server);
   try {
@@ -1103,6 +1118,15 @@ test("board: a record the code cannot replay is a 500, not a crash", async () =>
     assert.match(await page.text(), /cannot be read/);
     // The process is still serving.
     assert.equal((await fetch(`${url}/whoami`)).status, 200);
+    // The browser's icon request is answered without reading the record,
+    // at the root and under Serve's mount, rather than redirected to a
+    // whole board.
+    for (const path of ["/favicon.ico", "/router/favicon.ico"]) {
+      const icon = await fetch(`${url}${path}`, { redirect: "manual" });
+      assert.equal(icon.status, 204, path);
+      assert.equal(icon.headers.get("location"), null);
+      assert.equal(await icon.text(), "");
+    }
   } finally {
     server.close();
   }
@@ -1214,15 +1238,15 @@ test(
   },
 );
 
-test("board: the model carries the telemetry file beside the record; a bad file is logged once and shown as none", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-telemetry-"));
+test("board: the model carries the telemetry file beside the record; a bad file is logged once and shown as none", async (t) => {
+  const record = scratch(t, "server-telemetry-");
   writeFileSync(
     join(record, "journal.jsonl"),
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   const logged: string[] = [];
   const server = createServer(
-    boardListener({
+    boardOf({
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -1391,15 +1415,15 @@ test("usage: a refresh that rejects logs one fixed line and reads again on sched
   }
 });
 
-test("board: the Usage view is at usage/, with the theme cookie and the same model as JSON; without usage it is a 404 that names the section", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-usage-"));
+test("board: usage/ goes back to the board, with the pop-up open while usage is on; ?usage draws it open; the model carries usage as JSON", async (t) => {
+  const record = scratch(t, "server-usage-");
   writeFileSync(
     join(record, "journal.jsonl"),
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   const listen = (state: UsageState | null) =>
     createServer(
-      boardListener({
+      boardOf({
         config: { ...fixture, home: record },
         handle,
         now: () => NOW,
@@ -1411,43 +1435,62 @@ test("board: the Usage view is at usage/, with the theme cookie and the same mod
   const url = await serve(on);
   const offUrl = await serve(off);
   try {
+    // The Usage tab's address, kept for its links: a relative redirect to
+    // the board, which under Serve's mount stays /router/, with the pop-up
+    // open; a path that only ends in usage/ goes back one level as well.
+    for (const path of ["/usage/", "/router/usage/"]) {
+      const old = await fetch(url + path, { redirect: "manual" });
+      assert.equal(old.status, 302);
+      assert.equal(old.headers.get("location"), "../?usage");
+    }
+    // Without the slash it first gains one, as every page does.
+    const bare = await fetch(`${url}/usage`, { redirect: "manual" });
+    assert.equal(bare.headers.get("location"), "./usage/");
+    // Followed, the board with the pop-up open; no tab in the nav.
     const page = await fetch(`${url}/usage/`);
     assert.equal(page.status, 200);
     assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
     const html = await page.text();
-    assert.ok(html.includes("<title>Usage · Router</title>"));
-    assert.ok(html.includes('class="panel subscriptions"'));
-    // The board links to the Usage view when usage is on.
-    const board = await (await fetch(`${url}/`)).text();
-    assert.ok(board.includes('href="usage/"'));
-    // The theme is the page's cookie, as on the board.
+    assert.ok(html.includes("<title>Router</title>"));
+    assert.ok(
+      html.includes(
+        '<aside class="usage" id="usage" role="dialog" aria-label="Usage" data-path="usage">',
+      ),
+    );
+    assert.ok(
+      html.includes(
+        '<nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>',
+      ),
+    );
+    assert.ok(!html.includes('href="usage/"'));
+    // The board without ?usage draws it shut, and the rail's rows link to
+    // the page that draws it open, with the selected task.
+    const board = await (await fetch(`${url}/?task=T2`)).text();
+    assert.ok(board.includes('data-path="usage" hidden>'));
+    assert.ok(board.includes('<a class="acct" href="?task=T2&amp;usage"'));
+    // The theme is the page's cookie.
     const themed = await (
-      await fetch(`${url}/usage/`, {
+      await fetch(`${url}/?usage`, {
         headers: { cookie: "router-theme=one-dark" },
       })
     ).text();
     assert.match(themed, /<html lang="en" data-theme="one-dark">/);
-    // Asked for JSON, usage/ is the board's model, usage included.
+    // Asked for JSON, the board's model, usage included.
     const model = await jsonObject(
-      await fetch(`${url}/usage/`, { headers: { accept: "application/json" } }),
+      await fetch(`${url}/?usage`, { headers: { accept: "application/json" } }),
     );
     assert.ok(isRecord(model.usage));
     assert.equal(model.usage.at, "2026-09-30T09:44:30.000Z");
     assert.deepEqual(await jsonObject(await fetch(`${url}/board.json`)), model);
-    // Without the slash, a relative redirect: under Serve's mount the
-    // browser comes back to /router/usage/.
-    const bare = await fetch(`${url}/usage`, { redirect: "manual" });
-    assert.equal(bare.status, 302);
-    assert.equal(bare.headers.get("location"), "./usage/");
-    // Usage off: the board has no Usage tab, and usage/ says why.
-    const none = await fetch(`${offUrl}/usage/`);
-    assert.equal(none.status, 404);
-    assert.equal(
-      await none.text(),
-      "Usage is off: the configuration has no usage section.",
-    );
-    const plainBoard = await (await fetch(`${offUrl}/`)).text();
-    assert.equal(plainBoard.includes('href="usage/"'), false);
+    // Usage off: usage/ is the board, which has no section, no pop-up and
+    // no u, even when asked for it.
+    const none = await fetch(`${offUrl}/usage/`, { redirect: "manual" });
+    assert.equal(none.status, 302);
+    assert.equal(none.headers.get("location"), "../");
+    const plain = await (await fetch(`${offUrl}/?usage`)).text();
+    assert.ok(!plain.includes('<aside class="usage"'));
+    assert.ok(!plain.includes('class="usage-rail"'));
+    assert.ok(!plain.includes("<kbd>u</kbd>"));
     assert.equal(
       (await jsonObject(await fetch(`${offUrl}/board.json`))).usage,
       null,
@@ -1456,4 +1499,140 @@ test("board: the Usage view is at usage/, with the theme cookie and the same mod
     on.close();
     off.close();
   }
+});
+
+test("board: the record is folded again only when the journal changes, and each request still reads at its own time", async (t) => {
+  const record = scratch(t, "server-fold-");
+  const path = join(record, "journal.jsonl");
+  const write = (entries: Entry[]): void =>
+    writeFileSync(
+      path,
+      entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+    );
+  write(journal);
+  const kept = { ...fixture, home: record };
+  const read = recordReader(kept);
+  const first = read();
+  // Unchanged: the same fold, not a new one.
+  assert.equal(read(), first);
+  assert.equal(read().state, first.state);
+  // An append is a new fold with the new task.
+  const more = extend({
+    type: "submit",
+    by: "you",
+    messageId: "M5",
+    text: "One more",
+    to: "orchestrator",
+  });
+  write(more);
+  const second = read();
+  assert.notEqual(second, first);
+  assert.equal(second.state.tasks.length, first.state.tasks.length + 1);
+  assert.equal(read(), second);
+  // The page reads the kept fold at the request's time: a deadline passes
+  // between two requests without a change to the journal.
+  let at = NOW;
+  const server = createServer(
+    boardListener({ config: kept, record: read, handle, now: () => at }),
+  );
+  const url = await serve(server);
+  try {
+    // Where T5 is: open or finished.
+    const listOf = async (): Promise<string> => {
+      const model = await jsonObject(await fetch(`${url}/board.json`));
+      assert.ok(Array.isArray(model.open) && Array.isArray(model.finished));
+      const has = (list: unknown[]): boolean =>
+        list.some((task) => isRecord(task) && task.id === "T5");
+      return has(model.open) ? "open" : has(model.finished) ? "finished" : "";
+    };
+    assert.equal(await listOf(), "open");
+    at = NOW + 3 * 60 * 60_000;
+    assert.equal(await listOf(), "finished");
+  } finally {
+    server.close();
+  }
+});
+
+test("board: the kept record folds only the lines appended since, and folds again from the start when the journal is cut, replaced or first configured", (t) => {
+  const record = scratch(t, "server-more-");
+  const path = join(record, "journal.jsonl");
+  const lines = (entries: Entry[]): string =>
+    entries.map((entry) => `${JSON.stringify(entry)}\n`).join("");
+  const at = journal.at(-1)?.at ?? "";
+  const submit = (n: number): Entry => ({
+    at,
+    event: {
+      type: "submit",
+      by: "you",
+      messageId: `M${n}`,
+      text: `Task ${n}`,
+      to: "orchestrator",
+    },
+  });
+  // A record with no `configured` line, folded under today's configuration.
+  const prefix = journal.filter((entry) => entry.event.type !== "configured");
+  writeFileSync(path, lines(prefix));
+  const config = { ...fixture, home: record };
+  const read = recordReader(config);
+  const first = read();
+  // Under today's configuration, until a `configured` line says otherwise.
+  assert.equal(first.state.tasks[0]?.judgments[0]?.threshold, 0.9);
+  assert.ok(Object.isFrozen(first.times));
+  assert.equal(read(), first);
+  // An append, with a torn line after it: the whole lines are folded onto
+  // the kept state, which stays as it was, and the torn one waits.
+  appendFileSync(path, `${lines([submit(50), submit(51)])}{"at":"${at}","ev`);
+  const second = read();
+  const upTo = [...prefix, submit(50), submit(51)];
+  assert.deepEqual(second.state, fold(config, upTo));
+  assert.deepEqual(second.times, messageTimes(upTo));
+  assert.ok(Object.isFrozen(second.times));
+  assert.equal(second.state.tasks.length, first.state.tasks.length + 2);
+  assert.equal(read(), second);
+  // Only what was appended is folded: an earlier line rewritten in place
+  // at the same length is not read again.
+  const text = readFileSync(path, "utf8");
+  writeFileSync(path, text.replace('"text":"Task 50"', '"text":"Task 5X"'));
+  appendFileSync(path, `ent":{"type":"tick","now":${NOW}}}\n`);
+  const third = read();
+  assert.ok(third.state.tasks.some((task) => task.text === "Task 50"));
+  // Cut back (as repair cuts a torn line): folded from the start.
+  writeFileSync(path, lines(upTo));
+  assert.deepEqual(read().state, fold(config, upTo));
+  // Replaced by another file: folded from the start.
+  const next = join(record, "next.jsonl");
+  const other = [...prefix, submit(52)];
+  writeFileSync(next, lines(other));
+  renameSync(next, path);
+  assert.deepEqual(read().state, fold(config, other));
+  // A first `configured` line sets where the whole fold starts, so the
+  // record is folded again, and the judgments before it count under its
+  // rules.
+  const rules = structuredClone(coreConfig(config));
+  rules.policy.threshold = 0.85;
+  const configured: Entry = {
+    at,
+    event: { type: "configured", config: rules },
+  };
+  appendFileSync(path, lines([configured, submit(53)]));
+  const all = [...other, configured, submit(53)];
+  const refolded = read();
+  assert.deepEqual(refolded.state, fold(config, all));
+  assert.equal(refolded.state.tasks[0]?.judgments[0]?.threshold, 0.85);
+  assert.deepEqual(refolded.times, messageTimes(all));
+  // A later `configured` line, a configuration change, is folded onto the
+  // kept state like any other line: the earlier lines are not read again.
+  writeFileSync(
+    path,
+    readFileSync(path, "utf8").replace('"text":"Task 52"', '"text":"Task 5Y"'),
+  );
+  const change = structuredClone(rules);
+  change.policy.threshold = 0.8;
+  appendFileSync(
+    path,
+    lines([{ at, event: { type: "configured", config: change } }, submit(54)]),
+  );
+  const changed = read();
+  assert.ok(changed.state.tasks.some((task) => task.text === "Task 52"));
+  assert.ok(changed.state.tasks.some((task) => task.text === "Task 54"));
 });
