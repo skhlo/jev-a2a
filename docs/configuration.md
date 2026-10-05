@@ -78,12 +78,12 @@ adapters section ([jev-router-spec.md](../research/jev-router-spec.md)).
 
 Placement key to the CLI its terminal runs, for a terminal placement that
 does not run Claude Code: `codex`, for Codex started as `codex --no-daemon`
-(without it, Paseo sees no activity from Codex). Optional; a terminal
-placement not listed runs Claude Code. Refused: a key whose `agents` entry
-is not a terminal, and any other CLI.
+(the contract's adapters section says why). Optional; a terminal placement
+not listed runs Claude Code. Refused: a key whose `agents` entry is not a
+terminal, and a value other than `claude` or `codex`.
 
 ```json
-"terminals": { "dotfiles-host@vps": "codex" }
+"terminals": { "coder@laptop": "codex" }
 ```
 
 ### `serve`

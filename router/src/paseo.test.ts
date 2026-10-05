@@ -9,13 +9,13 @@ import {
   adapterOver,
   checkoutFor,
   checkoutOf,
+  claudeCondition,
+  claudePromptEmpty,
   codexPrompt,
   firstLine,
   pasteable,
-  promptEmpty,
   screenFrom,
   subagentsOf,
-  terminalCondition,
   terminalSnapshotOf,
   type Daemon,
   type PaseoTerminal,
@@ -30,8 +30,8 @@ const screen = (
   lines: string[],
   cursorRow: number | null,
   cursorCol: number | null = null,
-  raw: string[] = lines,
-): Screen => ({ lines, raw, cursorRow, cursorCol });
+  drawn: string[] = lines,
+): Screen => ({ lines, drawn, cursorRow, cursorCol });
 
 const SEEN = "2026-09-30T09:44:50.000Z";
 
@@ -644,31 +644,33 @@ test("a terminal's condition: working by its activity or spinner, waiting at the
   ];
   for (const [t, condition] of cases)
     assert.equal(
-      terminalCondition(t),
+      claudeCondition(t),
       condition,
       JSON.stringify([t.activity, t.title]),
     );
 });
 
 test("only an empty prompt box at the foot of the screen, with the cursor in it, is a prompt to paste into", () => {
-  assert.equal(promptEmpty(EMPTY), true);
+  assert.equal(claudePromptEmpty(EMPTY), true);
   assert.equal(
-    promptEmpty({ ...EMPTY, lines: EMPTY.lines.map((l) => `${l}  `) }),
+    claudePromptEmpty({ ...EMPTY, lines: EMPTY.lines.map((l) => `${l}  `) }),
     true,
   );
-  assert.equal(promptEmpty(TYPED), false);
-  assert.equal(promptEmpty(DIALOG), false);
-  assert.equal(promptEmpty(screen([], null)), false);
-  assert.equal(promptEmpty({ ...EMPTY, cursorRow: null }), false);
+  assert.equal(claudePromptEmpty(TYPED), false);
+  assert.equal(claudePromptEmpty(DIALOG), false);
+  assert.equal(claudePromptEmpty(screen([], null)), false);
+  assert.equal(claudePromptEmpty({ ...EMPTY, cursorRow: null }), false);
   // A box a killed CLI left behind, with the shell's prompt and cursor
   // under it.
   assert.equal(
-    promptEmpty(screen([...EMPTY.lines.slice(0, 9), "source main ❯ "], 9)),
+    claudePromptEmpty(
+      screen([...EMPTY.lines.slice(0, 9), "source main ❯ "], 9),
+    ),
     false,
   );
   // A box left above a screenful of other output is not the one in use.
   assert.equal(
-    promptEmpty(
+    claudePromptEmpty(
       screen(
         [...EMPTY.lines.slice(0, 9), ...Array<string>(5).fill("output")],
         4,
@@ -682,7 +684,7 @@ test("a grid snapshot reads as its lines with dim cells blank, the same lines as
   const cell = (char: string, dim = false) => ({ char, dim });
   const row = (text: string, dim = false) =>
     [...text].map((char) => cell(char, dim));
-  const screen = screenFrom({
+  const read = screenFrom({
     rows: 3,
     cols: 12,
     grid: [
@@ -693,9 +695,9 @@ test("a grid snapshot reads as its lines with dim cells blank, the same lines as
     scrollback: [],
     cursor: { row: 1, col: 2 },
   });
-  assert.deepEqual(screen, {
+  assert.deepEqual(read, {
     lines: ["─".repeat(12), "❯        ", "─".repeat(12)],
-    raw: ["─".repeat(12), '❯ Try "x"', "─".repeat(12)],
+    drawn: ["─".repeat(12), '❯ Try "x"', "─".repeat(12)],
     cursorRow: 1,
     cursorCol: 2,
   });
@@ -931,6 +933,22 @@ const CODEX_THINKING = codexAt(
   [PAST_PROMPT, [], statusRow("Working", "1s"), []],
   [COMPOSER],
 );
+// A status line a narrow terminal cuts short.
+const CODEX_CUT = codexAt(
+  [
+    PAST_PROMPT,
+    [],
+    [
+      "• ",
+      ["Working", "dim"],
+      [" (1s • ", "dim"],
+      "esc",
+      [" to interrupt", "dim"],
+    ],
+    [],
+  ],
+  [COMPOSER],
+);
 // The automatic reviewer at work: the activity says needs_input, the
 // composer looks empty.
 const CODEX_REVIEW = codexAt(
@@ -1056,6 +1074,7 @@ test("Codex's empty composer is the last undimmed › alone on its line, the foo
     ["streaming (the activity covers it)", CODEX_STREAMING, "empty"],
     ["thinking", CODEX_THINKING, "busy"],
     ["automatic review", CODEX_REVIEW, "busy"],
+    ["status line cut short", CODEX_CUT, "busy"],
     ["draft", CODEX_DRAFT, "other"],
     ["draft, cursor at its start", CODEX_DRAFT_HOME, "other"],
     ["two-line draft", CODEX_TWO_LINES, "other"],
@@ -1085,7 +1104,7 @@ test("Codex's empty composer is the last undimmed › alone on its line, the foo
     codexPrompt({
       ...CODEX_EMPTY,
       lines: [...CODEX_EMPTY.lines, "", ""],
-      raw: [...CODEX_EMPTY.raw, "", ""],
+      drawn: [...CODEX_EMPTY.drawn, "", ""],
     }),
     "empty",
   );

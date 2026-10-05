@@ -409,7 +409,7 @@ hosts' own sandbox (`workspace-write`) and automatic approval reviewer:
   placeholder and the transcript's earlier prompts are dim. When the
   composer is empty, the cursor is at column 2.
 - During a turn the composer looks the same.
-- A status line ending `• esc to interrupt)` shows while a turn thinks or
+- A status line offering `esc to interrupt` shows while a turn thinks or
   runs tools, and while the automatic reviewer weighs an approval (when the
   activity says `needs_input`). It does not show while an answer streams.
 - A bracketed paste then Enter arrives as one prompt. A long one shows as
@@ -421,7 +421,8 @@ Therefore:
 
 - `ready` requires all of:
   - no `working` activity;
-  - no status line offering Esc;
+  - no line offering `esc to interrupt`, matched anywhere in the line so
+    that a line a narrow terminal cuts short still counts;
   - the composer empty and in use: the last undimmed `›` alone on its line,
     a blank line under it, at most three lines below, and the cursor right
     after the `›`.
@@ -441,6 +442,9 @@ Therefore:
   - Codex without `--no-daemon`. There is no activity, so a send could land
     in a streaming turn, and its receipt reads `unknown`.
   - A host whose reviewer is a person, who then approves every reply.
+  - The board cannot tell an exited Codex from one at a draft or a dialog:
+    the record says nothing of it, so each shows idle, and the run report
+    gives one reason for all three.
   - Light themes, terminals narrower than 80 columns, and the trust dialog
     for an untrusted folder.
 

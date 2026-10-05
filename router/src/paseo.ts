@@ -165,7 +165,7 @@ const RULE = /^─{20,}$/;
 //   stays working through a permission dialog;
 // - waiting: the title shows the idle mark and no turn runs.
 export type TerminalCondition = "working" | "waiting" | "away";
-export function terminalCondition(t: PaseoTerminal): TerminalCondition {
+export function claudeCondition(t: PaseoTerminal): TerminalCondition {
   const mark = MARK.exec(t.title ?? "")?.[1];
   if (!mark) return "away";
   return mark !== IDLE || t.activity?.state === "working"
@@ -174,10 +174,10 @@ export function terminalCondition(t: PaseoTerminal): TerminalCondition {
 }
 
 // A terminal's visible lines (a dim cell read as a space), the same lines
-// as drawn, and where its cursor is.
+// as drawn (`drawn`), and where its cursor is.
 export type Screen = {
   lines: string[];
-  raw: string[];
+  drawn: string[];
   cursorRow: number | null;
   cursorCol: number | null;
 };
@@ -189,7 +189,7 @@ export type Screen = {
 // or merged; a box a killed CLI left on the screen has the shell's cursor
 // below it. None of them is ready. The activity cannot tell: it is empty
 // before the first prompt and after an Esc, dialog or not.
-export function promptEmpty(screen: Screen): boolean {
+export function claudePromptEmpty(screen: Screen): boolean {
   const shown = screen.lines.map((line) => line.trimEnd());
   while (shown.length && !shown.at(-1)) shown.pop();
   const rule = shown.findLastIndex((line) => RULE.test(line));
@@ -205,8 +205,9 @@ export function promptEmpty(screen: Screen): boolean {
 // Codex's status line while a turn runs ("Working (3s • esc to
 // interrupt)"), shown too while its automatic reviewer weighs an approval,
 // when the activity says needs_input and the composer looks empty. It is
-// not shown while an answer streams; the activity covers that.
-const CODEX_RUNNING = / • esc to interrupt\)$/;
+// not shown while an answer streams; the activity covers that. Matched
+// anywhere in a row, so a row cut short by a narrow terminal still holds.
+const CODEX_RUNNING = /esc to interrupt/;
 
 // Where a terminal stands on its screen: at an empty prompt, in a turn its
 // record does not show, or anywhere else.
@@ -220,8 +221,7 @@ export type PromptState = "empty" | "busy" | "other";
 // the shell after Codex exits and the frame a killed Codex leaves all fail
 // it.
 export function codexPrompt(screen: Screen): PromptState {
-  if (screen.raw.some((line) => CODEX_RUNNING.test(line.trimEnd())))
-    return "busy";
+  if (screen.drawn.some((line) => CODEX_RUNNING.test(line))) return "busy";
   const shown = screen.lines.map((line) => line.trimEnd());
   while (shown.length && !shown.at(-1)) shown.pop();
   const row = shown.findLastIndex((line) => line.startsWith("›"));
@@ -268,8 +268,8 @@ const PROFILES: Record<TerminalCli, TerminalProfile> = {
   claude: {
     name: "Claude Code",
     notAtPrompt: "at its prompt with text in it or a dialog open",
-    condition: terminalCondition,
-    prompt: (screen) => (promptEmpty(screen) ? "empty" : "other"),
+    condition: claudeCondition,
+    prompt: (screen) => (claudePromptEmpty(screen) ? "empty" : "other"),
     title: (t) => (t.title ?? "").replace(MARK, "") || null,
   },
   codex: {
@@ -296,13 +296,14 @@ function terminalStatus(
 }
 
 // A terminal's record reduced to the board's fields: what its condition
-// and activity say, its title without the mark, its directory and
-// checkout, and nothing a terminal does not report (provider, model,
-// context, usage).
+// and activity say (and the screen, when it shows a turn the record does
+// not), its title without its CLI's marks, its directory and checkout, and
+// nothing a terminal does not report (provider, model, context, usage).
 export function terminalSnapshotOf(
   t: PaseoTerminal,
   seen: string,
   cli: TerminalCli = "claude",
+  prompt: PromptState | null = null,
 ): AgentSnapshot {
   const profile = PROFILES[cli];
   const condition = profile.condition(t);
@@ -312,7 +313,7 @@ export function terminalSnapshotOf(
   return {
     seen,
     status:
-      condition === "working"
+      condition === "working" || prompt === "busy"
         ? "running"
         : condition === "waiting"
           ? "idle"
@@ -337,8 +338,9 @@ export function terminalSnapshotOf(
   };
 }
 
-// A bracketed paste is followed by Enter only after this long, so Claude
-// Code takes the paste as text first (300 ms verified);
+// A bracketed paste is followed by Enter only after this long, so the CLI
+// takes the paste as text first (300 ms verified with Claude Code and
+// Codex);
 // the activity is looked at this often for the send's receipt.
 const PASTE_SETTLE_MS = 300;
 const RECEIPT_LOOK_MS = 250;
@@ -647,11 +649,10 @@ export function adapterOver(
     if (!t) return null;
     const profile = PROFILES[cli];
     const condition = profile.condition(t);
-    const snapshot = terminalSnapshotOf(t, seen, cli);
     const notes: string[] = [];
     const prompt =
       condition === "waiting" ? await promptOf(id, profile, notes) : null;
-    if (prompt === "busy") snapshot.status = "running";
+    const snapshot = terminalSnapshotOf(t, seen, cli, prompt);
     if (sheet) {
       const list = await listed(notes);
       const w =
@@ -839,7 +840,7 @@ export function screenFrom(state: TerminalState): Screen {
     lines: state.grid.map((row) =>
       row.map((cell) => (cell.dim ? " " : cell.char)).join(""),
     ),
-    raw: state.grid.map((row) => row.map((cell) => cell.char).join("")),
+    drawn: state.grid.map((row) => row.map((cell) => cell.char).join("")),
     cursorRow: state.cursor.row,
     cursorCol: state.cursor.col,
   };

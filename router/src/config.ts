@@ -84,10 +84,10 @@ export const terminalClis = (
   config: Pick<RouterConfig, "agents" | "terminals">,
 ): Record<string, TerminalCli> =>
   Object.fromEntries(
-    Object.entries(config.terminals).map(([key, cli]) => [
-      config.agents[key] ?? key,
-      cli,
-    ]),
+    Object.entries(config.terminals).flatMap(([key, cli]) => {
+      const session = config.agents[key];
+      return session ? [[session, cli]] : [];
+    }),
   );
 
 // Seconds between usage reads when the usage section names none.

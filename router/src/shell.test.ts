@@ -873,6 +873,48 @@ test("a Codex terminal is told to take the router's command out of its sandbox, 
   }
 });
 
+test("a Codex terminal that must choose a recipient is told to take the choice out of its sandbox", async (t) => {
+  const config: RouterConfig = {
+    ...configFor(scratch(t, "shell-")),
+    agents: { "orchestrator@mbp": "terminal:T1" },
+    terminals: { "orchestrator@mbp": "codex" },
+  };
+  const sent: { key: string; text: string }[] = [];
+  const shell = await openShell(config, {
+    ...scripted({
+      send: (key, text) => {
+        sent.push({ key, text });
+        return Promise.resolve("accepted");
+      },
+    }),
+    // Jev leans to the service but not enough to dispatch.
+    judge: () =>
+      Promise.resolve({
+        ok: true as const,
+        choice: "environment",
+        probabilities: { environment: 0.6, incus: 0.4, none: 0 },
+        confidence: 0.6,
+        model: "jev-test",
+        usage: null,
+        ms: 1,
+      }),
+  });
+  await shell.deliver();
+  const outcome = shell.apply({
+    type: "submit",
+    by: "terminal:T1",
+    messageId: "M1",
+    text: "Which shell is active on mbp?",
+  });
+  assert.equal(outcome.ok, true, outcome.message);
+  await shell.deliver();
+  assert.equal(
+    sent.find((s) => s.key === "N/T1/choose/1")?.text,
+    "[router T1 choose/1] The router could not pick a recipient for your request (low confidence; suggested environment, incus). Choose with: router choose --as terminal:T1 --task T1 --to <participant>, one of: environment, incus. That command has to reach the router from outside your sandbox, so request escalated permissions for it.\n\nWhich shell is active on mbp?",
+  );
+  await shell.close();
+});
+
 test("a failed send is not_sent only when the daemon refused before sending", () => {
   assert.equal(
     sendFailure(new Error("Agent not found: A1"), "A1", "D1/M1"),
