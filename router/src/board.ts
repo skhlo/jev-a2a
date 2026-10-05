@@ -9,6 +9,7 @@ import {
   currentSend,
   isOpen,
   needsYou,
+  own,
   queueHead,
   reduce,
 } from "./core.ts";
@@ -176,15 +177,17 @@ export function boardState(
 export const asOf = (folded: State, now: number): State =>
   reduce(folded, { type: "tick", now });
 
+// Each message id's time. fromEntries makes every id an own key, __proto__
+// too, which an assignment would silently drop.
 export function messageTimes(entries: Entry[]): Record<string, string> {
-  const times: Record<string, string> = {};
-  for (const { at, event } of entries)
-    if (
+  return Object.fromEntries(
+    entries.flatMap(({ at, event }): [string, string][] =>
       ["submit", "update", "answer"].includes(String(event.type)) &&
       typeof event.messageId === "string"
-    )
-      times[event.messageId] = at;
-  return times;
+        ? [[event.messageId, at]]
+        : [],
+    ),
+  );
 }
 
 // The model as `actor` sees it at `now`. A pure function of the record, the
@@ -386,7 +389,7 @@ export function identify(
 ): Actor | null {
   const login = headers["tailscale-user-login"];
   if (typeof login !== "string" || !login) return null;
-  const principals = identities[login];
+  const principals = own(identities, login);
   return principals?.length ? { login, principals } : null;
 }
 

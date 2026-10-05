@@ -187,4 +187,27 @@ test("the router command: a mistake exits 2 with its message, and status reads a
   assert.equal(mistake.status, 2);
   assert.equal(mistake.stderr, "Give the request text after the options.\n");
   assert.equal(router().status, 2, "no command prints the usage and exits 2");
+  // An --as that every object answers to may address nobody: refused
+  // before Jev is asked, so the key is never used.
+  writeFileSync(join(home, "secrets.env"), "TYPESAFE_API_KEY=unused\n");
+  const inherited = router("eval", "--as", "constructor");
+  assert.equal(inherited.status, 2, inherited.stderr);
+  assert.equal(inherited.stderr, "constructor may address nobody.\n");
+});
+
+test("a placement every object answers to is refused, and holds no other", async (t) => {
+  const router = routerOn(t);
+  for (const name of [
+    "constructor",
+    "toString",
+    "__proto__",
+    "hasOwnProperty",
+  ]) {
+    const held = await router.run(["observe", name, "--hold"]);
+    assert.equal(held.code, 1, name);
+    assert.equal(held.out, "No such placement.", name);
+  }
+  // The run observes every placement, as serve does after a board action.
+  assert.equal((await router.run(["run"])).code, 0);
+  assert.doesNotMatch((await router.run(["status"])).out, /held/);
 });

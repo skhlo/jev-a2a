@@ -10,6 +10,7 @@ import {
   findTask,
   needsYou,
   noticeWaits,
+  own,
   UPDATE_KINDS,
 } from "./core.ts";
 import { describeNeed, newMessageId, taskLog } from "./board.ts";
@@ -290,7 +291,7 @@ export async function runCommand(
   io: Io,
 ): Promise<number> {
   const name = inv.command ?? "";
-  const command = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
+  const command = own(COMMANDS, name);
   if (!command) return refuse(`Unknown command ${name}.\n\n${USAGE}`);
   const work = command(argsOf(inv, config));
   const shell = await open();

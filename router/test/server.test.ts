@@ -29,6 +29,7 @@ import {
 } from "../src/server.ts";
 import { BOARD_VERSION, messageTimes } from "../src/board.ts";
 import { coreConfig, fold } from "../src/shell.ts";
+import { reduce } from "../src/core.ts";
 import {
   config as fixture,
   extend,
@@ -282,6 +283,86 @@ test("sessionReader: reads the record without the journal lock and tells a curre
     replacedJournal.length + 1,
   );
   assert.ok(!existsSync(join(record, "journal.lock")));
+});
+
+test("a name every object answers to is no session at the events door and no placement on the board", async (t) => {
+  const record = scratch(t, "server-inherited-");
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const routed = { ...fixture, home: record };
+  const read = recordReader(routed);
+  // The core behind both doors, on the record's state.
+  let state = read().state;
+  const seen: Event[] = [];
+  const core = (event: Event): Promise<Run> => {
+    seen.push(event);
+    state = reduce(state, event);
+    assert.ok(state.last);
+    return Promise.resolve({ outcome: state.last, report: [] });
+  };
+  const events = createServer(
+    eventsListener(
+      { config: routed, handle: core, sessionOf: sessionReader(read) },
+      "secret",
+    ),
+  );
+  const board = createServer(
+    boardListener({ config: routed, handle: core, record: read }),
+  );
+  const eventsUrl = await serve(events);
+  const boardUrl = await serve(board);
+  try {
+    for (const name of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+    ]) {
+      const reply = await fetch(`${eventsUrl}/events`, {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+        body: JSON.stringify({
+          type: "update",
+          by: name,
+          taskId: "T1",
+          messageId: "m",
+          inReplyTo: "M",
+          kind: "completed",
+        }),
+      });
+      assert.equal(reply.status, 403, name);
+      assert.partialDeepStrictEqual(await reply.json(), {
+        ok: false,
+        code: "unauthenticated",
+      });
+      const hold = await fetch(`${boardUrl}/actions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "tailscale-user-login": "me@example.com",
+        },
+        body: `action=hold&placement=${encodeURIComponent(name)}&hold=1`,
+        redirect: "manual",
+      });
+      assert.equal(hold.status, 303, name);
+      assert.equal(
+        hold.headers.get("location"),
+        "./?notice=No%20such%20placement.",
+        name,
+      );
+    }
+    // Only the holds reached the core, and none of them held anything.
+    assert.deepEqual(
+      seen.map((e) => e.type),
+      Array(4).fill("observe"),
+    );
+    assert.equal(({} as { hold?: unknown }).hold, undefined);
+  } finally {
+    events.close();
+    board.close();
+  }
 });
 
 test("waitsReader: reads the record without the lock and says whether a served session is worth looking at again", (t) => {

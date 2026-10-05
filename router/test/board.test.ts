@@ -654,6 +654,18 @@ test("identify: Serve's login header, mapped to principals, or nothing", () => {
     identify({ "tailscale-user-login": "me@example.com" }, {}),
     null,
   );
+  // A login every object answers to is mapped to nothing.
+  for (const login of [
+    "constructor",
+    "toString",
+    "__proto__",
+    "hasOwnProperty",
+  ])
+    assert.equal(
+      identify({ "tailscale-user-login": login }, identities),
+      null,
+      login,
+    );
   assert.deepEqual(
     identify({ "tailscale-user-login": "me@example.com" }, identities),
     {

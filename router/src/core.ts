@@ -58,6 +58,12 @@ const includes = <T extends string>(
   value: unknown,
 ): value is T =>
   typeof value === "string" && (list as readonly string[]).includes(value);
+// A record's own entry: never one every object answers to, like toString or
+// __proto__. A name a caller gives is looked up with it.
+export const own = <T>(
+  record: Record<string, T>,
+  key: string,
+): T | undefined => (Object.hasOwn(record, key) ? record[key] : undefined);
 
 export function validateConfig(config: unknown): Config {
   if (!isRecord(config)) refuse("a configuration object is required");
@@ -228,7 +234,7 @@ const noticeInFlight = (state: State, session: string): boolean =>
 // A session that a placement no longer binds may finish its work but not
 // start any: no new request, no choice of recipient.
 function notCurrentSession(state: State, by: string): Rejected | null {
-  const session = state.sessions[by];
+  const session = own(state.sessions, by);
   if (
     session &&
     state.placements[placementKey(session.participant, session.host)]
@@ -245,8 +251,8 @@ function notCurrentSession(state: State, by: string): Rejected | null {
 // participant that owns the calling session.
 function principalOf(state: State, by: unknown): string | null {
   if (typeof by !== "string") return null;
-  if (state.config.principals[by]) return by;
-  return state.sessions[by]?.participant ?? null;
+  if (own(state.config.principals, by)) return by;
+  return own(state.sessions, by)?.participant ?? null;
 }
 const roleOf = (
   state: State,
@@ -756,7 +762,7 @@ const handlers: Handlers = {
       );
     const replaced = notCurrentSession(state, by);
     if (replaced) return replaced;
-    const session = state.sessions[by];
+    const session = own(state.sessions, by);
     const invalid = badMessageId(messageId) ?? badText(state, text);
     if (invalid) return invalid;
     if (
@@ -1217,9 +1223,11 @@ const handlers: Handlers = {
   // ready: the adapter saw a session it may send to. hold: a person is using the
   // session and the router must not send to it, idle or not.
   observe(state, { placement, ready, hold, session }) {
-    const entry = state.placements[placement];
+    const entry = own(state.placements, placement);
     if (!entry) return reject("not_found", "No such placement.");
     if (session !== undefined && session !== entry.session) {
+      // A plain read on purpose: an inherited name reads as taken, and is
+      // refused before it could be written as a key.
       if (typeof session !== "string" || state.sessions[session])
         return reject("invalid", "A new session needs a new identity.");
       entry.session = session;
