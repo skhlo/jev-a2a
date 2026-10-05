@@ -536,16 +536,20 @@ export function boardListener(
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(view));
     } else if (usagePage) {
-      if (!view.usage)
+      const { usage } = view;
+      if (!usage)
         return plain(
           404,
           "Usage is off: the configuration has no usage section.",
         );
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        renderUsage(view, {
-          theme: cookie(req.headers.cookie, "router-theme"),
-        }),
+        renderUsage(
+          { ...view, usage },
+          {
+            theme: cookie(req.headers.cookie, "router-theme"),
+          },
+        ),
       );
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });

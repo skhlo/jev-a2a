@@ -16,6 +16,7 @@ import {
   claudeReading,
   codexReading,
   deepseekReading,
+  LABEL,
   openrouterReading,
   type AccountId,
   type AccountState,
@@ -963,7 +964,7 @@ export const openrouterKeyOnly = (now: number): Reading => {
   return {
     ...key,
     metrics: [
-      { label: "Account balance", value: "No management key", unit: null },
+      { label: LABEL.accountBalance, value: "No management key", unit: null },
       ...key.metrics,
     ],
     notice:

@@ -44,6 +44,18 @@ export type AccountId = (typeof ACCOUNTS)[number]["id"];
 export type AccountKind = (typeof ACCOUNTS)[number]["kind"];
 export const ACCOUNT_IDS: AccountId[] = ACCOUNTS.map((a) => a.id);
 
+// The labels the Usage view places by name, written here by the
+// normalizers and read there: the balance a row leads with, an API key's
+// figures and allowance, and the word a window's label ends with.
+export const LABEL = {
+  accountBalance: "Account balance",
+  balance: "Balance",
+  keyRemaining: "Key remaining",
+  keyLimit: "Key limit",
+  keyAllowance: "Key allowance",
+} as const;
+export const WINDOW_SUFFIX = " window";
+
 // A quota window: the share used, its length when the provider names it
 // (which the pace marker needs) and when it resets.
 export type QuotaWindow = {
@@ -58,9 +70,15 @@ export type Metric = {
   value: number | string;
   unit: string | null;
 };
+// A column's format says what its cells are: a count, an amount in USD, a
+// calendar date, a name a machine wrote (a model or a provider), or words.
 export type DataTable = {
   title: string;
-  columns: { key: string; label: string; format: "number" | "USD" | null }[];
+  columns: {
+    key: string;
+    label: string;
+    format: "number" | "USD" | "date" | "name" | null;
+  }[];
   rows: Record<string, string | number | null>[];
 };
 // History behind an account, account-wide, with its own time and
@@ -120,6 +138,17 @@ export function number(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
+// A calendar date as YYYY-MM-DD, or null for anything else, including a
+// date that does not exist (2026-02-30).
+export function calendarDate(value: unknown): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return null;
+  const midnight = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(midnight) &&
+    new Date(midnight).toISOString().slice(0, 10) === value
+    ? value
+    : null;
+}
 // Seconds since the epoch, or an ISO date or date-time with its offset, as
 // milliseconds; anything else, or a calendar date that does not exist, null.
 export function timestamp(value: unknown): number | null {
@@ -134,13 +163,7 @@ export function timestamp(value: unknown): number | null {
     )
   )
     return null;
-  const date = value.slice(0, 10);
-  const midnight = Date.parse(`${date}T00:00:00Z`);
-  if (
-    !Number.isFinite(midnight) ||
-    new Date(midnight).toISOString().slice(0, 10) !== date
-  )
-    return null;
+  if (!calendarDate(value.slice(0, 10))) return null;
   const n = Date.parse(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -160,14 +183,15 @@ function positive(value: unknown): number | null {
   return n !== null && n > 0 ? n : null;
 }
 function duration(minutes: number | null): string {
-  if (minutes === null) return "Current window";
+  if (minutes === null) return `Current${WINDOW_SUFFIX}`;
   return minutes % 1440 === 0
-    ? `${minutes / 1440}-day window`
+    ? `${minutes / 1440}-day${WINDOW_SUFFIX}`
     : minutes % 60 === 0
-      ? `${minutes / 60}-hour window`
-      : `${minutes}-minute window`;
+      ? `${minutes / 60}-hour${WINDOW_SUFFIX}`
+      : `${minutes}-minute${WINDOW_SUFFIX}`;
 }
-function money(label: string, value: unknown, unit = "USD"): Metric[] {
+// A money metric, left out when the provider sent no amount.
+function moneyMetric(label: string, value: unknown, unit = "USD"): Metric[] {
   const n = number(value);
   return n === null ? [] : [{ label, value: n, unit }];
 }
@@ -233,11 +257,10 @@ export function codexReading(value: unknown, now: number): Reading {
   return reading("Codex account usage", now, windows, metrics);
 }
 
-// Claude's OAuth usage endpoint, or the same shape from Claude Code's own
-// usage cache.
+// Claude's OAuth usage endpoint.
 const CLAUDE_WINDOWS: [string, string, number | null][] = [
-  ["five_hour", "5-hour window", 300],
-  ["seven_day", "7-day window", 10080],
+  ["five_hour", `5-hour${WINDOW_SUFFIX}`, 300],
+  ["seven_day", `7-day${WINDOW_SUFFIX}`, 10080],
   ["seven_day_opus", "7-day · Opus", 10080],
   ["seven_day_sonnet", "7-day · Sonnet", 10080],
   ["seven_day_overage_included", "Included extra usage", null],
@@ -257,8 +280,8 @@ export function claudeReading(value: unknown, now: number): Reading {
   const metrics =
     extra.is_enabled === true
       ? [
-          ...money("Extra usage spent", cents(extra.used_credits)),
-          ...money("Extra usage limit", cents(extra.monthly_limit)),
+          ...moneyMetric("Extra usage spent", cents(extra.used_credits)),
+          ...moneyMetric("Extra usage limit", cents(extra.monthly_limit)),
         ]
       : [];
   if (!windows.length && !metrics.length)
@@ -280,20 +303,20 @@ export function openrouterReading(
   const spent = number(credits.total_usage);
   const metrics: Metric[] = [];
   if (purchased !== null && spent !== null)
-    metrics.push(...money("Account balance", purchased - spent));
+    metrics.push(...moneyMetric(LABEL.accountBalance, purchased - spent));
   metrics.push(
-    ...money("Key remaining", key.limit_remaining),
-    ...money("Key limit", key.limit),
-    ...money("Key spend today", key.usage_daily),
-    ...money("Key spend this week", key.usage_weekly),
-    ...money("Key spend this month", key.usage_monthly),
+    ...moneyMetric(LABEL.keyRemaining, key.limit_remaining),
+    ...moneyMetric(LABEL.keyLimit, key.limit),
+    ...moneyMetric("Key spend today", key.usage_daily),
+    ...moneyMetric("Key spend this week", key.usage_weekly),
+    ...moneyMetric("Key spend this month", key.usage_monthly),
   );
   const limit = number(key.limit);
   const remaining = number(key.limit_remaining);
   const windows =
     limit !== null && limit > 0 && remaining !== null
       ? quota(
-          "Key allowance",
+          LABEL.keyAllowance,
           Math.max(0, ((limit - remaining) / limit) * 100),
           null,
           null,
@@ -314,9 +337,9 @@ export function deepseekReading(value: unknown, now: number): Reading {
     const balance = record(raw);
     if (balance.currency !== "USD" && balance.currency !== "CNY") continue;
     metrics.push(
-      ...money("Balance", balance.total_balance, balance.currency),
-      ...money("Topped up", balance.topped_up_balance, balance.currency),
-      ...money("Granted", balance.granted_balance, balance.currency),
+      ...moneyMetric(LABEL.balance, balance.total_balance, balance.currency),
+      ...moneyMetric("Topped up", balance.topped_up_balance, balance.currency),
+      ...moneyMetric("Granted", balance.granted_balance, balance.currency),
     );
   }
   if (!metrics.length)

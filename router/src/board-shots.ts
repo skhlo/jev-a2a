@@ -30,6 +30,8 @@ export const SHOTS_DIR = join(
 // Usage view with one disclosure open.
 export function shots(): Record<string, string> {
   const model = sampleModel();
+  const { usage } = model;
+  if (!usage) throw new Error("The sample has no usage.");
   const page = renderBoard(model, { task: "T2" });
   return {
     board: page,
@@ -37,7 +39,7 @@ export function shots(): Record<string, string> {
       'data-key="orchestrator@mbp" hidden>',
       'data-key="orchestrator@mbp">',
     ),
-    usage: renderUsage(model).replace(
+    usage: renderUsage({ ...model, usage }).replace(
       '<details class="disclosure" data-key="codex/Token activity"',
       '<details class="disclosure" open data-key="codex/Token activity"',
     ),

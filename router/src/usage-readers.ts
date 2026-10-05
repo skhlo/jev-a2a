@@ -24,6 +24,7 @@ import {
   codexReading,
   deepseekReading,
   isStale,
+  LABEL,
   openrouterReading,
   ReadError,
   record,
@@ -477,7 +478,7 @@ export function createLoaders(
       const metrics: Metric[] = values.flatMap((v) => v.metrics);
       if (!management && !credits.value)
         metrics.unshift({
-          label: "Account balance",
+          label: LABEL.accountBalance,
           value: "No management key",
           unit: null,
         });

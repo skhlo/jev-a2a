@@ -5,29 +5,20 @@
 // an unknown operand makes its total unknown rather than undercounting.
 // Claude's local statistics are not ported: current Claude Code writes no
 // stats cache.
-import { number, record } from "./usage.ts";
+import { calendarDate, number, record } from "./usage.ts";
 import type { DataTable, Metric, UsageDetail } from "./usage.ts";
 
-const count = (value: unknown): number | null => {
+// A count a provider sent: a safe whole number, not negative; else null.
+const safeCount = (value: unknown): number | null => {
   const n = number(value);
   return n !== null && Number.isSafeInteger(n) && n >= 0 ? n : null;
-};
-// A calendar date as YYYY-MM-DD, or null for anything else.
-const day = (value: unknown): string | null => {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
-    return null;
-  const parsed = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(parsed) &&
-    new Date(parsed).toISOString().slice(0, 10) === value
-    ? value
-    : null;
 };
 const counts = (
   source: Record<string, unknown>,
   fields: [string, string, string | null][],
 ): Metric[] =>
   fields.flatMap(([key, label, unit]) => {
-    const n = count(source[key]);
+    const n = safeCount(source[key]);
     return n === null ? [] : [{ label, value: n, unit }];
   });
 const column = (
@@ -47,8 +38,8 @@ export function codexDetails(value: unknown, now: number): UsageDetail {
   const daily = (buckets ?? [])
     .flatMap((raw) => {
       const row = record(raw);
-      const date = day(row.startDate);
-      const tokens = count(row.tokens);
+      const date = calendarDate(row.startDate);
+      const tokens = safeCount(row.tokens);
       return date && tokens !== null ? [{ date, tokens }] : [];
     })
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -71,7 +62,10 @@ export function codexDetails(value: unknown, now: number): UsageDetail {
     tables: [
       {
         title: "Daily token history",
-        columns: [column("date", "Date"), column("tokens", "Tokens", "number")],
+        columns: [
+          column("date", "Date", "date"),
+          column("tokens", "Tokens", "number"),
+        ],
         rows: [...daily].reverse(),
       },
     ],
@@ -146,7 +140,7 @@ export function openrouterDetails(value: unknown, now: number): UsageDetail {
   const today = new Date(now).toISOString().slice(0, 10);
   for (const raw of data.data) {
     const row = record(raw);
-    const date = day(
+    const date = calendarDate(
       typeof row.date === "string"
         ? row.date.replace(/ 00:00:00$/, "")
         : row.date,
@@ -154,13 +148,13 @@ export function openrouterDetails(value: unknown, now: number): UsageDetail {
     if (!date || date >= today) continue;
     const model = label(row.model_permaslug ?? row.model);
     const provider = label(row.provider_name);
-    const input = count(row.prompt_tokens);
-    const output = count(row.completion_tokens);
+    const input = safeCount(row.prompt_tokens);
+    const output = safeCount(row.completion_tokens);
     const values: Totals = {
       input,
       output,
-      reasoning: count(row.reasoning_tokens),
-      requests: count(row.requests),
+      reasoning: safeCount(row.reasoning_tokens),
+      requests: safeCount(row.requests),
       cost: nonnegative(row.usage),
       byok: nonnegative(row.byok_usage_inference),
       tokens: sum(input, output),
@@ -197,8 +191,8 @@ export function openrouterDetails(value: unknown, now: number): UsageDetail {
       {
         title: "By model and provider",
         columns: [
-          column("model", "Model"),
-          column("provider", "Provider"),
+          column("model", "Model", "name"),
+          column("provider", "Provider", "name"),
           column("requests", "Requests", "number"),
           column("input", "Input", "number"),
           column("output", "Output", "number"),
@@ -217,9 +211,9 @@ export function openrouterDetails(value: unknown, now: number): UsageDetail {
       {
         title: "Daily activity",
         columns: [
-          column("date", "UTC day"),
-          column("model", "Model"),
-          column("provider", "Provider"),
+          column("date", "UTC day", "date"),
+          column("model", "Model", "name"),
+          column("provider", "Provider", "name"),
           column("requests", "Requests", "number"),
           column("input", "Input", "number"),
           column("output", "Output", "number"),

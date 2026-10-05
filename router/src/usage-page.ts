@@ -1,12 +1,11 @@
 // The Usage view of the router page: this host's accounts as the board
 // model's `usage` carries them (usage.ts), on its own route beside the
 // board. It is drawn in the board page's frame, with the same head, tokens,
-// themes, help and script; what it adds is made of the generic parts in the
-// page's CSS (the ledger's rows, the wide meter with its pace tick, pairs,
-// the disclosure, the sideways-scrolling table, the head's chips). A first
-// cut, which the design refines in v0.13. Pure: the model and the options
-// decide every byte. Every slot names the model path it reads, as on the
-// board.
+// themes, help and script, and from the page's generic parts (board-page.ts:
+// the chip, the meter with its pace tick, pairs, the table, the
+// disclosure); what is here is what the accounts mean. A first cut, which
+// the design refines in v0.13. Pure: the model and the options decide every
+// byte. Every slot names the model path it reads, as on the board.
 //
 // Subscriptions: one row per quota window, with the share used, a meter
 // with a pace tick, the time to its reset and what is left; colour only in
@@ -16,27 +15,39 @@
 import type { BoardModel } from "./board.ts";
 import {
   age,
+  band,
   chip,
   count,
   dated,
   DASH,
+  disclosure,
   esc,
   frame,
   head,
+  meter,
+  pace,
+  pairs,
   slot,
   span,
   stamp,
+  table,
   thousands,
   themeOf,
   time,
+  type Column,
 } from "./board-page.ts";
-import type {
-  AccountView,
-  DataTable,
-  DetailView,
-  Metric,
-  WindowView,
+import {
+  LABEL,
+  WINDOW_SUFFIX,
+  type AccountView,
+  type DataTable,
+  type DetailView,
+  type Metric,
+  type UsageView,
 } from "./usage.ts";
+
+// The board model with its usage, which the server draws this view for.
+export type UsageModel = BoardModel & { usage: UsageView };
 
 export type UsageOptions = {
   refreshSeconds?: number;
@@ -44,35 +55,14 @@ export type UsageOptions = {
   theme?: string | null;
 };
 
-// pace(w, at): how much of the window has passed, as a percentage, and
-// whether use runs ahead of it by more than two points; null for a window
-// whose length or reset is unknown, or whose reset has passed.
-export const pace = (
-  w: Pick<WindowView, "minutes" | "resetsAt" | "usedPercent">,
-  at: string,
-): { elapsed: number; ahead: boolean } | null => {
-  const now = Date.parse(at);
-  const reset = w.resetsAt ? Date.parse(w.resetsAt) : NaN;
-  if (!w.minutes || !(reset > now)) return null;
-  const length = w.minutes * 60_000;
-  const elapsed = Math.min(
-    100,
-    Math.max(0, ((now - (reset - length)) / length) * 100),
-  );
-  return { elapsed, ahead: w.usedPercent > elapsed + 2 };
-};
-
-// band(used): warn from 75%, err from 90%, else nothing.
-export const band = (used: number): "" | "warn" | "err" =>
-  used >= 90 ? "err" : used >= 75 ? "warn" : "";
-
-const money = (value: number, currency: string): string =>
+// A money amount in its currency: cents, or a sub-cent amount to its
+// precision.
+const currencyText = (value: number, currency: string): string =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
     currencyDisplay: currency === "USD" ? "narrowSymbol" : "symbol",
     minimumFractionDigits: 2,
-    // A sub-cent amount keeps its precision; anything else reads as cents.
     maximumFractionDigits: Math.abs(value) < 0.01 && value !== 0 ? 4 : 2,
   }).format(value);
 
@@ -85,32 +75,39 @@ export const amount = (
   if (value === null || value === undefined) return DASH;
   if (typeof value === "string") return value;
   if (!Number.isFinite(value)) return DASH;
-  if (unit === "USD" || unit === "CNY") return money(value, unit);
-  if (!unit || unit === "number") return thousands(value);
+  if (unit === "USD" || unit === "CNY") return currencyText(value, unit);
+  if (!unit) return thousands(value);
   return `${thousands(value)} ${value === 1 && unit.endsWith("s") ? unit.slice(0, -1) : unit}`;
 };
 
-// A window's label without the word "window".
-const windowName = (label: string): string => label.replace(/ window$/, "");
+// A window's label without the word the normalizers end it with.
+const windowName = (label: string): string =>
+  label.endsWith(WINDOW_SUFFIX) ? label.slice(0, -WINDOW_SUFFIX.length) : label;
 
 const pct = (n: number): string => `${Math.round(n)}%`;
 
 // The figures a balance row leads with or shows beside it; the rest go to
 // the row's pairs.
-const BALANCE = ["Account balance", "Balance"];
-const KEY = ["Key remaining", "Key limit"];
+const LEADING: string[] = [LABEL.accountBalance, LABEL.balance];
+const BESIDE: string[] = [LABEL.keyRemaining, LABEL.keyLimit];
 
 // Day-keyed tables show their latest sixty days; gaps stay gaps.
 const DAYS_SHOWN = 60;
 
+// How a table column draws: counts and amounts as numerals; dates and names
+// a machine wrote as text for now.
+const KIND: Record<string, Column["kind"]> = {
+  number: "num",
+  USD: "num",
+};
+
 export function renderUsage(
-  model: BoardModel,
+  model: UsageModel,
   options: UsageOptions = {},
 ): string {
-  const { at } = model;
-  const usage = model.usage;
+  const { at, usage } = model;
   const refreshSeconds = options.refreshSeconds ?? 10;
-  const accounts = (usage?.accounts ?? []).map((a, i) => ({
+  const accounts = usage.accounts.map((a, i) => ({
     a,
     path: `usage.accounts[${i}]`,
   }));
@@ -138,7 +135,8 @@ export function renderUsage(
     worst
       ? chip(
           "max(usage.accounts[].reading.windows[].usedPercent)",
-          `<b>${pct(worst.w.usedPercent)}</b> ${esc(worst.a.name)} ${esc(windowName(worst.w.label))}`,
+          pct(worst.w.usedPercent),
+          `${esc(worst.a.name)} ${esc(windowName(worst.w.label))}`,
           band(worst.w.usedPercent),
         )
       : "",
@@ -151,25 +149,20 @@ export function renderUsage(
     ).map(([status, words]) => {
       const n = tally(status);
       return n
-        ? chip(
-            `count(usage.accounts[].status=${status})`,
-            `<b>${n}</b> ${words}`,
-          )
+        ? chip(`count(usage.accounts[].status=${status})`, n, words)
         : "";
     }),
   ].join("");
   // The head's freshness line: when the store last read, and how often.
-  const tick = usage
-    ? slot(
-        "time(usage.at), usage.every",
-        usage.at
-          ? `read ${time(usage.at)} · every ${span(usage.every * 1000)}`
-          : "not read yet",
-        "tick",
-        "span",
-        ` title="${esc(`${usage.at ? `usage read ${stamp(usage.at)}` : "usage not read yet"} · every ${usage.every}s · built ${stamp(at)} · ${model.version}`)}"`,
-      )
-    : slot("usage", "usage off", "tick");
+  const tick = slot(
+    "time(usage.at), usage.every",
+    usage.at
+      ? `read ${time(usage.at)} · every ${span(usage.every * 1000)}`
+      : "not read yet",
+    "tick",
+    "span",
+    ` title="${esc(`${usage.at ? `usage read ${stamp(usage.at)}` : "usage not read yet"} · every ${usage.every}s · built ${stamp(at)} · ${model.version}`)}"`,
+  );
 
   // ---- Parts of an account ----
 
@@ -211,29 +204,43 @@ export function renderUsage(
     if (r?.notice) parts.push(slot(`${path}.reading.notice`, esc(r.notice)));
     return badge || parts.length ? `<p>${badge}${parts.join(" · ")}</p>` : "";
   };
-  const pairs = (items: { path: string; m: Metric }[]): string =>
-    items.length
-      ? `<dl class="pairs">${items.map(({ path, m }) => `<div data-path="${esc(path)}"><dt>${esc(m.label)}</dt><dd>${esc(amount(m.value, m.unit))}</dd></div>`).join("")}</dl>`
-      : "";
-  const table = (path: string, t: DataTable): string => {
+  const metricPairs = (items: { path: string; m: Metric }[]): string =>
+    pairs(
+      items.map(({ path, m }) => ({
+        path,
+        label: m.label,
+        value: amount(m.value, m.unit),
+      })),
+    );
+  // A provider's table: day-keyed ones keep their latest sixty days.
+  const dataTable = (path: string, t: DataTable): string => {
     let rows = t.rows;
-    let cut = "";
-    if (t.columns.some((c) => c.key === "date")) {
-      const days = [...new Set(rows.map((r) => String(r.date)))]
+    let note = "";
+    const date = t.columns.find((c) => c.format === "date");
+    if (date) {
+      const days = [...new Set(rows.map((r) => String(r[date.key])))]
         .sort()
         .reverse();
       if (days.length > DAYS_SHOWN) {
         const kept = new Set(days.slice(0, DAYS_SHOWN));
-        rows = rows.filter((r) => kept.has(String(r.date)));
-        cut = `latest ${DAYS_SHOWN} of ${days.length} days`;
+        rows = rows.filter((r) => kept.has(String(r[date.key])));
+        note = `latest ${DAYS_SHOWN} of ${days.length} days`;
       }
     }
-    const cls = (format: string | null): string =>
-      format ? ' class="num"' : "";
-    const body = rows.length
-      ? `<div class="scroll-x"><table><tr>${t.columns.map((c) => `<th${cls(c.format)}>${esc(c.label)}</th>`).join("")}</tr>${rows.map((r) => `<tr>${t.columns.map((c) => `<td${cls(c.format)}>${esc(amount(r[c.key], c.format === "USD" ? "USD" : null))}</td>`).join("")}</tr>`).join("")}</table></div>`
-      : `<p class="hint">No rows reported.</p>`;
-    return `<h4 class="kicker" data-path="${esc(path)}">${esc(t.title)}${cut ? `<span class="n">${cut}</span>` : ""}</h4>${body}`;
+    return table({
+      path,
+      title: t.title,
+      note,
+      columns: t.columns.map((c) => ({
+        label: c.label,
+        kind: (c.format && KIND[c.format]) || "text",
+      })),
+      rows: rows.map((r) =>
+        t.columns.map((c) =>
+          amount(r[c.key], c.format === "USD" ? "USD" : null),
+        ),
+      ),
+    });
   };
   // A detail behind its disclosure, keyed by account and title so the
   // script keeps it open across refreshes.
@@ -249,10 +256,12 @@ export function renderUsage(
         dated(d.observedAt),
       ),
     ].filter(Boolean);
-    return `<details class="disclosure" data-key="${esc(`${a.id}/${d.title}`)}" data-path="${path}">
-      <summary>${slot(`${path}.title`, esc(d.title))}<span class="n">${meta.join(" · ")}</span>${d.status === "stale" ? slot(`${path}.status`, "stale", "badge") : ""}</summary>
-      <div class="body">${pairs(d.metrics.map((m, k) => ({ path: `${path}.metrics[${k}]`, m })))}${d.tables.map((t, k) => table(`${path}.tables[${k}]`, t)).join("")}${d.notice ? slot(`${path}.notice`, esc(d.notice), "hint", "p") : ""}</div>
-    </details>`;
+    return disclosure({
+      key: `${a.id}/${d.title}`,
+      path,
+      summary: `${slot(`${path}.title`, esc(d.title))}<span class="n">${meta.join(" · ")}</span>${d.status === "stale" ? slot(`${path}.status`, "stale", "badge") : ""}`,
+      body: `${metricPairs(d.metrics.map((m, k) => ({ path: `${path}.metrics[${k}]`, m })))}${d.tables.map((t, k) => dataTable(`${path}.tables[${k}]`, t)).join("")}${d.notice ? slot(`${path}.notice`, esc(d.notice), "hint", "p") : ""}`,
+    });
   };
   const more = (
     a: AccountView,
@@ -262,7 +271,7 @@ export function renderUsage(
     const r = a.reading;
     const inner =
       state(a, path) +
-      pairs(metrics) +
+      metricPairs(metrics) +
       (r?.details ?? [])
         .map((d, k) => detail(a, d, `${path}.reading.details[${k}]`))
         .join("");
@@ -288,8 +297,6 @@ export function renderUsage(
         ? []
         : [{ path: `${path}.reading.metrics[${k}]`, m }],
     );
-  const meter = (used: number, cls: string, p: ReturnType<typeof pace>) =>
-    `<span class="meter wide${cls ? ` ${cls}` : ""}"${p ? ` title="${Math.round(p.elapsed)}% of the window has passed"` : ""}><span class="bar${p ? " paced" : ""}"><i style="width: ${Math.min(100, Math.max(0, used))}%"></i>${p ? `<b class="pace" style="left: ${p.elapsed.toFixed(1)}%"></b>` : ""}</span></span>`;
 
   // ---- Subscriptions ----
 
@@ -316,7 +323,24 @@ export function renderUsage(
                 dated(w.resetsAt, "resets "),
               )
             : slot(`${wp}.resetsAt`, DASH, "when");
-          return `<div class="entry${k ? "" : " first"}${tone ? ` ${tone}` : ""}" data-path="${wp}">${k ? '<span class="lead"></span>' : lead(a, path)}${slot(`${wp}.label`, esc(windowName(w.label)), "name")}${slot(`${wp}.usedPercent`, pct(used), "figure")}${meter(used, tone, p)}${p ? slot(`pace(${wp}, at)`, p.ahead ? "above pace" : "within pace", `note${p.ahead ? " ahead" : ""}`) : '<span class="note"></span>'}${reset}${slot(`${wp}.usedPercent`, `${Math.max(0, 100 - Math.round(used))}% left`, "rest")}</div>`;
+          const bar = meter({
+            share: used,
+            tone,
+            wide: true,
+            path: `${wp}.usedPercent, pace(${wp}, at)`,
+            pace: p?.elapsed ?? null,
+            ...(p
+              ? { title: `${Math.round(p.elapsed)}% of the window has passed` }
+              : {}),
+          });
+          const note = p
+            ? slot(
+                `pace(${wp}, at)`,
+                p.ahead ? "above pace" : "within pace",
+                `note${p.ahead ? " ahead" : ""}`,
+              )
+            : '<span class="note"></span>';
+          return `<div class="entry${k ? "" : " first"}${tone ? ` ${tone}` : ""}" data-path="${wp}">${k ? '<span class="lead"></span>' : lead(a, path)}${slot(`${wp}.label`, esc(windowName(w.label)), "name")}${slot(`${wp}.usedPercent`, pct(used), "figure")}${bar}${note}${reset}${slot(`${wp}.usedPercent`, `${Math.max(0, 100 - Math.round(used))}% left`, "rest")}</div>`;
         })
       : [
           bare(
@@ -341,11 +365,12 @@ export function renderUsage(
     const r = a.reading;
     if (!r) return bare(a, path, nothing(a)) + more(a, path, []);
     const find = (label: string) => {
-      const k = r.metrics.findIndex((m) => m.label === label);
-      return k < 0 ? null : { k, m: r.metrics[k] as Metric };
+      for (const [k, m] of r.metrics.entries())
+        if (m.label === label) return { k, m };
+      return null;
     };
     const leading = r.metrics.flatMap((m, k) =>
-      BALANCE.includes(m.label)
+      LEADING.includes(m.label)
         ? [
             slot(
               `${path}.reading.metrics[${k}].value`,
@@ -354,31 +379,37 @@ export function renderUsage(
           ]
         : [],
     );
-    const remaining = find("Key remaining");
-    const limit = find("Key limit");
+    const remaining = find(LABEL.keyRemaining);
+    const limit = find(LABEL.keyLimit);
     const key = remaining
       ? `key ${slot(`${path}.reading.metrics[${remaining.k}].value`, esc(amount(remaining.m.value, remaining.m.unit)))} left${limit ? ` of ${slot(`${path}.reading.metrics[${limit.k}].value`, esc(amount(limit.m.value, limit.m.unit)))}` : ""}`
       : "";
     // The key's allowance in the board's own small meter, its share used.
-    const k = r.windows.findIndex((w) => w.label === "Key allowance");
+    const k = r.windows.findIndex((w) => w.label === LABEL.keyAllowance);
     const w = r.windows[k];
-    const used = w ? Math.max(0, w.usedPercent) : 0;
     const allowance = w
-      ? `<span class="meter" title="key allowance used"><span class="bar"><i style="width: ${Math.min(100, used)}%"></i></span>${slot(`${path}.reading.windows[${k}].usedPercent`, pct(used), "num")}</span>`
+      ? meter({
+          share: Math.max(0, w.usedPercent),
+          title: "key allowance used",
+          figure: {
+            path: `${path}.reading.windows[${k}].usedPercent`,
+            text: pct(Math.max(0, w.usedPercent)),
+          },
+        })
       : "";
-    return `<div class="entry first" data-path="${path}">${lead(a, path)}<span class="figure leading">${leading.join(" · ") || DASH}</span><span class="name">${key}</span>${allowance}</div>${more(a, path, metricsOf(a, path, [...BALANCE, ...KEY]))}`;
+    return `<div class="entry first" data-path="${path}">${lead(a, path)}<span class="figure leading">${leading.join(" · ") || DASH}</span><span class="name">${key}</span>${allowance}</div>${more(a, path, metricsOf(a, path, [...LEADING, ...BESIDE]))}`;
   };
 
   // ---- Panels ----
 
   const panel = (
-    cls: string,
+    part: string,
     title: string,
     list: { a: AccountView; path: string }[],
     draw: (a: AccountView, path: string) => string,
   ): string =>
     list.length
-      ? `<section class="panel ${cls}" aria-label="${title}">
+      ? `<section class="panel ${part}" aria-label="${title}" data-part="${part}">
   <h2 class="col-h"><span class="kicker">${title}</span><span class="n" data-path="count(usage.accounts[].kind=${list[0]?.a.kind})">${count(list.length, "account")}</span></h2>
   <div class="scroll"><div class="ledger">
 ${list.map(({ a, path }) => draw(a, path)).join("\n")}
@@ -389,11 +420,6 @@ ${list.map(({ a, path }) => draw(a, path)).join("\n")}
     panel("subscriptions", "Subscriptions", subscriptions, subscription),
     panel("balances", "Balances", balances, balance),
   ].filter(Boolean);
-  const main = usage
-    ? `<main class="bento ${panels.length > 1 ? "pair" : "single"}">
-${panels.join("\n")}
-</main>`
-    : `<main class="bento single"><section class="panel" aria-label="Usage"><h2 class="col-h"><span class="kicker">Usage</span><span class="n">off: the configuration has no usage section</span></h2></section></main>`;
 
   return frame({
     model,
@@ -405,7 +431,9 @@ ${panels.join("\n")}
      time(), age(), left(), count(), max() and pace() are formats over it. -->`,
     notice: "",
     head: head(model, "usage", chips, tick),
-    main,
+    main: `<main class="bento ${panels.length > 1 ? "pair" : "single"}">
+${panels.join("\n")}
+</main>`,
     keys: `<span><kbd>?</kbd> keys</span>`,
     help: [
       ["?", "keys and theme"],

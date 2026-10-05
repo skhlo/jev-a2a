@@ -1159,7 +1159,7 @@
                     {
                       "key": "date",
                       "label": "Date",
-                      "format": null
+                      "format": "date"
                     },
                     {
                       "key": "tokens",

@@ -10,8 +10,8 @@ import {
   messageTimes,
   type BoardModel,
 } from "./board.ts";
-import { renderBoard } from "./board-page.ts";
-import { amount, band, pace, renderUsage } from "./usage-page.ts";
+import { band, pace, renderBoard } from "./board-page.ts";
+import { amount, renderUsage, type UsageModel } from "./usage-page.ts";
 import {
   config,
   firstUsage,
@@ -36,6 +36,12 @@ const model = (state: UsageState | null, now = NOW): BoardModel =>
     telemetry,
     state,
   );
+// The model with its usage, which the server draws the Usage view for.
+const withUsage = (m: BoardModel): UsageModel => {
+  const { usage } = m;
+  assert.ok(usage, "the model carries usage");
+  return { ...m, usage };
+};
 const strip = (html: string): string =>
   html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
 const escape = (text: string): string =>
@@ -116,7 +122,7 @@ test("the formats: pace, the bands and amounts, absent as a dash", () => {
 
 test("nav on both tabs: Board | Usage | JSON, the open one marked, every link relative; no Usage tab while usage is off", () => {
   const board = renderBoard(sampleModel(), { task: "T2" });
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   assert.ok(
     headOf(board).includes(
       '<nav><a class="active" href="./">Board</a><a href="usage/">Usage</a><a href="board.json">JSON</a></nav>',
@@ -145,7 +151,7 @@ test("nav on both tabs: Board | Usage | JSON, the open one marked, every link re
 });
 
 test("the head: Usage's own chips (the worst window in its band, the stale count) and its freshness line; the board keeps its chips", () => {
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   const head = headOf(page);
   assert.ok(
     head.includes(
@@ -164,19 +170,19 @@ test("the head: Usage's own chips (the worst window in its band, the stale count
   const board = headOf(renderBoard(sampleModel(), { task: "T2" }));
   assert.ok(board.includes("in flight") && !board.includes("stale"));
   // Before the first read, and once every reading aged.
-  const first = headOf(renderUsage(model(firstUsage)));
+  const first = headOf(renderUsage(withUsage(model(firstUsage))));
   assert.match(first, />not read yet</);
   assert.deepEqual(textsOf(first, "count(usage.accounts[].status=loading)"), [
     "4 reading",
   ]);
-  const later = headOf(renderUsage(model(usage, NOW + 11 * 60_000)));
+  const later = headOf(renderUsage(withUsage(model(usage, NOW + 11 * 60_000))));
   assert.deepEqual(textsOf(later, "count(usage.accounts[].status=stale)"), [
     "4 stale",
   ]);
 });
 
 test("subscriptions: a row per window with the share used, the meter and its pace tick, the reset and what is left; colour only in a band or ahead of pace", () => {
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   const codex = account(page, 0);
   const w0 = "usage.accounts[0].reading.windows[0]";
   // The account leads its first row only, linked to the provider's page.
@@ -190,7 +196,7 @@ test("subscriptions: a row per window with the share used, the meter and its pac
   assert.deepEqual(textsOf(codex, `${w0}.usedPercent`), ["41%", "59% left"]);
   assert.ok(
     codex.includes(
-      '<span class="meter wide" title="30% of the window has passed"><span class="bar paced"><i style="width: 41%"></i><b class="pace" style="left: 30.0%"></b></span></span>',
+      `<span class="meter wide" data-path="${w0}.usedPercent, pace(${w0}, at)" title="30% of the window has passed"><span class="bar paced"><i style="width: 41%"></i><b class="pace" style="left: 30.0%"></b></span></span>`,
     ),
   );
   assert.ok(
@@ -239,14 +245,14 @@ test("subscriptions: a row per window with the share used, the meter and its pac
 });
 
 test("freshness per account only when it is not current, naming what failed", () => {
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   // Claude kept its last reading after a refresh that failed.
   assert.ok(
     strip(account(page, 1)).includes(
       "stalelast reading 13m ago · Claude login expired; open Claude Code.",
     ),
   );
-  const other = renderUsage(model(otherUsage));
+  const other = renderUsage(withUsage(model(otherUsage)));
   // History alone: the limits are unavailable, the history is there.
   const codex = strip(account(other, 0));
   assert.ok(codex.includes("Current limits are unavailable"));
@@ -260,16 +266,16 @@ test("freshness per account only when it is not current, naming what failed", ()
       "No current readingnot readchecked 31s ago · No Claude login on this host. Open Claude Code and run /login.",
     ),
   );
-  const first = renderUsage(model(firstUsage));
+  const first = renderUsage(withUsage(model(firstUsage)));
   assert.equal(strip(first).match(/Reading…/g)?.length, 4);
   assert.ok(!first.includes('class="badge"'));
   // Aged past ten minutes, a current account goes stale.
-  const later = renderUsage(model(usage, NOW + 11 * 60_000));
+  const later = renderUsage(withUsage(model(usage, NOW + 11 * 60_000)));
   assert.ok(strip(account(later, 0)).includes("stalelast reading 11m ago"));
 });
 
 test("balances: the balance leading, the key beside it, neutral; a missing management key reads as such", () => {
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   const deepseek = account(page, 2);
   const openrouter = account(page, 3);
   assert.deepEqual(
@@ -296,7 +302,7 @@ test("balances: the balance leading, the key beside it, neutral; a missing manag
   const balances = page.slice(page.indexOf('class="panel balances"'));
   assert.ok(!/class="[^"]*\b(warn|err|attn|ask)\b/.test(balances));
   // With a management key: the balance and the spending.
-  const managed = account(renderUsage(model(otherUsage)), 3);
+  const managed = account(renderUsage(withUsage(model(otherUsage))), 3);
   assert.deepEqual(
     textsOf(managed, "usage.accounts[3].reading.metrics[0].value"),
     ["$15.20"],
@@ -305,14 +311,14 @@ test("balances: the balance leading, the key beside it, neutral; a missing manag
 });
 
 test("details behind a disclosure per account, keyed for the script, with tables of mono numerals; day tables show sixty days and no invented ones", () => {
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   const dp = "usage.accounts[0].reading.details[0]";
   assert.ok(
     page.includes(
       `<details class="disclosure" data-key="codex/Token activity" data-path="${dp}">`,
     ),
   );
-  assert.ok(!page.includes("<details open"));
+  assert.doesNotMatch(page, /<details [^>]*\bopen\b/);
   assert.ok(
     page.includes(
       '<th>Date</th><th class="num">Tokens</th></tr><tr><td>2026-09-29</td><td class="num">3,388,100</td></tr>',
@@ -334,7 +340,7 @@ test("details behind a disclosure per account, keyed for the script, with tables
     {
       title: "Daily token history",
       columns: [
-        { key: "date", label: "Date", format: null },
+        { key: "date", label: "Date", format: "date" },
         { key: "tokens", label: "Tokens", format: "number" },
       ],
       rows: days.map((date) => ({ date, tokens: null })).reverse(),
@@ -345,7 +351,7 @@ test("details behind a disclosure per account, keyed for the script, with tables
       rows: days.map((_, i) => ({ model: `model-${i}` })),
     },
   ];
-  const long = renderUsage(m);
+  const long = renderUsage(withUsage(m));
   assert.ok(
     long.includes(
       '>Daily token history<span class="n">latest 60 of 70 days</span></h4>',
@@ -376,7 +382,7 @@ test("data labels render as text: a hostile label, value, notice or title is esc
   table.title = hostile;
   table.columns.push({ key: "x", label: hostile, format: null });
   table.rows[0] = { ...table.rows[0], x: hostile };
-  const page = renderUsage(m);
+  const page = renderUsage(withUsage(m));
   assert.ok(!page.includes("<script>alert"));
   assert.ok(!page.includes('"&<'));
   const safe = "&lt;script&gt;alert(1)&lt;/script&gt;&quot;&amp;";
@@ -386,18 +392,20 @@ test("data labels render as text: a hostile label, value, notice or title is esc
   assert.ok(page.includes(`<th>${safe}</th>`));
   assert.ok(page.includes(`<dt>${safe}</dt><dd>${safe}</dd>`));
   // Absent values stay dashes, and the page takes only a known palette.
-  const forged = renderUsage(m, { theme: '"><script>alert(2)</script>' });
+  const forged = renderUsage(withUsage(m), {
+    theme: '"><script>alert(2)</script>',
+  });
   assert.ok(forged.includes('<html lang="en" data-theme="flexoki">'));
   assert.ok(!forged.includes("alert(2)"));
   assert.ok(
-    renderUsage(m, { theme: "one-dark" }).includes(
+    renderUsage(withUsage(m), { theme: "one-dark" }).includes(
       '<html lang="en" data-theme="one-dark">',
     ),
   );
 });
 
 test("the page reads without a script and takes no input: no form, the help's keys and the theme switch, the refresh", () => {
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   assert.ok(!page.includes("<form"));
   assert.ok(!page.includes("<input"));
   assert.ok(!page.includes("<textarea"));
@@ -424,7 +432,7 @@ test("the page reads without a script and takes no input: no form, the help's ke
 });
 
 test("between the breakpoints: a pair of panels stacks below 1360px, where a row of quota windows no longer fits the wider column, and the main area scrolls", () => {
-  const css = STYLE(renderUsage(sampleModel()));
+  const css = STYLE(renderUsage(withUsage(sampleModel())));
   const block = css.slice(
     css.indexOf("@media (max-width: 1359px) {"),
     css.indexOf("@media (max-width: 900px)"),
@@ -448,7 +456,7 @@ test("between the breakpoints: a pair of panels stacks below 1360px, where a row
 });
 
 test("the narrow screen: one column, rows that wrap with a leading figure on its own line, chips that wrap, tables that scroll inside their box", () => {
-  const page = renderUsage(sampleModel());
+  const page = renderUsage(withUsage(sampleModel()));
   const narrow = NARROW(page);
   for (const rule of [
     ".bento.pair, .bento.single { grid-template-columns: minmax(0, 1fr); }",

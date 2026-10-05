@@ -426,7 +426,19 @@ const HELP_KEYS: [string, string][] = [
 
 // ---- The page's frame, shared by its views ----
 
-export type View = "board" | "usage";
+// The page's views, in the nav's order: each tab's words, its directory
+// beside the board's, and whether the model has anything for it. The nav
+// and the View type both come from this list.
+export const VIEWS = [
+  { name: "board", words: "Board", dir: "", shown: () => true },
+  {
+    name: "usage",
+    words: "Usage",
+    dir: "usage/",
+    shown: (model: BoardModel) => model.usage !== null,
+  },
+] as const;
+export type View = (typeof VIEWS)[number]["name"];
 export type Theme = (typeof THEMES)[number];
 
 // The palette a cookie names, else the default, so the cookie cannot put
@@ -434,9 +446,14 @@ export type Theme = (typeof THEMES)[number];
 export const themeOf = (name: string | null | undefined): Theme =>
   THEMES.find((t) => t === name) ?? THEMES[0];
 
-// A chip in the head: a count or a figure in bold, then its words.
-export const chip = (path: string, html: string, cls = ""): string =>
-  slot(path, html, cls);
+// A chip in the head: a count or a figure in bold, then its words, in a
+// role's tone (`attn`, `warn`, `err`) or none. `words` is markup.
+export const chip = (
+  path: string,
+  figure: string | number,
+  words: string,
+  tone = "",
+): string => slot(path, `<b>${figure}</b> ${words}`, tone);
 
 // The head (v0.12's nav), the same element on every view: the brand, who
 // is viewing (cut short, the whole line as its title), the view's chips,
@@ -460,9 +477,14 @@ export const head = (
   const who = actor
     ? `${actor.login} · ${principals}`
     : "reading only · not identified";
-  const up = view === "board" ? "" : "../";
-  const tab = (name: View, words: string, href: string): string =>
-    `<a${name === view ? ' class="active"' : ""} href="${href}">${words}</a>`;
+  // Every view but the board's is one directory below it.
+  const up = VIEWS.find((v) => v.name === view)?.dir ? "../" : "";
+  const tabs = VIEWS.filter((v) => v.name === view || v.shown(model))
+    .map(
+      (v) =>
+        `<a${v.name === view ? ' class="active"' : ""} href="${v.name === view ? "./" : `${up}${v.dir}` || "./"}">${v.words}</a>`,
+    )
+    .join("");
   return `<header class="nav">
   <span class="brand">Router</span>
   <span class="who" title="${esc(who)}">${
@@ -473,7 +495,7 @@ export const head = (
   <span class="counts">${chips}</span>
   <span class="spacer"></span>
   ${tick}
-  <nav>${tab("board", "Board", up || "./")}${model.usage ? tab("usage", "Usage", view === "usage" ? "./" : "usage/") : ""}<a href="${up}board.json">JSON</a></nav>
+  <nav>${tabs}<a href="${up}board.json">JSON</a></nav>
 </header>`;
 };
 
@@ -516,6 +538,97 @@ ${parts.main}
 <script>${SCRIPT}</script>
 </body></html>
 `;
+
+// ---- Generic parts, shared by the views ----
+//
+// Each is named for what it is, so any view can take it; its CSS is in
+// STYLE under "Generic parts". Every text passes through esc here or in
+// the caller's slot.
+
+// pace(w, at): how much of a window of `minutes` ending at `resetsAt` has
+// passed at `at`, as a percentage, and whether `usedPercent` runs ahead of
+// it by more than two points; null for a window whose length or reset is
+// unknown, or whose reset has passed.
+export const pace = (
+  w: { minutes: number | null; resetsAt: string | null; usedPercent: number },
+  at: string,
+): { elapsed: number; ahead: boolean } | null => {
+  const now = Date.parse(at);
+  const reset = w.resetsAt ? Date.parse(w.resetsAt) : NaN;
+  if (!w.minutes || !(reset > now)) return null;
+  const length = w.minutes * 60_000;
+  const elapsed = Math.min(
+    100,
+    Math.max(0, ((now - (reset - length)) / length) * 100),
+  );
+  return { elapsed, ahead: w.usedPercent > elapsed + 2 };
+};
+
+// band(share): warn from 75%, err from 90%, else nothing.
+export const band = (share: number): "" | "warn" | "err" =>
+  share >= 90 ? "err" : share >= 75 ? "warn" : "";
+
+// meter: a bar filled to `share` percent in a role's tone, with a pace
+// tick at `pace` percent and the figure after it. Small by default (the
+// board's context meter); `wide` takes its cell (a quota window).
+export const meter = (m: {
+  share: number;
+  tone?: string;
+  wide?: boolean;
+  path?: string;
+  title?: string;
+  pace?: number | null;
+  figure?: { path: string; text: string };
+}): string => {
+  const fill = Math.min(100, Math.max(0, m.share));
+  const tick =
+    m.pace === undefined || m.pace === null
+      ? ""
+      : `<b class="pace" style="left: ${m.pace.toFixed(1)}%"></b>`;
+  return `<span class="meter${m.wide ? " wide" : ""}${m.tone ? ` ${m.tone}` : ""}"${m.path ? ` data-path="${esc(m.path)}"` : ""}${m.title ? ` title="${esc(m.title)}"` : ""}><span class="bar${tick ? " paced" : ""}"><i style="width: ${fill}%"></i>${tick}</span>${m.figure ? slot(m.figure.path, m.figure.text, "num") : ""}</span>`;
+};
+
+// pairs: labels and their figures, inline and wrapping, each reading its
+// own path. Labels and figures are text.
+export const pairs = (
+  items: { path: string; label: string; value: string }[],
+): string =>
+  items.length
+    ? `<dl class="pairs">${items.map((i) => `<div data-path="${esc(i.path)}"><dt>${esc(i.label)}</dt><dd>${esc(i.value)}</dd></div>`).join("")}</dl>`
+    : "";
+
+// table: a titled table at the board's row density that scrolls sideways
+// inside its box, never the page. A column is text, mono (a date, a name a
+// machine wrote) or num (mono, right-aligned); `note` follows the title.
+// Cells are text.
+export type Column = { label: string; kind: "text" | "mono" | "num" };
+export const table = (t: {
+  path: string;
+  title: string;
+  note?: string;
+  columns: Column[];
+  rows: string[][];
+}): string => {
+  const cls = (kind: Column["kind"]): string =>
+    kind === "text" ? "" : ` class="${kind}"`;
+  const body = t.rows.length
+    ? `<div class="scroll-x"><table><tr>${t.columns.map((c) => `<th${cls(c.kind)}>${esc(c.label)}</th>`).join("")}</tr>${t.rows.map((r) => `<tr>${t.columns.map((c, k) => `<td${cls(c.kind)}>${esc(r[k] ?? DASH)}</td>`).join("")}</tr>`).join("")}</table></div>`
+    : `<p class="hint">No rows reported.</p>`;
+  return `<h4 class="kicker" data-path="${esc(t.path)}">${esc(t.title)}${t.note ? `<span class="n">${esc(t.note)}</span>` : ""}</h4>${body}`;
+};
+
+// disclosure: a summary line that opens its body, keyed so the script
+// keeps it open across refreshes on this device. `summary` and `body` are
+// markup.
+export const disclosure = (d: {
+  key: string;
+  path: string;
+  summary: string;
+  body: string;
+}): string => `<details class="disclosure" data-key="${esc(d.key)}" data-path="${esc(d.path)}">
+      <summary>${d.summary}</summary>
+      <div class="body">${d.body}</div>
+    </details>`;
 
 export type RenderOptions = {
   refreshSeconds?: number;
@@ -660,14 +773,12 @@ export function renderBoard(
   // v0.12: who ellipsizes with the whole text as its title; the tick reads
   // "updated <time>" with the build, the telemetry and the contract in its
   // title; the theme switch is in the help.
-  const pill = (path: string, n: number, words: string, cls = ""): string =>
-    chip(path, `<b>${n}</b> ${words}`, cls);
   const held = model.placements.filter((p) => p.hold).length;
   const agentCount = model.placements.length;
   const nav = head(
     model,
     "board",
-    `${pill("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${pill("count(open[] not in needsYou)", flight.length, "in flight")}${pill("count(placements[].hold)", held, "held")}${pill("count(placements)", agentCount, noun(agentCount, "agent"))}`,
+    `${chip("count(needsYou[].items)", needs.size, noun(needs.size, "needs you", "need you"), needs.size ? "attn" : "")}${chip("count(open[] not in needsYou)", flight.length, "in flight")}${chip("count(placements[].hold)", held, "held")}${chip("count(placements)", agentCount, noun(agentCount, "agent"))}`,
     slot(
       "time(at)",
       `updated ${time(at)}`,
@@ -777,7 +888,7 @@ ${body}
       "seen num",
       `seen ${age(a.seen, at)}`,
     );
-    let meter = "";
+    let gauge = "";
     const c = a.context;
     if (c) {
       const pct = percent(c.used, c.max);
@@ -788,9 +899,18 @@ ${body}
           u.costUsd === null ? "no cost reported" : `$${u.costUsd.toFixed(2)}`;
         tip += ` · since the session started: input ${thousands(u.input)}, cached ${thousands(u.cached)}, output ${thousands(u.output)} · ${cost}`;
       }
-      meter = `<span class="meter${pct >= CONTEXT_WARN ? " warn" : ""}" data-path="${ap}.context, ${ap}.usage" title="${esc(tip)}"><span class="bar"><i style="width: ${pct}%"></i></span>${slot(`percent(${ap}.context.used, ${ap}.context.max)`, `${pct}%`, "num")}</span>`;
+      gauge = meter({
+        share: pct,
+        tone: pct >= CONTEXT_WARN ? "warn" : "",
+        path: `${ap}.context, ${ap}.usage`,
+        title: tip,
+        figure: {
+          path: `percent(${ap}.context.used, ${ap}.context.max)`,
+          text: `${pct}%`,
+        },
+      });
     }
-    return { status: line, seen, meter };
+    return { status: line, seen, meter: gauge };
   };
   // provider/model, thinking and mode as tags on the sheet's head (v0.12:
   // the card lost its tags row); a null field is left out.
@@ -1203,7 +1323,7 @@ ${tele(line, "", levers)}`,
 
   // The rail: the cards in state order, then the router log, collapsed to
   // its kicker line and newest line; l opens the whole block (v0.12).
-  const agents = `<aside class="panel agents" aria-label="Agents">
+  const agents = `<aside class="panel agents" aria-label="Agents" data-part="agents">
   <h2 class="col-h"><span class="kicker">Agents</span>${slot("count(placements)", count(agentCount, "placement"), "n")}</h2>
   <div class="scroll"><div class="cards">
 ${model.placements
@@ -1364,7 +1484,7 @@ ${model.placements
     <h3><span class="chev">▾</span>${kicker}${n}</h3>
 ${rows.join("\n") || '    <div class="empty">nothing</div>'}
   </div>`;
-  const tasksPanel = `<section class="panel tasks" aria-label="Tasks">
+  const tasksPanel = `<section class="panel tasks" aria-label="Tasks" data-part="tasks">
   <h2 class="col-h"><span class="kicker">Tasks</span><span class="n">${slot("count(open)", String(model.open.length))} open · ${slot("count(finished)", String(model.finished.length))} finished</span></h2>
   <div class="filter"><span>⌕</span><input placeholder="Filter: text, id, recipient, state" aria-label="Filter tasks" autocomplete="off"><kbd>/</kbd></div>
   <div class="scroll">
@@ -1550,7 +1670,7 @@ ${group(
 
   const detail = (): string => {
     if (selected === null)
-      return `<section class="panel detail" aria-label="No task">
+      return `<section class="panel detail" aria-label="No task" data-part="detail">
   <div class="scroll"><div class="thread"><div class="sys">No tasks recorded yet.</div></div></div>
 </section>`;
     const found = tasks.get(selected);
@@ -1558,7 +1678,7 @@ ${group(
       .map((it) => itemForm(it, found?.task, found?.path ?? ""))
       .join("\n");
     if (!found)
-      return `<section class="panel detail" aria-label="Task ${esc(selected)}" data-task="${esc(selected)}">
+      return `<section class="panel detail" aria-label="Task ${esc(selected)}" data-part="detail" data-task="${esc(selected)}">
   <div class="head"><div class="title"><h2><span class="id">${esc(selected)}</span><span>Not among the last finished tasks</span></h2></div></div>
   <div class="scroll">
 ${forms}
@@ -1638,7 +1758,7 @@ ${forms}
     const log = t.log
       .map((e) => `${String(e.n).padStart(3)} ${e.actor}: ${e.text}`)
       .join("\n");
-    return `<section class="panel detail" aria-label="Task ${esc(t.id)}" data-path="${path}" data-task="${esc(t.id)}">
+    return `<section class="panel detail" aria-label="Task ${esc(t.id)}" data-part="detail" data-path="${path}" data-task="${esc(t.id)}">
   <div class="head">
     <div class="title"><h2 title="${esc(t.text)}">${slot(`${path}.id`, esc(t.id), "id")}${slot(`first_line(${path}.text)`, esc(headline(t.text)))}</h2>${slot(`${path}.status, ${path}.a2a`, esc(label(t.status)), `badge${cls === "ask" ? " ask" : ""}`, "span", ` title="${esc(t.a2a)}"`)}${cancel}</div>
     <div class="meta">to ${slot(`${path}.recipient`, t.recipient ? esc(t.recipient) : DASH, "mono")} · ${slot(`${path}.chosenBy`, t.chosenBy ? CHOSEN_BY[t.chosenBy] : "no recipient yet")} · ${from} · ${end}</div>
@@ -2267,12 +2387,12 @@ document.addEventListener("click", (e) => {
 });
 
 // Every few seconds the page fetches itself for the selected task and swaps
-// the nav counts, the three panels and the sheets (on the Usage view, its
-// two panels). A panel or the open sheet stays as it is while it holds the
+// the nav counts and tick, every panel the page marks with data-part, and
+// the sheets. A panel or the open sheet stays as it is while it holds the
 // focus (unless the focus is on a row or a card the new panel has too) or a
 // text selection, so what is being typed, read or copied is not pulled
 // away. The notice is outside the swapped parts.
-const PARTS = [".nav .counts", ".nav .tick", ".agents", ".tasks", ".detail", ".subscriptions", ".balances"];
+const parts = () => [".nav .counts", ".nav .tick", ...$$("[data-part]").map((el) => '[data-part="' + CSS.escape(el.dataset.part) + '"]')];
 const refresh = async (id = selected()) => {
   if (document.hidden) return;
   let doc;
@@ -2292,7 +2412,7 @@ const refresh = async (id = selected()) => {
   const peeked = open && '.task[data-task="' + CSS.escape(open.parentElement.dataset.task) + '"] .peek[data-path="' + CSS.escape(open.dataset.path) + '"]';
   const shown = sheet()?.dataset.key ?? "";
   const words = $(".filter input")?.value ?? "";
-  for (const part of PARTS) {
+  for (const part of parts()) {
     const old = $(part);
     const next = $(part, doc);
     if (!old || !next || (old.contains(focus) && !row && !card) || selectedIn(old)) continue;
