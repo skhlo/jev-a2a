@@ -18,8 +18,9 @@ page or the design; a user of the board needs only
   `screenshots/board-sheet.png`: the sample board with the rail's Usage
   section, the same page with the usage pop-up open, and with
   orchestrator@mbp's sheet open. `screenshots/board.gif`, the README's
-  first picture: the sample's record replayed one run at a time, with the
-  task each run touched open. Drawn from the sample, so they hold no live
+  first picture: the sample's record replayed one run at a time, each
+  frame at its run's time (`recording()` says which task each opens).
+  Drawn from the sample, so they hold no live
   request text and only made-up usage. `pnpm exec node src/board-shots.ts`
   in `router/` redraws them all with a Chromium and ffmpeg on `PATH`.
 

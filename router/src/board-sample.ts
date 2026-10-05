@@ -5,6 +5,8 @@
 // this script; a board test fails when the committed file differs from what
 // the script writes. After changing the model or the fixture, run
 // `pnpm exec node src/board-sample.ts` in router/ and commit the result.
+// `sampleModelAt` gives the same sample part way through its record, for
+// the README's recording (`board-shots.ts`).
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -29,12 +31,12 @@ export function sampleModel(): BoardModel {
 }
 
 // The sample as it stood after its first `end` entries, at the last one's
-// time. The telemetry is a snapshot from the sample's end, so only the
-// whole record carries it.
+// time. The telemetry and the usage are snapshots taken near the sample's
+// end, so each shows only once that time has reached it.
 export function sampleModelAt(end: number): BoardModel {
   const entries = sampleJournal.slice(0, end);
-  const whole = end >= sampleJournal.length;
-  const now = whole ? NOW : Date.parse(entries.at(-1)?.at ?? "") || NOW;
+  const now =
+    end >= sampleJournal.length ? NOW : Date.parse(entries.at(-1)?.at ?? "");
   const actor = identify(
     { "tailscale-user-login": "me@example.com" },
     config.serve.identities,
@@ -45,8 +47,8 @@ export function sampleModelAt(end: number): BoardModel {
     now,
     messageTimes(entries),
     actor,
-    whole ? telemetry : null,
-    usage,
+    Date.parse(telemetry.at) <= now ? telemetry : null,
+    usage.at === null || usage.at <= now ? usage : null,
   );
 }
 

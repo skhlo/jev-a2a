@@ -1,4 +1,5 @@
-// Writes the README's pictures of the board: the sample page as the
+// Writes the pictures of the board in the README and docs/board.md: the
+// sample page as the
 // fixture's operator sees it with T2 selected, the rail's Usage section
 // under the agents; the same page with the usage pop-up open; with
 // orchestrator@mbp's health sheet open; and a recording of the sample's
@@ -47,9 +48,9 @@ export function shots(): Record<string, string> {
 export type Frame = { html: string; task: string | null; seconds: number };
 
 // The recording: a frame of the board after each run of the sample's
-// record (a `tick` starts one), with the task that run touched open: the
-// newest when the run took a request, else the last one it named. The last
-// frame is the whole sample, with its telemetry, held longer.
+// record (a `tick` starts one), with a task open: the newest when the run
+// took a request, else the last one the run named, else the one open
+// before. The last frame is the whole sample, held longer.
 export function recording(): Frame[] {
   const ends = [
     ...sampleJournal.flatMap((entry, i) =>
@@ -77,11 +78,20 @@ export function recording(): Frame[] {
   });
 }
 
-// Chromium's picture of a page, at the size the README's pictures share.
+// Runs a tool that writes `out`, and fails with what it said if it fails.
+function run(tool: string, args: string[], out: string) {
+  const ran = spawnSync(tool, args, { stdio: ["ignore", "ignore", "pipe"] });
+  if (ran.status !== 0)
+    throw new Error(
+      `${tool} failed on ${out}: ${ran.stderr?.toString() ?? ran.error?.message}`,
+    );
+}
+
+// Chromium's picture of a page, at the size the pictures share.
 function draw(chromium: string, html: string, scratch: string, png: string) {
   const file = join(scratch, "page.html");
   writeFileSync(file, html);
-  const run = spawnSync(
+  run(
     chromium,
     [
       "--headless=new",
@@ -98,12 +108,8 @@ function draw(chromium: string, html: string, scratch: string, png: string) {
       `--screenshot=${png}`,
       `file://${file}`,
     ],
-    { stdio: ["ignore", "ignore", "pipe"] },
+    png,
   );
-  if (run.status !== 0)
-    throw new Error(
-      `${chromium} failed on ${png}: ${run.stderr?.toString() ?? run.error?.message}`,
-    );
 }
 
 if (import.meta.main) {
@@ -117,17 +123,17 @@ if (import.meta.main) {
       console.log(`wrote design/screenshots/${name}.png`);
     }
     // ffmpeg's concat list holds each frame's time but drops the last
-    // one's, which the GIF's final delay gives back.
+    // one's, which the GIF's final delay gives back, in centiseconds.
     const frames = recording();
     const list = frames.flatMap(({ html, seconds }, i) => {
       const png = join(scratch, `frame-${String(i).padStart(2, "0")}.png`);
       draw(chromium, html, scratch, png);
       return [`file '${png}'`, `duration ${seconds}`];
     });
-    const last = Math.round((frames.at(-1)?.seconds ?? 0) * 100);
+    const finalDelay = Math.round((frames.at(-1)?.seconds ?? 0) * 100);
     writeFileSync(join(scratch, "frames.txt"), `${list.join("\n")}\n`);
     const gif = join(SHOTS_DIR, "board.gif");
-    const run = spawnSync(
+    run(
       ffmpeg,
       [
         "-y",
@@ -145,17 +151,13 @@ if (import.meta.main) {
         "-vf",
         "split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
         "-final_delay",
-        String(last),
+        String(finalDelay),
         "-loop",
         "0",
         gif,
       ],
-      { stdio: ["ignore", "ignore", "pipe"] },
+      gif,
     );
-    if (run.status !== 0)
-      throw new Error(
-        `${ffmpeg} failed on board.gif: ${run.stderr?.toString() ?? run.error?.message}`,
-      );
     console.log(`wrote design/screenshots/board.gif (${frames.length} frames)`);
   } finally {
     rmSync(scratch, { recursive: true });

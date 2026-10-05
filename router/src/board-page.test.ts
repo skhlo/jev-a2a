@@ -2411,7 +2411,7 @@ test("v0.12 escapes what it adds: the remote and its title, the who title, the m
   assert.ok(html.includes(`title="message M2 · you/${safe}">from`));
 });
 
-test("the README's screenshots: the sample board with the rail's Usage section, the same page with the usage pop-up open, and with one sheet shown", () => {
+test("the screenshots: the sample board with the rail's Usage section, the same page with the usage pop-up open, and with one sheet shown", () => {
   const pages = shots();
   assert.deepEqual(Object.keys(pages), ["board", "board-usage", "board-sheet"]);
   const popup = (html: string): string =>
@@ -2430,7 +2430,7 @@ test("the README's screenshots: the sample board with the rail's Usage section, 
   assert.deepEqual(shown(pages["board-sheet"] ?? ""), ["orchestrator@mbp"]);
 });
 
-test("the README's recording: a frame after each run of the sample's record, with the task it touched open, the whole sample last", () => {
+test("the README's recording: a frame after each run of the sample's record, at its time, with a task open, the whole sample last", () => {
   const frames = recording();
   assert.deepEqual(
     frames.map((f) => f.task),
@@ -2442,16 +2442,29 @@ test("the README's recording: a frame after each run of the sample's record, wit
     ],
   );
   assert.equal(frames[0]?.html.includes('data-task="T2"'), false);
+  assert.deepEqual(
+    frames.map((f) => f.html.match(/updated (\d\d:\d\dZ)/)?.[1]),
+    [
+      ...["09:02Z", "09:10Z", "09:14Z", "09:15Z", "09:16Z", "09:20Z"],
+      ...["09:25Z", "09:31Z", "09:38Z", "09:40Z"],
+      ...Array<string>(5).fill("09:44Z"),
+      "09:45Z",
+    ],
+  );
   assert.equal(frames.at(-1)?.html, renderBoard(sampleModel(), { task: "T6" }));
   assert.deepEqual(
     frames.map((f) => f.seconds),
     [...Array<number>(frames.length - 1).fill(1.5), 4],
   );
-  // The telemetry is a snapshot from the sample's end: only its frame
-  // carries it.
+  // The telemetry (09:44:51) and the usage (09:44:30) are snapshots near
+  // the sample's end: each shows from the first frame at or after it.
   assert.deepEqual(
-    frames.map((f) => f.html.includes("no telemetry")),
-    [...Array<boolean>(frames.length - 1).fill(true), false],
+    frames.map((f) => !f.html.includes("no telemetry")),
+    [...Array<boolean>(15).fill(false), true],
+  );
+  assert.deepEqual(
+    frames.map((f) => f.html.includes('<section class="usage-rail"')),
+    [...Array<boolean>(13).fill(false), true, true, true],
   );
 });
 
