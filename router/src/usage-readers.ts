@@ -45,13 +45,13 @@ async function jsonFile(path: string): Promise<Record<string, unknown>> {
     return {};
   }
 }
-// A key as stored, unless it is empty, spans lines or is a credential
-// helper's command.
+// A key as stored, unless it is empty, holds a control character (a line
+// break among them) or is a credential helper's command.
 function usableKey(value: unknown): string | undefined {
   return typeof value === "string" &&
     value.trim() &&
     !value.startsWith("!") &&
-    !/[\r\n]/.test(value)
+    !/[\x00-\x1f\x7f]/.test(value)
     ? value.trim()
     : undefined;
 }
@@ -89,7 +89,11 @@ export const childEnv = (
     ),
   );
 
-// A GET with a bearer key: twelve seconds, a megabyte, no redirect.
+// A GET with a bearer key: twelve seconds, a megabyte, no redirect. Every
+// failure is one of the router's sentences: the platform's own error text
+// (a refused redirect, a header it would not send) can carry the key.
+const timedOut = (error: unknown): boolean =>
+  error instanceof Error && error.name === "TimeoutError";
 export const FETCH_LIMITS = { timeoutMs: 12_000, maxBytes: 1_000_000 };
 export async function fetchJson(
   url: string,
@@ -109,20 +113,31 @@ export async function fetchJson(
       signal: AbortSignal.timeout(limits.timeoutMs),
     });
   } catch (error: unknown) {
-    if (error instanceof Error && error.name === "TimeoutError")
-      throw new ReadError("The usage request timed out.");
-    throw error;
+    throw new ReadError(
+      timedOut(error)
+        ? "The usage request timed out."
+        : "The usage request could not be made.",
+    );
   }
   if (!response.ok)
     throw new ReadError(`The usage request failed (HTTP ${response.status}).`);
   if (!response.body) throw new ReadError("The usage response was empty.");
   let size = 0;
   const chunks: Uint8Array[] = [];
-  for await (const chunk of response.body) {
-    size += chunk.byteLength;
-    if (size > limits.maxBytes)
-      throw new ReadError("The usage response was too large.");
-    chunks.push(chunk);
+  try {
+    for await (const chunk of response.body) {
+      size += chunk.byteLength;
+      if (size > limits.maxBytes)
+        throw new ReadError("The usage response was too large.");
+      chunks.push(chunk);
+    }
+  } catch (error: unknown) {
+    if (error instanceof ReadError) throw error;
+    throw new ReadError(
+      timedOut(error)
+        ? "The usage request timed out."
+        : "The usage response was cut short.",
+    );
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
@@ -507,7 +522,11 @@ export function createLoaders(
         failed: Boolean(
           (credits.failed && credits.value) || (usage.failed && usage.value),
         ),
-        error: usage.error ?? credits.error,
+        // The reason in the router's words, when either source gave one.
+        error:
+          [usage.error, credits.error].find((e) => e instanceof ReadError) ??
+          usage.error ??
+          credits.error,
       };
       return combine(
         "OpenRouter activity",

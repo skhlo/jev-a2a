@@ -280,8 +280,18 @@ test("a provider request never follows a redirect with its credential, and says 
   const address = server.address();
   assert.ok(address && typeof address === "object");
   const base = `http://127.0.0.1:${address.port}`;
-  await assert.rejects(fetchJson(`${base}/redirect`, "fixture-key"));
+  await assert.rejects(fetchJson(`${base}/redirect`, "fixture-key"), {
+    name: "ReadError",
+    message: "The usage request could not be made.",
+  });
   assert.equal(destination, false);
+  // A header the platform will not send fails in the router's words, never
+  // the platform's, which would quote the key.
+  const header = await fetchJson(`${base}/ok`, "fixture\nprivate-key").catch(
+    (e: unknown) => e,
+  );
+  assert.ok(header instanceof ReadError);
+  assert.equal(header.message, "The usage request could not be made.");
   for (const [path, words] of [
     ["/denied", "The usage request failed (HTTP 401)."],
     ["/html", "The usage response was not JSON."],
@@ -571,7 +581,10 @@ test("DeepSeek takes its key from the environment or Pi's auth.json, never a cre
     { DEEPSEEK_API_KEY: "env-key" },
     readers,
   ).deepseek();
-  assert.deepEqual(keys, ["pi-key", "env-key"]);
+  // A key with a control character in it is no key: Pi's is used instead.
+  for (const bad of ["env\u0007key", "env\tkey", "env\u007fkey"])
+    await createLoaders(home, { DEEPSEEK_API_KEY: bad }, readers).deepseek();
+  assert.deepEqual(keys, ["pi-key", "env-key", "pi-key", "pi-key", "pi-key"]);
 });
 
 test("OpenRouter without a management key reads the key alone and says what the balance needs, as the fixture shows it", async (t) => {
@@ -618,6 +631,25 @@ test("OpenRouter with a management key reads credits, key and spending, as the f
     }),
   ).openrouter();
   assert.deepEqual(reading, openrouterManaged(NOW));
+});
+
+test("OpenRouter with a management key alone says the credits' own reason when nothing reads", async (t) => {
+  const home = await fixtureHome(t);
+  const load = createLoaders(
+    home,
+    { OPENROUTER_MANAGEMENT_KEY: "fixture-management" },
+    io({
+      fetchJson: async () => {
+        throw new ReadError("The usage request failed (HTTP 401).");
+      },
+    }),
+  ).openrouter;
+  const store = createUsageStore({ openrouter: load }, () => now);
+  await store.refresh();
+  assert.equal(
+    store.state().accounts[0]?.error,
+    "The usage request failed (HTTP 401).",
+  );
 });
 
 test("OpenRouter key, credits and history keep their values apart, including history alone", async (t) => {
