@@ -2404,7 +2404,9 @@ ${
             ],
   );
   const keyRows = (keys: [string, string][]): string =>
-    keys.map(([key, does]) => `<kbd>${esc(key)}</kbd><span>${esc(does)}</span>`).join("");
+    keys
+      .map(([key, does]) => `<kbd>${esc(key)}</kbd><span>${esc(does)}</span>`)
+      .join("");
   const theme = themeOf(options.theme);
 
   return `<!doctype html>
