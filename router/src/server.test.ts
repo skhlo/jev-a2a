@@ -28,7 +28,7 @@ import {
   type SessionStatus,
 } from "./server.ts";
 import { BOARD_VERSION, messageTimes } from "./board.ts";
-import { coreConfig, fold, foldMore } from "./shell.ts";
+import { coreConfig, fold } from "./shell.ts";
 import {
   config as fixture,
   extend,
@@ -76,6 +76,10 @@ const handle = (event: Event): Promise<Run> => {
     report: ["delivered"],
   });
 };
+
+// A board over its configuration's record, as serve hands it one.
+const boardOf = (deps: Omit<Parameters<typeof boardListener>[0], "record">) =>
+  boardListener({ ...deps, record: recordReader(deps.config) });
 
 async function serve(server: Server): Promise<string> {
   await new Promise<void>((resolve) =>
@@ -265,7 +269,7 @@ test("sessionReader: reads the record without the journal lock and tells a curre
     join(record, "journal.jsonl"),
     replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
-  const sessionOf = sessionReader({ ...fixture, home: record });
+  const sessionOf = sessionReader(recordReader({ ...fixture, home: record }));
   assert.equal(sessionOf("A1"), "current");
   assert.equal(sessionOf("K2"), "current");
   assert.equal(sessionOf("K1"), "replaced");
@@ -286,7 +290,8 @@ test("waitsReader: reads the record without the lock and says whether a served s
       join(record, "journal.jsonl"),
       entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
     );
-  const waits = waitsReader({ ...fixture, home: record });
+  const served = { ...fixture, home: record };
+  const waits = waitsReader(served, recordReader(served));
   // The fixture: a question open, a session working, a placement held.
   // Nothing there moves by looking again.
   write(journal);
@@ -699,7 +704,7 @@ test("board: the trailing-slash redirect stays on this host, directly and under 
     join(home, "journal.jsonl"),
     `${JSON.stringify({ at: "t", event: { type: "tick", now: 1 } })}\n`,
   );
-  const server = createServer(boardListener({ config, handle }));
+  const server = createServer(boardOf({ config, handle }));
   const url = await serve(server);
   const { port } = new URL(url);
   // The path as sent, unnormalized, as a hostile link can make a browser
@@ -757,7 +762,7 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
   );
   const logged: string[] = [];
   const server = createServer(
-    boardListener({ config, handle, log: (line) => logged.push(line) }),
+    boardOf({ config, handle, log: (line) => logged.push(line) }),
   );
   const url = await serve(server);
   const before = handled.length;
@@ -858,7 +863,7 @@ test("board: asked for JSON, the board serves its model, identified as the page 
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   const server = createServer(
-    boardListener({
+    boardOf({
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -978,7 +983,7 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
     replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   const server = createServer(
-    boardListener({
+    boardOf({
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -1104,7 +1109,7 @@ test("board: a record the code cannot replay is a 500, not a crash, and the icon
     `${JSON.stringify({ at: "t", event: { type: "attempt", deliveryId: "D9" } })}\n`,
   );
   const server = createServer(
-    boardListener({ config: { ...config, home: broken }, handle }),
+    boardOf({ config: { ...config, home: broken }, handle }),
   );
   const url = await serve(server);
   try {
@@ -1241,7 +1246,7 @@ test("board: the model carries the telemetry file beside the record; a bad file 
   );
   const logged: string[] = [];
   const server = createServer(
-    boardListener({
+    boardOf({
       config: { ...fixture, home: record },
       handle,
       now: () => NOW,
@@ -1418,7 +1423,7 @@ test("board: usage/ goes back to the board, with the pop-up open while usage is 
   );
   const listen = (state: UsageState | null) =>
     createServer(
-      boardListener({
+      boardOf({
         config: { ...fixture, home: record },
         handle,
         now: () => NOW,
@@ -1505,7 +1510,8 @@ test("board: the record is folded again only when the journal changes, and each 
       entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
     );
   write(journal);
-  const read = recordReader({ ...fixture, home: record });
+  const kept = { ...fixture, home: record };
+  const read = recordReader(kept);
   const first = read();
   // Unchanged: the same fold, not a new one.
   assert.equal(read(), first);
@@ -1527,11 +1533,7 @@ test("board: the record is folded again only when the journal changes, and each 
   // between two requests without a change to the journal.
   let at = NOW;
   const server = createServer(
-    boardListener({
-      config: { ...fixture, home: record },
-      handle,
-      now: () => at,
-    }),
+    boardListener({ config: kept, record: read, handle, now: () => at }),
   );
   const url = await serve(server);
   try {
@@ -1572,9 +1574,9 @@ test("board: the kept record folds only the lines appended since, and folds agai
   writeFileSync(path, lines(prefix));
   const config = { ...fixture, home: record };
   const read = recordReader(config);
-  // The wake and the events endpoint share the board's record.
-  assert.equal(recordReader(config), read);
   const first = read();
+  // Under today's configuration, until a `configured` line says otherwise.
+  assert.equal(first.state.tasks[0]?.judgments[0]?.threshold, 0.9);
   assert.ok(Object.isFrozen(first.times));
   assert.equal(read(), first);
   // An append, with a torn line after it: the whole lines are folded onto
@@ -1604,7 +1606,8 @@ test("board: the kept record folds only the lines appended since, and folds agai
   renameSync(next, path);
   assert.deepEqual(read().state, fold(config, other));
   // A first `configured` line sets where the whole fold starts, so the
-  // record is folded again: going on from the kept state would differ.
+  // record is folded again, and the judgments before it count under its
+  // rules.
   const rules = structuredClone(coreConfig(config));
   rules.policy.threshold = 0.85;
   const configured: Entry = {
@@ -1613,9 +1616,23 @@ test("board: the kept record folds only the lines appended since, and folds agai
   };
   appendFileSync(path, lines([configured, submit(53)]));
   const all = [...other, configured, submit(53)];
-  assert.deepEqual(read().state, fold(config, all));
-  assert.notDeepEqual(
-    fold(config, all),
-    foldMore(fold(config, other), [configured, submit(53)]),
+  const refolded = read();
+  assert.deepEqual(refolded.state, fold(config, all));
+  assert.equal(refolded.state.tasks[0]?.judgments[0]?.threshold, 0.85);
+  assert.deepEqual(refolded.times, messageTimes(all));
+  // A later `configured` line, a configuration change, is folded onto the
+  // kept state like any other line: the earlier lines are not read again.
+  writeFileSync(
+    path,
+    readFileSync(path, "utf8").replace('"text":"Task 52"', '"text":"Task 5Y"'),
   );
+  const change = structuredClone(rules);
+  change.policy.threshold = 0.8;
+  appendFileSync(
+    path,
+    lines([{ at, event: { type: "configured", config: change } }, submit(54)]),
+  );
+  const changed = read();
+  assert.ok(changed.state.tasks.some((task) => task.text === "Task 52"));
+  assert.ok(changed.state.tasks.some((task) => task.text === "Task 54"));
 });

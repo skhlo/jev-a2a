@@ -75,7 +75,7 @@ export const age = (iso: string | null | undefined, at: string): string =>
   iso ? span(Date.parse(at) - Date.parse(iso)) : DASH;
 
 // percent(used, max): a share as a whole percentage.
-export const percent = (used: number, max: number): number =>
+const percent = (used: number, max: number): number =>
   Math.round((100 * used) / max);
 
 // hms(t): the clock with its seconds, HH:MM:SSZ, for activity rows, where
@@ -519,7 +519,7 @@ const ASKING: TaskView["status"][] = [
   "uncertain",
 ];
 
-export const THEMES = ["flexoki", "one-dark"] as const;
+const THEMES = ["flexoki", "one-dark"] as const;
 const THEME_NAMES: Record<(typeof THEMES)[number], string> = {
   flexoki: "Flexoki",
   "one-dark": "One Dark",

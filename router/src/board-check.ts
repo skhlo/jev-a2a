@@ -13,7 +13,7 @@ import {
   telemetry,
   usage,
 } from "./board-fixture.ts";
-import { boardListener } from "./server.ts";
+import { boardListener, recordReader } from "./server.ts";
 import { writeTelemetry } from "./telemetry.ts";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -56,9 +56,11 @@ async function serveSample(home: string): Promise<{
     sampleJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   writeTelemetry(home, telemetry);
+  const served = { ...config, home };
   const server = createServer(
     boardListener({
-      config: { ...config, home },
+      config: served,
+      record: recordReader(served),
       handle: () =>
         Promise.resolve({ outcome: { ok: true, message: "" }, report: [] }),
       now: () => NOW,
