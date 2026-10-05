@@ -4,11 +4,14 @@
 default). It reads the same record as the CLI and is drawn on the server
 from the [view model](board-model.md), in three columns. The pictures are
 the sample board (`router/src/board.sample.json`, no live request text), the
-second with one agent's sheet open.
+second with one agent's sheet open; the third is the [Usage](#usage) view
+of the same sample, with made-up accounts.
 
 ![The board: agents, tasks and the selected task's detail](../router/design/screenshots/board.png)
 
 ![The health sheet of one agent over the tasks column](../router/design/screenshots/board-sheet.png)
+
+![The Usage view: subscription windows and API balances](../router/design/screenshots/usage.png)
 
 ## The nav
 
@@ -17,7 +20,63 @@ tooltip), counts what needs you, what is in flight, the held sessions and
 the agents, and reads "updated 09:45Z": when the page was built. Its
 tooltip gives that time and the telemetry's to the second, with their
 dates, and the contract; it says "no telemetry" without a telemetry file.
-The JSON link returns the [view model](board-model.md).
+`Board | Usage | JSON` ends it, the current view marked; Usage shows only
+when the configuration has a [`usage`](configuration.md#usage) section.
+The JSON link returns the [view model](board-model.md), usage included.
+
+## Usage
+
+The Usage view, at `usage/` beside the board, shows what this host's
+accounts allow and have used, read with the host's own logins: Codex and
+Claude (subscriptions), then DeepSeek and OpenRouter (API balances). It is
+the account part of API Dash, ported into the router. `router serve` reads
+the configured accounts when it starts and again `usage.every` seconds
+after each read ends, one read at a time, apart from the runs; the store is
+in memory only, so a restart reads afresh. `router usage` reads them once
+and prints the result (see [operating.md](operating.md#usage)).
+
+The head is the board's. Its chips name the most used subscription window
+and count the accounts that are stale, unavailable, or still being read;
+its tick reads "read 09:44Z · every 2m", the store's last read, with the
+page's build time and the contract as its tooltip.
+
+- **Subscriptions**: one row per quota window: the account (linked to the
+  provider's usage page) on its first row, the window, the share used, a
+  meter with a pace tick at how much of the window has passed, "above
+  pace" when use runs more than two points ahead of it, the time to the
+  reset and what is left. A window without a length or reset has no tick.
+  Colour marks only the 75% (warning) and 90% (error) bands and use above
+  pace.
+- **Balances**: one row per API account, the balance leading in each
+  currency the provider reports, then OpenRouter's key: what is left of
+  its limit and a small meter of the share used. Balances are neutral. A
+  missing OpenRouter management key reads "No management key" in the
+  balance's place, with a notice naming `OPENROUTER_MANAGEMENT_KEY`.
+
+Under its rows, an account says how fresh it is only when it is not
+current: a badge (stale, unavailable, not read) with the reading's age, and
+the failure and any notice in the router's own words. A failed refresh
+keeps the last reading with its time; a reading of history alone says
+"Current limits are unavailable", and an account never read says "No
+current reading" ("Reading…" until the first read ends). Then come the
+account's other figures (plan, credits, key spend) and its history, each
+behind a disclosure: Codex's token activity and, with a management key,
+OpenRouter's spending by model and provider. A day-keyed table shows its
+latest 60 days and says so when it cuts; a day with no data is a gap, not
+a zero. A value the provider did not report is a dash, never 0.
+
+At the board's 900px breakpoint the two panels stack and each row wraps
+into the screen's width; at 390px only a wide table scrolls sideways,
+inside its own box. The page works without the script; with it, it
+refreshes like the board, keeps open disclosures open (in `localStorage`),
+and `?` opens the help with the palettes. The board's other keys do
+nothing here.
+
+Not ported from API Dash: Claude's local statistics and its usage cache,
+the macOS Keychain, Pi Atlas, the API cards' Pi spend and "balance lasts"
+rows, its eight themes and a manual refresh endpoint. Claude's token comes
+from `~/.claude/.credentials.json` alone and is never refreshed: an expired
+login reads "Claude login expired; open Claude Code."
 
 ## Agents
 

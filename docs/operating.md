@@ -66,6 +66,45 @@ a `telemetry:` line in the run's report, which `serve` logs once while the
 cause lasts, and a `null` field. `telemetry.sheet: false` keeps a run to the
 one call per placement.
 
+## Usage
+
+With a [`usage`](configuration.md#usage) section, `serve` also reads this
+host's usage accounts for the board's [Usage](board.md#usage) view: when
+it starts, then `usage.every` seconds (120 by default) after each read
+ends, one read at a time and apart from the runs. Each read asks every
+configured account at once, so one slow or failed account never holds back
+another; a request has 12 seconds and 1 MB, and refuses redirects. The
+store is in memory: nothing is written, and a restart starts from "not
+read yet".
+
+What each account reads, with this host's own logins:
+
+- Codex: `codex app-server --listen stdio://`, run from a temporary
+  directory with the router's secrets left out of its environment, for
+  the current limits and the account's daily token history. It needs
+  `codex` on `PATH` (the service's `PATH` includes mise's shims) and a
+  signed-in Codex; the router never reads Codex's own credentials.
+- Claude: the OAuth token in `~/.claude/.credentials.json` (or
+  `$CLAUDE_CONFIG_DIR`), or `ROUTER_CLAUDE_OAUTH_TOKEN`; never
+  `CLAUDE_CODE_OAUTH_TOKEN`. The router does not refresh the token: an
+  expired login reads "Claude login expired; open Claude Code.", and
+  opening Claude Code renews it.
+- DeepSeek: `DEEPSEEK_API_KEY`, else the `deepseek` API-key entry in Pi's
+  `~/.pi/agent/auth.json`.
+- OpenRouter: `OPENROUTER_API_KEY` (or Pi's auth.json) for the key's
+  allowance and spend, and `OPENROUTER_MANAGEMENT_KEY` for the account
+  balance and the spending by model and provider. Either alone is enough
+  to read something.
+
+A key in auth.json that names a command (`!…`) is not run. Neither keys
+nor a provider's error text reach the page, the model or the log: a failed
+account shows the router's own sentence and keeps its last reading.
+
+`router usage` reads every configured account once (all four without a
+`usage` section) and prints the result as the board model carries it,
+without opening the journal. It prints private account data to the
+terminal; use it to check the readers on a host.
+
 ## `router serve` as a service
 
 `router/jev-router.service` runs `router serve` as a systemd user service.
@@ -106,6 +145,8 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
 - `/`: the page, or the view model as JSON for a client whose `Accept`
   ranks `application/json` above `text/html`; `/board.json` is the model
   regardless. See [board-model.md](board-model.md).
+- `/usage/`: the Usage view, or the same model as JSON on that `Accept`;
+  404 without a `usage` section.
 - `/whoami`: the `tailscale-*` headers seen, with the `login` and
   `principals` they map to once the login is in `serve.identities` (`null`
   and empty before). Read `tailscale-user-login` from it to fill in
@@ -116,7 +157,7 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
 
 Routes match by suffix, so the board can be mounted under a path
 (`tailscale serve --bg --set-path /router http://127.0.0.1:7678`), and its
-forms use relative URLs.
+links, forms and redirects use relative URLs.
 
 ## When nothing moves
 
