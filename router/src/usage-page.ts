@@ -44,6 +44,7 @@ import {
   type DetailView,
   type Metric,
   type UsageView,
+  type WindowView,
 } from "./usage.ts";
 
 // The board model with its usage, which the server draws this view for.
@@ -115,6 +116,11 @@ export function renderUsage(
   }));
   const subscriptions = accounts.filter(({ a }) => a.kind === "subscription");
   const balances = accounts.filter(({ a }) => a.kind === "api");
+  // A window whose reset is at or before `at` says nothing of now: its
+  // share is history, so it takes no band, no "left" and no place in the
+  // head.
+  const passed = (w: WindowView): boolean =>
+    w.resetsAt !== null && Date.parse(w.resetsAt) <= Date.parse(at);
 
   // ---- Head ----
 
@@ -125,9 +131,7 @@ export function renderUsage(
   const windows = subscriptions.flatMap(({ a, path }) =>
     (a.reading?.allowance === "unavailable" ? [] : (a.reading?.windows ?? []))
       .map((w, k) => ({ a, w, path: `${path}.reading.windows[${k}]` }))
-      .filter(
-        ({ w }) => !w.resetsAt || Date.parse(w.resetsAt) > Date.parse(at),
-      ),
+      .filter(({ w }) => !passed(w)),
   );
   const worst = windows.reduce<(typeof windows)[number] | null>(
     (top, x) => (!top || x.w.usedPercent > top.w.usedPercent ? x : top),
@@ -141,7 +145,7 @@ export function renderUsage(
           "max(usage.accounts[].reading.windows[].usedPercent)",
           pct(worst.w.usedPercent),
           `${esc(worst.a.name)} ${esc(windowName(worst.w.label))}${worst.a.status === "stale" ? " · stale" : ""}`,
-          band(worst.w.usedPercent),
+          band(Math.round(worst.w.usedPercent)),
         )
       : "",
     ...(
@@ -314,14 +318,17 @@ export function renderUsage(
       ? shown.map((w, k) => {
           const wp = `${path}.reading.windows[${k}]`;
           const used = Math.max(0, w.usedPercent);
-          const tone = band(used);
+          // The band follows the share as shown: 74.6 reads 75%, amber.
+          const shown = Math.round(used);
+          const over = passed(w);
+          const tone = over ? "" : band(shown);
           const p = pace(w, at);
           const reset = w.resetsAt
             ? slot(
                 `left(${wp}.resetsAt, at)`,
-                Date.parse(w.resetsAt) > Date.parse(at)
-                  ? `resets in ${span(Date.parse(w.resetsAt) - Date.parse(at))}`
-                  : "reset passed",
+                over
+                  ? "reset passed"
+                  : `resets in ${span(Date.parse(w.resetsAt) - Date.parse(at))}`,
                 "when",
                 "span",
                 dated(w.resetsAt, "resets "),
@@ -344,7 +351,7 @@ export function renderUsage(
                 `note${p.ahead ? " ahead" : ""}`,
               )
             : '<span class="note"></span>';
-          return `<div class="entry${k ? "" : " first"}${tone ? ` ${tone}` : ""}" data-path="${wp}">${k ? '<span class="lead"></span>' : lead(a, path)}${slot(`${wp}.label`, esc(windowName(w.label)), "name")}${slot(`${wp}.usedPercent`, pct(used), "figure")}${bar}${note}${reset}${slot(`${wp}.usedPercent`, `${Math.max(0, 100 - Math.round(used))}% left`, "rest")}</div>`;
+          return `<div class="entry${k ? "" : " first"}${tone ? ` ${tone}` : ""}" data-path="${wp}">${k ? '<span class="lead"></span>' : lead(a, path)}${slot(`${wp}.label`, esc(windowName(w.label)), "name")}${slot(`${wp}.usedPercent`, pct(used), "figure")}${bar}${note}${reset}${slot(`${wp}.usedPercent`, over ? DASH : `${Math.max(0, 100 - shown)}% left`, "rest")}</div>`;
         })
       : [
           bare(

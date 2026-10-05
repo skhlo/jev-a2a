@@ -195,6 +195,18 @@ test("the head: Usage's own chips (the worst window in its band, the stale count
     ["78% Codex 7-day · stale"],
   );
   assert.ok(!hour.includes("92%"));
+  // The chip's band follows the share as shown: 89.6 reads 90%, red.
+  const rounded = structuredClone(usage);
+  const week = rounded.accounts[0]?.reading?.windows[1];
+  const claudeReading = rounded.accounts[1]?.reading;
+  assert.ok(week && claudeReading);
+  week.usedPercent = 89.6;
+  claudeReading.windows = [];
+  assert.ok(
+    headOf(renderUsage(withUsage(model(rounded)))).includes(
+      '<span class="err" data-path="max(usage.accounts[].reading.windows[].usedPercent)"><b>90%</b> Codex 7-day</span>',
+    ),
+  );
   // A current reading's worst window has no word after it.
   const fresh = structuredClone(usage);
   const claude = fresh.accounts[1];
@@ -288,6 +300,39 @@ test("subscriptions: a row per window with the share used, the meter and its pac
     ),
   );
   assert.ok(!claude.includes(`data-path="pace(${sonnet}, at)"`));
+  // Its share is history: the figure stays, "left" is a dash. A banded
+  // window past its reset loses its band too: Claude's 92% an hour on.
+  assert.deepEqual(textsOf(claude, `${sonnet}.usedPercent`), ["12%", "—"]);
+  const hour = account(
+    renderUsage(withUsage(model(usage, NOW + 60 * 60_000))),
+    1,
+  );
+  const five = "usage.accounts[1].reading.windows[0]";
+  assert.deepEqual(textsOf(hour, `${five}.usedPercent`), ["92%", "—"]);
+  assert.match(
+    hour,
+    new RegExp(`<div class="entry first" data-path="${escape(five)}">`),
+  );
+  assert.ok(hour.includes('<span class="meter wide" data-path'));
+  assert.doesNotMatch(hour, /class="[^"]*\b(warn|err)\b/);
+  // The band follows the share as shown, not the share as read.
+  const edges = structuredClone(usage);
+  const codexWindows = edges.accounts[0]?.reading?.windows;
+  assert.ok(codexWindows?.[0] && codexWindows[1]);
+  codexWindows[0].usedPercent = 74.6;
+  codexWindows[1].usedPercent = 89.6;
+  const edged = account(renderUsage(withUsage(model(edges))), 0);
+  for (const [k, figure, tone] of [
+    [0, "75%", "warn"],
+    [1, "90%", "err"],
+  ] as const) {
+    const wp = `usage.accounts[0].reading.windows[${k}]`;
+    assert.deepEqual(textsOf(edged, `${wp}.usedPercent`)[0], figure);
+    assert.match(
+      edged,
+      new RegExp(`<div class="entry[^"]* ${tone}" data-path="${escape(wp)}">`),
+    );
+  }
   // A subscription that reported no window says so on its row.
   const aged = renderUsage(withUsage(model(agedUsage)));
   assert.ok(strip(account(aged, 0)).includes("CodexNo quota windows reported"));
