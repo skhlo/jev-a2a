@@ -65,6 +65,14 @@ export async function openJournal(
   };
 }
 
+// A token that changes whenever the journal does, without reading it: its
+// inode, size and modification time, or "" while there is none. The journal
+// only grows, so a reader that keeps what it folded can ask this first.
+export function journalVersion(home: string): string {
+  const stat = statSync(join(home, "journal.jsonl"), { throwIfNoEntry: false });
+  return stat ? `${stat.ino}:${stat.size}:${stat.mtimeMs}` : "";
+}
+
 // A reader's view of the journal: no lock, no appends. The writer appends
 // one whole line per call, so a final line without its newline is a write in
 // progress and is left for the next read.

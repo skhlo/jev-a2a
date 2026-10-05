@@ -16,8 +16,8 @@ import type {
 } from "node:http";
 import {
   actionEvent,
+  asOf,
   boardModel,
-  boardState,
   identify,
   messageTimes,
   type Actor,
@@ -25,11 +25,11 @@ import {
 import { renderBoard } from "./board-page.ts";
 import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
-import { readJournal } from "./journal.ts";
+import { journalVersion, readJournal } from "./journal.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
 import { fold, servedBy } from "./shell.ts";
 import { waitsOnSessions } from "./core.ts";
-import type { Event, Outcome } from "./types.ts";
+import type { Event, Outcome, State } from "./types.ts";
 
 export type Run = { outcome: Outcome; report: string[] };
 
@@ -274,6 +274,28 @@ export function keepReading<H>(
   };
 }
 
+// The record as the board reads it, without the lock: the journal folded
+// again only once it has changed. A replay clones the state at every
+// event, which made every board request replay the whole record (1.2 to
+// 2.4 s on a live one). The version is read before the journal, so an
+// append in between is folded at the next request rather than missed.
+export type BoardRecord = { state: State; times: Record<string, string> };
+export function recordReader(config: RouterConfig): () => BoardRecord {
+  let kept: (BoardRecord & { version: string }) | null = null;
+  return () => {
+    const version = journalVersion(config.home);
+    if (kept?.version !== version) {
+      const entries = readJournal(config.home);
+      kept = {
+        version,
+        state: fold(config, entries),
+        times: messageTimes(entries),
+      };
+    }
+    return kept;
+  };
+}
+
 // Whether `by` is a session the record knows, read without the journal
 // lock, as the board reads it: the events endpoint must not contend with
 // the run it is about to queue.
@@ -436,13 +458,14 @@ export function boardListener(
   // complaint is logged the first time it is heard, and the slate is wiped
   // once a read passes without one, so the same damage returning is news.
   const telemetryErrors = new Set<string>();
+  const record = recordReader(config);
   const model = (at: number, actor: Actor | null) => {
-    const entries = readJournal(config.home);
+    const { state, times } = record();
     return boardModel(
-      boardState(config, entries, at),
+      asOf(state, at),
       config,
       at,
-      messageTimes(entries),
+      times,
       actor,
       readTelemetryOnce(),
       deps.usage?.() ?? null,

@@ -167,8 +167,14 @@ export function boardState(
   entries: Entry[],
   now: number,
 ): State {
-  return reduce(fold(config, entries), { type: "tick", now });
+  return asOf(fold(config, entries), now);
 }
+
+// The same from a fold already made, which a reader may keep between
+// requests while the journal is unchanged; the fold itself is left as it
+// was.
+export const asOf = (folded: State, now: number): State =>
+  reduce(folded, { type: "tick", now });
 
 export function messageTimes(entries: Entry[]): Record<string, string> {
   const times: Record<string, string> = {};

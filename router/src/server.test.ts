@@ -17,6 +17,7 @@ import {
   boardListener,
   eventsListener,
   keepReading,
+  recordReader,
   sameSite,
   serveRunner,
   sessionReader,
@@ -1488,5 +1489,60 @@ test("board: usage/ goes back to the board, with the pop-up open while usage is 
   } finally {
     on.close();
     off.close();
+  }
+});
+
+test("board: the record is folded again only when the journal changes, and each request still reads at its own time", async (t) => {
+  const record = scratch(t, "server-fold-");
+  const path = join(record, "journal.jsonl");
+  const write = (entries: Entry[]): void =>
+    writeFileSync(
+      path,
+      entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+    );
+  write(journal);
+  const read = recordReader({ ...fixture, home: record });
+  const first = read();
+  // Unchanged: the same fold, not a new one.
+  assert.equal(read(), first);
+  assert.equal(read().state, first.state);
+  // An append is a new fold with the new task.
+  const more = extend({
+    type: "submit",
+    by: "you",
+    messageId: "M5",
+    text: "One more",
+    to: "orchestrator",
+  });
+  write(more);
+  const second = read();
+  assert.notEqual(second, first);
+  assert.equal(second.state.tasks.length, first.state.tasks.length + 1);
+  assert.equal(read(), second);
+  // The page reads the kept fold at the request's time: a deadline passes
+  // between two requests without a change to the journal.
+  let at = NOW;
+  const server = createServer(
+    boardListener({
+      config: { ...fixture, home: record },
+      handle,
+      now: () => at,
+    }),
+  );
+  const url = await serve(server);
+  try {
+    // Where T5 is: open or finished.
+    const listOf = async (): Promise<string> => {
+      const model = await jsonObject(await fetch(`${url}/board.json`));
+      assert.ok(Array.isArray(model.open) && Array.isArray(model.finished));
+      const has = (list: unknown[]): boolean =>
+        list.some((task) => isRecord(task) && task.id === "T5");
+      return has(model.open) ? "open" : has(model.finished) ? "finished" : "";
+    };
+    assert.equal(await listOf(), "open");
+    at = NOW + 3 * 60 * 60_000;
+    assert.equal(await listOf(), "finished");
+  } finally {
+    server.close();
   }
 });
