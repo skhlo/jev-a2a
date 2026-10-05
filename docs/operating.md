@@ -70,8 +70,8 @@ one call per placement.
 
 With a [`usage`](configuration.md#usage) section, `serve` also reads this
 host's usage accounts for the board's [Usage](board.md#usage) view: when
-it starts, then `usage.every` seconds (120 by default) after each read
-ends, one read at a time and apart from the runs. Each read asks every
+it starts, then [`usage.every`](configuration.md#usage) seconds after each
+read ends, one read at a time and apart from the runs. Each read asks every
 configured account at once, so one slow or failed account never holds back
 another; a request has 12 seconds and 1 MB, and refuses redirects. The
 store is in memory: nothing is written, and a restart starts from "not
@@ -99,7 +99,11 @@ What each account reads, with this host's own logins:
 
 A key in auth.json that names a command (`!…`) is not run. Neither keys
 nor a provider's error text reach the page, the model or the log: a failed
-account shows the router's own sentence and keeps its last reading.
+account shows the router's own sentence and keeps its last reading. A
+credential the provider refuses (HTTP 401 or 403) reads as the next step:
+"open Claude Code and run /login" for Claude, "check the provider API key"
+for an API key, and the management key for OpenRouter's balance and
+spending.
 
 `router usage` reads every configured account once (all four without a
 `usage` section) and prints the result as the board model carries it,

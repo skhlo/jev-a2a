@@ -171,8 +171,9 @@ data as JSON (`board.json`), the contract `jev-router-board/1`.
 
 With a `usage` section in the configuration, the page gains a second tab,
 Usage: this host's Codex and Claude quota windows and its DeepSeek and
-OpenRouter balances, read every two minutes with the host's own logins
+OpenRouter balances, read with the host's own logins
 ([docs/board.md](docs/board.md#usage),
+[operating](docs/operating.md#usage),
 [configuration](docs/configuration.md#usage)).
 
 ![The Usage tab: subscription windows and API balances](router/design/screenshots/usage.png)

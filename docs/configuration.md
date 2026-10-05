@@ -140,8 +140,7 @@ JSON file.
 | `ROUTER_TOKEN`     | The router host and every host with a client.                         |
 | `ROUTER_URL`       | Hosts that do not run the router: `serve.listen` as an `http://` URL. |
 
-With [`usage`](#usage) on, the router host may also hold, all optional:
-`OPENROUTER_MANAGEMENT_KEY` (OpenRouter's account balance and spending),
-`OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY` (otherwise read from Pi's
-`~/.pi/agent/auth.json`). Claude has no variable: its token is Claude
-Code's own login on the host.
+With [`usage`](#usage) on, the router host may also hold, all optional,
+`OPENROUTER_MANAGEMENT_KEY`, `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`;
+what each reads, and where an account reads without one, is in
+[operating.md](operating.md#usage).

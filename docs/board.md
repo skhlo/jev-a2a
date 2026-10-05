@@ -29,11 +29,9 @@ The JSON link returns the [view model](board-model.md), usage included.
 The Usage view, at `usage/` beside the board, shows what this host's
 accounts allow and have used, read with the host's own logins: Codex and
 Claude (subscriptions), then DeepSeek and OpenRouter (API balances). It is
-the account part of API Dash, ported into the router. `router serve` reads
-the configured accounts when it starts and again `usage.every` seconds
-after each read ends, one read at a time, apart from the runs; the store is
-in memory only, so a restart reads afresh. `router usage` reads them once
-and prints the result (see [operating.md](operating.md#usage)).
+the account part of API Dash, ported into the router. When `router serve`
+reads the accounts, what each reads and with which login, and `router
+usage`, are in [operating.md](operating.md#usage).
 
 The head is the board's. Its chips name the most used subscription window
 (leaving out a window whose reset has passed, and marking one from a stale
@@ -80,11 +78,8 @@ palettes. The board's other keys do nothing here.
 
 Not ported from API Dash: Claude's local statistics and its usage cache,
 the macOS Keychain, Pi Atlas, the API cards' Pi spend and "balance lasts"
-rows, its eight themes and a manual refresh endpoint. Claude's token comes
-from Claude Code's credential file alone (`~/.claude/.credentials.json`, or
-under `$CLAUDE_CONFIG_DIR`), with no variable to stand in for it, and is
-never refreshed: an expired login reads "Claude login expired; open Claude
-Code."
+rows, its eight themes, a manual refresh endpoint and the refresh of
+Claude's token (see [operating.md](operating.md#usage)).
 
 ## Agents
 
