@@ -887,6 +887,10 @@ export function renderBoard(
     ? usageClose
     : esc(`?${selected ? `task=${encodeURIComponent(selected)}&` : ""}usage`);
   const readAt = usage?.at ? `read ${time(usage.at)}` : "not read yet";
+  // An account that is not current: its tooltip says why, and it carries a
+  // badge.
+  const notCurrent = (a: AccountView): boolean =>
+    a.status === "stale" || a.status === "unavailable";
   // What an account that is not current says of its age: the reading's
   // while stale, the last check's while unavailable.
   const ageOf = (
@@ -922,7 +926,7 @@ export function renderBoard(
     const path = `usage.accounts[${i}]`;
     const tip = [a.name];
     const old = ageOf(a, path);
-    if (a.status === "stale" || a.status === "unavailable")
+    if (notCurrent(a))
       tip.push(
         `${a.status}${old ? `, ${old.words} ${age(old.at, at)} ago` : ""}${a.error ? `: ${a.error}` : ""}`,
       );
@@ -934,7 +938,7 @@ export function renderBoard(
       const length = `<span class="w" title="${esc(w.label)}">${wshort(w.minutes ?? 0)}</span>`;
       if (passed(w, at)) {
         tip.push(`${windowName(w.label)} ${n}%, reset passed`);
-        return `<span class="win dim" data-path="${wp}"><span class="w">${wshort(w.minutes ?? 0)}</span>${meter({ share: null, figure })}</span>`;
+        return `<span class="win dim" data-path="${wp}">${length}${meter({ share: null, figure })}</span>`;
       }
       const p = pace(w, at);
       tip.push(
@@ -992,7 +996,7 @@ export function renderBoard(
     return `<div class="entry${cls}" data-path="${esc(path)}">${lead || '<span class="lead"></span>'}${name || '<span class="name"></span>'}${figure || '<span class="figure"></span>'}${gauge || '<span class="meter"></span>'}${note || '<span class="note"></span>'}${when || '<span class="when"></span>'}</div>`;
   };
   const badge = (a: AccountView, path: string, cls = ""): string =>
-    a.status === "stale" || a.status === "unavailable"
+    notCurrent(a)
       ? slot(`${path}.status`, esc(a.status), `badge sm${cls}`)
       : "";
   // An account's lead: its name as the toggle of its details, and from
@@ -1014,7 +1018,7 @@ export function renderBoard(
   const subscriptionRows = (
     a: AccountView,
     path: string,
-    head: string,
+    leadOf: (row: number) => string,
   ): string[] => {
     const r = a.reading;
     const current = windowsOf(r);
@@ -1022,7 +1026,7 @@ export function renderBoard(
       return [
         bare(
           path,
-          head,
+          leadOf(0),
           r?.allowance === "unavailable"
             ? "Current limits are unavailable"
             : r
@@ -1047,7 +1051,7 @@ export function renderBoard(
         : slot(`${wp}.resetsAt`, DASH, "when");
       return entry(
         [
-          k ? "" : head,
+          leadOf(k),
           slot(
             `${wp}.label`,
             esc(windowName(w.label)),
@@ -1083,12 +1087,12 @@ export function renderBoard(
   const balanceRows = (
     a: AccountView,
     path: string,
-    head: string,
+    leadOf: (row: number) => string,
   ): string[] => {
     const r = a.reading;
-    if (!r) return [bare(path, head, nothing(a))];
+    if (!r) return [bare(path, leadOf(0), nothing(a))];
     if (r.allowance === "unavailable")
-      return [bare(path, head, "Current limits are unavailable")];
+      return [bare(path, leadOf(0), "Current limits are unavailable")];
     const find = (label: string): { k: number; m: Metric } | null => {
       const k = r.metrics.findIndex((m) => m.label === label);
       const m = r.metrics[k];
@@ -1102,10 +1106,10 @@ export function renderBoard(
           const mp = `${path}.reading.metrics[${k}]`;
           const name = slot(`${mp}.label`, "balance", "name");
           return typeof m.value === "string"
-            ? `<div class="entry${j ? "" : " first"}" data-path="${mp}">${j ? '<span class="lead"></span>' : head}${name}${slot(`${mp}.value`, esc(m.value), "words", "span", ` title="${esc(r.notice ?? m.value)}"`)}</div>`
+            ? `<div class="entry${j ? "" : " first"}" data-path="${mp}">${leadOf(j) || '<span class="lead"></span>'}${name}${slot(`${mp}.value`, esc(m.value), "words", "span", ` title="${esc(r.notice ?? m.value)}"`)}</div>`
             : entry(
                 [
-                  j ? "" : head,
+                  leadOf(j),
                   name,
                   slot(`${mp}.value`, esc(amount(m.value, m.unit)), "figure"),
                   "",
@@ -1119,7 +1123,7 @@ export function renderBoard(
       : [
           entry(
             [
-              head,
+              leadOf(0),
               slot(`${path}.reading.metrics`, "balance", "name"),
               slot(`${path}.reading.metrics`, DASH, "figure"),
               "",
@@ -1142,7 +1146,7 @@ export function renderBoard(
       rows.push(
         entry(
           [
-            "",
+            leadOf(rows.length),
             slot(`${rp}.label`, "key left", "name"),
             remaining
               ? slot(
@@ -1310,11 +1314,18 @@ export function renderBoard(
         a.kind === "subscription" ? [] : [...LEADING, ...BESIDE],
       ),
     });
-    const head = lead(a, path, more.toggle);
+    // The first row leads with the toggle, the second with the badge.
+    const mark = badge(a, path);
+    const leadOf = (row: number): string =>
+      row === 0
+        ? lead(a, path, more.toggle)
+        : row === 1 && mark
+          ? `<span class="lead badge-lead">${mark}</span>`
+          : "";
     const rows =
       a.kind === "subscription"
-        ? subscriptionRows(a, path, head)
-        : balanceRows(a, path, head);
+        ? subscriptionRows(a, path, leadOf)
+        : balanceRows(a, path, leadOf);
     const old = ageOf(a, path);
     const bits = [
       ...(old
@@ -1326,19 +1337,10 @@ export function renderBoard(
         ? [slot(`${path}.error`, esc(a.error))]
         : []),
     ];
-    let mark = badge(a, path);
-    const empty = '<span class="lead"></span>';
-    const second = rows[1];
-    if (mark && second?.includes(empty)) {
-      rows[1] = second.replace(
-        empty,
-        `<span class="lead badge-lead">${mark}</span>`,
-      );
-      mark = "";
-    }
+    const unplaced = rows.length > 1 ? "" : mark;
     const status =
-      bits.length || mark
-        ? `<div class="status"><span class="lead badge-lead">${mark}</span><p>${bits.join(" · ")}</p></div>`
+      bits.length || unplaced
+        ? `<div class="status"><span class="lead badge-lead">${unplaced}</span><p>${bits.join(" · ")}</p></div>`
         : "";
     return `<div class="account ${esc(a.status)}" data-path="${path}" data-account="${esc(a.id)}">${rows.join("")}${status}${more.block}</div>`;
   };

@@ -2563,7 +2563,7 @@ test("v0.13 rail: a Usage section between the cards and the log, a two-line row 
     railRows(renderBoard(withUsage(usage, NOW + 60 * 60_000)))[1] ?? "";
   assert.ok(
     hour.includes(
-      '<span class="win dim" data-path="usage.accounts[1].reading.windows[0]"><span class="w">5H</span><span class="meter"><span class="bar"></span><span data-path="usage.accounts[1].reading.windows[0].usedPercent">92%</span></span></span>',
+      '<span class="win dim" data-path="usage.accounts[1].reading.windows[0]"><span class="w" title="5-hour window">5H</span><span class="meter"><span class="bar"></span><span data-path="usage.accounts[1].reading.windows[0].usedPercent">92%</span></span></span>',
     ),
   );
   assert.ok(hour.includes("5-hour 92%, reset passed"));
