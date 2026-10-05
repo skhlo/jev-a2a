@@ -37,7 +37,7 @@ import type {
 } from "./types.ts";
 
 const ROLES: readonly Role[] = ["requester", "operator"];
-const UPDATE_KINDS: readonly UpdateKind[] = [
+export const UPDATE_KINDS: readonly UpdateKind[] = [
   "working",
   "question",
   "completed",
