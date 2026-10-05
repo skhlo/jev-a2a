@@ -22,7 +22,7 @@ import {
   type ProviderSubagent,
   type Screen,
   type TimelineEntry,
-} from "./paseo.ts";
+} from "../src/paseo.ts";
 
 // A screen as the adapter reads it: lines with dim cells blank, the same
 // lines as drawn (the same unless given), and the cursor.

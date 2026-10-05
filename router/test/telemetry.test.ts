@@ -7,7 +7,7 @@ import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PaseoAgent } from "@getpaseo/client";
 import { scratch } from "./test-scratch.ts";
-import { isReady, snapshotOf } from "./paseo.ts";
+import { isReady, snapshotOf } from "../src/paseo.ts";
 import {
   agentLine,
   emptySnapshot,
@@ -18,7 +18,7 @@ import {
   writeTelemetry,
   type AgentSnapshot,
   type Telemetry,
-} from "./telemetry.ts";
+} from "../src/telemetry.ts";
 
 const SEEN = "2026-09-30T09:44:50.000Z";
 

@@ -3,8 +3,8 @@
 // validated; what is missing stays unknown; private fields never pass.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { codexDetails, openrouterDetails } from "./usage-details.ts";
-import type { UsageDetail } from "./usage.ts";
+import { codexDetails, openrouterDetails } from "../src/usage-details.ts";
+import type { UsageDetail } from "../src/usage.ts";
 
 const now = Date.parse("2026-09-13T12:00:00Z");
 const metric = (detail: UsageDetail, label: string) =>

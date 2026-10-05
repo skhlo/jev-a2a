@@ -26,9 +26,9 @@ import {
   type BindOptions,
   type Run,
   type SessionStatus,
-} from "./server.ts";
-import { BOARD_VERSION, messageTimes } from "./board.ts";
-import { coreConfig, fold } from "./shell.ts";
+} from "../src/server.ts";
+import { BOARD_VERSION, messageTimes } from "../src/board.ts";
+import { coreConfig, fold } from "../src/shell.ts";
 import {
   config as fixture,
   extend,
@@ -37,13 +37,13 @@ import {
   replacedJournal,
   telemetry,
   usage,
-} from "./board-fixture.ts";
-import type { RouterConfig } from "./config.ts";
-import type { UsageState } from "./usage.ts";
-import { writeTelemetry } from "./telemetry.ts";
-import type { Entry } from "./journal.ts";
-import type { Event } from "./types.ts";
-import base from "./example-config.ts";
+} from "../src/board-fixture.ts";
+import type { RouterConfig } from "../src/config.ts";
+import type { UsageState } from "../src/usage.ts";
+import { writeTelemetry } from "../src/telemetry.ts";
+import type { Entry } from "../src/journal.ts";
+import type { Event } from "../src/types.ts";
+import base from "../src/example-config.ts";
 
 // The record the tests share; a test that needs its own makes a scratch
 // one.

@@ -11,19 +11,19 @@ import {
   journalFolder,
   openShell,
   type ShellOptions,
-} from "./shell.ts";
-import { readJournal } from "./journal.ts";
-import { reduce } from "./core.ts";
+} from "../src/shell.ts";
+import { readJournal } from "../src/journal.ts";
+import { reduce } from "../src/core.ts";
 import {
   RouterBug,
   sendFailure,
   type Adapter,
   type Observation,
-} from "./paseo.ts";
-import type { AgentSnapshot, Telemetry } from "./telemetry.ts";
-import type { RouterConfig } from "./config.ts";
-import type { Config, Event } from "./types.ts";
-import base from "./example-config.ts";
+} from "../src/paseo.ts";
+import type { AgentSnapshot, Telemetry } from "../src/telemetry.ts";
+import type { RouterConfig } from "../src/config.ts";
+import type { Config, Event } from "../src/types.ts";
+import base from "../src/example-config.ts";
 
 const configFor = (home: string, core: Config = base): RouterConfig => ({
   ...core,

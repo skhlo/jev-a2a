@@ -20,7 +20,7 @@ import {
   type Loader,
   type Reading,
   type UsageState,
-} from "./usage.ts";
+} from "../src/usage.ts";
 
 const now = Date.parse("2026-09-12T12:00:00Z");
 const good: Reading = {

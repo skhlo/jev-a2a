@@ -28,7 +28,7 @@ page or the design; a user of the board needs only
 
 Each element the design binds keeps the `data-path` the design gives it,
 and rows and groups keep `data-task` and `data-group`, so the page can be
-compared with the design mechanically. A test in `src/board-page.test.ts`
+compared with the design mechanically. A test in `test/board-page.test.ts`
 fails when a path in `v0.13-paths.txt` is neither rendered for the board
 fixture nor named with a reason in `v0.13-dropped.txt`. It compares paths
 with their indexes blanked (`open[].deliveries[].latest`), since the

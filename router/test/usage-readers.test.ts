@@ -17,21 +17,21 @@ import {
   readUsageRpc,
   usageStore,
   type ReaderIo,
-} from "./usage-readers.ts";
+} from "../src/usage-readers.ts";
 import {
   createUsageStore,
   ReadError,
   snapshot,
   type Reading,
   type UsageDetail,
-} from "./usage.ts";
-import { loadSecrets } from "./config.ts";
+} from "../src/usage.ts";
+import { loadSecrets } from "../src/config.ts";
 import {
   NOW,
   openrouterKeyOnly,
   openrouterManaged,
   openrouterPayloads,
-} from "./board-fixture.ts";
+} from "../src/board-fixture.ts";
 
 const now = Date.parse("2026-09-13T12:00:00Z");
 const codexQuota = {

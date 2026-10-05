@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sharedScratch } from "./test-scratch.ts";
-import { textOption } from "./text.ts";
+import { textOption } from "../src/text.ts";
 
 const dir = sharedScratch("text-");
 const file = join(dir, "reply.md");

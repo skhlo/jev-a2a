@@ -11,8 +11,8 @@ import {
   loadSecrets,
   terminalClis,
   terminalOf,
-} from "./config.ts";
-import base from "./example-config.ts";
+} from "../src/config.ts";
+import base from "../src/example-config.ts";
 
 const dir = sharedScratch("config-");
 let n = 0;

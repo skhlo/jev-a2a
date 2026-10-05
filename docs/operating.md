@@ -42,7 +42,7 @@ board) closes it, and `--release` opens it again.
 
 A terminal placement, Claude Code or Codex in a Paseo terminal, is sent to
 only at the CLI's empty prompt, as the contract's adapters section
-([jev-router-spec.md](../research/jev-router-spec.md)) defines it, by one
+([jev-router-spec.md](research/jev-router-spec.md)) defines it, by one
 paste and Enter. Codex must run as `codex --no-daemon`, and each prompt
 tells it to request escalated permissions for the router command; the
 contract says why. A send it cannot confirm is unknown and waits for
