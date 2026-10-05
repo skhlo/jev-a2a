@@ -139,3 +139,4 @@ export function pageContext(
     ago,
   };
 }
+export type PageContext = ReturnType<typeof pageContext>;

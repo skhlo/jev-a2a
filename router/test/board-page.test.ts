@@ -14,13 +14,7 @@ import {
   type BoardModel,
   type PlacementView,
 } from "../src/board.ts";
-import {
-  counts,
-  diff,
-  renderBoard,
-  repo,
-  type RenderOptions,
-} from "../src/board-page.ts";
+import { renderBoard, type RenderOptions } from "../src/board-page.ts";
 import {
   age,
   count,
@@ -32,6 +26,7 @@ import {
   time,
 } from "../src/board-parts.ts";
 import { amount, band, dh, pace, wshort } from "../src/board-usage.ts";
+import { counts, diff, repo } from "../src/board-agents.ts";
 import {
   agedUsage,
   answeredJournal,
