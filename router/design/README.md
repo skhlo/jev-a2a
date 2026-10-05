@@ -126,20 +126,30 @@ where the page must work without its script:
 ## The script in a browser
 
 The unit tests read the page's script as text. `src/board-check.ts` runs
-it: it serves the sample on a loopback port, drives a headless Chromium
-over the DevTools protocol, and checks opening a task in place with
-refreshes racing its fetch, an open whose fetch fails, Back and Forward
-after an open, the focus coming back from the usage pop-up after a refresh
-replaced its opener, and the arrow and `esc` basics. It is not part of
-`pnpm test`, and CI, which has no browser, does not run it. Run it in
-`router/` after changing the script:
+it: it serves the sample on a loopback port as the fixture's operator,
+drives a headless Chromium over the DevTools protocol, and checks:
+
+- opening a task in place with refreshes racing its fetch, and the timed
+  refreshes going on once it has landed;
+- an open whose fetch fails (to another task, to the same task with a
+  hash, and after Back to an entry with a hash) or hangs;
+- Back and Forward after an open;
+- the focus coming back from the usage pop-up after a refresh replaced
+  its opener;
+- the arrow and `esc` basics.
+
+It is not part of `pnpm test`, and CI, which has no browser, does not run
+it. Run it in `router/` after changing the script:
 
 ```sh
 pnpm exec node src/board-check.ts
 ```
 
-It needs `chromium` on `PATH` (or `$CHROMIUM`), prints a line per check
-and exits non-zero when one fails.
+It needs `chromium` on `PATH` (or `$CHROMIUM`) and prints a line per
+check. It exits 1 when a check fails, 2 when it cannot run, and 130 or 143
+on `SIGINT` or `SIGTERM`. Whatever it writes, the browser's profile and
+temporary files included, is in one directory under `$TMPDIR`, removed
+when it ends.
 
 ## The design's own departures from its brief
 

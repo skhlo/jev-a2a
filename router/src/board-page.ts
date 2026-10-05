@@ -3180,27 +3180,44 @@ addEventListener("resize", place);
 // the swapped parts.
 const parts = () => [".nav .counts", ".nav .tick", ...$$("[data-part]").map((el) => '[data-part="' + CSS.escape(el.dataset.part) + '"]')];
 let fetches = 0;
-// The open on its way, until its page lands or its fetch fails: its task,
-// the hash its link names, and whether it adds its link to the history
-// (an open the viewer started) or finds the address set (Back, Forward,
-// the task an action returns to).
+// The open on its way, until its fetch settles: its task, the hash its link
+// names, and whether it adds its link to the history (an open the viewer
+// started) or finds the address set (Back, Forward, the task an action
+// returns to).
 let opening = null;
+// How long an open waits for its page before it follows its link.
+const OPEN_WAIT_MS = 12000;
+// An open that cannot fetch follows its link instead. A link that differs
+// from the address only by its hash (or not at all, as after Back) would
+// not load the page, so the address takes the link and the page loads
+// again.
+const follow = (open, query) => {
+  const link = new URL((query || location.pathname) + open.hash, location.href);
+  if (link.pathname + link.search !== location.pathname + location.search) return location.assign(link);
+  if (open.push && link.hash !== location.hash) history.pushState(null, "", link);
+  else history.replaceState(null, "", link);
+  location.reload();
+};
 const refresh = async (open = null) => {
   if (!open && (opening || document.hidden)) return;
   const id = open ? open.id : selected();
   const mine = ++fetches;
   const query = id ? "?task=" + encodeURIComponent(id) : "";
-  let doc;
+  let doc = null;
   try {
-    const r = await fetch(location.pathname + query, { cache: "no-store", headers: { accept: "text/html" } });
+    const r = await fetch(location.pathname + query, { cache: "no-store", headers: { accept: "text/html" }, signal: open ? AbortSignal.timeout(OPEN_WAIT_MS) : null });
     if (!r.ok) throw new Error(r.statusText);
     doc = new DOMParser().parseFromString(await r.text(), "text/html");
   } catch {
-    // An open that cannot fetch follows its link instead.
-    if (open && mine === fetches) location.assign((query || location.pathname) + open.hash);
-    return;
+    doc = null;
   }
   if (mine !== fetches) return;
+  // The open has settled, so the timed refreshes go on whatever it found.
+  if (open) opening = null;
+  if (!doc) {
+    if (open) follow(open, query);
+    return;
+  }
   const focus = document.activeElement;
   const sel = document.getSelection();
   const range = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null;
@@ -3263,7 +3280,6 @@ const refresh = async (open = null) => {
   // nothing). When the page shows another task than the address names (the
   // bare page, a task that has gone), the address takes it, keeping its
   // notice and hash.
-  if (open) opening = null;
   if (open?.push && query + open.hash !== location.search + location.hash) history.pushState(null, "", (query || location.pathname) + open.hash);
   const here = new URLSearchParams(location.search);
   if (selected() && selected() !== here.get("task")) {

@@ -3047,15 +3047,18 @@ test("v0.13 script: the pop-up opens and closes in place, keeps open across a re
     "  unfold();\n  syncUsage();\n  filter();",
     // Open in place: the row is marked at once, the fetch swaps the detail,
     // no periodic fetch starts meanwhile, the open adds its link to the
-    // history and Back opens the entry's task; a failed fetch follows the
-    // link.
+    // history and Back opens the entry's task. The open ends when its fetch
+    // settles; one that fails or waits too long follows the link, and a
+    // link that only changes the hash loads the page again.
     '    openTask(url.searchParams.get("task"), url.hash);',
     "  if (!open && (opening || document.hidden)) return;",
     '  if (open?.push && query + open.hash !== location.search + location.hash) history.pushState(null, "", (query || location.pathname) + open.hash);',
     '    history.replaceState(null, "", "?" + here + location.hash);',
     "  if (id !== selected()) openTask(id, location.hash, false);",
-    "    if (open && mine === fetches) location.assign((query || location.pathname) + open.hash);",
-    "  if (mine !== fetches) return;",
+    "signal: open ? AbortSignal.timeout(OPEN_WAIT_MS) : null",
+    "  if (mine !== fetches) return;\n  // The open has settled, so the timed refreshes go on whatever it found.\n  if (open) opening = null;\n  if (!doc) {\n    if (open) follow(open, query);\n    return;\n  }",
+    "  if (link.pathname + link.search !== location.pathname + location.search) return location.assign(link);",
+    "  location.reload();",
     // A modified click keeps the browser's own.
     "const plain = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;",
     // ?usage opened the pop-up for a page without a script; the script

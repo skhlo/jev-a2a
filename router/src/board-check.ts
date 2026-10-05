@@ -1,16 +1,6 @@
-// A local check of the board page's script in a headless Chromium, over the
-// DevTools protocol: what the unit tests cannot see, as they read the
-// script as text. It serves the sample on a loopback port with the
-// fixture's viewer, opens it, and checks opening a task in place with a
-// refresh racing the fetch, Back and Forward after an open, the focus coming
-// back from the usage pop-up after a refresh replaced its opener, and the
-// arrow and esc basics. It is not part of `pnpm test`, which has no
-// browser. Run it in router/ after a change to the script:
-//
-//   pnpm exec node src/board-check.ts
-//
-// It needs a Chromium on PATH (`chromium`, or $CHROMIUM), prints a line per
-// check and exits non-zero when one fails. Nothing it writes outlives it.
+// The board page's script, checked in a headless Chromium over the DevTools
+// protocol. What it checks, how to run it and what it needs are in
+// design/README.md ("The script in a browser").
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -30,6 +20,31 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const pause = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+// `promise`, or a rejection naming `what` once `ms` have passed.
+const within = <T>(promise: Promise<T>, ms: number, what: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${what}: no answer in ${ms} ms`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+// The page navigated while it was being asked something.
+const navigated = (error: unknown): boolean =>
+  /Execution context was destroyed|Cannot find default execution context|Inspected target navigated or closed/.test(
+    messageOf(error),
+  );
 
 // The sample's record in a scratch home, served as `router serve` serves it.
 async function serveSample(home: string): Promise<{
@@ -65,11 +80,61 @@ async function serveSample(home: string): Promise<{
 type Page = {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   evaluate(expression: string): Promise<unknown>;
-  close(): Promise<void>;
 };
 
-// A headless Chromium on a loopback debugging port, and its one page.
-async function launch(profile: string): Promise<Page> {
+// One DevTools connection: each call is answered in time or rejected, and
+// every call still waiting is rejected when the connection closes.
+async function connect(url: string): Promise<{
+  send: Page["send"];
+  close(): void;
+}> {
+  const socket = new WebSocket(url);
+  await within(
+    new Promise((resolve, reject) => {
+      socket.addEventListener("open", resolve, { once: true });
+      socket.addEventListener("error", () => reject(new Error(url)), {
+        once: true,
+      });
+    }),
+    5000,
+    "DevTools connection",
+  );
+  let id = 0;
+  const waiting = new Map<
+    number,
+    { resolve(value: unknown): void; reject(error: Error): void }
+  >();
+  socket.addEventListener("message", (event: MessageEvent) => {
+    const message: unknown = JSON.parse(String(event.data));
+    if (!isRecord(message) || typeof message.id !== "number") return;
+    const call = waiting.get(message.id);
+    waiting.delete(message.id);
+    if (message.error) call?.reject(new Error(JSON.stringify(message.error)));
+    else call?.resolve(message.result);
+  });
+  socket.addEventListener("close", () => {
+    for (const call of waiting.values())
+      call.reject(new Error("DevTools connection closed"));
+    waiting.clear();
+  });
+  const send = (method: string, params: Record<string, unknown> = {}) => {
+    id += 1;
+    const mine = id;
+    const answer = new Promise<unknown>((resolve, reject) => {
+      waiting.set(mine, { resolve, reject });
+      socket.send(JSON.stringify({ id: mine, method, params }));
+    });
+    return within(answer, 15_000, method).finally(() => waiting.delete(mine));
+  };
+  return { send, close: () => socket.close() };
+}
+
+// A headless Chromium on a loopback debugging port, its profile and its
+// temporary files in `scratch`, and its one page. close() resolves once the
+// browser has exited: asked to close, then sent SIGTERM, then SIGKILL.
+async function launch(
+  scratch: string,
+): Promise<{ page: Page; close(): Promise<void> }> {
   const chromium = spawn(
     process.env.CHROMIUM ?? "chromium",
     [
@@ -77,58 +142,77 @@ async function launch(profile: string): Promise<Page> {
       "--disable-gpu",
       "--no-sandbox",
       "--remote-debugging-port=0",
-      `--user-data-dir=${profile}`,
+      `--user-data-dir=${join(scratch, "chromium")}`,
       "--window-size=1440,900",
       "about:blank",
     ],
-    { stdio: ["ignore", "ignore", "pipe"] },
+    {
+      stdio: ["ignore", "ignore", "pipe"],
+      env: { ...process.env, TMPDIR: scratch },
+    },
   );
-  // Its page's DevTools address; a start that fails stops the browser.
-  const pageUrl = async (): Promise<string> => {
-    const port = await new Promise<string>((resolve, reject) => {
-      let text = "";
-      chromium.stderr.on("data", (chunk: Buffer) => {
-        text += chunk.toString();
-        const found = /DevTools listening on ws:\/\/[^:]+:(\d+)\//.exec(text);
-        if (found?.[1]) resolve(found[1]);
-      });
-      chromium.on("exit", () => reject(new Error(`Chromium exited: ${text}`)));
-    });
+  let running = true;
+  const exited = new Promise<void>((resolve) => {
+    chromium.once("exit", () => resolve());
+    chromium.once("error", () => resolve());
+  }).then(() => {
+    running = false;
+  });
+  let browserUrl = "";
+  let page: Awaited<ReturnType<typeof connect>> | null = null;
+  const close = async (): Promise<void> => {
+    page?.close();
+    if (!running) return;
+    const quit = async (): Promise<boolean> =>
+      within(exited, 3000, "Chromium exit").then(
+        () => true,
+        () => false,
+      );
+    if (browserUrl) {
+      const browser = await connect(browserUrl).catch(() => null);
+      await browser?.send("Browser.close").catch(() => undefined);
+      browser?.close();
+    }
+    if (await quit()) return;
+    chromium.kill("SIGTERM");
+    if (await quit()) return;
+    chromium.kill("SIGKILL");
+    await exited;
+  };
+  try {
+    browserUrl = await within(
+      new Promise<string>((resolve, reject) => {
+        let text = "";
+        chromium.stderr.on("data", (chunk: Buffer) => {
+          text += chunk.toString();
+          const found = /DevTools listening on (ws:\/\/\S+)/.exec(text);
+          if (found?.[1]) resolve(found[1]);
+        });
+        chromium.once("error", (error) =>
+          reject(new Error(`cannot start Chromium: ${error.message}`)),
+        );
+        chromium.once("exit", () =>
+          reject(new Error(`Chromium exited: ${text}`)),
+        );
+      }),
+      15_000,
+      "Chromium's DevTools address",
+    );
     const list: unknown = await (
-      await fetch(`http://127.0.0.1:${port}/json/list`)
+      await fetch(`http://${new URL(browserUrl).host}/json/list`)
     ).json();
     const target = Array.isArray(list)
       ? list.find((t: unknown) => isRecord(t) && t.type === "page")
       : undefined;
     if (!isRecord(target) || typeof target.webSocketDebuggerUrl !== "string")
       throw new Error("no page to drive");
-    return target.webSocketDebuggerUrl;
-  };
-  const socket = new WebSocket(
-    await pageUrl().catch((error: unknown) => {
-      chromium.kill();
-      throw error;
-    }),
-  );
-  await new Promise((resolve) =>
-    socket.addEventListener("open", resolve, { once: true }),
-  );
-  let id = 0;
-  const waiting = new Map<number, (message: Record<string, unknown>) => void>();
-  socket.addEventListener("message", (event: MessageEvent) => {
-    const message: unknown = JSON.parse(String(event.data));
-    if (isRecord(message) && typeof message.id === "number")
-      waiting.get(message.id)?.(message);
-  });
-  const send = (method: string, params: Record<string, unknown> = {}) =>
-    new Promise<unknown>((resolve, reject) => {
-      id += 1;
-      waiting.set(id, (message) => {
-        if (message.error) reject(new Error(JSON.stringify(message.error)));
-        else resolve(message.result);
-      });
-      socket.send(JSON.stringify({ id, method, params }));
-    });
+    page = await connect(target.webSocketDebuggerUrl);
+    await page.send("Page.enable");
+  } catch (error: unknown) {
+    await close();
+    throw error;
+  }
+  const { send } = page;
   const evaluate = async (expression: string): Promise<unknown> => {
     const result = await send("Runtime.evaluate", {
       expression,
@@ -139,22 +223,7 @@ async function launch(profile: string): Promise<Page> {
       throw new Error(`${expression}: ${JSON.stringify(result)}`);
     return isRecord(result.result) ? result.result.value : undefined;
   };
-  await send("Page.enable");
-  return {
-    send,
-    evaluate,
-    // Resolves once the browser has exited, so its profile can go.
-    close: () => {
-      socket.close();
-      if (chromium.exitCode !== null || chromium.signalCode !== null)
-        return Promise.resolve();
-      const exited = new Promise<void>((resolve) =>
-        chromium.once("exit", () => resolve()),
-      );
-      chromium.kill();
-      return exited;
-    },
-  };
+  return { page: { send, evaluate }, close };
 }
 
 // A key as a keyboard sends it: down (with its text when it has one), up.
@@ -183,11 +252,22 @@ async function press(page: Page, key: string, shift = false): Promise<void> {
   await pause(100);
 }
 
+// Asks the page, again while it is between two documents.
+async function ask(page: Page, expression: string): Promise<unknown> {
+  for (let tries = 0; ; tries++)
+    try {
+      return await page.evaluate(expression);
+    } catch (error: unknown) {
+      if (!navigated(error) || tries >= 40) throw error;
+      await pause(50);
+    }
+}
+
 // Waits until `expression` is true in the page, or `ms` have passed.
 async function until(page: Page, expression: string, ms = 3000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if ((await page.evaluate(expression)) === true) return true;
+    if ((await ask(page, expression)) === true) return true;
     await pause(25);
   }
   return false;
@@ -195,7 +275,7 @@ async function until(page: Page, expression: string, ms = 3000) {
 
 // Loads `url` and waits for its script: the old page's mark is gone.
 async function goto(page: Page, url: string): Promise<void> {
-  await page.evaluate(`window.leaving = true`);
+  await ask(page, `window.leaving = true`);
   await page.send("Page.navigate", { url });
   const loaded = await until(
     page,
@@ -220,7 +300,7 @@ async function checks(page: Page, url: string): Promise<string[]> {
     );
     if (!ok) failed.push(name);
   };
-  const value = (expression: string) => page.evaluate(expression);
+  const value = (expression: string) => ask(page, expression);
 
   // Opening in place while refreshes land: the Answer lever on the asking
   // card opens T2 from T6; two refreshes start while its fetch waits.
@@ -255,6 +335,13 @@ async function checks(page: Page, url: string): Promise<string[]> {
       Number(await value(`history.length`)) === depth + 1,
     await value(`location.search + location.hash + " " + history.length`),
   );
+  const before = Number(await value(`fetches`));
+  await value(`refresh()`);
+  check(
+    "once the open has landed, the timed refreshes go on",
+    Number(await value(`fetches`)) === before + 1,
+    `${before} then ${String(await value(`fetches`))}`,
+  );
 
   // An open whose fetch fails follows its link, hash and all.
   await goto(page, `${url}?task=T6`);
@@ -273,6 +360,53 @@ async function checks(page: Page, url: string): Promise<string[]> {
     followed &&
       (await value(`location.search + location.hash`)) === "?task=T2#answer-D1",
     await value(`location.search + location.hash`),
+  );
+
+  // A failed open whose link differs from the address only by its hash
+  // loads the page again there: assigning it would not.
+  const loaded = `!window.leaving && document.readyState === "complete" && typeof refresh === "function"`;
+  const failing = `window.fetch = () => Promise.reject(new Error("offline")); window.leaving = true`;
+  await goto(page, `${url}?task=T2`);
+  await value(failing);
+  await value(
+    `document.querySelector('.card a.btn[href="?task=T2#answer-D1"]').click()`,
+  );
+  check(
+    "a failed open of the same task with a hash loads the page there",
+    (await until(page, loaded)) &&
+      (await value(`location.search + location.hash`)) === "?task=T2#answer-D1",
+    await value(`location.search + location.hash`),
+  );
+
+  // Back to an entry with a hash, its fetch failing, loads that entry.
+  await goto(page, `${url}?task=T6`);
+  await goto(page, `${url}?task=T2#answer-D1`);
+  await value(`document.querySelector('.task[data-task="T4"] a.id').click()`);
+  await until(page, `${DETAIL} === "T4"`);
+  await value(failing);
+  await value(`history.back()`);
+  check(
+    "Back to an entry with a hash, its fetch failing, loads that entry",
+    (await until(page, loaded)) &&
+      (await value(`location.search + location.hash`)) ===
+        "?task=T2#answer-D1" &&
+      (await value(DETAIL)) === "T2",
+    `${String(await value(`location.search + location.hash`))} ${String(await value(DETAIL))}`,
+  );
+
+  // An open whose fetch hangs gives up (here after 300 ms, not the page's
+  // own wait) and follows its link.
+  await goto(page, `${url}?task=T6`);
+  await value(
+    `(() => { const wait = AbortSignal.timeout.bind(AbortSignal); AbortSignal.timeout = () => wait(300); window.fetch = (u, o = {}) => new Promise((_, reject) => o.signal?.addEventListener("abort", () => reject(o.signal.reason))); window.leaving = true; })()`,
+  );
+  await value(`document.querySelector('.task[data-task="T4"] a.id').click()`);
+  check(
+    "an open whose fetch hangs gives up and follows its link",
+    (await until(page, loaded, 5000)) &&
+      (await value(`location.search`)) === "?task=T4" &&
+      (await value(DETAIL)) === "T4",
+    `${String(await value(`location.search`))} ${String(await value(DETAIL))}`,
   );
 
   // Back returns to the task before the open, Forward to the opened one.
@@ -378,35 +512,39 @@ async function checks(page: Page, url: string): Promise<string[]> {
 }
 
 if (import.meta.main) {
+  // Everything the check writes is in one scratch directory, removed once
+  // the server and the browser have stopped: at the end, on a failure, or
+  // on SIGINT or SIGTERM, which can come twice (timeout and a terminal send
+  // a signal to the process and to its group).
   const scratch = mkdtempSync(join(tmpdir(), "board-check-"));
-  const home = join(scratch, "home");
-  const profile = join(scratch, "chromium");
-  mkdirSync(home);
-  const served = await serveSample(home);
-  const page = await launch(profile);
-  // The browser would outlive a check that is interrupted: stop it first.
-  const gone = () =>
-    rmSync(scratch, {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 100,
-    });
-  // A signal can come twice (timeout sends it to the process and then its
-  // group), so a later one waits for the first one's cleanup.
-  let stopping = false;
-  for (const signal of ["SIGINT", "SIGTERM"] as const)
-    process.on(signal, () => {
-      if (stopping) return;
-      stopping = true;
-      served.close();
-      void page.close().then(() => {
-        gone();
-        process.exit(130);
+  let served: Awaited<ReturnType<typeof serveSample>> | null = null;
+  let browser: Awaited<ReturnType<typeof launch>> | null = null;
+  let stopping: Promise<void> | null = null;
+  const stop = (): Promise<void> =>
+    (stopping ??= (async () => {
+      served?.close();
+      await browser?.close();
+      rmSync(scratch, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
       });
+    })());
+  for (const [signal, code] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const)
+    process.on(signal, () => {
+      void stop().then(() => process.exit(code));
     });
   let failed: string[] = [];
   try {
+    const home = join(scratch, "home");
+    mkdirSync(home);
+    served = await serveSample(home);
+    browser = await launch(scratch);
+    const { page } = browser;
     await page.send("Network.enable");
     await page.send("Network.setExtraHTTPHeaders", {
       headers: { "tailscale-user-login": "me@example.com" },
@@ -418,11 +556,14 @@ if (import.meta.main) {
       mobile: false,
     });
     failed = await checks(page, served.url);
+    console.log(
+      failed.length ? `${failed.length} failed` : "every check passed",
+    );
+    process.exitCode = failed.length ? 1 : 0;
+  } catch (error: unknown) {
+    console.error(`The check could not run: ${messageOf(error)}`);
+    process.exitCode = 2;
   } finally {
-    served.close();
-    await page.close();
-    gone();
+    await stop();
   }
-  console.log(failed.length ? `${failed.length} failed` : "every check passed");
-  process.exitCode = failed.length ? 1 : 0;
 }
