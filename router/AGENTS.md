@@ -23,6 +23,8 @@ update it when workflows change.
   contract and performs no I/O. `src/shell.ts` and the adapters around it
   (`paseo.ts`, `jev.ts`, `journal.ts`, `server.ts`) perform the core's
   commands and feed results back as events.
+- `src/cli.ts` is the process around `src/commands.ts`, the commands on
+  the record; the tests run those in-process.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

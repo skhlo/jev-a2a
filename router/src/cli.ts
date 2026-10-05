@@ -1,28 +1,18 @@
 #!/usr/bin/env -S node --no-warnings
-// The CLI is the shell: every command loads the journal, applies at most one
-// event, performs the deliveries that became possible, and exits.
-import { parseArgs } from "node:util";
+// The `router` command's process: the configuration and secrets, serve,
+// eval and usage, and exit codes.
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { mkdirSync, watch } from "node:fs";
 import {
-  callerSession,
   loadConfig,
   loadSecrets,
   terminalClis,
   USAGE_EVERY,
   type RouterConfig,
 } from "./config.ts";
-import {
-  A2A_STATE,
-  currentSend,
-  findTask,
-  needsYou,
-  noticeWaits,
-  responsibilityTexts,
-} from "./core.ts";
-import { describeNeed, newMessageId, taskLog } from "./board.ts";
+import { responsibilityTexts } from "./core.ts";
 import {
   serveRunner,
   recordReader,
@@ -33,7 +23,6 @@ import {
   boardListener,
   eventsListener,
   keepReading,
-  type Run,
 } from "./server.ts";
 import { ACCOUNT_IDS, usageView } from "./usage.ts";
 import { usageStore } from "./usage-readers.ts";
@@ -47,64 +36,18 @@ import {
   unanswered,
   type Labeled,
 } from "./eval.ts";
-import { openShell, type Shell, type ShellOptions } from "./shell.ts";
-import { agentLine, readTelemetry, writeTelemetry } from "./telemetry.ts";
-import { textOption } from "./text.ts";
-import type { Event, Role, State, Task } from "./types.ts";
+import { openShell, type ShellOptions } from "./shell.ts";
+import { writeTelemetry } from "./telemetry.ts";
+import {
+  actingAs,
+  invocation,
+  runCommand,
+  UsageError,
+  USAGE,
+} from "./commands.ts";
 
-const USAGE = `router: a prompt with an envelope and a record
-
-  router submit [--to <participant> [--hosts a,b]] [--message <id>] [--as <principal>] (<text...> | --text-file <path>)
-                                               without --to, Jev picks the recipient
-  router choose --task <T> --to <participant> [--as <principal>]
-                                               answer a needs_recipient
-  router run                                   observe placements, deliver what is eligible
-  router serve                                 accept events from other hosts over HTTP; serve the board
-  router eval [--set <file>] [--model <id>] [--as <principal>]
-                                               judge the labeled set with this config's texts; nothing recorded
-  router usage                                 read the usage accounts once and print them (private data)
-  router status [<task>]                       the record
-  router needs-you [--as <principal|participant>]
-                                               decisions waiting on a person, or owed to a participant sender
-  router reply --task <T> --in-reply-to <M> --kind working|question|completed|failed [--text ... | --text-file <path>] [--message <id>]
-  router answer --task <T> --question <Q> [--delivery <D>] (--text ... | --text-file <path>) [--message <id>] [--as <principal>]
-  router observe <participant@host> --hold | --release
-  router resolve --delivery <D> --message <M> --outcome finished|not_sent --evidence ... [--as <operator>]
-  router cancel <task> [--as <principal>]
-
-Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
-A participant's reply is authenticated by its session (never --as):
-$PASEO_AGENT_ID, or terminal:$PASEO_TERMINAL_ID in a Paseo terminal; over
-HTTP, by $ROUTER_TOKEN from secrets.env. A participant session on this host
-submits, chooses and answers with --as <its session id>.`;
-
-const { values, positionals } = parseArgs({
-  args: process.argv.slice(2),
-  allowPositionals: true,
-  options: {
-    config: { type: "string" },
-    set: { type: "string" },
-    model: { type: "string" },
-    to: { type: "string" },
-    hosts: { type: "string" },
-    message: { type: "string" },
-    as: { type: "string" },
-    task: { type: "string" },
-    "in-reply-to": { type: "string" },
-    kind: { type: "string" },
-    text: { type: "string" },
-    "text-file": { type: "string" },
-    question: { type: "string" },
-    delivery: { type: "string" },
-    outcome: { type: "string" },
-    evidence: { type: "string" },
-    hold: { type: "boolean" },
-    release: { type: "boolean" },
-    help: { type: "boolean", short: "h" },
-  },
-});
-
-const [command, ...rest] = positionals;
+const inv = invocation(process.argv.slice(2), process.env);
+const { command, values } = inv;
 if (values.help || !command) {
   console.log(USAGE);
   process.exit(command ? 0 : 2);
@@ -127,32 +70,6 @@ const config = ((): RouterConfig => {
 // starts for usage inherits.
 const secretNames = loadSecrets(join(configPath, "..", "secrets.env"));
 
-// The principal the caller acts as: --as, $ROUTER_AS, or the first
-// configured principal in the needed role.
-const principalIn = (role: Role): string => {
-  const chosen = values.as ?? process.env.ROUTER_AS;
-  if (chosen) return chosen;
-  const first = Object.entries(config.principals ?? {}).find(
-    ([, r]) => r === role,
-  );
-  if (!first) fail(`No ${role} principal in the configuration; pass --as.`);
-  return first[0];
-};
-const requester = (): string => principalIn("requester");
-const operator = (): string => principalIn("operator");
-const need = (name: keyof typeof values): string => {
-  const value = values[name];
-  if (typeof value !== "string" || !value) fail(`--${name} is required.`);
-  return value;
-};
-const textArg = (): string => {
-  try {
-    return textOption(values.text, values["text-file"]);
-  } catch (error: unknown) {
-    fail(error instanceof Error ? error.message : String(error));
-  }
-};
-
 function fail(message: string): never {
   console.error(message);
   process.exit(2);
@@ -174,21 +91,21 @@ const shellOptions: ShellOptions = {
     crash === "after_attempt" || crash === "after_send" ? crash : undefined,
 };
 
-if (command === "serve") {
-  await serve(config);
-} else if (command === "eval") {
-  await evaluateSet(config);
-} else if (command === "usage") {
-  await readUsage(config);
-} else {
-  const shell = await openShell(config, shellOptions);
-  let exitCode = 0;
-  try {
-    exitCode = await main(shell, config);
-  } finally {
-    await shell.close();
-  }
-  process.exit(exitCode);
+// A mistake in a command's options exits 2 with the message.
+try {
+  if (command === "serve") await serve(config);
+  else if (command === "eval") await evaluateSet(config);
+  else if (command === "usage") await readUsage(config);
+  else
+    process.exit(
+      await runCommand(inv, config, () => openShell(config, shellOptions), {
+        out: (line) => console.log(line),
+        err: (line) => console.error(line),
+      }),
+    );
+} catch (error: unknown) {
+  if (error instanceof UsageError) fail(error.message);
+  throw error;
 }
 
 // `router serve`: events from participants on other hosts, and the board. Each
@@ -286,7 +203,7 @@ async function readUsage(config: RouterConfig): Promise<void> {
 // as the requester would be routed. Jev is asked; the journal is not opened.
 async function evaluateSet(config: RouterConfig): Promise<void> {
   if (!apiKey) fail("TYPESAFE_API_KEY is not set; add it to secrets.env.");
-  const sender = requester();
+  const sender = actingAs(inv, config, "requester");
   const permitted = config.permissions?.[sender] ?? [];
   if (!permitted.length) fail(`${sender} may address nobody.`);
   const responsibilities = responsibilityTexts(config.participants, permitted);
@@ -307,170 +224,4 @@ async function evaluateSet(config: RouterConfig): Promise<void> {
   // Unanswered requests read as hand-backs in the curve; do not pass for a
   // clean run.
   if (unanswered(verdicts)) process.exit(1);
-}
-
-async function main(shell: Shell, config: RouterConfig): Promise<number> {
-  const say = (lines: string[]): void => {
-    for (const line of lines) console.log(line);
-  };
-  const applyAndDeliver = async (event: Event): Promise<number> => {
-    const outcome = shell.apply(event);
-    console.log(outcome.message);
-    if (!outcome.ok) return 1;
-    say(await shell.deliver());
-    return 0;
-  };
-
-  switch (command) {
-    case "submit": {
-      // The text is the remaining words or a file, not both.
-      if (values["text-file"] !== undefined && rest.length)
-        fail("Pass the text as words or with --text-file, not both.");
-      const text = (
-        values["text-file"] === undefined ? rest.join(" ") : textArg()
-      ).trim();
-      if (!text) fail("Give the request text after the options.");
-      const event: Event = {
-        type: "submit",
-        by: requester(),
-        messageId: values.message ?? newMessageId(),
-        text,
-        to: values.to ?? null,
-        hosts: values.hosts ? values.hosts.split(",") : null,
-      };
-      return applyAndDeliver(event);
-    }
-    case "choose":
-      return applyAndDeliver({
-        type: "choose",
-        by: requester(),
-        taskId: need("task"),
-        to: need("to"),
-      });
-    case "run":
-      say(await shell.deliver());
-      return 0;
-    case "reply": {
-      // A reply's identity is the session's own, never chosen by hand.
-      const by = callerSession();
-      if (!by)
-        fail(
-          "Replies come from a participant session: $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are unset.",
-        );
-      const kind = need("kind");
-      if (!["working", "question", "completed", "failed"].includes(kind))
-        fail("--kind is working, question, completed or failed.");
-      return applyAndDeliver({
-        type: "update",
-        by,
-        taskId: need("task"),
-        messageId: values.message ?? newMessageId(),
-        inReplyTo: need("in-reply-to"),
-        kind: kind as "working" | "question" | "completed" | "failed",
-        text: textArg(),
-      });
-    }
-    case "answer":
-      return applyAndDeliver({
-        type: "answer",
-        by: requester(),
-        taskId: need("task"),
-        messageId: values.message ?? newMessageId(),
-        questionId: need("question"),
-        deliveryId: values.delivery ?? null,
-        text: textArg() || fail("An answer needs text that is not empty."),
-      });
-    case "observe": {
-      const placement = rest[0];
-      if (!placement) fail("Name the placement, for example scratch@mbp.");
-      if (values.hold === values.release) fail("Pass --hold or --release.");
-      return applyAndDeliver({
-        type: "observe",
-        placement,
-        hold: values.hold === true,
-      });
-    }
-    case "resolve": {
-      const outcome = need("outcome");
-      if (outcome !== "finished" && outcome !== "not_sent")
-        fail("--outcome is finished or not_sent.");
-      return applyAndDeliver({
-        type: "resolve",
-        by: operator(),
-        deliveryId: need("delivery"),
-        messageId: need("message"),
-        outcome,
-        evidence: need("evidence"),
-      });
-    }
-    case "cancel": {
-      const taskId = rest[0];
-      if (!taskId) fail("Name the task.");
-      return applyAndDeliver({ type: "cancel", by: requester(), taskId });
-    }
-    case "needs-you": {
-      const who = values.as ?? process.env.ROUTER_AS ?? requester();
-      const items = needsYou(shell.state, who);
-      if (!items.length) console.log(`Nothing waits on ${who}.`);
-      for (const item of items) console.log(describeNeed(item));
-      return 0;
-    }
-    case "status": {
-      const id = rest[0];
-      if (id) {
-        const task = findTask(shell.state, id);
-        if (!task) fail(`No task ${id}.`);
-        say(describe(task, shell.state));
-      } else {
-        if (!shell.state.tasks.length) console.log("No tasks recorded.");
-        for (const task of shell.state.tasks) console.log(oneLine(task));
-        const telemetry = readTelemetry(config.home, (m) => console.error(m));
-        for (const [key, p] of Object.entries(shell.state.placements))
-          if (config.agents[key]) {
-            console.log(
-              `${key}: ${p.ready ? "ready" : "not ready"}${p.hold ? ", held" : ""} · session ${p.session}`,
-            );
-            const agent = telemetry?.placements[key];
-            if (agent) console.log(`  ${agentLine(agent)}`);
-          }
-        if (telemetry) console.log(`telemetry at ${telemetry.at}`);
-      }
-      return 0;
-    }
-    default:
-      fail(`Unknown command ${command}.\n\n${USAGE}`);
-  }
-}
-
-function oneLine(task: Task): string {
-  return `${task.id} ${task.status} · ${task.source}/${task.messageId} → ${task.recipient ?? "?"} · ${task.text.slice(0, 60)}`;
-}
-
-function describe(task: Task, state: State): string[] {
-  const lines = [
-    oneLine(task),
-    `  A2A ${A2A_STATE[task.status]}${task.final ? ` · ${task.final.completed} of ${task.final.of} completed${task.final.reason ? ` · ${task.final.reason}` : ""}` : ""}`,
-  ];
-  for (const d of task.deliveries) {
-    const send = currentSend(d);
-    lines.push(
-      `  ${d.id} ${d.placement} · session ${d.session ?? "unpinned"} · ${send.kind} ${send.messageId} ${send.outcome}${d.end ? ` · ended ${d.end.reason}` : ""}`,
-    );
-    if (d.question)
-      lines.push(`    question ${d.question.id}: ${d.question.text}`);
-    for (const u of d.updates)
-      lines.push(`    ${u.kind} ${u.messageId} ↩ ${u.inReplyTo}: ${u.text}`);
-  }
-  // What a participant sender was told, and what it is still owed.
-  if (task.via !== null) {
-    for (const n of task.notices)
-      lines.push(
-        `  notice ${n.key} → ${task.via} · session ${n.session ?? "none"} · ${n.outcome}`,
-      );
-    for (const { key, why } of noticeWaits(state, task))
-      lines.push(`  notice ${key} waits: ${why.replaceAll("_", " ")}`);
-  }
-  for (const entry of taskLog(state.log, task.id))
-    lines.push(`  ${entry.n}. ${entry.actor}: ${entry.text}`);
-  return lines;
 }
