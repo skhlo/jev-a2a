@@ -243,20 +243,28 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
 }
 
 // The usage store's own cadence, apart from the runs: a refresh now, and
-// the next `everyMs` after each one ends, so two never overlap.
+// the next `everyMs` after each one ends, so two never overlap. A refresh
+// that rejects is logged in one fixed line, never its error, and the next
+// one follows on schedule: serve stays up.
+const REFRESH_FAILED =
+  "usage: a refresh failed; the next one follows on schedule.";
 export function keepReading<H>(
   store: Pick<UsageStore, "refresh">,
   everyMs: number,
-  given?: Timers<H>,
+  options: { log?: (line: string) => void; timers?: Timers<H> } = {},
 ): { stop(): void } {
-  const timers = (given ?? nodeTimers) as Timers<H>;
+  const timers = (options.timers ?? nodeTimers) as Timers<H>;
+  const log = options.log ?? ((line: string) => console.error(line));
   let next: H | null = null;
   let stopped = false;
   const read = (): void => {
     next = null;
-    void store.refresh().finally(() => {
-      if (!stopped) next = timers.set(read, everyMs);
-    });
+    void store
+      .refresh()
+      .catch(() => log(REFRESH_FAILED))
+      .finally(() => {
+        if (!stopped) next = timers.set(read, everyMs);
+      });
   };
   read();
   return {

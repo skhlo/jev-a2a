@@ -1324,7 +1324,7 @@ test("usage: the store is read now and again a set time after each read ends, ne
     await new Promise((settled) => setImmediate(settled));
   };
   const armed = () => pending.map((t) => t.ms);
-  const reading = keepReading(store, 120_000, timers);
+  const reading = keepReading(store, 120_000, { timers });
   assert.equal(reads, 1, "a read at once");
   assert.deepEqual(armed(), [], "nothing armed while it reads");
   await finish();
@@ -1337,11 +1337,58 @@ test("usage: the store is read now and again a set time after each read ends, ne
   reading.stop();
   assert.deepEqual(armed(), [], "stop disarms the next read");
   // Stopped during a read: its end arms nothing.
-  const again = keepReading(store, 120_000, timers);
+  const again = keepReading(store, 120_000, { timers });
   again.stop();
   await finish();
   assert.deepEqual(armed(), []);
   assert.equal(reads, 3);
+});
+
+test("usage: a refresh that rejects logs one fixed line and reads again on schedule, and serve stays up", async () => {
+  const pending: (() => void)[] = [];
+  const timers = {
+    set: (fn: () => void) => {
+      pending.push(fn);
+      return fn;
+    },
+    clear: (fn: () => void) => {
+      const at = pending.indexOf(fn);
+      if (at >= 0) pending.splice(at, 1);
+    },
+  };
+  // An unhandled rejection would end serve; here it is caught and counted.
+  const unhandled: unknown[] = [];
+  const count = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", count);
+  try {
+    const lines: string[] = [];
+    let reads = 0;
+    const store = {
+      refresh: async () => {
+        reads += 1;
+        throw new Error("private provider error");
+      },
+    };
+    const settled = () => new Promise((done) => setImmediate(done));
+    const reading = keepReading(store, 120_000, {
+      timers,
+      log: (line) => lines.push(line),
+    });
+    await settled();
+    assert.deepEqual(lines, [
+      "usage: a refresh failed; the next one follows on schedule.",
+    ]);
+    assert.equal(pending.length, 1, "the next read is armed");
+    pending.shift()?.();
+    await settled();
+    assert.equal(reads, 2);
+    assert.equal(lines.length, 2);
+    reading.stop();
+    assert.deepEqual(pending, []);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", count);
+  }
 });
 
 test("board: the Usage view is at usage/, with the theme cookie and the same model as JSON; without usage it is a 404 that names the section", async () => {

@@ -224,7 +224,11 @@ async function serve(config: RouterConfig): Promise<void> {
   // apart from the runs, and held in memory for the board.
   const usage = config.usage;
   const store = usage && usageStore(usage.accounts);
-  const reading = store && keepReading(store, usage.every * 1000);
+  const reading =
+    store &&
+    keepReading(store, usage.every * 1000, {
+      log: (line) => console.error(line),
+    });
   const deps = {
     config,
     handle,
