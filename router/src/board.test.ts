@@ -582,7 +582,7 @@ test("the sample holds what v0.12 binds: a session mid-turn with no delivery, a 
   );
 });
 
-test("the sample holds usage in the states the Usage view binds: a current subscription with history, a stale one kept after a failed refresh, a balance, and a key without management data", () => {
+test("the sample holds usage in the states the usage section and pop-up bind: a current subscription with history, a stale one kept after a failed refresh, a balance, and a key without management data", () => {
   const usage = sampleModel().usage;
   assert.ok(usage);
   assert.equal(usage.every, 120);
