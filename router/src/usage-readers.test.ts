@@ -337,19 +337,27 @@ test("a provider request reads at most a megabyte and waits at most twelve secon
   const large = await failure(fetchJson(`${base}/large`, "fixture-key"));
   assert.ok(large instanceof ReadError);
   assert.equal(large.message, "The usage response was too large.");
-  // The same bound at a test's scale: a request that never answers.
+  // The same bound at a test's scale: a request that never answers ends
+  // with the router's sentence well before the test's own two seconds.
+  let guard: NodeJS.Timeout | undefined;
   const slow = await failure(
-    fetchJson(
-      `${base}/hang`,
-      "fixture-key",
-      {},
-      {
-        ...FETCH_LIMITS,
-        timeoutMs: 50,
-      },
-    ),
+    Promise.race([
+      fetchJson(
+        `${base}/hang`,
+        "fixture-key",
+        {},
+        {
+          ...FETCH_LIMITS,
+          timeoutMs: 50,
+        },
+      ),
+      new Promise((_, reject) => {
+        guard = setTimeout(() => reject(new Error("no time limit")), 2000);
+      }),
+    ]),
   );
-  assert.ok(slow instanceof ReadError);
+  clearTimeout(guard);
+  assert.ok(slow instanceof ReadError, String(slow));
   assert.equal(slow.message, "The usage request timed out.");
 });
 
