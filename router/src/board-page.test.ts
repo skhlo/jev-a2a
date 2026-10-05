@@ -3108,7 +3108,7 @@ test("v0.13 style: the rail a fixed 272px and the sheet at least 320px from 901p
   const middle = block("@media (min-width: 901px) and (max-width: 1180px) {");
   for (const rule of [
     "  .bento { grid-template-columns: 272px minmax(0, 4fr) minmax(0, 5fr); }",
-    // The tasks column is narrower than the sheet's head below 1024px.
+    // The sheet may spill over the detail (design/README.md).
     "  .bento > .sheet { min-width: 320px; }",
   ])
     assert.ok(middle.includes(rule), rule);

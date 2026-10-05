@@ -1315,12 +1315,12 @@ export function renderBoard(
       ),
     });
     // The first row leads with the toggle, the second with the badge.
-    const mark = badge(a, path);
+    const badgeHtml = badge(a, path);
     const leadOf = (row: number): string =>
       row === 0
         ? lead(a, path, more.toggle)
-        : row === 1 && mark
-          ? `<span class="lead badge-lead">${mark}</span>`
+        : row === 1 && badgeHtml
+          ? `<span class="lead badge-lead">${badgeHtml}</span>`
           : "";
     const rows =
       a.kind === "subscription"
@@ -1337,7 +1337,7 @@ export function renderBoard(
         ? [slot(`${path}.error`, esc(a.error))]
         : []),
     ];
-    const unplaced = rows.length > 1 ? "" : mark;
+    const unplaced = rows.length > 1 ? "" : badgeHtml;
     const status =
       bits.length || unplaced
         ? `<div class="status"><span class="lead badge-lead">${unplaced}</span><p>${bits.join(" · ")}</p></div>`
@@ -2763,10 +2763,10 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .help .theme { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--hair); font-size: var(--fs-small); color: var(--text-2); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-/* The sheet: one placement's health, laid over the tasks column from the rail's right edge; the detail stays
-   whole and nothing dims. Positioned in the tasks panel's grid area, it spans the board's full height and
-   takes the column's width (465px at 1440, at most 560px), so it never cuts into the detail. Every placement's
-   sheet is in the page, hidden, until the script shows one. */
+/* The sheet: one placement's health, laid over the tasks column from the rail's right edge; nothing dims.
+   Positioned in the tasks panel's grid area, it spans the board's full height and takes the column's width, at
+   most 560px, so the detail stays whole; only from 901px to 1180px may it spill over the detail (see that query).
+   Every placement's sheet is in the page, hidden, until the script shows one. */
 .bento { position: relative; }
 .bento > .sheet { grid-area: 1 / 2 / 2 / 3; position: absolute; inset: 0 auto 0 0; z-index: 50; width: 100%; max-width: 560px; background: var(--surface); border: 1px solid var(--hair-strong); border-radius: 12px; box-shadow: 0 24px 48px var(--shadow); display: flex; flex-direction: column; overflow: hidden; animation: slide var(--t-mid) var(--emph) both; }
 @keyframes slide { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
@@ -2908,13 +2908,12 @@ table.data tr.all td { border-bottom: 0; }
 @media (min-width: 901px) and (max-width: 1180px) {
   .bento { grid-template-columns: 272px minmax(0, 4fr) minmax(0, 5fr); }
   .nav .who { max-width: 160px; }
-  /* The sheet is an overlay: below 1024px the tasks column is narrower than its head, so it spills over the detail. */
+  /* The sheet is an overlay, so it spills over the detail rather than hide its close button (design/README.md). */
   .bento > .sheet { min-width: 320px; }
 }
 /* 1279px and less: a card's first line holds the dot, the name (one line, ellipsized) and the meter; its status
-   takes its own line under the name, then the health row with the lever. (The design draws this at 1180px and
-   less, but from 1181px to 1279px the wide card overflows the rail by up to 25px, and the six-column facts table
-   the detail by up to 10px unless its heads may wrap.) */
+   takes its own line under the name, then the health row with the lever, and the facts table's heads may wrap.
+   The design draws the card this way from 1180px down; design/README.md says why the page starts higher. */
 @media (max-width: 1279px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
   .card .stats { min-width: 0; overflow: hidden; }

@@ -275,7 +275,7 @@ async function until(page: Page, expression: string, ms = 3000) {
   return false;
 }
 
-// Loads `url` and waits for its script: the old page's mark is gone.
+// Loads `url` and waits for its script, on a page without the old one's `leaving`.
 async function goto(page: Page, url: string): Promise<void> {
   await ask(page, `window.leaving = true`);
   await page.send("Page.navigate", { url });
