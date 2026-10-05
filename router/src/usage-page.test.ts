@@ -430,6 +430,11 @@ test("freshness per account only when it is not current, naming what failed", ()
   assert.ok(
     codex.includes("unavailablechecked 31s ago · Codex usage unavailable."),
   );
+  assert.ok(
+    account(other, 0).includes(
+      '<span class="mono" data-path="age(usage.accounts[0].checkedAt, at)"',
+    ),
+  );
   assert.ok(codex.includes("Token activity"));
   // Windows on a reading whose allowance is unavailable say nothing of now:
   // no row and no chip.
@@ -777,8 +782,12 @@ test("between the breakpoints: a pair of panels stacks below 1360px, where a row
   assert.ok(columns.length >= 2);
   assert.deepEqual([...new Set(columns)], ["minmax(0, 1fr)"]);
   // The name is the row's one flexible cell, and may be narrower than its
-  // text.
-  assert.ok(css.includes(".entry > .name { flex: 1 1 0; min-width: 0;"));
+  // text, which wraps rather than cuts the window's length off.
+  assert.ok(
+    css.includes(
+      ".entry > .name { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; color: var(--text); }",
+    ),
+  );
   // The row's fixed cells, which the 1360px follows from: measured in
   // Chromium, a window label keeps a width from 390px to 1440px.
   for (const rule of [

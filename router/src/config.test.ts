@@ -110,6 +110,7 @@ test("what the router refuses, with the reason", () => {
     [{ ...valid, usage: { accounts: [] } }, /usage.accounts lists accounts/],
     [{ ...valid, usage: { accounts: ["codex", "codex"] } }, /once each/],
     [{ ...valid, usage: { accounts: ["pi"] } }, /among codex, claude/],
+    [{ ...valid, usage: { accounts: ["codex", "pi"] } }, /among codex/],
     [{ ...valid, usage: { accounts: "codex" } }, /usage.accounts/],
     [{ ...valid, serve: { board: "100.64.0.1:7678" } }, /loopback/],
     [{ ...valid, serve: { identities: ["me"] } }, /identities maps/],
