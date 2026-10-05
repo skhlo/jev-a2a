@@ -23,6 +23,7 @@ import {
   type Reading,
   type UsageDetail,
 } from "./usage.ts";
+import { loadSecrets } from "./config.ts";
 import {
   NOW,
   openrouterKeyOnly,
@@ -82,7 +83,12 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
     ["-e", fixture],
     "codex-usage",
     3000,
-    childEnv({ ...process.env, ROUTER_TOKEN: "x", OPENROUTER_API_KEY: "y" }),
+    childEnv({
+      ...process.env,
+      ROUTER_TOKEN: "x",
+      OPENROUTER_API_KEY: "y",
+      USAGE_TEST_MARKER: "1",
+    }),
   )) as {
     seen: { method: string; params?: unknown }[];
     cwd: string;
@@ -94,28 +100,12 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
   );
   assert.deepEqual(result.seen[2]?.params, {});
   assert.equal(await readFile(closed, "utf8"), "closed");
-  // It runs in the temporary directory, without the router's credentials.
+  // It runs in the temporary directory, with the environment it was given:
+  // the marker arrives, the router's credentials do not.
   assert.equal(result.cwd, tmpdir());
+  assert.ok(result.env.includes("USAGE_TEST_MARKER"));
   assert.ok(!result.env.includes("ROUTER_TOKEN"));
   assert.ok(!result.env.includes("OPENROUTER_API_KEY"));
-  // Every credential the router holds stays behind, the agent's Claude
-  // token too; the rest of the environment passes.
-  const secrets = [
-    "ROUTER_TOKEN",
-    "TYPESAFE_API_KEY",
-    "ROUTER_CLAUDE_OAUTH_TOKEN",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "OPENROUTER_API_KEY",
-    "OPENROUTER_MANAGEMENT_KEY",
-    "DEEPSEEK_API_KEY",
-  ];
-  assert.deepEqual(
-    childEnv({
-      PATH: "/usr/bin",
-      ...Object.fromEntries(secrets.map((name) => [name, "x"])),
-    }),
-    { PATH: "/usr/bin" },
-  );
   const limits = await readUsageRpc(
     process.execPath,
     ["-e", fixture],
@@ -126,6 +116,63 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
     (limits as { seen: { method: string }[] }).seen[2]?.method,
     "account/rateLimits/read",
   );
+});
+
+test("the Codex child gets the router's environment without its secrets: the fixed names and every name its secrets file sets", async (t) => {
+  const home = await fixtureHome(t);
+  const seen = join(home, "env.json");
+  // The real spawn, with a stand-in for codex that writes the names of its
+  // environment and answers both reads.
+  const fixture = `
+    const fs = require('node:fs');
+    fs.writeFileSync(${JSON.stringify(seen)}, JSON.stringify(Object.keys(process.env)));
+    require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+      const m = JSON.parse(line);
+      if (m.id === 1) console.log(JSON.stringify({id:1,result:{}}));
+      if (m.id === 2) console.log(JSON.stringify({id:2,result:{rateLimits:{primary:{usedPercent:1}},dailyUsageBuckets:[]}}));
+    });
+    process.on('SIGTERM', () => process.exit(0));
+  `;
+  const file = join(home, "secrets.env");
+  await writeFile(file, "USAGE_TEST_FILE_SECRET=from-file\n");
+  const names = loadSecrets(file);
+  t.after(() => {
+    delete process.env.USAGE_TEST_FILE_SECRET;
+  });
+  const fixed = [
+    "ROUTER_TOKEN",
+    "TYPESAFE_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MANAGEMENT_KEY",
+    "DEEPSEEK_API_KEY",
+  ];
+  const env = {
+    ...process.env,
+    ...Object.fromEntries(fixed.map((name) => [name, "secret"])),
+    USAGE_TEST_MARKER: "harmless",
+  };
+  const loaders = createLoaders(
+    home,
+    env,
+    io({
+      readUsageRpc: (_command, _args, protocol, timeoutMs, childEnv) =>
+        readUsageRpc(
+          process.execPath,
+          ["-e", fixture],
+          protocol,
+          timeoutMs,
+          childEnv,
+        ),
+    }),
+    names,
+  );
+  await loaders.codex();
+  const keys: unknown = JSON.parse(await readFile(seen, "utf8"));
+  assert.ok(Array.isArray(keys));
+  assert.ok(keys.includes("USAGE_TEST_MARKER"));
+  for (const name of [...fixed, "USAGE_TEST_FILE_SECRET"])
+    assert.ok(!keys.includes(name), name);
 });
 
 test("a reading stays good when the app-server exits nonzero on our shutdown", async () => {

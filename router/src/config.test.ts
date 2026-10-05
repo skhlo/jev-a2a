@@ -147,11 +147,13 @@ test("secrets: KEY=VALUE lines fill the environment without overriding it", () =
   process.env.CONFIG_TEST_B = "from-env";
   delete process.env.CONFIG_TEST_A;
   delete process.env.CONFIG_TEST_C;
-  loadSecrets(path);
+  // The names the file sets, whether applied or already in the
+  // environment; an empty value sets nothing.
+  assert.deepEqual(loadSecrets(path), ["CONFIG_TEST_A", "CONFIG_TEST_B"]);
   assert.equal(process.env.CONFIG_TEST_A, "from-file");
   assert.equal(process.env.CONFIG_TEST_B, "from-env");
   assert.equal(process.env.CONFIG_TEST_C, undefined);
-  loadSecrets(join(dir, "missing.env"));
+  assert.deepEqual(loadSecrets(join(dir, "missing.env")), []);
 });
 
 // The example the README's quick start copies loads as it is, and the one

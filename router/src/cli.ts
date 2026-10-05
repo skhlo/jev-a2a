@@ -120,7 +120,9 @@ const config = ((): RouterConfig => {
     return fail(error instanceof Error ? error.message : String(error));
   }
 })();
-loadSecrets(join(configPath, "..", "secrets.env"));
+// The names the secrets file sets, which no child process the router
+// starts for usage inherits.
+const secretNames = loadSecrets(join(configPath, "..", "secrets.env"));
 
 // The principal the caller acts as: --as, $ROUTER_AS, or the first
 // configured principal in the needed role.
@@ -257,7 +259,7 @@ async function serve(config: RouterConfig): Promise<void> {
 // The usage store for `accounts`, read with this host's logins as the user
 // the router runs as.
 function usageStore(accounts: AccountId[]): UsageStore {
-  const loaders = createLoaders(homedir(), process.env);
+  const loaders = createLoaders(homedir(), process.env, {}, secretNames);
   return createUsageStore(
     Object.fromEntries(accounts.map((id) => [id, loaders[id]])),
   );

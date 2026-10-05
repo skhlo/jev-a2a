@@ -67,7 +67,9 @@ async function apiKey(
   return credential.type === "api_key" ? usableKey(credential.key) : undefined;
 }
 
-// The router's own credentials, which a provider's subprocess has no use for.
+// The router's own credentials, which a provider's subprocess has no use
+// for: these names, and every name the router's secrets file sets
+// (`secrets`, from loadSecrets).
 const ROUTER_SECRETS = [
   "ROUTER_TOKEN",
   "TYPESAFE_API_KEY",
@@ -77,9 +79,14 @@ const ROUTER_SECRETS = [
   "OPENROUTER_MANAGEMENT_KEY",
   "DEEPSEEK_API_KEY",
 ];
-export const childEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+export const childEnv = (
+  env: NodeJS.ProcessEnv,
+  secrets: readonly string[] = [],
+): NodeJS.ProcessEnv =>
   Object.fromEntries(
-    Object.entries(env).filter(([key]) => !ROUTER_SECRETS.includes(key)),
+    Object.entries(env).filter(
+      ([key]) => !ROUTER_SECRETS.includes(key) && !secrets.includes(key),
+    ),
   );
 
 // A GET with a bearer key: twelve seconds, a megabyte, no redirect.
@@ -358,25 +365,29 @@ export type ReaderIo = {
 };
 
 // One loader per account, reading as `home`'s user with `env`. Each source
-// is kept apart, so one that fails never hides another.
+// is kept apart, so one that fails never hides another. `secrets` names
+// the router's own secrets beyond the fixed ones, which the Codex child
+// does not get.
 export function createLoaders(
   home: string,
   env: NodeJS.ProcessEnv = process.env,
   io: ReaderIo = {},
+  secrets: readonly string[] = [],
 ): Record<AccountId, Loader> {
   const rpc = io.readUsageRpc ?? readUsageRpc;
   const fetchUsage = io.fetchJson ?? fetchJson;
   const clock = io.clock ?? Date.now;
   const appServer = ["app-server", "--listen", "stdio://"];
+  const codexEnv = childEnv(env, secrets);
   const codexLimits = retained(async () =>
     codexReading(
-      await rpc("codex", appServer, "codex", 15_000, childEnv(env)),
+      await rpc("codex", appServer, "codex", 15_000, codexEnv),
       clock(),
     ),
   );
   const codexHistory = retained(async () =>
     codexDetails(
-      await rpc("codex", appServer, "codex-usage", 15_000, childEnv(env)),
+      await rpc("codex", appServer, "codex-usage", 15_000, codexEnv),
       clock(),
     ),
   );
