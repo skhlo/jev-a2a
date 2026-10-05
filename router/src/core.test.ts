@@ -1878,6 +1878,44 @@ test("without deduplication, restart keeps uncertainty; duplicates and wrong rep
   assert.equal(task(s).status, "completed");
 });
 
+test("an unknown send is not repeated once its participant stops deduplicating, and never starts again", () => {
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Report workflow status.",
+    to: "orchestrator",
+  });
+  s = idle(s);
+  s = deliver(s, "D1", "unknown");
+  // The placement moves to a terminal, which takes no message key.
+  s = idle(expectOk(s, { type: "configured", config: strictConfig }));
+  assert.equal(must(Core.findDelivery(s, "D1")).idempotent, false);
+  assert.deepEqual(commands(s), [], "no repeat that could run twice");
+  s = idle(expectOk(s, { type: "configured", config }));
+  assert.deepEqual(
+    commands(s),
+    [],
+    "a later deduplicating adapter has no receipt",
+  );
+  // A sender's unknown notice follows the same rule.
+  let n = idle(initial(config));
+  n = expectOk(n, {
+    type: "submit",
+    by: ORCH,
+    messageId: "M1",
+    text: "Something vague.",
+  });
+  n = judge(n, "T1", "incus", 0.5);
+  n = expectOk(n, {
+    type: "noticeAttempt",
+    taskId: "T1",
+    key: "choose/1",
+    text: "c",
+  });
+  n = expectOk(n, { type: "restart" });
+  n = idle(expectOk(n, { type: "configured", config: strictConfig }));
+  assert.equal(Core.noticeBlockedReason(n, task(n), "choose/1"), "not_pending");
+});
+
 test("with deduplication, an unknown send is retried with the same key", () => {
   let s = submit(initial(config), {
     messageId: "M1",

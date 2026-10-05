@@ -2,7 +2,7 @@
 // Thin router client for a host that does not run the router: the CLI's
 // `reply`, `submit`, `answer` and `choose` syntax, posted to `router serve`
 // over the tailnet as the participant session: $PASEO_AGENT_ID, or
-// terminal:$PASEO_TERMINAL_ID for an agent CLI in a Paseo terminal. Reads
+// terminal:$PASEO_TERMINAL_ID for Claude Code in a Paseo terminal. Reads
 // ROUTER_URL and ROUTER_TOKEN from the environment or from
 // ~/.config/jev-router/secrets.env. No dependencies.
 import { readFileSync } from "node:fs";

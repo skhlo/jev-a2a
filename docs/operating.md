@@ -40,17 +40,13 @@ starts between the look and the send is the one race left; holding the
 session (`router observe <participant@host> --hold`, or the lever on the
 board) closes it, and `--release` opens it again.
 
-A terminal placement, Claude Code in a Paseo terminal, is sent to only when
-the terminal's title shows Claude Code's idle mark (✳), its activity (set
-by Paseo's Claude hooks) shows no turn running, and the screen shows Claude
-Code's prompt box empty; a shell left after the CLI exits, a permission
-dialog and a half-typed line each fail one of these. The send is one
-bracketed paste and then Enter. It counts as accepted only once the
-activity shows a turn started; otherwise it is unknown and waits for
+A terminal placement, Claude Code in a Paseo terminal, is sent to only at
+Claude Code's empty prompt, as the contract's adapters section
+([jev-router-spec.md](../research/jev-router-spec.md)) defines it, by one
+paste and Enter. A send it cannot confirm is unknown and waits for
 `router resolve`, since a terminal takes no message key. A line a person
 starts typing between the look and the paste is the race here, and the hold
-closes it the same way. The session replies as
-`terminal:$PASEO_TERMINAL_ID`. The board shows no provider, model, context,
+closes it the same way. The board shows no provider, model, context,
 subagents or activity tail for a terminal, which reports none of them.
 
 ## The record
@@ -196,6 +192,6 @@ links, forms and redirects use relative URLs.
   one whose host could not be reached shows `unreachable`, with the reason
   as a tooltip.
 - A terminal placement's line in the run report says why it is not ready:
-  `working`, `at its prompt with text in it or a dialog open`, or `no agent
-  CLI in the terminal` when the title is not Claude Code's (the CLI exited;
-  start it again in that terminal).
+  `working`, `at its prompt with text in it or a dialog open`, or `Claude
+Code is not running in the terminal` when the title is not Claude Code's
+  (start it again in that terminal).

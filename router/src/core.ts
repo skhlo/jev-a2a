@@ -695,6 +695,19 @@ const handlers: Handlers = {
     }
     state.config = { principals: {}, permissions: {}, ...clone(next) };
     addPlacements(next, state.placements, state.sessions);
+    // A repeat of an unknown send goes through the adapter in force now, so
+    // it is safe only if that adapter deduplicates too: open work whose
+    // participant is no longer idempotent (a placement moved to a terminal)
+    // stops being repeated. It never starts being repeated.
+    const strict = new Set(
+      next.participants.filter((p) => !p.idempotent).map((p) => p.id),
+    );
+    for (const task of state.tasks) {
+      for (const d of task.deliveries)
+        if (isOpen(d) && strict.has(d.participant)) d.idempotent = false;
+      if (strict.has(task.source))
+        for (const n of task.notices) n.idempotent = false;
+    }
     // A pending choice only suggests what the sender may still address.
     for (const task of state.tasks)
       if (task.routing?.state === "needs_recipient")

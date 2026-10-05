@@ -19,7 +19,7 @@ const TERMINAL_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // The calling session as the record names it: a Paseo agent's id, or the
-// terminal an agent CLI runs in. Null outside a participant session.
+// terminal Claude Code runs in. Null outside a participant session.
 export const callerSession = (
   env: Record<string, string | undefined> = process.env,
 ): string | null =>

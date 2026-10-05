@@ -12,12 +12,14 @@ import {
   firstLine,
   pasteable,
   promptEmpty,
+  screenFrom,
   subagentsOf,
   terminalCondition,
   terminalSnapshotOf,
   type Daemon,
   type PaseoTerminal,
   type ProviderSubagent,
+  type Screen,
   type TimelineEntry,
 } from "./paseo.ts";
 
@@ -443,7 +445,7 @@ function scripted(status: PaseoAgent["status"], fail: string[] = []) {
     },
     async screen() {
       calls.push("screen");
-      return [];
+      return { lines: [], cursorRow: null };
     },
     async input() {
       calls.push("input");
@@ -547,20 +549,22 @@ const status = [
   "   source |  main | ⇣4",
   "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
 ];
-const atPrompt = (box: string): string[] => [
-  "source main ❯ claude",
-  " ▐▛███▛█   Claude Code v2.1.289",
-  "",
-  rule,
-  box,
-  rule,
-  ...status,
-  "",
-  "",
-];
+const atPrompt = (box: string): Screen => ({
+  lines: [
+    "source main ❯ claude",
+    " ▐▛███▛█   Claude Code v2.1.289",
+    "",
+    rule,
+    box,
+    rule,
+    ...status,
+    ...Array<string>(15).fill(""),
+  ],
+  cursorRow: 4,
+});
 const EMPTY = atPrompt("❯");
 const TYPED = atPrompt("❯ half a line");
-const DIALOG = [
+const DIALOG_LINES = [
   "● Bash(touch /tmp/marker)",
   "  ⎿  Waiting…",
   rule,
@@ -575,13 +579,14 @@ const DIALOG = [
   "   3. No",
   " Esc to cancel · Tab to amend",
 ];
+const DIALOG: Screen = { lines: DIALOG_LINES, cursorRow: 9 };
 
 // A daemon holding one terminal, whose activity the scripted hook changes
 // when Enter arrives.
 function terminalDaemon(
   start: PaseoTerminal | null,
   onEnter: ((t: PaseoTerminal) => PaseoTerminal) | null,
-  screen: string[] = EMPTY,
+  screen: Screen = EMPTY,
 ) {
   let current = start;
   const inputs: string[] = [];
@@ -621,7 +626,10 @@ test("a terminal's condition: working by its activity or spinner, waiting at the
     // The CLI exited: Paseo keeps the idle of its SessionEnd hook.
     [term({ state: "idle", changedAt: 5 }, "skhl@mbp:~/dotfiles"), "away"],
     [term(null, "~/dotfiles"), "away"],
+    [term(null, "$ vim notes.md"), "away"],
     [term(null, ""), "away"],
+    // Killed mid-turn under a shell that sets its title.
+    [term({ state: "working", changedAt: 5 }, "skhl@mbp:~/dotfiles"), "away"],
   ];
   for (const [t, condition] of cases)
     assert.equal(
@@ -631,17 +639,54 @@ test("a terminal's condition: working by its activity or spinner, waiting at the
     );
 });
 
-test("only an empty prompt box at the foot of the screen is a prompt to paste into", () => {
+test("only an empty prompt box at the foot of the screen, with the cursor in it, is a prompt to paste into", () => {
   assert.equal(promptEmpty(EMPTY), true);
-  assert.equal(promptEmpty(EMPTY.map((l) => `${l}  `)), true);
+  assert.equal(
+    promptEmpty({ ...EMPTY, lines: EMPTY.lines.map((l) => `${l}  `) }),
+    true,
+  );
   assert.equal(promptEmpty(TYPED), false);
   assert.equal(promptEmpty(DIALOG), false);
-  assert.equal(promptEmpty([]), false);
-  // A box left above a screenful of other output is not the one in use.
+  assert.equal(promptEmpty({ lines: [], cursorRow: null }), false);
+  assert.equal(promptEmpty({ ...EMPTY, cursorRow: null }), false);
+  // A box a killed CLI left behind, with the shell's prompt and cursor
+  // under it.
   assert.equal(
-    promptEmpty([...EMPTY.slice(0, 9), ...Array(5).fill("shell output")]),
+    promptEmpty({
+      lines: [...EMPTY.lines.slice(0, 9), "source main ❯ "],
+      cursorRow: 9,
+    }),
     false,
   );
+  // A box left above a screenful of other output is not the one in use.
+  assert.equal(
+    promptEmpty({
+      lines: [...EMPTY.lines.slice(0, 9), ...Array<string>(5).fill("output")],
+      cursorRow: 4,
+    }),
+    false,
+  );
+});
+
+test("a grid snapshot reads as its lines with dim cells blank, and its cursor row", () => {
+  const cell = (char: string, dim = false) => ({ char, dim });
+  const row = (text: string, dim = false) =>
+    [...text].map((char) => cell(char, dim));
+  const screen = screenFrom({
+    rows: 3,
+    cols: 12,
+    grid: [
+      row("─".repeat(12)),
+      [...row("❯ "), ...row('Try "x"', true)],
+      row("─".repeat(12)),
+    ],
+    scrollback: [],
+    cursor: { row: 1, col: 2 },
+  });
+  assert.deepEqual(screen, {
+    lines: ["─".repeat(12), "❯        ", "─".repeat(12)],
+    cursorRow: 1,
+  });
 });
 
 test("a terminal's snapshot says what its condition and activity say, and nulls what a terminal does not report", () => {
@@ -698,7 +743,7 @@ test("observing a terminal: ready only at an empty prompt box, the screen read o
   assert.equal(gone?.ready, false);
   assert.equal(
     gone?.status,
-    'no agent CLI in the terminal (title "skhl@mbp:~")',
+    'Claude Code is not running in the terminal (title "skhl@mbp:~")',
   );
 
   const blind = terminalDaemon(term(null), null);
@@ -749,7 +794,7 @@ test("a turn that finished before the next look still confirms the send, from no
 });
 
 test("a terminal send is refused before any input unless the terminal waits at an empty prompt", async () => {
-  const refused: [PaseoTerminal | null, string[]][] = [
+  const refused: [PaseoTerminal | null, Screen][] = [
     [null, EMPTY],
     [term({ state: "working", changedAt: 5 }), DIALOG],
     [term(null), DIALOG],
@@ -761,9 +806,37 @@ test("a terminal send is refused before any input unless the terminal waits at a
     assert.equal(
       await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
       "not_sent",
-      JSON.stringify([start?.activity, start?.title, screen[4]]),
+      JSON.stringify([start?.activity, start?.title, screen.lines[4]]),
     );
     assert.deepEqual(inputs, []);
+  }
+});
+
+test("a terminal send that fails before the paste is not sent; one that fails after it is unknown", async () => {
+  const listless = terminalDaemon(term(finishedAt(5)), null);
+  listless.daemon.terminals = () => Promise.reject(new Error("gone"));
+  assert.equal(
+    await adapterOver(listless.daemon, quick).send(
+      "terminal:T1",
+      "D1/M1",
+      "go",
+    ),
+    "not_sent",
+  );
+  for (const [failing, outcome] of [
+    [1, "not_sent"],
+    [2, "unknown"],
+  ] as const) {
+    const { daemon, inputs } = terminalDaemon(term(finishedAt(5)), null);
+    const input = daemon.input;
+    daemon.input = async (id, data) => {
+      if (inputs.length + 1 === failing) throw new Error("socket closed");
+      return input(id, data);
+    };
+    assert.equal(
+      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      outcome,
+    );
   }
 });
 

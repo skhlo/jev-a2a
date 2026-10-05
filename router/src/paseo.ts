@@ -20,23 +20,13 @@
 // exact version, and with it the subpath.
 //
 // A placement's session may instead be Claude Code in a Paseo terminal,
-// named `terminal:<id>` in `agents`. Verified on the 0.10.2 daemon with
-// Claude Code 2.1.289:
-// - the terminal record carries an `activity` that Paseo's Claude hooks
-//   set: `working` on a submitted prompt, staying so while a permission
-//   dialog is open; `idle` with `finished` when the turn ends, and `idle`
-//   again on SessionEnd, which Paseo keeps after the CLI has exited. It is
-//   null until the session's first prompt since the daemon started and
-//   after an Esc or Ctrl-C. (`needs_input` comes only from Claude's
-//   idle-prompt notification, which means the session is at its prompt.)
-// - the title starts with the idle mark (✳) at the prompt and while a
-//   permission dialog is open, a spinner during a turn, and the shell's own
-//   title once the CLI exits;
-// - a bracketed paste and then Enter arrive as one prompt, and the
-//   activity turns within a second.
-// A terminal takes raw input only: no message key, no receipt, so the
-// router sends only to an empty prompt box and confirms a send by the
-// activity change that follows it.
+// named `terminal:<id>` in `agents`. A terminal takes raw input only: no
+// message key, no receipt. So the router sends only to Claude Code's empty
+// prompt box, read from the terminal's title, activity and screen, and
+// confirms a send by the activity change that follows it. The facts this
+// relies on, verified on the 0.10.2 daemon with Claude Code 2.1.289, and
+// what it does not cover, are in the contract's Adapters section (Paseo
+// terminal).
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
@@ -121,8 +111,7 @@ export type Daemon = {
   subagents(agentId: string): Promise<ProviderSubagent[]>;
   tail(agentId: string, limit: number): Promise<TimelineEntry[]>;
   terminals(): Promise<PaseoTerminal[]>;
-  // The terminal's visible lines, a dim cell read as a space.
-  screen(terminalId: string): Promise<string[]>;
+  screen(terminalId: string): Promise<Screen>;
   input(terminalId: string, data: string): Promise<void>;
   close(): Promise<void>;
 };
@@ -156,44 +145,51 @@ export const isReady = (
   (status === "idle" || (status === "closed" && !archived)) &&
   pendingPermissions === 0;
 
-// Claude Code's marks in the terminal title: ✳ at its head while the
+// Claude Code's marks at the head of the terminal title: ✳ while the
 // session waits at its prompt, and also while a permission dialog is open;
-// a spinner glyph during a turn. Any other title is not Claude Code's.
-const IDLE_MARK = "✳ ";
-const SPINNER = /^[^\p{L}\p{N}\s~/]\s/u;
+// a spinner frame during a turn. A title without one is not Claude Code's.
+const MARK = /^([✳◐◓◑◒])\s+/u;
+const IDLE = "✳";
 // A rule line of Claude Code's prompt box.
 const RULE = /^─{20,}$/;
 
-// What a terminal's record says of the agent CLI in it, in one place for
+// What a terminal's record says of Claude Code in it, in one place for
 // readiness, the run's report and the board:
-// - working: a turn runs, or waits on a permission dialog (which leaves
-//   the activity working), or, with no activity, the title shows a spinner;
-// - waiting: the title shows the idle mark and no turn runs;
-// - away: the title is not Claude Code's, so no agent CLI has the terminal
-//   (it exited, and the activity Paseo kept from its last hook is stale).
+// - away: the title is not Claude Code's, so it is not running there (it
+//   exited, and the activity Paseo kept from its last hook is stale);
+// - working: a turn runs, by the title's spinner or the activity, which
+//   stays working through a permission dialog;
+// - waiting: the title shows the idle mark and no turn runs.
 export type TerminalCondition = "working" | "waiting" | "away";
 export function terminalCondition(t: PaseoTerminal): TerminalCondition {
-  const title = t.title ?? "";
-  if (t.activity?.state === "working") return "working";
-  if (title.startsWith(IDLE_MARK)) return "waiting";
-  return SPINNER.test(title) ? "working" : "away";
+  const mark = MARK.exec(t.title ?? "")?.[1];
+  if (!mark) return "away";
+  return mark !== IDLE || t.activity?.state === "working"
+    ? "working"
+    : "waiting";
 }
 
-// Claude Code's prompt box on the screen, empty: the last two rule lines
-// hold a lone ❯ (its dim placeholder read as spaces), with only the status
-// lines under them. A dialog takes the box's place, and a half-typed line
-// fills it; a paste into either would be answered or merged, so neither is
-// ready. The activity cannot tell: it is empty before the first prompt and
-// after an Esc, dialog or not.
-export function promptEmpty(lines: string[]): boolean {
-  const shown = lines.map((line) => line.trimEnd());
+// A terminal's visible lines (a dim cell read as a space) and the row its
+// cursor is on.
+export type Screen = { lines: string[]; cursorRow: number | null };
+
+// Claude Code's prompt box on the screen, empty and in use: the last two
+// rule lines hold a lone ❯ (its dim placeholder read as spaces), with only
+// the status lines under them and the cursor on the ❯. A dialog takes the
+// box's place and a half-typed line fills it, so a paste would be answered
+// or merged; a box a killed CLI left on the screen has the shell's cursor
+// below it. None of them is ready. The activity cannot tell: it is empty
+// before the first prompt and after an Esc, dialog or not.
+export function promptEmpty(screen: Screen): boolean {
+  const shown = screen.lines.map((line) => line.trimEnd());
   while (shown.length && !shown.at(-1)) shown.pop();
   const rule = shown.findLastIndex((line) => RULE.test(line));
   return (
     rule >= 2 &&
     shown[rule - 1] === "❯" &&
     RULE.test(shown[rule - 2] ?? "") &&
-    shown.length - 1 - rule <= 6
+    shown.length - 1 - rule <= 6 &&
+    screen.cursorRow === rule - 1
   );
 }
 
@@ -205,7 +201,7 @@ function terminalStatus(
 ): string {
   if (condition === "working") return "working";
   if (condition === "away")
-    return `no agent CLI in the terminal (title "${t.title ?? ""}")`;
+    return `Claude Code is not running in the terminal (title "${t.title ?? ""}")`;
   return empty ? "idle" : "at its prompt with text in it or a dialog open";
 }
 
@@ -241,7 +237,7 @@ export function terminalSnapshotOf(
     context: null,
     usage: null,
     error: null,
-    title: t.title?.replace(/^[^\p{L}\p{N}\s]\s+/u, "") || null,
+    title: (t.title ?? "").replace(MARK, "") || null,
     cwd: t.cwd ?? null,
     checkout: null,
     subagents: null,
@@ -249,8 +245,8 @@ export function terminalSnapshotOf(
   };
 }
 
-// A bracketed paste is followed by Enter only after this long, so the CLI
-// takes the paste as text first (300 ms verified with Pi and Claude Code);
+// A bracketed paste is followed by Enter only after this long, so Claude
+// Code takes the paste as text first (300 ms verified);
 // the activity is looked at this often for the send's receipt.
 const PASTE_SETTLE_MS = 300;
 const RECEIPT_LOOK_MS = 250;
@@ -729,32 +725,41 @@ type TerminalState = Extract<
   { type: "snapshot" }
 >["state"];
 
+// A grid snapshot as a Screen. The capture call returns plain text even
+// when asked for colour, and Claude Code draws the placeholder in an empty
+// prompt box dim (verified with 2.1.289), so a dim cell reads as a space.
+export function screenFrom(state: TerminalState): Screen {
+  return {
+    lines: state.grid.map((row) =>
+      row.map((cell) => (cell.dim ? " " : cell.char)).join(""),
+    ),
+    cursorRow: state.cursor.row,
+  };
+}
+
 // One snapshot of a terminal's grid, through a subscription released at
-// once. The capture call returns plain text even when asked for colour, and
-// Claude Code draws the placeholder in an empty prompt box dim (verified
-// with 2.1.289), so a dim cell reads as a space and the box reads empty.
+// once; a refused subscription fails with the daemon's reason.
 async function screenOf(
   daemonClient: DaemonClient,
   terminalId: string,
-): Promise<string[]> {
+): Promise<Screen> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let release = (): Promise<void> => Promise.resolve();
   try {
     const state = await new Promise<TerminalState>((resolve, reject) => {
-      const timer = setTimeout(
+      timer = setTimeout(
         () => reject(new Error("no snapshot of the terminal within 5 s")),
         5_000,
       );
       const subscription = daemonClient.observeTerminal(terminalId, (event) => {
-        if (event.type !== "snapshot") return;
-        clearTimeout(timer);
-        resolve(event.state);
+        if (event.type === "snapshot") resolve(event.state);
       });
       release = () => subscription.release();
+      subscription.ready.catch(reject);
     });
-    return state.grid.map((row) =>
-      row.map((cell) => (cell.dim ? " " : cell.char)).join(""),
-    );
+    return screenFrom(state);
   } finally {
+    clearTimeout(timer);
     await release().catch(() => undefined);
   }
 }

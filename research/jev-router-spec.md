@@ -363,14 +363,26 @@ bracketed paste then Enter arrives as one prompt. Input is raw keystrokes:
 no message key, no receipt. Therefore:
 
 - `ready` requires the `✳` title, no `working` activity, and Claude Code's
-  prompt box empty on the screen. The title rules out a shell left by an
-  exited CLI; the activity rules out a turn or a permission dialog; the
-  empty box rules out a dialog the activity cannot show and a half-typed
-  line the paste would join.
+  prompt box empty on the screen with the cursor in it. The title rules out
+  a shell left by an exited CLI; the activity rules out a turn or a
+  permission dialog; the empty box rules out a dialog the activity cannot
+  show and a half-typed line the paste would join; the cursor rules out a
+  box a killed CLI left above the shell's prompt. The screen is one grid
+  snapshot (`observeTerminal`), since the capture call returns plain text
+  and Claude Code's placeholder in an empty box is drawn dim.
 - Outcome mapping: a terminal that is gone or not ready when looked at
-  again before the paste → `not_sent`; an activity change to a started or
-  finished turn within the receipt window → `accepted`; no such change, or
-  a failure after the paste → `unknown`.
+  again before the paste, or a paste that could not be written → `not_sent`;
+  an activity change to a started or finished turn within the receipt
+  window → `accepted`; no such change, or a failure after the paste →
+  `unknown`.
+- A configuration change that makes a participant non-idempotent stops its
+  open work's `unknown` sends and notices from being repeated: a repeat
+  goes through the adapter in force now.
+- Not covered: a CLI killed without cleanup under a shell that sets no
+  title leaves the title and an idle activity; the cursor rule catches it
+  only while the shell's prompt is under the box. Under a terminal
+  multiplexer Claude Code keeps a static title, so with no activity (after
+  a daemon restart mid-turn) a turn is not seen.
 - A participant with a terminal placement is configured `idempotent: false`,
   which the config enforces, so its `unknown` sends are never repeated.
 - The session replies as `terminal:$PASEO_TERMINAL_ID`, which the reply
@@ -488,9 +500,10 @@ answers through the client, and is told questions, hand-backs and the end
 as notices at the placement it sent from (`via`), once per key, through the
 same adapter and idle gate as a send. Built 2026-10-05: a terminal
 placement, run end to end against a scratch Claude Code terminal and a
-scratch record (ready from the title, sent, accepted, replied as the
-terminal; a second request queued while the terminal worked); not yet run
-on the live record.
+scratch record (a fresh session at its empty prompt sent to, accepted, and
+replied as the terminal; a second request queued while the terminal
+worked; a half-typed line and an exited CLI held the next); not yet run on
+the live record.
 
 ## Example deployment
 

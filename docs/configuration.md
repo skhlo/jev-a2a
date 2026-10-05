@@ -34,14 +34,14 @@ unknown role, or a name that collides with a participant id.
 
 A list; at least one. Each has:
 
-| Key              | Meaning                                                                                                                                        | Refused when              |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `id`             | Stable and unique. Used in `permissions`, `agents` and on the command line.                                                                    | Empty or repeated         |
-| `name`           | A label.                                                                                                                                       |                           |
-| `kind`           | `agent` or `service`.                                                                                                                          | Anything else             |
-| `hosts`          | Host names; the participant has one placement per host. A host the router serves must also be in `hosts` below.                                | Empty, or a name repeated |
+| Key              | Meaning                                                                                                                                                                                                                                   | Refused when              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `id`             | Stable and unique. Used in `permissions`, `agents` and on the command line.                                                                                                                                                               | Empty or repeated         |
+| `name`           | A label.                                                                                                                                                                                                                                  |                           |
+| `kind`           | `agent` or `service`.                                                                                                                                                                                                                     | Anything else             |
+| `hosts`          | Host names; the participant has one placement per host. A host the router serves must also be in `hosts` below.                                                                                                                           | Empty, or a name repeated |
 | `idempotent`     | **Required**, `true` or `false`: whether the participant's adapter deduplicates by the router's message key. Paseo agent sends are keyed, so `true`; a terminal takes no key, so a participant with a terminal placement must be `false`. | Missing or not a boolean  |
-| `responsibility` | The text Jev reads, in full; see [participants.md](participants.md) for how to write it.                                                       | Empty                     |
+| `responsibility` | The text Jev reads, in full; see [participants.md](participants.md) for how to write it.                                                                                                                                                  | Empty                     |
 
 ### `permissions`
 
@@ -70,8 +70,8 @@ prints each agent's `id` across directories, and `paseo terminal ls --all
 table form shows only the short id). Refused: a key that is not a
 configured placement, a host not in `hosts`, an empty value, a terminal
 named by anything but its full id, or a terminal for a participant that is
-`idempotent: true`. How a terminal placement is sent to is in
-[operating.md](operating.md).
+`idempotent: true`. When a terminal is sent to is in the contract's
+adapters section ([jev-router-spec.md](../research/jev-router-spec.md)).
 
 ### `serve`
 

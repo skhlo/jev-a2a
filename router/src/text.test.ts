@@ -101,7 +101,7 @@ test("client: --text-file posts the file as the reply text", async () => {
     assert.match(missing.stderr, /--text-file: .*ENOENT/);
     assert.equal(posted.length, 1);
 
-    // An agent CLI in a Paseo terminal replies as its terminal; a Paseo
+    // Claude Code in a Paseo terminal replies as its terminal; a Paseo
     // agent's id comes first; with neither there is no session to reply as.
     const terminal = await run(url, [...reply, "working"], {
       PASEO_TERMINAL_ID: "T9",

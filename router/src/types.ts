@@ -64,7 +64,7 @@ export type Delivery = {
   taskId: string;
   participant: string;
   // Whether the adapter deduplicates, as configured when the delivery was
-  // created.
+  // created and, while it is open, ever since.
   idempotent: boolean;
   host: string;
   placement: string;
@@ -124,7 +124,8 @@ export type Notice = NoticeDue & {
   // same key, as a send does. Null until attempted.
   text: string | null;
   // Whether the sender's adapter deduplicates by key, as configured when
-  // the notice became due; decides whether unknown is repeated.
+  // the notice became due and ever since; decides whether unknown is
+  // repeated.
   idempotent: boolean;
   // The session the notice went to, set at the attempt. An unknown notice
   // is repeated only at this session.
