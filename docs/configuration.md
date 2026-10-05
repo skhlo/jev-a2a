@@ -62,7 +62,8 @@ Machines named in `participants[].hosts`; at least one.
 ### `agents`
 
 Placement key (`participant@host`) to the placement's session: a Paseo
-agent id, or `terminal:<id>` for Claude Code running in a Paseo terminal.
+agent id, or `terminal:<id>` for an agent CLI running in a Paseo terminal
+(Claude Code unless [`terminals`](#terminals) names another).
 The value is the placement's session identity: a placement without an
 entry is not observed and not delivered to. `paseo agent ls -g --json`
 prints each agent's `id` across directories, and `paseo terminal ls --all
@@ -72,6 +73,18 @@ configured placement, a host not in `hosts`, an empty value, a terminal
 named by anything but its full id, or a terminal for a participant that is
 `idempotent: true`. When a terminal is sent to is in the contract's
 adapters section ([jev-router-spec.md](../research/jev-router-spec.md)).
+
+### `terminals`
+
+Placement key to the CLI its terminal runs, for a terminal placement that
+does not run Claude Code: `codex`, for Codex started as `codex --no-daemon`
+(without it, Paseo sees no activity from Codex). Optional; a terminal
+placement not listed runs Claude Code. Refused: a key whose `agents` entry
+is not a terminal, and any other CLI.
+
+```json
+"terminals": { "dotfiles-host@vps": "codex" }
+```
 
 ### `serve`
 

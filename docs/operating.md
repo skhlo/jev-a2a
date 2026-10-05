@@ -40,10 +40,12 @@ starts between the look and the send is the one race left; holding the
 session (`router observe <participant@host> --hold`, or the lever on the
 board) closes it, and `--release` opens it again.
 
-A terminal placement, Claude Code in a Paseo terminal, is sent to only at
-Claude Code's empty prompt, as the contract's adapters section
+A terminal placement, Claude Code or Codex in a Paseo terminal, is sent to
+only at the CLI's empty prompt, as the contract's adapters section
 ([jev-router-spec.md](../research/jev-router-spec.md)) defines it, by one
-paste and Enter. A send it cannot confirm is unknown and waits for
+paste and Enter. Codex must run as `codex --no-daemon`, or Paseo sees none of
+its turns, and is told in each prompt to request escalated permissions for
+the router command, since its sandbox cannot reach the router. A send it cannot confirm is unknown and waits for
 `router resolve`, since a terminal takes no message key. A line a person
 starts typing between the look and the paste is the race here, and the hold
 closes it the same way. The board shows no provider, model, context,
@@ -194,4 +196,6 @@ links, forms and redirects use relative URLs.
 - A terminal placement's line in the run report says why it is not ready:
   `working`, `at its prompt with text in it or a dialog open`, or `Claude
 Code is not running in the terminal` when the title is not Claude Code's
-  (start it again in that terminal).
+  (start it again in that terminal). For Codex: `working`, which includes
+  its automatic reviewer weighing an approval, or `not at an empty Codex
+composer: a draft, a dialog, or Codex not running`.
