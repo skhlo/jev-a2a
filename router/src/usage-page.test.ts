@@ -175,6 +175,18 @@ test("the head: Usage's own chips (the worst window in its band, the stale count
       '<span class="tick" data-path="time(usage.at), usage.every" title="usage read 2026-09-30 09:44:30Z · every 120s · built 2026-09-30 09:45:00Z · jev-router-board/1">read 09:44Z · every 2m</span>',
     ),
   );
+  // A cadence that is not a whole minute reads in seconds.
+  for (const [every, words] of [
+    [90, "every 90s"],
+    [60, "every 1m"],
+    [3600, "every 1h"],
+  ] as const)
+    assert.ok(
+      headOf(renderUsage(withUsage(model({ ...usage, every })))).includes(
+        `>read 09:44Z · ${words}</span>`,
+      ),
+      words,
+    );
   const board = headOf(renderBoard(sampleModel(), { task: "T2" }));
   assert.ok(board.includes("in flight") && !board.includes("stale"));
   // Before the first read, and once every reading aged.
@@ -238,6 +250,12 @@ test("subscriptions: a row per window with the share used, the meter and its pac
   );
   assert.equal(codex.match(/class="lead"/g)?.length, 2);
   assert.deepEqual(textsOf(codex, `${w0}.label`), ["5-hour"]);
+  // The name may wrap; its title is the whole label.
+  assert.ok(
+    codex.includes(
+      `<span class="name" data-path="${w0}.label" title="5-hour window">5-hour</span>`,
+    ),
+  );
   assert.deepEqual(textsOf(codex, `${w0}.usedPercent`), ["41%", "59% left"]);
   assert.ok(
     codex.includes(
@@ -346,6 +364,16 @@ test("freshness per account only when it is not current, naming what failed", ()
       "stalelast reading 13m ago · Claude login expired; open Claude Code.",
     ),
   );
+  // The age is mono, as the board's ages are.
+  assert.deepEqual(
+    textsOf(account(page, 1), "age(usage.accounts[1].reading.observedAt, at)"),
+    ["last reading 13m ago"],
+  );
+  assert.ok(
+    account(page, 1).includes(
+      '<span class="mono" data-path="age(usage.accounts[1].reading.observedAt, at)"',
+    ),
+  );
   const other = renderUsage(withUsage(model(otherUsage)));
   // History alone: the limits are unavailable, the history is there.
   const codex = strip(account(other, 0));
@@ -390,6 +418,12 @@ test("balances: the balance leading, the key beside it, neutral; a missing manag
     ["No management key"],
   );
   assert.ok(strip(openrouter).includes("key $12.00 left of $20.00"));
+  // Money in mono, as in the pairs.
+  assert.ok(
+    openrouter.includes(
+      'key <span class="mono" data-path="usage.accounts[3].reading.metrics[1].value">$12.00</span> left of <span class="mono" data-path="usage.accounts[3].reading.metrics[2].value">$20.00</span>',
+    ),
+  );
   assert.ok(
     strip(openrouter).includes(
       "A management key is required for the account balance and spending (OPENROUTER_MANAGEMENT_KEY).",

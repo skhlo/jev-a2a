@@ -165,7 +165,7 @@ export function renderUsage(
   const tick = slot(
     "time(usage.at), usage.every",
     usage.at
-      ? `read ${time(usage.at)} · every ${span(usage.every * 1000)}`
+      ? `read ${time(usage.at)} · every ${usage.every % 60 ? `${usage.every}s` : span(usage.every * 1000)}`
       : "not read yet",
     "tick",
     "span",
@@ -192,7 +192,7 @@ export function renderUsage(
           ? slot(
               `age(${path}.reading.observedAt, at)`,
               `last reading ${age(r.observedAt, at)} ago`,
-              "",
+              "mono",
               "span",
               dated(r.observedAt),
             )
@@ -200,7 +200,7 @@ export function renderUsage(
             ? slot(
                 `age(${path}.checkedAt, at)`,
                 `checked ${age(a.checkedAt, at)} ago`,
-                "",
+                "mono",
                 "span",
                 dated(a.checkedAt),
               )
@@ -351,7 +351,7 @@ export function renderUsage(
                 `note${p.ahead ? " ahead" : ""}`,
               )
             : '<span class="note"></span>';
-          return `<div class="entry${k ? "" : " first"}${tone ? ` ${tone}` : ""}" data-path="${wp}">${k ? '<span class="lead"></span>' : lead(a, path)}${slot(`${wp}.label`, esc(windowName(w.label)), "name")}${slot(`${wp}.usedPercent`, pct(used), "figure")}${bar}${note}${reset}${slot(`${wp}.usedPercent`, over ? DASH : `${Math.max(0, 100 - shown)}% left`, "rest")}</div>`;
+          return `<div class="entry${k ? "" : " first"}${tone ? ` ${tone}` : ""}" data-path="${wp}">${k ? '<span class="lead"></span>' : lead(a, path)}${slot(`${wp}.label`, esc(windowName(w.label)), "name", "span", ` title="${esc(w.label)}"`)}${slot(`${wp}.usedPercent`, pct(used), "figure")}${bar}${note}${reset}${slot(`${wp}.usedPercent`, over ? DASH : `${Math.max(0, 100 - shown)}% left`, "rest")}</div>`;
         })
       : [
           bare(
@@ -398,7 +398,7 @@ export function renderUsage(
     const remaining = find(LABEL.keyRemaining);
     const limit = find(LABEL.keyLimit);
     const key = remaining
-      ? `key ${slot(`${path}.reading.metrics[${remaining.k}].value`, esc(amount(remaining.m.value, remaining.m.unit)))} left${limit ? ` of ${slot(`${path}.reading.metrics[${limit.k}].value`, esc(amount(limit.m.value, limit.m.unit)))}` : ""}`
+      ? `key ${slot(`${path}.reading.metrics[${remaining.k}].value`, esc(amount(remaining.m.value, remaining.m.unit)), "mono")} left${limit ? ` of ${slot(`${path}.reading.metrics[${limit.k}].value`, esc(amount(limit.m.value, limit.m.unit)), "mono")}` : ""}`
       : "";
     // The key's allowance in the board's own small meter, its share used.
     const k = r.windows.findIndex((w) => w.label === LABEL.keyAllowance);

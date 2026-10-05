@@ -2180,7 +2180,7 @@ a.btn, .card a.id { text-decoration: none; }
 .entry > .lead { flex: 0 0 88px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text); }
 .entry > a.lead { text-decoration-color: transparent; }
 .entry > a.lead:hover { text-decoration-color: var(--hair-strong); }
-.entry > .name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.entry > .name { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
 .entry > .figure { flex: 0 0 auto; min-width: 44px; text-align: right; font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .entry > .figure.leading { min-width: 120px; text-align: left; }
 .entry > .meter.wide { flex: 0 0 168px; }
