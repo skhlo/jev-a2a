@@ -9,8 +9,8 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { scratch, sharedScratch } from "./test-scratch.ts";
 import { join } from "node:path";
+import { scratch, sharedScratch } from "./test-scratch.ts";
 import {
   bind,
   BindError,

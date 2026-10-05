@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { writeFileSync } from "node:fs";
-import { sharedScratch } from "./test-scratch.ts";
 import { join } from "node:path";
+import { sharedScratch } from "./test-scratch.ts";
 import { textOption } from "./text.ts";
 
 const dir = sharedScratch("text-");

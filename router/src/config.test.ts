@@ -3,8 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
-import { sharedScratch } from "./test-scratch.ts";
 import { join } from "node:path";
+import { sharedScratch } from "./test-scratch.ts";
 import { loadConfig, loadSecrets } from "./config.ts";
 import base from "./example-config.ts";
 

@@ -3,8 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
-import { scratch } from "./test-scratch.ts";
 import { join } from "node:path";
+import { scratch } from "./test-scratch.ts";
 import { coreConfig, openShell, type ShellOptions } from "./shell.ts";
 import { readJournal } from "./journal.ts";
 import {

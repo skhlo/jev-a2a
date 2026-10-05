@@ -4,9 +4,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, writeFileSync } from "node:fs";
-import { scratch } from "./test-scratch.ts";
 import { join } from "node:path";
 import type { PaseoAgent } from "@getpaseo/client";
+import { scratch } from "./test-scratch.ts";
 import { isReady, snapshotOf } from "./paseo.ts";
 import {
   agentLine,
