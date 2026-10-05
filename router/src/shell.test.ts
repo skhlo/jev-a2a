@@ -5,7 +5,13 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scratch } from "./test-scratch.ts";
-import { coreConfig, openShell, type ShellOptions } from "./shell.ts";
+import {
+  coreConfig,
+  fold,
+  journalFolder,
+  openShell,
+  type ShellOptions,
+} from "./shell.ts";
 import { readJournal } from "./journal.ts";
 import {
   RouterBug,
@@ -213,6 +219,57 @@ test("a quiet run records nothing: the tick is held until an event follows it, a
   await shell.deliver();
   await shell.close();
   assert.deepEqual(types().slice(sofar + 1), ["tick", "observe"]);
+});
+
+test("a run handed serve's kept fold starts from it, records the configuration once, sees what another writer appended, and leaves the record a full fold reads", async (t) => {
+  const home = scratch(t, "shell-");
+  const config = configFor(home);
+  const folded = journalFolder(config);
+  let reads = 0;
+  const sent: string[] = [];
+  const served = (ms: number): ShellOptions => ({
+    ...scripted({
+      send: (key) => {
+        sent.push(key);
+        return Promise.resolve("accepted");
+      },
+    }),
+    now: () => ms,
+    record: () => {
+      reads += 1;
+      return folded();
+    },
+  });
+  const configured = (): number =>
+    readJournal(home).filter((e) => e.event.type === "configured").length;
+  // The first two runs: the configuration is recorded once, as without the
+  // kept fold, and each run read the record once.
+  for (const ms of [1_000, 1_010]) {
+    const shell = await openShell(config, served(ms));
+    await shell.deliver();
+    await shell.close();
+  }
+  assert.equal(reads, 2);
+  assert.equal(configured(), 1);
+  // Another writer (the CLI on this host) appends a request, unseen by the
+  // kept fold until its next read.
+  let shell = await openShell(config, { ...scripted({}), now: () => 1_020 });
+  shell.apply({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "Fix it",
+    to: "orchestrator",
+  });
+  await shell.close();
+  // The next run reads it under its lock and sends it.
+  shell = await openShell(config, served(1_030));
+  assert.equal(shell.state.tasks[0]?.text, "Fix it");
+  await shell.deliver();
+  await shell.close();
+  assert.deepEqual(sent, ["D1/M1"]);
+  // The kept fold and a fold of the whole journal agree afterwards.
+  assert.deepEqual(folded().state, fold(config, readJournal(home)));
 });
 
 test("a key conflict aborts the run with the send left attempting", async (t) => {
