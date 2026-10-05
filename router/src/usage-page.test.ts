@@ -583,7 +583,7 @@ test("details behind a disclosure per account, keyed for the script, with tables
 
 test("data labels render as text: a hostile label, value, notice or title is escaped everywhere", () => {
   const hostile = '<script>alert(1)</script>"&';
-  const m = sampleModel();
+  const m = structuredClone(sampleModel());
   const codex = m.usage?.accounts[0];
   const reading = codex?.reading;
   const w = reading?.windows[0];

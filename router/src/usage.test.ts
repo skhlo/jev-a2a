@@ -19,6 +19,7 @@ import {
   type AccountState,
   type Loader,
   type Reading,
+  type UsageState,
 } from "./usage.ts";
 
 const now = Date.parse("2026-09-12T12:00:00Z");
@@ -323,6 +324,64 @@ test("history alone reads unavailable; details age apart from the allowance and 
   const failed = { ...account, error: "Could not refresh." };
   assert.equal(at(now, failed)?.status, "stale");
   assert.equal(at(now, failed)?.reading?.details[0]?.status, "stale");
+});
+
+test("the view is a deep copy: changing it leaves the store's state alone", () => {
+  const state: UsageState = {
+    at: now,
+    every: 120,
+    accounts: [
+      {
+        id: "openrouter",
+        name: "OpenRouter",
+        kind: "api",
+        url: "https://openrouter.ai/activity",
+        status: "ready",
+        checkedAt: now,
+        error: null,
+        reading: {
+          ...good,
+          windows: [
+            { label: "x", usedPercent: 1, minutes: null, resetsAt: null },
+          ],
+          details: [
+            {
+              title: "Spending",
+              observedAt: now,
+              status: "ready",
+              throughDate: null,
+              metrics: [{ label: "Spent", value: 1, unit: "USD" }],
+              tables: [
+                {
+                  title: "Days",
+                  columns: [{ key: "day", label: "Day", format: "date" }],
+                  rows: [{ day: "2026-09-11" }],
+                },
+              ],
+              notice: null,
+            },
+          ],
+        },
+      },
+    ],
+  };
+  const before = structuredClone(state);
+  const view = usageView(state, now);
+  const reading = view.accounts[0]?.reading;
+  const detail = reading?.details[0];
+  const table = detail?.tables[0];
+  assert.ok(reading && detail && table);
+  reading.metrics.push({ label: "x", value: 2, unit: null });
+  const metric = reading.metrics[0];
+  assert.ok(metric);
+  metric.value = 9;
+  detail.metrics.push({ label: "x", value: 2, unit: null });
+  table.columns.push({ key: "x", label: "x", format: null });
+  table.rows.push({ day: "x" });
+  const row = table.rows[0];
+  assert.ok(row);
+  row.day = "x";
+  assert.deepEqual(state, before);
 });
 
 test("the view: every time an ISO string, null for what was not read", () => {

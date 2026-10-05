@@ -507,8 +507,10 @@ const iso = (ms: number): string => new Date(ms).toISOString();
 const isoOrNull = (ms: number | null): string | null =>
   ms === null ? null : iso(ms);
 
+// The state as the page and the JSON carry it, with ISO times. A deep
+// copy: changing the view changes nothing the store holds.
 export function usageView(state: UsageState, now: number): UsageView {
-  return {
+  return structuredClone({
     at: isoOrNull(state.at),
     every: state.every,
     accounts: snapshot(state.accounts, now).map((a) => ({
@@ -527,5 +529,5 @@ export function usageView(state: UsageState, now: number): UsageView {
         })),
       },
     })),
-  };
+  });
 }
