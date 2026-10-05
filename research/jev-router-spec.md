@@ -351,7 +351,8 @@ idempotency, so a herdr participant is configured `idempotent: false`: its
 distinguish a stall from a start.
 
 **Paseo terminal (Claude Code).** A placement's session may be Claude Code
-running in a Paseo terminal (`terminal:<id>` in `agents`; built 2026-10-05,
+running in a Paseo terminal (`terminal:<id>` in `agents`, and the CLI a
+terminal placement runs unless `terminals` names another; built 2026-10-05,
 ticket 015). Verified on the 0.10.2 daemon with Claude Code 2.1.289: the
 terminal record's `activity` is set by Paseo's Claude hooks (`working` on a
 submitted prompt and through a permission dialog, `idle`/`finished` when the
@@ -387,6 +388,65 @@ no message key, no receipt. Therefore:
   which the config enforces, so its `unknown` sends are never repeated.
 - The session replies as `terminal:$PASEO_TERMINAL_ID`, which the reply
   command reads when `$PASEO_AGENT_ID` is unset.
+
+**Paseo terminal (Codex).** A terminal placement that `terminals` names
+`codex` runs Codex as `codex --no-daemon` (built 2026-10-05, ticket 018).
+The idempotence, outcome mapping and reply rules above hold for it too.
+Verified on the 0.10.2 daemon with Codex 0.159.2 and 0.160.0, under the
+hosts' own sandbox (`workspace-write`) and automatic approval reviewer:
+
+- The activity comes from Paseo's Codex hooks, and only when Codex runs its
+  own turns (`--no-daemon`): under the shared app-server daemon the hooks
+  run without the terminal's environment and the activity stays null.
+- It reads `working` about a second after Enter, and `idle`/`finished` at
+  the end.
+- At an approval request it reads `idle` with `needs_input`. That outlives
+  a declined approval until the next prompt.
+- It is null after an Esc, and kept after Codex exits.
+- The title is no evidence. It shows a turn seconds late or not at all, and
+  keeps stale spinner frames.
+- The composer is the line that starts with an undimmed `›`; the
+  placeholder and the transcript's earlier prompts are dim. When the
+  composer is empty, the cursor is at column 2.
+- During a turn the composer looks the same.
+- A status line offering `esc to interrupt` shows while a turn thinks or
+  runs tools, and while the automatic reviewer weighs an approval (when the
+  activity says `needs_input`). It does not show while an answer streams.
+- A bracketed paste then Enter arrives as one prompt. A long one shows as
+  `[Pasted Content N chars]`.
+- Codex's shell commands run in its sandbox, which cannot reach the router,
+  and Codex does not ask to leave it unless told to.
+
+Therefore:
+
+- `ready` requires all of:
+  - no `working` activity;
+  - no line offering `esc to interrupt`, matched anywhere in the line so
+    that a line a narrow terminal cuts short still counts;
+  - the composer empty and in use: the last undimmed `›` alone on its line,
+    a blank line under it, at most three lines below, and the cursor right
+    after the `›`.
+
+  These rule out a turn (the activity, or the status line during a review),
+  and a draft, even with the cursor moved to its start. They rule out an
+  approval overlay or a startup notice, since neither shows a composer and
+  the cursor is parked. They rule out the shell after Codex exits, and the
+  frame a killed Codex leaves, since the cursor is on the shell's line. A
+  stale `needs_input` does not hold it.
+
+- Every prompt that gives a Codex terminal a router command, a request or
+  a notice to answer, says to request escalated permissions for it.
+  Verified: the automatic reviewer approved within seconds and the reply
+  reached `serve`.
+- Not covered:
+  - Codex without `--no-daemon`. There is no activity, so a send could land
+    in a streaming turn, and its receipt reads `unknown`.
+  - A host whose reviewer is a person, who then approves every reply.
+  - The board cannot tell an exited Codex from one at a draft or a dialog:
+    the record says nothing of it, so each shows idle, and the run report
+    gives one reason for all three.
+  - Light themes, terminals narrower than 80 columns, and the trust dialog
+    for an untrusted folder.
 
 None of these tools correlates replies. The explicit `update` call carrying
 task and message IDs is the only reply path. The envelope the participant receives must
@@ -429,8 +489,8 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
    the worst wrong choice seen. Re-run when the roster or a text changes,
    and before moving the pin.
 2. Authentication of participant events: a local reply is trusted on
-   `PASEO_AGENT_ID`, or on `PASEO_TERMINAL_ID` as `terminal:<id>` for Claude
-   Code in a Paseo terminal; over HTTP, a reply, answer, request or choice is
+   `PASEO_AGENT_ID`, or on `PASEO_TERMINAL_ID` as `terminal:<id>` for an
+   agent CLI in a Paseo terminal; over HTTP, a reply, answer, request or choice is
    trusted on the shared `ROUTER_TOKEN`, so any holder of the token can act
    as any participant session. `serve` refuses a `by` that is not a session
    the record knows, and a replaced session's request or choice; a replaced
@@ -502,8 +562,14 @@ same adapter and idle gate as a send. Built 2026-10-05: a terminal
 placement, run end to end against a scratch Claude Code terminal and a
 scratch record (a fresh session at its empty prompt sent to, accepted, and
 replied as the terminal; a second request queued while the terminal
-worked; a half-typed line and an exited CLI held the next); not yet run on
-the live record.
+worked; a half-typed line and an exited CLI held the next), live since for
+dotfiles-host on mbp and the mini. Built 2026-10-05: a Codex terminal
+placement, run end to end against scratch Codex terminals on mbp and the
+mini and a scratch record with its own `serve` (each sent to at its empty
+composer, accepted, and replied as the terminal after escalating, the
+mini's through the client; a second request held while the terminal
+worked and while the automatic reviewer weighed the first reply; a draft
+and an exited Codex held the next); not yet run on the live record.
 
 ## Example deployment
 

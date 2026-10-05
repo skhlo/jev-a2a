@@ -9,12 +9,13 @@ import {
   adapterOver,
   checkoutFor,
   checkoutOf,
+  claudeCondition,
+  claudePromptEmpty,
+  codexPrompt,
   firstLine,
   pasteable,
-  promptEmpty,
   screenFrom,
   subagentsOf,
-  terminalCondition,
   terminalSnapshotOf,
   type Daemon,
   type PaseoTerminal,
@@ -22,6 +23,15 @@ import {
   type Screen,
   type TimelineEntry,
 } from "./paseo.ts";
+
+// A screen as the adapter reads it: lines with dim cells blank, the same
+// lines as drawn (the same unless given), and the cursor.
+const screen = (
+  lines: string[],
+  cursorRow: number | null,
+  cursorCol: number | null = null,
+  drawn: string[] = lines,
+): Screen => ({ lines, drawn, cursorRow, cursorCol });
 
 const SEEN = "2026-09-30T09:44:50.000Z";
 
@@ -445,7 +455,7 @@ function scripted(status: PaseoAgent["status"], fail: string[] = []) {
     },
     async screen() {
       calls.push("screen");
-      return { lines: [], cursorRow: null };
+      return screen([], null);
     },
     async input() {
       calls.push("input");
@@ -549,19 +559,20 @@ const status = [
   "   source |  main | ⇣4",
   "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
 ];
-const atPrompt = (box: string): Screen => ({
-  lines: [
-    "source main ❯ claude",
-    " ▐▛███▛█   Claude Code v2.1.289",
-    "",
-    rule,
-    box,
-    rule,
-    ...status,
-    ...Array<string>(15).fill(""),
-  ],
-  cursorRow: 4,
-});
+const atPrompt = (box: string): Screen =>
+  screen(
+    [
+      "source main ❯ claude",
+      " ▐▛███▛█   Claude Code v2.1.289",
+      "",
+      rule,
+      box,
+      rule,
+      ...status,
+      ...Array<string>(15).fill(""),
+    ],
+    4,
+  );
 const EMPTY = atPrompt("❯");
 const TYPED = atPrompt("❯ half a line");
 const DIALOG_LINES = [
@@ -579,14 +590,14 @@ const DIALOG_LINES = [
   "   3. No",
   " Esc to cancel · Tab to amend",
 ];
-const DIALOG: Screen = { lines: DIALOG_LINES, cursorRow: 9 };
+const DIALOG = screen(DIALOG_LINES, 9);
 
 // A daemon holding one terminal, whose activity the scripted hook changes
 // when Enter arrives.
 function terminalDaemon(
   start: PaseoTerminal | null,
   onEnter: ((t: PaseoTerminal) => PaseoTerminal) | null,
-  screen: Screen = EMPTY,
+  shown: Screen = EMPTY,
 ) {
   let current = start;
   const inputs: string[] = [];
@@ -599,7 +610,7 @@ function terminalDaemon(
     },
     async screen(terminalId) {
       reads.push(terminalId);
-      return screen;
+      return shown;
     },
     async input(terminalId, data) {
       assert.equal(terminalId, "T1");
@@ -633,46 +644,47 @@ test("a terminal's condition: working by its activity or spinner, waiting at the
   ];
   for (const [t, condition] of cases)
     assert.equal(
-      terminalCondition(t),
+      claudeCondition(t),
       condition,
       JSON.stringify([t.activity, t.title]),
     );
 });
 
 test("only an empty prompt box at the foot of the screen, with the cursor in it, is a prompt to paste into", () => {
-  assert.equal(promptEmpty(EMPTY), true);
+  assert.equal(claudePromptEmpty(EMPTY), true);
   assert.equal(
-    promptEmpty({ ...EMPTY, lines: EMPTY.lines.map((l) => `${l}  `) }),
+    claudePromptEmpty({ ...EMPTY, lines: EMPTY.lines.map((l) => `${l}  `) }),
     true,
   );
-  assert.equal(promptEmpty(TYPED), false);
-  assert.equal(promptEmpty(DIALOG), false);
-  assert.equal(promptEmpty({ lines: [], cursorRow: null }), false);
-  assert.equal(promptEmpty({ ...EMPTY, cursorRow: null }), false);
+  assert.equal(claudePromptEmpty(TYPED), false);
+  assert.equal(claudePromptEmpty(DIALOG), false);
+  assert.equal(claudePromptEmpty(screen([], null)), false);
+  assert.equal(claudePromptEmpty({ ...EMPTY, cursorRow: null }), false);
   // A box a killed CLI left behind, with the shell's prompt and cursor
   // under it.
   assert.equal(
-    promptEmpty({
-      lines: [...EMPTY.lines.slice(0, 9), "source main ❯ "],
-      cursorRow: 9,
-    }),
+    claudePromptEmpty(
+      screen([...EMPTY.lines.slice(0, 9), "source main ❯ "], 9),
+    ),
     false,
   );
   // A box left above a screenful of other output is not the one in use.
   assert.equal(
-    promptEmpty({
-      lines: [...EMPTY.lines.slice(0, 9), ...Array<string>(5).fill("output")],
-      cursorRow: 4,
-    }),
+    claudePromptEmpty(
+      screen(
+        [...EMPTY.lines.slice(0, 9), ...Array<string>(5).fill("output")],
+        4,
+      ),
+    ),
     false,
   );
 });
 
-test("a grid snapshot reads as its lines with dim cells blank, and its cursor row", () => {
+test("a grid snapshot reads as its lines with dim cells blank, the same lines as drawn, and its cursor", () => {
   const cell = (char: string, dim = false) => ({ char, dim });
   const row = (text: string, dim = false) =>
     [...text].map((char) => cell(char, dim));
-  const screen = screenFrom({
+  const read = screenFrom({
     rows: 3,
     cols: 12,
     grid: [
@@ -683,9 +695,11 @@ test("a grid snapshot reads as its lines with dim cells blank, and its cursor ro
     scrollback: [],
     cursor: { row: 1, col: 2 },
   });
-  assert.deepEqual(screen, {
+  assert.deepEqual(read, {
     lines: ["─".repeat(12), "❯        ", "─".repeat(12)],
+    drawn: ["─".repeat(12), '❯ Try "x"', "─".repeat(12)],
     cursorRow: 1,
+    cursorCol: 2,
   });
 });
 
@@ -856,6 +870,364 @@ test("a send is unknown when no turn follows, whatever else the activity does", 
       JSON.stringify(after),
     );
     assert.equal(inputs.length, 2);
+  }
+});
+
+// Codex's screens as the daemon's grid snapshot gives them, read through
+// screenFrom: each row a list of runs, a string drawn plain or [text, "dim"]
+// (shapes and dim runs as probed with Codex 0.159.2 and 0.160.0, ticket 018).
+type Run = string | [string, "dim"];
+const gridScreen = (rows: Run[][], row: number, col: number): Screen =>
+  screenFrom({
+    rows: rows.length,
+    cols: 80,
+    grid: rows.map((runs) =>
+      runs.flatMap((run) =>
+        [...(typeof run === "string" ? run : run[0])].map((char) => ({
+          char,
+          dim: typeof run !== "string",
+        })),
+      ),
+    ),
+    scrollback: [],
+    cursor: { row, col },
+  });
+const CODEX_HEAD: Run[][] = [
+  [">_ OpenAI Codex", [" (v0.159.2)", "dim"]],
+  [["~/Projects/2026/09/jev-a2a", "dim"]],
+  [],
+  ["Shall we make the thing that makes the other thing easier?"],
+  [],
+];
+const CODEX_FOOT: Run[][] = [
+  [],
+  ["GPT-6-Astra low · ~/Projects/2026/09/jev-a2a · main · Ask for approval"],
+  ["? for shortcuts"],
+];
+const COMPOSER: Run[] = ["› ", ["Ask Codex to do anything", "dim"]];
+// Codex with `above` between its header and the composer rows; the cursor
+// on the composer's first row, at `col`, unless `at` says otherwise.
+const codexAt = (
+  above: Run[][],
+  composer: Run[][],
+  col = 2,
+  at?: [number, number],
+): Screen => {
+  const row = CODEX_HEAD.length + above.length;
+  return gridScreen(
+    [...CODEX_HEAD, ...above, ...composer, ...CODEX_FOOT],
+    at?.[0] ?? row,
+    at?.[1] ?? col,
+  );
+};
+const PAST_PROMPT: Run[] = [["›", "dim"], " Reply with the single word done."];
+const CODEX_EMPTY = codexAt([PAST_PROMPT, [], ["• done"], []], [COMPOSER]);
+const statusRow = (what: string, time: string): Run[] => [
+  "• ",
+  [what, "dim"],
+  [` (${time} • `, "dim"],
+  "esc",
+  [" to interrupt)", "dim"],
+];
+const CODEX_THINKING = codexAt(
+  [PAST_PROMPT, [], statusRow("Working", "1s"), []],
+  [COMPOSER],
+);
+// A status line a narrow terminal cuts short.
+const CODEX_CUT = codexAt(
+  [
+    PAST_PROMPT,
+    [],
+    [
+      "• ",
+      ["Working", "dim"],
+      [" (1s • ", "dim"],
+      "esc",
+      [" to interrupt", "dim"],
+    ],
+    [],
+  ],
+  [COMPOSER],
+);
+// The automatic reviewer at work: the activity says needs_input, the
+// composer looks empty.
+const CODEX_REVIEW = codexAt(
+  [
+    ["• Running touch /tmp/marker"],
+    [],
+    statusRow("Reviewing approval request", "8s"),
+    [["  └ /bin/zsh -lc 'touch /tmp/marker'", "dim"]],
+  ],
+  [COMPOSER],
+);
+// A turn streaming its answer shows no status row.
+const CODEX_STREAMING = codexAt(
+  [["• 1"], ["  2"], ["  3"], ["  4"]],
+  [COMPOSER],
+);
+const CODEX_DECLINED = codexAt(
+  [
+    ["✗ You canceled the request to run touch /tmp/marker"],
+    [],
+    ["■ Conversation interrupted - use /feedback if something went wrong"],
+    [],
+  ],
+  [COMPOSER],
+);
+const CODEX_DRAFT = codexAt([], [["› draft"]], 7);
+const CODEX_DRAFT_HOME = codexAt([], [["› draft"]], 2);
+const CODEX_TWO_LINES = codexAt([], [["› one"], ["  two"]], 5, [
+  CODEX_HEAD.length + 1,
+  5,
+]);
+const CODEX_PASTE = codexAt([], [["› [Pasted Content 2737 chars]"]], 29);
+// A draft whose first line is empty, the cursor moved up to it, over a
+// one-line footer.
+const CODEX_DRAFT_BELOW = gridScreen(
+  [...CODEX_HEAD, COMPOSER, ["  two"], [], ["? for shortcuts"]],
+  CODEX_HEAD.length,
+  2,
+);
+// A draft of spaces: the placeholder is gone and the line trims to the ›.
+const CODEX_SPACES = codexAt([], [["›  "]], 3);
+// A composer left on screen with a one-line footer and the shell's prompt,
+// and its cursor, under it: bash's, and zsh's two-character `> `, whose
+// cursor sits in the composer's column.
+const codexLeft = (prompt: string, col: number): Screen =>
+  gridScreen(
+    [...CODEX_HEAD, COMPOSER, [], ["? for shortcuts"], [prompt]],
+    CODEX_HEAD.length + 3,
+    col,
+  );
+const CODEX_LEFT = codexLeft("jev-a2a main ❯ ", 15);
+const CODEX_LEFT_ZSH = codexLeft("> ", 2);
+// The approval overlay in place of the composer: its selected option also
+// starts with ›, and the cursor is parked at the foot.
+const CODEX_APPROVAL = gridScreen(
+  [
+    ...CODEX_HEAD,
+    ["Would you like to run the following command?"],
+    [],
+    ["  $ touch /tmp/marker"],
+    [],
+    ["› 1. Yes, proceed (y)"],
+    ["  2. Yes, and don't ask again for commands that start with `touch`"],
+    ["  3. No, and tell Codex what to do differently (esc)"],
+    [],
+    [
+      ["Press ", "dim"],
+      "enter",
+      [" to confirm or ", "dim"],
+      "esc",
+      [" to cancel", "dim"],
+    ],
+  ],
+  CODEX_HEAD.length + 8,
+  80,
+);
+// The model-migration notice at start: no composer, the cursor parked.
+const CODEX_NOTICE = gridScreen(
+  [
+    [],
+    [
+      "  Codex now uses GPT-6 Luna in place of GPT-5.4 Mini. Switch to GPT-6 Luna to",
+    ],
+    ["  continue."],
+    ["enter/esc", [" continue ·", "dim"], "ctrl+c", [" quit", "dim"]],
+  ],
+  21,
+  1,
+);
+// Codex exited: the shell's prompt, no composer.
+const CODEX_EXITED = gridScreen(
+  [
+    ["jev-a2a main ❯ codex --no-daemon"],
+    ["Token usage: total=20,868 input=20,800 (+ 40,576 cached) output=68"],
+    ["To continue this session, run:"],
+    ["codex resume 01a10c10-68c5-71c1-b03e-8f810f6c6fac"],
+    [],
+    ["jev-a2a main ❯ "],
+  ],
+  5,
+  15,
+);
+// Codex killed: its frame stays, the shell writes over the composer row and
+// prompts below it.
+const CODEX_KILLED = gridScreen(
+  [
+    ...CODEX_HEAD,
+    [
+      "› Killed                     codex --no-daemon -c model_reasoning_effort=low",
+    ],
+    [],
+    ["GPT-6-Astra low · ~/Projects/2026/09/jev-a2a · main · Ask for approval"],
+    ["jev-a2a main ✗ "],
+  ],
+  CODEX_HEAD.length + 3,
+  15,
+);
+
+test("Codex's empty composer is the last undimmed › alone on its line, the footer under it and the cursor after it; a status line offering Esc is a turn", () => {
+  const cases: [string, Screen, string][] = [
+    ["empty", CODEX_EMPTY, "empty"],
+    ["declined approval", CODEX_DECLINED, "empty"],
+    ["streaming (the activity covers it)", CODEX_STREAMING, "empty"],
+    ["thinking", CODEX_THINKING, "busy"],
+    ["automatic review", CODEX_REVIEW, "busy"],
+    ["status line cut short", CODEX_CUT, "busy"],
+    ["draft", CODEX_DRAFT, "other"],
+    ["draft, cursor at its start", CODEX_DRAFT_HOME, "other"],
+    ["two-line draft", CODEX_TWO_LINES, "other"],
+    ["paste", CODEX_PASTE, "other"],
+    ["draft below an empty first line", CODEX_DRAFT_BELOW, "other"],
+    ["composer left above the shell", CODEX_LEFT, "other"],
+    ["composer left above zsh's prompt", CODEX_LEFT_ZSH, "other"],
+    ["draft of spaces", CODEX_SPACES, "other"],
+    ["approval overlay", CODEX_APPROVAL, "other"],
+    ["startup notice", CODEX_NOTICE, "other"],
+    ["exited", CODEX_EXITED, "other"],
+    ["killed", CODEX_KILLED, "other"],
+    [
+      "no cursor",
+      { ...CODEX_EMPTY, cursorRow: null, cursorCol: null },
+      "other",
+    ],
+    ["nothing", screen([], null), "other"],
+  ];
+  for (const [what, shown, expected] of cases)
+    assert.equal(codexPrompt(shown), expected, what);
+  // A composer with more than the footer under it is not the one in use.
+  const below = codexAt([], [COMPOSER, ...CODEX_FOOT, ["output"]]);
+  assert.equal(codexPrompt(below), "other");
+  // Trailing blank rows are not below it.
+  assert.equal(
+    codexPrompt({
+      ...CODEX_EMPTY,
+      lines: [...CODEX_EMPTY.lines, "", ""],
+      drawn: [...CODEX_EMPTY.drawn, "", ""],
+    }),
+    "empty",
+  );
+});
+
+const codexTerm = (
+  activity: PaseoTerminal["activity"],
+  title = "jev-a2a",
+): PaseoTerminal => term(activity, title);
+const needsInput = (changedAt: number): PaseoTerminal["activity"] => ({
+  state: "idle",
+  attentionReason: "needs_input",
+  changedAt,
+});
+const asCodex = { clis: { "terminal:T1": "codex" as const } };
+
+test("observing Codex: ready at its empty composer whatever its title, not while its activity or status line shows a turn, and a stale needs_input does not hold it", async () => {
+  const observe = async (t: PaseoTerminal, shown: Screen) => {
+    const d = terminalDaemon(t, null, shown);
+    const seen = await adapterOver(d.daemon, asCodex).observe(
+      "terminal:T1",
+      SEEN,
+    );
+    return { seen, reads: d.reads };
+  };
+  const fresh = await observe(codexTerm(null), CODEX_EMPTY);
+  assert.equal(fresh.seen?.ready, true);
+  assert.equal(fresh.seen?.status, "idle");
+  // The same terminal as Claude Code would be away: the title is not its.
+  const asClaude = terminalDaemon(codexTerm(null), null, CODEX_EMPTY);
+  assert.equal(
+    (await adapterOver(asClaude.daemon).observe("terminal:T1", SEEN))?.ready,
+    false,
+  );
+
+  const declined = await observe(codexTerm(needsInput(5)), CODEX_DECLINED);
+  assert.equal(declined.seen?.ready, true);
+
+  const review = await observe(codexTerm(needsInput(5)), CODEX_REVIEW);
+  assert.equal(review.seen?.ready, false);
+  assert.equal(review.seen?.status, "working");
+  assert.equal(review.seen?.snapshot.status, "running");
+
+  const streaming = await observe(
+    codexTerm({ state: "working", changedAt: 5 }),
+    CODEX_STREAMING,
+  );
+  assert.equal(streaming.seen?.ready, false);
+  assert.equal(streaming.seen?.status, "working");
+  assert.deepEqual(streaming.reads, []);
+
+  for (const shown of [CODEX_DRAFT, CODEX_APPROVAL, CODEX_EXITED]) {
+    const other = await observe(codexTerm(finishedAt(5)), shown);
+    assert.equal(other.seen?.ready, false);
+    assert.equal(
+      other.seen?.status,
+      "not at an empty Codex composer: a draft, a dialog, or Codex not running",
+    );
+  }
+});
+
+test("a Codex terminal's snapshot carries its title without spinner frames or the approval banner", () => {
+  const titles: [string, string | null][] = [
+    ["jev-a2a", "jev-a2a"],
+    ["⠹ Run terminal probe | jev-a2a", "Run terminal probe | jev-a2a"],
+    ["⠼ ⠼ | dotfiles", "dotfiles"],
+    ["[ ! ] Action Required | ⠏ | jev-a2a", "jev-a2a"],
+    [
+      "[ . ] Action Required | Run terminal probe | jev-a2a",
+      "Run terminal probe | jev-a2a",
+    ],
+    ["", null],
+  ];
+  for (const [title, shown] of titles)
+    assert.equal(
+      terminalSnapshotOf(codexTerm(finishedAt(5), title), SEEN, "codex").title,
+      shown,
+      title,
+    );
+  const working = terminalSnapshotOf(
+    codexTerm({ state: "working", changedAt: Date.parse(SEEN) }),
+    SEEN,
+    "codex",
+  );
+  assert.equal(working.status, "running");
+  const waiting = terminalSnapshotOf(codexTerm(needsInput(5)), SEEN, "codex");
+  assert.equal(waiting.status, "idle");
+  assert.equal(waiting.attention, null);
+});
+
+test("a Codex send goes only to its empty composer, and is confirmed by the turn it starts", async () => {
+  const { daemon, inputs } = terminalDaemon(
+    codexTerm(needsInput(5)),
+    (t) => ({ ...t, activity: { state: "working", changedAt: 9 } }),
+    CODEX_DECLINED,
+  );
+  assert.equal(
+    await adapterOver(daemon, { ...quick, ...asCodex }).send(
+      "terminal:T1",
+      "D1/M1",
+      "go",
+    ),
+    "accepted",
+  );
+  assert.deepEqual(inputs, ["\u001b[200~go\u001b[201~", "\r"]);
+  const refused: [PaseoTerminal, Screen][] = [
+    [codexTerm(needsInput(5)), CODEX_REVIEW],
+    [codexTerm({ state: "working", changedAt: 5 }), CODEX_STREAMING],
+    [codexTerm(finishedAt(5)), CODEX_DRAFT_HOME],
+    [codexTerm(needsInput(5)), CODEX_APPROVAL],
+    [codexTerm(finishedAt(5)), CODEX_KILLED],
+  ];
+  for (const [start, shown] of refused) {
+    const held = terminalDaemon(start, null, shown);
+    assert.equal(
+      await adapterOver(held.daemon, { ...quick, ...asCodex }).send(
+        "terminal:T1",
+        "D1/M1",
+        "go",
+      ),
+      "not_sent",
+    );
+    assert.deepEqual(held.inputs, []);
   }
 });
 

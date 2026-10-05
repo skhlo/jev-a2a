@@ -8,7 +8,7 @@ import type { Config } from "./types.ts";
 import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
 // A placement's session in `agents`: a Paseo agent id, or `terminal:<id>`
-// for Claude Code in a Paseo terminal (see paseo.ts). The terminal it
+// for an agent CLI in a Paseo terminal (see paseo.ts). The terminal it
 // names, or null for an agent.
 const TERMINAL = "terminal:";
 export const terminalOf = (session: string): string | null =>
@@ -18,8 +18,15 @@ export const terminalOf = (session: string): string | null =>
 const TERMINAL_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// The CLIs a terminal placement may run, each with its own idea of an
+// empty prompt (see paseo.ts); Claude Code unless `terminals` names another.
+export const TERMINAL_CLIS = ["claude", "codex"] as const;
+export type TerminalCli = (typeof TERMINAL_CLIS)[number];
+const isTerminalCli = (value: unknown): value is TerminalCli =>
+  TERMINAL_CLIS.some((cli) => cli === value);
+
 // The calling session as the record names it: a Paseo agent's id, or the
-// terminal Claude Code runs in. Null outside a participant session.
+// terminal the CLI runs in. Null outside a participant session.
 export const callerSession = (
   env: Record<string, string | undefined> = process.env,
 ): string | null =>
@@ -43,6 +50,9 @@ export type RouterConfig = Config & {
   // terminal:<id> (see terminalOf). Placements without an entry are not
   // served.
   agents: Record<string, string>;
+  // Placement key -> the CLI in its terminal, for a terminal placement that
+  // does not run Claude Code.
+  terminals: Record<string, TerminalCli>;
   // Where `router serve` listens for events from other hosts, where it
   // serves the board (loopback; expose it through Tailscale Serve), and which
   // tailnet logins may act from the board, as which principals.
@@ -67,6 +77,18 @@ export type RouterConfig = Config & {
   // many seconds; null, the default, reads none and the board shows none.
   usage: { every: number; accounts: AccountId[] } | null;
 };
+
+// Each named terminal session's CLI, keyed by the session (`terminal:<id>`)
+// as the adapter is handed it.
+export const terminalClis = (
+  config: Pick<RouterConfig, "agents" | "terminals">,
+): Record<string, TerminalCli> =>
+  Object.fromEntries(
+    Object.entries(config.terminals).flatMap(([key, cli]) => {
+      const session = config.agents[key];
+      return session ? [[session, cli]] : [];
+    }),
+  );
 
 // Seconds between usage reads when the usage section names none.
 export const USAGE_EVERY = 120;
@@ -129,6 +151,19 @@ export function loadConfig(path: string): RouterConfig {
         `agents.${key} is a terminal, which takes no message key, so ${participant.id} must be idempotent: false`,
       );
     agentIds[key] = id;
+  }
+  const listedClis = extra.terminals ?? {};
+  if (!isRecord(listedClis))
+    return fail('terminals maps terminal placements to a CLI, e.g. "codex"');
+  const terminals: Record<string, TerminalCli> = {};
+  for (const [key, cli] of Object.entries(listedClis)) {
+    if (terminalOf(agentIds[key] ?? "") === null)
+      return fail(`terminals.${key} names no terminal placement in agents`);
+    if (!isTerminalCli(cli))
+      return fail(
+        `terminals.${key} must be one of ${TERMINAL_CLIS.join(", ")}`,
+      );
+    terminals[key] = cli;
   }
   const serve = isRecord(extra.serve) ? extra.serve : {};
   const board =
@@ -198,6 +233,7 @@ export function loadConfig(path: string): RouterConfig {
         : join(homedir(), ".local", "state", "jev-router"),
     hosts,
     agents: agentIds,
+    terminals,
     serve: {
       listen:
         typeof serve.listen === "string" && serve.listen

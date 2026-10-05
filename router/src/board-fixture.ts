@@ -42,6 +42,7 @@ export const config: RouterConfig = {
     "environment@mbp": "E1",
     "environment@mini": "E2",
   },
+  terminals: {},
   serve: {
     listen: "127.0.0.1:0",
     board: "127.0.0.1:0",

@@ -30,6 +30,7 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
   home,
   hosts: { mbp: { paseo: "fake://mbp", replyCommand: "router" } },
   agents: { "orchestrator@mbp": "A1" },
+  terminals: {},
   serve: {
     listen: "127.0.0.1:0",
     board: "127.0.0.1:0",
@@ -786,6 +787,130 @@ test("a hand-back is told with the choice to make, and a failed end with each de
   assert.match(
     sent[1]?.text ?? "",
     /^\[router T1 final\] Your request is failed \(deadline\), told at 1970-01-01T00:00:01\.000Z\. No reply is needed\.\n\nenvironment@mba expired\n\nenvironment@mbp failed \(session E1 R1\):\nno such host\n\nenvironment@mini expired$/,
+  );
+  await shell.close();
+});
+
+test("a Codex terminal is told to take the router's command out of its sandbox, in a notice it must answer and in a request; Claude Code is not", async (t) => {
+  const NOTE =
+    " That command has to reach the router from outside your sandbox, so request escalated permissions for it.";
+  for (const cli of ["codex", "claude"] as const) {
+    const config: RouterConfig = {
+      ...configFor(scratch(t, "shell-")),
+      agents: { "orchestrator@mbp": "terminal:T1" },
+      terminals: cli === "codex" ? { "orchestrator@mbp": cli } : {},
+    };
+    const sent: { key: string; text: string }[] = [];
+    const shell = await openShell(
+      config,
+      scripted({
+        send: (key, text) => {
+          sent.push({ key, text });
+          return Promise.resolve("accepted");
+        },
+      }),
+    );
+    await shell.deliver();
+    // The terminal asks the service on this host for something, which asks
+    // it a question; then a person sends the terminal a request.
+    const events: Event[] = [
+      {
+        type: "submit",
+        by: "terminal:T1",
+        messageId: "M1",
+        text: "Which shell config is active on mbp?",
+        to: "environment",
+        hosts: ["mbp"],
+      },
+      {
+        type: "observe",
+        placement: "environment@mbp",
+        session: "E1",
+        ready: true,
+      },
+      { type: "attempt", deliveryId: "D1" },
+      {
+        type: "adapterResult",
+        deliveryId: "D1",
+        messageId: "M1",
+        outcome: "accepted",
+      },
+      {
+        type: "update",
+        by: "E1",
+        taskId: "T1",
+        messageId: "Q1",
+        inReplyTo: "M1",
+        kind: "question",
+        text: "Login shell or interactive?",
+      },
+    ];
+    for (const event of events) {
+      const outcome = shell.apply(event);
+      assert.equal(outcome.ok, true, outcome.message);
+    }
+    await shell.deliver();
+    const submitted = shell.apply({
+      type: "submit",
+      by: "you",
+      messageId: "M2",
+      text: "Fix it",
+      to: "orchestrator",
+    });
+    assert.equal(submitted.ok, true, submitted.message);
+    await shell.deliver();
+    const notice = sent.find((s) => s.key === "N/T1/question/D1/Q1")?.text;
+    const request = sent.find((s) => s.key === "D2/M2")?.text;
+    assert.match(notice ?? "", /^\[router T1 question\/D1\/Q1\]/, cli);
+    assert.match(
+      request ?? "",
+      /^\[router T2 M2\] Task from the router\./,
+      cli,
+    );
+    for (const text of [notice ?? "", request ?? ""])
+      assert.equal(text.includes(`.${NOTE}\n\n`), cli === "codex", cli);
+    await shell.close();
+  }
+});
+
+test("a Codex terminal that must choose a recipient is told to take the choice out of its sandbox", async (t) => {
+  const config: RouterConfig = {
+    ...configFor(scratch(t, "shell-")),
+    agents: { "orchestrator@mbp": "terminal:T1" },
+    terminals: { "orchestrator@mbp": "codex" },
+  };
+  const sent: { key: string; text: string }[] = [];
+  const shell = await openShell(config, {
+    ...scripted({
+      send: (key, text) => {
+        sent.push({ key, text });
+        return Promise.resolve("accepted");
+      },
+    }),
+    // Jev leans to the service but not enough to dispatch.
+    judge: () =>
+      Promise.resolve({
+        ok: true as const,
+        choice: "environment",
+        probabilities: { environment: 0.6, incus: 0.4, none: 0 },
+        confidence: 0.6,
+        model: "jev-test",
+        usage: null,
+        ms: 1,
+      }),
+  });
+  await shell.deliver();
+  const outcome = shell.apply({
+    type: "submit",
+    by: "terminal:T1",
+    messageId: "M1",
+    text: "Which shell is active on mbp?",
+  });
+  assert.equal(outcome.ok, true, outcome.message);
+  await shell.deliver();
+  assert.equal(
+    sent.find((s) => s.key === "N/T1/choose/1")?.text,
+    "[router T1 choose/1] The router could not pick a recipient for your request (low confidence; suggested environment, incus). Choose with: router choose --as terminal:T1 --task T1 --to <participant>, one of: environment, incus. That command has to reach the router from outside your sandbox, so request escalated permissions for it.\n\nWhich shell is active on mbp?",
   );
   await shell.close();
 });
