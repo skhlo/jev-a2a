@@ -276,6 +276,9 @@ test("sessionReader: reads the record without the journal lock and tells a curre
   assert.equal(sessionOf("K1"), "replaced");
   assert.equal(sessionOf("you"), null);
   assert.equal(sessionOf(""), null);
+  // A name every object answers to is no session.
+  for (const name of ["constructor", "toString", "__proto__"])
+    assert.equal(sessionOf(name), null, name);
   // Nothing was written: the record is as long as the fixture.
   assert.equal(
     readFileSync(join(record, "journal.jsonl"), "utf8").split("\n").length,

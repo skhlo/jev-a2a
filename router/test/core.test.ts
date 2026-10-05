@@ -2433,6 +2433,34 @@ test("input limits", () => {
   );
 });
 
+test("a name every object answers to is no principal, session or placement", () => {
+  const s = initial(config);
+  for (const name of ["constructor", "toString", "__proto__"]) {
+    const refused = expectReject(
+      s,
+      { type: "submit", by: name, messageId: "M1", text: "hi" },
+      "unauthenticated",
+    );
+    assert.equal(
+      outcomeOf(refused).message,
+      "Only the user or a current participant session can submit.",
+    );
+    expectReject(
+      s,
+      { type: "observe", placement: name, hold: true },
+      "not_found",
+    );
+  }
+  // A hold on __proto__ would hold every placement observed after it: an
+  // observation that says nothing of the hold read it from the prototype.
+  const observed = expectOk(s, {
+    type: "observe",
+    placement: "orchestrator@mbp",
+    ready: true,
+  });
+  assert.equal(observed.placements["orchestrator@mbp"]?.hold, false);
+});
+
 test("the core carries no deployment: any valid configuration works, invalid ones are refused", () => {
   // Deliberately no configuration.
   assert.throws(

@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { validateConfig } from "./core.ts";
+import { own, validateConfig } from "./core.ts";
 import type { Config, Participant, Role } from "./types.ts";
 import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
@@ -149,9 +149,6 @@ const seconds = (
     refuse(`${name} is a number of seconds, ${min} to 3600`);
   return given;
 };
-// A record's own entry: never one every object answers to, like toString.
-const own = <T>(record: Record<string, T>, key: string): T | undefined =>
-  Object.hasOwn(record, key) ? record[key] : undefined;
 // An optional section's fields; none when it is absent.
 const section = (value: unknown): Record<string, unknown> =>
   isRecord(value) ? value : {};

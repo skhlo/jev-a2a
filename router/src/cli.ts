@@ -12,7 +12,7 @@ import {
   USAGE_EVERY,
   type RouterConfig,
 } from "./config.ts";
-import { responsibilityTexts } from "./core.ts";
+import { own, responsibilityTexts } from "./core.ts";
 import {
   serveRunner,
   recordReader,
@@ -204,7 +204,7 @@ async function readUsage(config: RouterConfig): Promise<void> {
 async function evaluateSet(config: RouterConfig): Promise<void> {
   if (!apiKey) fail("TYPESAFE_API_KEY is not set; add it to secrets.env.");
   const sender = actingAs(inv, config, "requester");
-  const permitted = config.permissions?.[sender] ?? [];
+  const permitted = own(config.permissions ?? {}, sender) ?? [];
   if (!permitted.length) fail(`${sender} may address nobody.`);
   const responsibilities = responsibilityTexts(config.participants, permitted);
   const path =

@@ -23,7 +23,7 @@ import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
 import { journalFolder, servedBy } from "./shell.ts";
-import { waitsOnSessions } from "./core.ts";
+import { own, waitsOnSessions } from "./core.ts";
 import type { Event, Outcome, State } from "./types.ts";
 
 export type Run = { outcome: Outcome; report: string[] };
@@ -309,7 +309,7 @@ export const sessionReader =
   (record: RecordReader) =>
   (by: string): SessionStatus => {
     const { state } = record();
-    if (!state.sessions[by]) return null;
+    if (!own(state.sessions, by)) return null;
     return Object.values(state.placements).some((p) => p.session === by)
       ? "current"
       : "replaced";

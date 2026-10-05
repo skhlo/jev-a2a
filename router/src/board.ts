@@ -9,6 +9,7 @@ import {
   currentSend,
   isOpen,
   needsYou,
+  own,
   queueHead,
   reduce,
 } from "./core.ts";
@@ -386,7 +387,7 @@ export function identify(
 ): Actor | null {
   const login = headers["tailscale-user-login"];
   if (typeof login !== "string" || !login) return null;
-  const principals = identities[login];
+  const principals = own(identities, login);
   return principals?.length ? { login, principals } : null;
 }
 
