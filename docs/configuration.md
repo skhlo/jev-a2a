@@ -34,14 +34,14 @@ unknown role, or a name that collides with a participant id.
 
 A list; at least one. Each has:
 
-| Key              | Meaning                                                                                                                                        | Refused when              |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `id`             | Stable and unique. Used in `permissions`, `agents` and on the command line.                                                                    | Empty or repeated         |
-| `name`           | A label.                                                                                                                                       |                           |
-| `kind`           | `agent` or `service`.                                                                                                                          | Anything else             |
-| `hosts`          | Host names; the participant has one placement per host. A host the router serves must also be in `hosts` below.                                | Empty, or a name repeated |
-| `idempotent`     | **Required**, `true` or `false`: whether the participant's adapter deduplicates by the router's message key. Paseo sends are keyed, so `true`. | Missing or not a boolean  |
-| `responsibility` | The text Jev reads, in full; see [participants.md](participants.md) for how to write it.                                                       | Empty                     |
+| Key              | Meaning                                                                                                                                                                                                                                   | Refused when              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `id`             | Stable and unique. Used in `permissions`, `agents` and on the command line.                                                                                                                                                               | Empty or repeated         |
+| `name`           | A label.                                                                                                                                                                                                                                  |                           |
+| `kind`           | `agent` or `service`.                                                                                                                                                                                                                     | Anything else             |
+| `hosts`          | Host names; the participant has one placement per host. A host the router serves must also be in `hosts` below.                                                                                                                           | Empty, or a name repeated |
+| `idempotent`     | **Required**, `true` or `false`: whether the participant's adapter deduplicates by the router's message key. Paseo agent sends are keyed, so `true`; a terminal takes no key, so a participant with a terminal placement must be `false`. | Missing or not a boolean  |
+| `responsibility` | The text Jev reads, in full; see [participants.md](participants.md) for how to write it.                                                                                                                                                  | Empty                     |
 
 ### `permissions`
 
@@ -61,12 +61,17 @@ Machines named in `participants[].hosts`; at least one.
 
 ### `agents`
 
-Placement key (`participant@host`) to Paseo agent id. The agent id is the
-placement's session identity: a placement without an entry is not observed
-and not delivered to. `paseo agent ls -g --json` prints each agent's `id`
-across directories (`--host ssh://<host>` for another machine; the table
-form shows only the short id). Refused: a key that is not a configured
-placement, a host not in `hosts`, or an empty value.
+Placement key (`participant@host`) to the placement's session: a Paseo
+agent id, or `terminal:<id>` for Claude Code running in a Paseo terminal.
+The value is the placement's session identity: a placement without an
+entry is not observed and not delivered to. `paseo agent ls -g --json`
+prints each agent's `id` across directories, and `paseo terminal ls --all
+--json` each terminal's (`--host ssh://<host>` for another machine; the
+table form shows only the short id). Refused: a key that is not a
+configured placement, a host not in `hosts`, an empty value, a terminal
+named by anything but its full id, or a terminal for a participant that is
+`idempotent: true`. When a terminal is sent to is in the contract's
+adapters section ([jev-router-spec.md](../research/jev-router-spec.md)).
 
 ### `serve`
 

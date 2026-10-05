@@ -13,10 +13,20 @@
 // closed agent as a prompt does, so the health sheet's per-session reads
 // happen only for sessions seen idle or running.
 //
-// The subagent list is not on the public client; it is on the DaemonClient
-// the client is built over, exported under the package's internal subpath.
-// This builds the same pair createPaseoClient builds, so one connection
-// serves both; the lockfile pins the client, and with it the subpath.
+// The subagent list and the terminals are not on the public client; they
+// are on the DaemonClient the client is built over, exported under the
+// package's internal subpath. This builds the same pair createPaseoClient
+// builds, so one connection serves both; package.json pins the client's
+// exact version, and with it the subpath.
+//
+// A placement's session may instead be Claude Code in a Paseo terminal,
+// named `terminal:<id>` in `agents`. A terminal takes raw input only: no
+// message key, no receipt. So the router sends only to Claude Code's empty
+// prompt box, read from the terminal's title, activity and screen, and
+// confirms a send by the activity change that follows it. The facts this
+// relies on, verified on the 0.10.2 daemon with Claude Code 2.1.289, and
+// what it does not cover, are in the contract's Adapters section (Paseo
+// terminal).
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
@@ -30,6 +40,7 @@ import {
   DaemonClient,
   type FetchAgentTimelinePayload,
   type ProviderSubagentListPayload,
+  type TerminalStreamEvent,
 } from "@getpaseo/client/internal/daemon-client";
 import {
   ACTIVITY_KINDS,
@@ -42,6 +53,7 @@ import {
   type Checkout,
   type Subagents,
 } from "./telemetry.ts";
+import { terminalOf } from "./config.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
@@ -77,10 +89,18 @@ export type AdapterOptions = {
   // Activity items kept per session (the timeline is fetched with room for
   // the harness's own calls, HARNESS_ROOM more).
   tail?: number;
+  // How long a terminal send waits for the activity change that confirms
+  // it, and the wait itself. Tests shorten them.
+  receiptMs?: number;
+  sleep?: (ms: number) => Promise<void>;
 };
 
 export type ProviderSubagent = ProviderSubagentListPayload["subagents"][number];
 export type TimelineEntry = FetchAgentTimelinePayload["entries"][number];
+export type PaseoTerminal = Awaited<
+  ReturnType<DaemonClient["listTerminals"]>
+>["terminals"][number];
+type TerminalActivity = NonNullable<PaseoTerminal["activity"]>;
 
 // What the adapter asks of a daemon, so the rules above it are testable
 // without one.
@@ -90,6 +110,9 @@ export type Daemon = {
   workspaces(): Promise<PaseoWorkspace[]>;
   subagents(agentId: string): Promise<ProviderSubagent[]>;
   tail(agentId: string, limit: number): Promise<TimelineEntry[]>;
+  terminals(): Promise<PaseoTerminal[]>;
+  screen(terminalId: string): Promise<Screen>;
+  input(terminalId: string, data: string): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -121,6 +144,129 @@ export const isReady = (
 ): boolean =>
   (status === "idle" || (status === "closed" && !archived)) &&
   pendingPermissions === 0;
+
+// Claude Code's marks at the head of the terminal title: ✳ while the
+// session waits at its prompt, and also while a permission dialog is open;
+// a spinner frame during a turn. A title without one is not Claude Code's.
+const MARK = /^([✳◐◓◑◒])\s+/u;
+const IDLE = "✳";
+// A rule line of Claude Code's prompt box.
+const RULE = /^─{20,}$/;
+
+// What a terminal's record says of Claude Code in it, in one place for
+// readiness, the run's report and the board:
+// - away: the title is not Claude Code's, so it is not running there (it
+//   exited, and the activity Paseo kept from its last hook is stale);
+// - working: a turn runs, by the title's spinner or the activity, which
+//   stays working through a permission dialog;
+// - waiting: the title shows the idle mark and no turn runs.
+export type TerminalCondition = "working" | "waiting" | "away";
+export function terminalCondition(t: PaseoTerminal): TerminalCondition {
+  const mark = MARK.exec(t.title ?? "")?.[1];
+  if (!mark) return "away";
+  return mark !== IDLE || t.activity?.state === "working"
+    ? "working"
+    : "waiting";
+}
+
+// A terminal's visible lines (a dim cell read as a space) and the row its
+// cursor is on.
+export type Screen = { lines: string[]; cursorRow: number | null };
+
+// Claude Code's prompt box on the screen, empty and in use: the last two
+// rule lines hold a lone ❯ (its dim placeholder read as spaces), with only
+// the status lines under them and the cursor on the ❯. A dialog takes the
+// box's place and a half-typed line fills it, so a paste would be answered
+// or merged; a box a killed CLI left on the screen has the shell's cursor
+// below it. None of them is ready. The activity cannot tell: it is empty
+// before the first prompt and after an Esc, dialog or not.
+export function promptEmpty(screen: Screen): boolean {
+  const shown = screen.lines.map((line) => line.trimEnd());
+  while (shown.length && !shown.at(-1)) shown.pop();
+  const rule = shown.findLastIndex((line) => RULE.test(line));
+  return (
+    rule >= 2 &&
+    shown[rule - 1] === "❯" &&
+    RULE.test(shown[rule - 2] ?? "") &&
+    shown.length - 1 - rule <= 6 &&
+    screen.cursorRow === rule - 1
+  );
+}
+
+// The terminal in words, for the run's report.
+function terminalStatus(
+  t: PaseoTerminal,
+  condition: TerminalCondition,
+  empty: boolean,
+): string {
+  if (condition === "working") return "working";
+  if (condition === "away")
+    return `Claude Code is not running in the terminal (title "${t.title ?? ""}")`;
+  return empty ? "idle" : "at its prompt with text in it or a dialog open";
+}
+
+// A terminal's record reduced to the board's fields: what its condition
+// and activity say, its title without the mark, its directory and
+// checkout, and nothing a terminal does not report (provider, model,
+// context, usage).
+export function terminalSnapshotOf(
+  t: PaseoTerminal,
+  seen: string,
+): AgentSnapshot {
+  const condition = terminalCondition(t);
+  const a = t.activity ?? null;
+  const at = a ? new Date(a.changedAt).toISOString() : null;
+  const finished = condition === "waiting" && a?.attentionReason === "finished";
+  return {
+    seen,
+    status:
+      condition === "working"
+        ? "running"
+        : condition === "waiting"
+          ? "idle"
+          : "closed",
+    attention: finished ? "finished" : null,
+    attentionAt: finished ? at : null,
+    turnStartedAt: condition === "working" && a ? at : null,
+    lastUserMessageAt: null,
+    permissions: [],
+    provider: null,
+    model: null,
+    thinking: null,
+    mode: null,
+    context: null,
+    usage: null,
+    error: null,
+    title: (t.title ?? "").replace(MARK, "") || null,
+    cwd: t.cwd ?? null,
+    checkout: null,
+    subagents: null,
+    activity: null,
+  };
+}
+
+// A bracketed paste is followed by Enter only after this long, so Claude
+// Code takes the paste as text first (300 ms verified);
+// the activity is looked at this often for the send's receipt.
+const PASTE_SETTLE_MS = 300;
+const RECEIPT_LOOK_MS = 250;
+
+// Text as a bracketed paste may carry it: no escape that could end the
+// paste early or drive the terminal, line breaks as newlines.
+export const pasteable = (text: string): string =>
+  text
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
+
+// A prompt reached the session: its activity changed after the send to a
+// turn that started or already finished.
+const started = (
+  before: TerminalActivity | null | undefined,
+  after: TerminalActivity | null | undefined,
+): boolean =>
+  Boolean(after) &&
+  after?.changedAt !== before?.changedAt &&
+  (after?.state === "working" || after?.attentionReason === "finished");
 
 // The daemon's agent snapshot (protocol 0.10.1: status, activeTurn,
 // lastUserMessageAt, pendingPermissions, attentionReason and its
@@ -350,6 +496,12 @@ export function adapterOver(
 ): Adapter {
   const sheet = options.sheet ?? true;
   const tail = options.tail ?? 8;
+  const receiptMs = options.receiptMs ?? 10_000;
+  const sleep =
+    options.sleep ??
+    ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  const terminal = async (id: string): Promise<PaseoTerminal | null> =>
+    (await daemon.terminals()).find((t) => t.id === id) ?? null;
   // One list per adapter, and one note when it failed: the first observe
   // hears why, the rest only get their null.
   let workspaces: Promise<PaseoWorkspace[] | null> | null = null;
@@ -375,8 +527,88 @@ export function adapterOver(
       return null;
     }
   };
+  // Whether a terminal waiting at the idle mark shows an empty prompt
+  // box; a screen that cannot be read is not one, with a note.
+  const emptyPrompt = async (id: string, notes: string[]): Promise<boolean> =>
+    (await attempt(
+      "screen",
+      `terminal:${id}`,
+      async () => promptEmpty(await daemon.screen(id)),
+      notes,
+    )) ?? false;
+  // A terminal is observed from the daemon's terminal list, and, when it
+  // waits at the idle mark, its screen: ready only at an empty prompt box.
+  // Its workspace gives the checkout; a terminal has no subagent list or
+  // timeline to read.
+  const observeTerminal = async (
+    id: string,
+    seen: string,
+  ): Promise<Observation | null> => {
+    const t = await terminal(id);
+    if (!t) return null;
+    const condition = terminalCondition(t);
+    const snapshot = terminalSnapshotOf(t, seen);
+    const notes: string[] = [];
+    const empty = condition === "waiting" && (await emptyPrompt(id, notes));
+    if (sheet) {
+      const list = await listed(notes);
+      const w =
+        list?.find((w) => w.id === t.workspaceId) ??
+        list?.find((w) => w.workspaceDirectory === t.cwd);
+      snapshot.checkout = w ? checkoutOf(w) : null;
+    }
+    return {
+      ready: empty,
+      status: terminalStatus(t, condition, empty),
+      pendingPermissions: 0,
+      snapshot,
+      ...(notes.length ? { notes } : {}),
+    };
+  };
+  // A terminal send: refused before any input unless the terminal is there
+  // and ready, looked at again now; then the text as one bracketed paste
+  // and Enter after it. Accepted only once the activity shows the prompt
+  // started a turn; with no such change within about receiptMs (plus the
+  // looks' own time) the prompt may sit unsent in the box or have run, so
+  // the outcome is unknown.
+  const sendTerminal = async (
+    id: string,
+    text: string,
+  ): Promise<AdapterOutcome> => {
+    let before: PaseoTerminal | null;
+    try {
+      before = await terminal(id);
+    } catch {
+      return "not_sent";
+    }
+    if (
+      !before ||
+      terminalCondition(before) !== "waiting" ||
+      !(await emptyPrompt(id, []))
+    )
+      return "not_sent";
+    try {
+      await daemon.input(id, `\x1b[200~${pasteable(text)}\x1b[201~`);
+    } catch {
+      return "not_sent";
+    }
+    try {
+      await sleep(PASTE_SETTLE_MS);
+      await daemon.input(id, "\r");
+    } catch {
+      return "unknown";
+    }
+    for (let waited = 0; waited < receiptMs; waited += RECEIPT_LOOK_MS) {
+      await sleep(RECEIPT_LOOK_MS);
+      const now = await terminal(id).catch(() => null);
+      if (started(before.activity, now?.activity)) return "accepted";
+    }
+    return "unknown";
+  };
   return {
     async observe(agentId, seen) {
+      const id = terminalOf(agentId);
+      if (id) return observeTerminal(id, seen);
       const result = await daemon.refresh(agentId);
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
@@ -414,6 +646,8 @@ export function adapterOver(
       };
     },
     async send(agentId, key, text) {
+      const id = terminalOf(agentId);
+      if (id) return sendTerminal(id, text);
       try {
         await daemon.send(agentId, text, key);
         return "accepted";
@@ -465,6 +699,11 @@ export async function createPaseoAdapter(
             projection: "projected",
           })
         ).entries,
+      terminals: async () => (await daemonClient.listTerminals()).terminals,
+      screen: (terminalId) => screenOf(daemonClient, terminalId),
+      async input(terminalId, data) {
+        daemonClient.sendTerminalInput(terminalId, { type: "input", data });
+      },
       async close() {
         try {
           await api.dispose();
@@ -479,6 +718,50 @@ export async function createPaseoAdapter(
     },
     options,
   );
+}
+
+type TerminalState = Extract<
+  TerminalStreamEvent,
+  { type: "snapshot" }
+>["state"];
+
+// A grid snapshot as a Screen. The capture call returns plain text even
+// when asked for colour, and Claude Code draws the placeholder in an empty
+// prompt box dim (verified with 2.1.289), so a dim cell reads as a space.
+export function screenFrom(state: TerminalState): Screen {
+  return {
+    lines: state.grid.map((row) =>
+      row.map((cell) => (cell.dim ? " " : cell.char)).join(""),
+    ),
+    cursorRow: state.cursor.row,
+  };
+}
+
+// One snapshot of a terminal's grid, through a subscription released at
+// once; a refused subscription fails with the daemon's reason.
+async function screenOf(
+  daemonClient: DaemonClient,
+  terminalId: string,
+): Promise<Screen> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let release = (): Promise<void> => Promise.resolve();
+  try {
+    const state = await new Promise<TerminalState>((resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("no snapshot of the terminal within 5 s")),
+        5_000,
+      );
+      const subscription = daemonClient.observeTerminal(terminalId, (event) => {
+        if (event.type === "snapshot") resolve(event.state);
+      });
+      release = () => subscription.release();
+      subscription.ready.catch(reject);
+    });
+    return screenFrom(state);
+  } finally {
+    clearTimeout(timer);
+    await release().catch(() => undefined);
+  }
 }
 
 type Tunnel = { port: number; close(): void; failure(): string | null };

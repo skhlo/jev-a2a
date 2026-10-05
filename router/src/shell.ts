@@ -343,7 +343,7 @@ export async function openShell(
 
   // What a participant sender is told, with the client command that answers
   // it: `--as` names the session, which the CLI on the router host needs
-  // and the client ignores (it is always $PASEO_AGENT_ID). A final notice
+  // and the client ignores (it is always the caller's own). A final notice
   // carries each delivery's last word.
   function noticeText(task: Task, due: NoticeDue): string {
     const { key } = due;

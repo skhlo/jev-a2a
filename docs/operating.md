@@ -40,6 +40,15 @@ starts between the look and the send is the one race left; holding the
 session (`router observe <participant@host> --hold`, or the lever on the
 board) closes it, and `--release` opens it again.
 
+A terminal placement, Claude Code in a Paseo terminal, is sent to only at
+Claude Code's empty prompt, as the contract's adapters section
+([jev-router-spec.md](../research/jev-router-spec.md)) defines it, by one
+paste and Enter. A send it cannot confirm is unknown and waits for
+`router resolve`, since a terminal takes no message key. A line a person
+starts typing between the look and the paste is the race here, and the hold
+closes it the same way. The board shows no provider, model, context,
+subagents or activity tail for a terminal, which reports none of them.
+
 ## The record
 
 `home` (default `~/.local/state/jev-router/`) holds:
@@ -182,3 +191,7 @@ links, forms and redirects use relative URLs.
   agent id the daemon does not know shows `missing` in its health line;
   one whose host could not be reached shows `unreachable`, with the reason
   as a tooltip.
+- A terminal placement's line in the run report says why it is not ready:
+  `working`, `at its prompt with text in it or a dialog open`, or `Claude
+Code is not running in the terminal` when the title is not Claude Code's
+  (start it again in that terminal).

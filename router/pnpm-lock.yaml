@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@getpaseo/client':
-        specifier: ^0.9.2
-        version: 0.9.2
+        specifier: 0.10.2
+        version: 0.10.2
     devDependencies:
       '@types/node':
         specifier: ^26.6.3
@@ -24,14 +24,14 @@ importers:
 
 packages:
 
-  '@getpaseo/client@0.9.2':
-    resolution: {integrity: sha512-MvStNVcWF3JhEaCAOhrPQ5qaLQJtkz1bvPop+wp8npqHB0z2PjAwPMZUYP/2T3kWrZj2ukWmODxjihKnwd0qTQ==}
+  '@getpaseo/client@0.10.2':
+    resolution: {integrity: sha512-dc9qnxG1U3Q2KeVUiQeIPcqC8t7SQuTcLcTPLi0h+U6hU80KQGQ8E8GhTVLU5kkaV5vtu1BHEHE149p5bc11qQ==}
 
-  '@getpaseo/protocol@0.9.2':
-    resolution: {integrity: sha512-CGfyfqOVNxETLCgVhQGeaP6PtP17FvP5wBuRxmVQ+WIw3F/qCNju/a5aSDF+vbh+62Qf2qtha9MpQB9DrVJehA==}
+  '@getpaseo/protocol@0.10.2':
+    resolution: {integrity: sha512-NCm1VkBdgNZ/+hSImXhTB0V2kCJ7+NonNjvNuTKXAJXjLzJhY5ULPgvFNKtxdu7gub136kBKp3yNZaKZFRFgkg==}
 
-  '@getpaseo/relay@0.9.2':
-    resolution: {integrity: sha512-jlnePwu5unMX04yWtvkY35bTi5yFZYfwlYPhVgwWxfEmFwGMJE4TgI62HO2bY9uS9GfehXIyn4wBmOvYPkNlwA==}
+  '@getpaseo/relay@0.10.2':
+    resolution: {integrity: sha512-1RF04/8DYAjB79lUmPeP3rG+oj4boPWIxLlz1GOZU/txmY6RFb9GMY3YwptcDxXVEdDFRBZuSInL+DdbUHkPCQ==}
 
   '@types/node@26.6.3':
     resolution: {integrity: sha512-dsqMQQoeTLqu9wynDD00q573mNzso3IdQOAfHRJqLCcmCFPoGo9A1bDpUcv/9tnKpErQWv9uKeGfl37EIS02Yg==}
@@ -197,21 +197,21 @@ packages:
 
 snapshots:
 
-  '@getpaseo/client@0.9.2':
+  '@getpaseo/client@0.10.2':
     dependencies:
-      '@getpaseo/protocol': 0.9.2
-      '@getpaseo/relay': 0.9.2
+      '@getpaseo/protocol': 0.10.2
+      '@getpaseo/relay': 0.10.2
       zod: 4.6.5
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@getpaseo/protocol@0.9.2':
+  '@getpaseo/protocol@0.10.2':
     dependencies:
       semver: 7.8.5
       zod: 4.6.5
 
-  '@getpaseo/relay@0.9.2':
+  '@getpaseo/relay@0.10.2':
     dependencies:
       base64-js: 1.5.1
       tweetnacl: 1.0.3

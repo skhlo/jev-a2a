@@ -330,10 +330,11 @@ Therefore:
   timeline fetch and the provider subagent list call `ensureAgentLoaded`
   in the 0.10.2 daemon and resume a `closed` session, so the telemetry
   sheet's per-session reads are made only for a session seen `idle` or
-  `running`. The subagent list is not on the public `PaseoClient`; it is on
-  the `DaemonClient` under `@getpaseo/client/internal/daemon-client`, the
-  same class `createPaseoClient` builds on, so the adapter builds that pair
-  itself and names the dependence in its header. An agent snapshot carries
+  `running`. The subagent list, and a terminal's record, screen and input,
+  are not on the public `PaseoClient`; they are on the `DaemonClient` under
+  `@getpaseo/client/internal/daemon-client`, the same class
+  `createPaseoClient` builds on, so the adapter builds that pair itself,
+  names the dependence in its header, and pins the client's exact version. An agent snapshot carries
   no workspace id; the refresh result and each `fetch_workspaces` entry
   carry `project {projectKey, workspaceName, checkout.cwd}`, which is the
   join.
@@ -349,8 +350,46 @@ idempotency, so a herdr participant is configured `idempotent: false`: its
 `interactive_ready`; every herdr timeout is `unknown`; `state_change_seq` can
 distinguish a stall from a start.
 
-Neither tool correlates replies. The explicit `update` call carrying task and
-message IDs is the only reply path. The envelope the participant receives must
+**Paseo terminal (Claude Code).** A placement's session may be Claude Code
+running in a Paseo terminal (`terminal:<id>` in `agents`; built 2026-10-05,
+ticket 015). Verified on the 0.10.2 daemon with Claude Code 2.1.289: the
+terminal record's `activity` is set by Paseo's Claude hooks (`working` on a
+submitted prompt and through a permission dialog, `idle`/`finished` when the
+turn ends, `idle` again on SessionEnd and kept after the CLI exits), and is
+null before the first prompt since the daemon started and after an Esc or
+Ctrl-C; the title starts with `✳` at the prompt and in a permission dialog,
+with a spinner during a turn, and is the shell's once the CLI exits; a
+bracketed paste then Enter arrives as one prompt. Input is raw keystrokes:
+no message key, no receipt. Therefore:
+
+- `ready` requires the `✳` title, no `working` activity, and Claude Code's
+  prompt box empty on the screen with the cursor in it. The title rules out
+  a shell left by an exited CLI; the activity rules out a turn or a
+  permission dialog; the empty box rules out a dialog the activity cannot
+  show and a half-typed line the paste would join; the cursor rules out a
+  box a killed CLI left above the shell's prompt. The screen is one grid
+  snapshot (`observeTerminal`), since the capture call returns plain text
+  and Claude Code's placeholder in an empty box is drawn dim.
+- Outcome mapping: a terminal that is gone or not ready when looked at
+  again before the paste, or a paste that could not be written → `not_sent`;
+  an activity change to a started or finished turn within the receipt
+  window → `accepted`; no such change, or a failure after the paste →
+  `unknown`.
+- A configuration change that makes a participant non-idempotent stops its
+  open work's `unknown` sends and notices from being repeated: a repeat
+  goes through the adapter in force now.
+- Not covered: a CLI killed without cleanup under a shell that sets no
+  title leaves the title and an idle activity; the cursor rule catches it
+  only while the shell's prompt is under the box. Under a terminal
+  multiplexer Claude Code keeps a static title, so with no activity (after
+  a daemon restart mid-turn) a turn is not seen.
+- A participant with a terminal placement is configured `idempotent: false`,
+  which the config enforces, so its `unknown` sends are never repeated.
+- The session replies as `terminal:$PASEO_TERMINAL_ID`, which the reply
+  command reads when `$PASEO_AGENT_ID` is unset.
+
+None of these tools correlates replies. The explicit `update` call carrying
+task and message IDs is the only reply path. The envelope the participant receives must
 therefore tell it the task ID, the message ID and how to reply, in the prompt
 text itself.
 
@@ -390,7 +429,8 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
    the worst wrong choice seen. Re-run when the roster or a text changes,
    and before moving the pin.
 2. Authentication of participant events: a local reply is trusted on
-   `PASEO_AGENT_ID`; over HTTP, a reply, answer, request or choice is
+   `PASEO_AGENT_ID`, or on `PASEO_TERMINAL_ID` as `terminal:<id>` for Claude
+   Code in a Paseo terminal; over HTTP, a reply, answer, request or choice is
    trusted on the shared `ROUTER_TOKEN`, so any holder of the token can act
    as any participant session. `serve` refuses a `by` that is not a session
    the record knows, and a replaced session's request or choice; a replaced
@@ -458,7 +498,12 @@ whole run, token rotation, `resolve` from the board, throughput. Built
 2026-10-04 and not yet run live: a participant session submits, chooses and
 answers through the client, and is told questions, hand-backs and the end
 as notices at the placement it sent from (`via`), once per key, through the
-same adapter and idle gate as a send.
+same adapter and idle gate as a send. Built 2026-10-05: a terminal
+placement, run end to end against a scratch Claude Code terminal and a
+scratch record (a fresh session at its empty prompt sent to, accepted, and
+replied as the terminal; a second request queued while the terminal
+worked; a half-typed line and an exited CLI held the next); not yet run on
+the live record.
 
 ## Example deployment
 

@@ -5,7 +5,12 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sharedScratch } from "./test-scratch.ts";
-import { loadConfig, loadSecrets } from "./config.ts";
+import {
+  callerSession,
+  loadConfig,
+  loadSecrets,
+  terminalOf,
+} from "./config.ts";
 import base from "./example-config.ts";
 
 const dir = sharedScratch("config-");
@@ -15,6 +20,7 @@ const write = (value: unknown): string => {
   writeFileSync(path, JSON.stringify(value));
   return path;
 };
+const TERMINAL_ID = "2bd05ba9-f398-4da9-99ad-519dbe5b8011";
 const valid = {
   ...base,
   hosts: {
@@ -98,6 +104,18 @@ test("what the router refuses, with the reason", () => {
       /host mba is not in hosts/,
     ],
     [{ ...valid, agents: { "orchestrator@mbp": 3 } }, /must be an agent id/],
+    [
+      { ...valid, agents: { "orchestrator@mbp": "terminal:" } },
+      /by its full id/,
+    ],
+    [
+      { ...valid, agents: { "orchestrator@mbp": "terminal:2bd05ba9" } },
+      /by its full id/,
+    ],
+    [
+      { ...valid, agents: { "orchestrator@mbp": `terminal:${TERMINAL_ID}` } },
+      /takes no message key, so orchestrator must be idempotent: false/,
+    ],
     [{ ...valid, serve: { board: "0.0.0.0:7678" } }, /loopback/],
     [
       { ...valid, telemetry: { sheet: "yes" } },
@@ -129,6 +147,35 @@ test("what the router refuses, with the reason", () => {
       reason,
       JSON.stringify(value).slice(0, 80),
     );
+});
+
+test("a terminal placement is accepted for a participant that is not idempotent", () => {
+  const config = loadConfig(
+    write({
+      ...valid,
+      participants: valid.participants.map((p) =>
+        p.id === "orchestrator" ? { ...p, idempotent: false } : p,
+      ),
+      agents: {
+        ...valid.agents,
+        "orchestrator@mbp": `terminal:${TERMINAL_ID}`,
+      },
+    }),
+  );
+  assert.equal(config.agents["orchestrator@mbp"], `terminal:${TERMINAL_ID}`);
+});
+
+test("a session is a Paseo agent id or terminal:<id>; the caller's own comes from the agent's id first, else its terminal's", () => {
+  assert.equal(terminalOf(`terminal:${TERMINAL_ID}`), TERMINAL_ID);
+  assert.equal(terminalOf("terminal:"), null);
+  assert.equal(terminalOf("6c9370bc-d2ed-45bc-98c4-a0f1807fa42c"), null);
+  assert.equal(callerSession({ PASEO_AGENT_ID: "A1" }), "A1");
+  assert.equal(callerSession({ PASEO_TERMINAL_ID: "T9" }), "terminal:T9");
+  assert.equal(
+    callerSession({ PASEO_AGENT_ID: "A1", PASEO_TERMINAL_ID: "T9" }),
+    "A1",
+  );
+  assert.equal(callerSession({}), null);
 });
 
 test("secrets: KEY=VALUE lines fill the environment without overriding it", () => {

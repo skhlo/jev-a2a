@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Thin router client for a host that does not run the router: the CLI's
 // `reply`, `submit`, `answer` and `choose` syntax, posted to `router serve`
-// over the tailnet as the participant session $PASEO_AGENT_ID. Reads
+// over the tailnet as the participant session: $PASEO_AGENT_ID, or
+// terminal:$PASEO_TERMINAL_ID for Claude Code in a Paseo terminal. Reads
 // ROUTER_URL and ROUTER_TOKEN from the environment or from
 // ~/.config/jev-router/secrets.env. No dependencies.
 import { readFileSync } from "node:fs";
@@ -28,7 +29,8 @@ const USAGE = `This host's router client supports:
   router submit [--to <participant> [--hosts a,b]] [--message <id>] (<text...> | --text-file <path>)
   router answer --task T --question Q [--delivery D] (--text ... | --text-file <path>) [--message <id>]
   router choose --task T --to <participant>
-Every command acts as the participant session $PASEO_AGENT_ID.`;
+Every command acts as the participant session: $PASEO_AGENT_ID, or
+terminal:$PASEO_TERMINAL_ID in a Paseo terminal.`;
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -45,7 +47,7 @@ const { values, positionals } = parseArgs({
     question: { type: "string" },
     delivery: { type: "string" },
     // Named in the router's notices for the CLI on the router host; here
-    // the session is always $PASEO_AGENT_ID.
+    // the session is always the caller's own.
     as: { type: "string" },
   },
 });
@@ -61,9 +63,13 @@ if (!url || !token)
 
 const [command, ...rest] = positionals;
 if (!["reply", "submit", "answer", "choose"].includes(command)) fail(USAGE);
-const by = process.env.PASEO_AGENT_ID;
+const terminal = process.env.PASEO_TERMINAL_ID;
+const by =
+  process.env.PASEO_AGENT_ID || (terminal ? `terminal:${terminal}` : "");
 if (!by)
-  fail("The client acts as a participant session: $PASEO_AGENT_ID is unset.");
+  fail(
+    "The client acts as a participant session: $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are unset.",
+  );
 const required = (...keys) => {
   for (const key of keys) if (!values[key]) fail(`--${key} is required.`);
 };
