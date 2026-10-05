@@ -134,11 +134,17 @@ records it.
   provider did not send is left out of `metrics`, never sent as `0`; a
   metric's `value` is a number, or words for one that is not a number
   (`"No management key"`, a plan name), and `unit` is a currency code
-  (`USD`, `CNY`), a counted noun or `null`.
+  (`USD`, `CNY`), a counted noun or `null`. The labels the view places by
+  name (`Account balance`, `Balance`, `Key remaining`, `Key limit`,
+  `Key allowance`, and the word "window" that ends a window's label) are
+  `LABEL` and `WINDOW_SUFFIX` in `router/src/usage.ts`.
 - `reading.details` is history behind the account, each with its own
   `observedAt` and `status` (stale after ten minutes, or when the account's
   last refresh failed), `throughDate` the last day it reports and `null`
   without one, and `tables` whose rows carry `null` for a value not
-  reported. A day with no data is an absent row, not a zero row. A sum
-  over a value not reported, or one too large to count safely, is `null`
-  in a row and left out of `metrics`, rather than undercounted.
+  reported. A column's `format` says what its cells are: `number`, `USD`,
+  `date` (a calendar day), `name` (a model or provider as the provider
+  wrote it) or `null` for words. A day with no data is an absent row, not
+  a zero row. A sum over a value not reported, or one too large to count
+  safely, is `null` in a row and left out of `metrics`, rather than
+  undercounted.

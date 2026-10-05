@@ -101,10 +101,13 @@ a deviation in v0.11, the design's own rule in v0.12.
 The Usage view (`src/usage-page.ts`) has no design yet: it is a first cut
 from the design agent's first look (router T60), to be refined in v0.13.
 It uses the board's tokens, themes, head, type and density, and what it
-adds is built as generic parts in the page's CSS, named for what they are
-so a later view can reuse them: the bento pair, the head chip in a band,
-the ledger with its entries (lead, name, figure, wide meter, note, when,
-rest), the meter's pace tick, the pairs, the disclosure and the
-sideways-scrolling table. Its slots carry `data-path`s into the model's
-`usage`, with `pace()` and `max()` added to the formats; no conformance
-list holds them until the design binds them.
+adds is built as generic parts, named for what they are so a later view
+can reuse them: builders beside `chip` and `frame` in `src/board-page.ts`
+(the meter with its pace tick, which also draws the board's context
+meter, the pairs, the table, the disclosure, `pace` and `band`) and their
+CSS (the bento pair, the head chip in a band, the ledger with its entries:
+lead, name, figure, wide meter, note, when, rest). The tabs are one list
+(`VIEWS`), and a panel the script swaps on refresh carries `data-part`.
+Its slots carry `data-path`s into the model's `usage`, with `pace()` and
+`max()` added to the formats; no conformance list holds them until the
+design binds them.

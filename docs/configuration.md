@@ -113,6 +113,12 @@ login, is in [operating.md](operating.md#usage).
 | `every`    | Seconds after the end of one read before the next. Refused unless 30 to 3600.                                                          | `120`    |
 | `accounts` | Which accounts to read, among `codex`, `claude`, `deepseek` and `openrouter`; shown in that order. Refused empty or with a name twice. | all four |
 
+`router/config.example.json` leaves the section out on purpose: usage is
+opt-in, and copying the quick start should not start reading a host's
+accounts. Nor can `router/src/example-config.ts` hold it: that file is
+typed as the core's `Config`, which has none of the router's own
+sections (`serve`, `jev`, `telemetry`, `usage`).
+
 ### `home`
 
 The record's directory: `journal.jsonl` and, beside it, `telemetry.json`.

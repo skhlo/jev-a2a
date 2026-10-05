@@ -36,7 +36,9 @@ in memory only, so a restart reads afresh. `router usage` reads them once
 and prints the result (see [operating.md](operating.md#usage)).
 
 The head is the board's. Its chips name the most used subscription window
-and count the accounts that are stale, unavailable, or still being read;
+(leaving out a window whose reset has passed, and marking one from a stale
+reading "· stale") and count the accounts that are stale, unavailable, or
+still being read;
 its tick reads "read 09:44Z · every 2m", the store's last read, with the
 page's build time and the contract as its tooltip.
 
@@ -44,14 +46,16 @@ page's build time and the contract as its tooltip.
   provider's usage page) on its first row, the window, the share used, a
   meter with a pace tick at how much of the window has passed, "above
   pace" when use runs more than two points ahead of it, the time to the
-  reset and what is left. A window without a length or reset has no tick.
-  Colour marks only the 75% (warning) and 90% (error) bands and use above
-  pace.
+  reset and what is left. A window without a length or reset has no tick,
+  and one whose reset has passed reads "reset passed". Colour marks only
+  the 75% (warning) and 90% (error) bands and use above pace. A
+  subscription that reports no window says "No quota windows reported".
 - **Balances**: one row per API account, the balance leading in each
   currency the provider reports, then OpenRouter's key: what is left of
   its limit and a small meter of the share used. Balances are neutral. A
   missing OpenRouter management key reads "No management key" in the
-  balance's place, with a notice naming `OPENROUTER_MANAGEMENT_KEY`.
+  balance's place, with a notice naming `OPENROUTER_MANAGEMENT_KEY`; an
+  account with history alone reads "Current limits are unavailable".
 
 Under its rows, an account says how fresh it is only when it is not
 current: a badge (stale, unavailable, not read) with the reading's age, and
@@ -61,16 +65,18 @@ keeps the last reading with its time; a reading of history alone says
 current reading" ("Reading…" until the first read ends). Then come the
 account's other figures (plan, credits, key spend) and its history, each
 behind a disclosure: Codex's token activity and, with a management key,
-OpenRouter's spending by model and provider. A day-keyed table shows its
-latest 60 days and says so when it cuts; a day with no data is a gap, not
-a zero. A value the provider did not report is a dash, never 0.
+OpenRouter's spending by model and provider. Tables draw numbers, dates
+and model and provider names in mono. A day-keyed table shows its latest
+60 days and says so when it cuts; a day with no data is a gap, not a zero.
+A value the provider did not report is a dash, never 0.
 
-At the board's 900px breakpoint the two panels stack and each row wraps
-into the screen's width; at 390px only a wide table scrolls sideways,
-inside its own box. The page works without the script; with it, it
-refreshes like the board, keeps open disclosures open (in `localStorage`),
-and `?` opens the help with the palettes. The board's other keys do
-nothing here.
+Below 1360px the two panels stack and the main area scrolls, since a row
+of quota windows needs about 750px; at the board's 900px breakpoint each
+row wraps into the screen's width, a balance on a line of its own; at
+390px only a wide table scrolls sideways, inside its own box. The page
+works without the script; with it, it refreshes like the board, keeps open
+disclosures open (in `localStorage`), and `?` opens the help with the
+palettes. The board's other keys do nothing here.
 
 Not ported from API Dash: Claude's local statistics and its usage cache,
 the macOS Keychain, Pi Atlas, the API cards' Pi spend and "balance lasts"

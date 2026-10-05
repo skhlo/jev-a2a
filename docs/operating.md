@@ -80,8 +80,9 @@ read yet".
 What each account reads, with this host's own logins:
 
 - Codex: `codex app-server --listen stdio://`, run from a temporary
-  directory with the router's secrets left out of its environment, for
-  the current limits and the account's daily token history. It needs
+  directory with the router's secrets left out of its environment (the
+  fixed names and every name `secrets.env` sets), for the current limits
+  and the account's daily token history. It needs
   `codex` on `PATH` (the service's `PATH` includes mise's shims) and a
   signed-in Codex; the router never reads Codex's own credentials.
 - Claude: the OAuth token in `~/.claude/.credentials.json` (or under
@@ -145,8 +146,9 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
 - `/`: the page, or the view model as JSON for a client whose `Accept`
   ranks `application/json` above `text/html`; `/board.json` is the model
   regardless. See [board-model.md](board-model.md).
-- `/usage/`: the Usage view, or the same model as JSON on that `Accept`;
-  404 without a `usage` section.
+- `/usage/`: the Usage view, or the same model as JSON on that `Accept`.
+  Without a `usage` section the page is a 404 that says so; JSON still
+  gets the model, its `usage` `null`.
 - `/whoami`: the `tailscale-*` headers seen, with the `login` and
   `principals` they map to once the login is in `serve.identities` (`null`
   and empty before). Read `tailscale-user-login` from it to fill in
