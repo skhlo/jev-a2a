@@ -110,6 +110,16 @@ export const shortId = (id: string): string => {
 export const fullId = (id: string): string =>
   SESSION.test(id) ? ` title="${esc(id)}"` : "";
 
+// A clock with its full date as its title.
+export const clock = (
+  path: string,
+  iso: string | null | undefined,
+  cls = "num",
+) => slot(path, time(iso), cls, "span", dated(iso));
+// A clock for a transcript line, or a dash.
+export const when = (iso: string | null | undefined): string =>
+  iso ? `<span${dated(iso)}>${time(iso)}</span>` : DASH;
+
 // ---- Generic parts ----
 //
 // Each is named for what it is, so any part of the page can take it: the

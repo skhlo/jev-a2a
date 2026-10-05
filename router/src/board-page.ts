@@ -16,7 +16,7 @@ import type {
   TaskView,
 } from "./board.ts";
 import type { AgentSnapshot, AgentStatus, Checkout } from "./telemetry.ts";
-import type { Judgment, NeedsYouItem, Role, StuckReason } from "./types.ts";
+import type { Judgment, StuckReason } from "./types.ts";
 import {
   LABEL,
   WINDOW_SUFFIX,
@@ -28,8 +28,10 @@ import {
   type UsageView,
   type WindowView,
 } from "./usage.ts";
+import { pageContext, type NeedsItem } from "./board-context.ts";
 import {
   age,
+  clock,
   answeredQuestion,
   chip,
   type Column,
@@ -59,6 +61,7 @@ import {
   table,
   thousands,
   time,
+  when,
 } from "./board-parts.ts";
 import { SCRIPT } from "./board-script.ts";
 import { STYLE } from "./board-style.ts";
@@ -339,12 +342,6 @@ const RESOLVE_WHY: Record<StuckReason, string> = {
   unknown_send: "The router has no record of this send reaching the session.",
 };
 
-const ASKING: TaskView["status"][] = [
-  "needs_answer",
-  "needs_recipient",
-  "uncertain",
-];
-
 const THEMES = ["flexoki", "one-dark"] as const;
 const THEME_NAMES: Record<(typeof THEMES)[number], string> = {
   flexoki: "Flexoki",
@@ -423,19 +420,17 @@ export type RenderOptions = {
   usage?: boolean;
 };
 
-// A needs-you item with its place in the model and what the viewer may do.
-type Item = {
-  path: string;
-  group: number;
-  principal: string;
-  item: NeedsYouItem;
-  // It counts for the viewer: the viewer holds its principal. Without a
-  // viewer the page shows every principal's items, read only.
-  mine: boolean;
-  // The viewer's post for it is signed as its principal, so the actions
-  // endpoint accepts it.
-  act: boolean;
-};
+// A finished task's verdict: how many deliveries completed, under `first`
+// (the row's slot, or the head's with the deadline), then the reason and
+// who ended it.
+const verdict = (
+  path: string,
+  f: NonNullable<TaskView["final"]>,
+  first = (words: string) => slot(`${path}.final`, words),
+): string =>
+  first(`${f.completed} of ${count(f.of, "delivery", "deliveries")}`) +
+  (f.reason ? ` · ${slot(`${path}.final.reason`, esc(label(f.reason)))}` : "") +
+  (f.by ? ` · by ${slot(`${path}.final.by`, esc(f.by))}` : "");
 
 // The page for `model` as its actor sees it. Pure: the model, the viewer in
 // it and the options decide every byte.
@@ -443,112 +438,26 @@ export function renderBoard(
   model: BoardModel,
   options: RenderOptions = {},
 ): string {
-  const { actor, at, times } = model;
   const refreshSeconds = options.refreshSeconds ?? 10;
-  const roleOf = (principal: string): Role | undefined =>
-    actor?.principals.find((p) => p.principal === principal)?.role;
-  // The principal a post is signed as. A post does not name one: the
-  // actions endpoint takes the viewer's first principal in the role the
-  // action needs, so the page offers forms for that principal's items only.
-  const signer = (role: Role): string | undefined =>
-    actor?.principals.find((p) => p.role === role)?.principal;
-
-  const tasks = new Map<string, { path: string; task: TaskView }>();
-  model.open.forEach((task, i) =>
-    tasks.set(task.id, { path: `open[${i}]`, task }),
-  );
-  model.finished.forEach((task, i) =>
-    tasks.set(task.id, { path: `finished[${i}]`, task }),
-  );
-  const items: Item[] = model.needsYou.flatMap((entry, group) =>
-    entry.items.map((item, k) => ({
-      path: `needsYou[${group}].items[${k}]`,
-      group,
-      principal: entry.principal,
-      item,
-      mine: actor === null || roleOf(entry.principal) !== undefined,
-      act:
-        entry.principal ===
-        signer(item.kind === "resolve" ? "operator" : "requester"),
-    })),
-  );
-  const itemsFor = (taskId: string): Item[] =>
-    items.filter((it) => it.item.taskId === taskId);
-  const answers = (deliveryId: string) =>
-    items.flatMap((it) =>
-      it.item.kind === "answer" && it.item.deliveryId === deliveryId
-        ? [{ ...it, item: it.item }]
-        : [],
-    );
-  const asksViewer = (deliveryId: string): boolean =>
-    answers(deliveryId).some((it) => it.mine);
-  // The open questions that wait on the viewer, by id.
-  const asking = new Set(
-    items.flatMap((it) =>
-      it.mine && it.item.kind === "answer" ? [it.item.questionId] : [],
-    ),
-  );
-
-  // One group per task. Needs you holds each task with an item of the
-  // viewer's, finished or not; In flight and Done hold the rest.
-  const needs = new Map<string, Item>();
-  for (const it of items)
-    if (it.mine && !needs.has(it.item.taskId)) needs.set(it.item.taskId, it);
-  const rest = (list: TaskView[], name: string) =>
-    list.flatMap((task, i) =>
-      needs.has(task.id) ? [] : [{ task, path: `${name}[${i}]` }],
-    );
-  const flight = rest(model.open, "open");
-  const done = rest(model.finished, "finished");
-  const requested = options.task ?? "";
-  const selected =
-    tasks.has(requested) || needs.has(requested)
-      ? requested
-      : ([...needs.keys()][0] ??
-        model.open[0]?.id ??
-        model.finished[0]?.id ??
-        null);
-
-  const source = (t: TaskView): string =>
-    t.source.slice(0, t.source.lastIndexOf("/"));
-  // Only the sender may cancel, and only while the task is open. The core
-  // refuses a task whose work may have reached a participant, and says so.
-  const mayCancel = (t: TaskView): boolean =>
-    !t.final && source(t) === signer("requester");
-  // A row's class and dot. Blue means the viewer is needed: a task that
-  // waits on someone else's decision waits like a queued one.
-  const taskClass = (t: TaskView): [string, string] =>
-    needs.has(t.id)
-      ? ["ask", "ask"]
-      : t.final
-        ? [t.status === "canceled" ? "done canceled" : "done", "done"]
-        : ASKING.includes(t.status) || t.status === "queued"
-          ? ["held", "wait"]
-          : ["work", "work"];
-
-  const clock = (path: string, iso: string | null | undefined, cls = "num") =>
-    slot(path, time(iso), cls, "span", dated(iso));
-  const ago = (
-    path: string,
-    iso: string | null | undefined,
-    cls: string,
-    text = age(iso, at),
-  ) => slot(path, text, cls, "span", dated(iso));
-  const when = (iso: string | null | undefined): string =>
-    iso ? `<span${dated(iso)}>${time(iso)}</span>` : DASH;
-  // A finished task's verdict: how many deliveries completed, under `first`
-  // (the row's slot, or the head's with the deadline), then the reason and
-  // who ended it.
-  const verdict = (
-    path: string,
-    f: NonNullable<TaskView["final"]>,
-    first = (words: string) => slot(`${path}.final`, words),
-  ): string =>
-    first(`${f.completed} of ${count(f.of, "delivery", "deliveries")}`) +
-    (f.reason
-      ? ` · ${slot(`${path}.final.reason`, esc(label(f.reason)))}`
-      : "") +
-    (f.by ? ` · by ${slot(`${path}.final.by`, esc(f.by))}` : "");
+  const page = pageContext(model, options.task);
+  const {
+    actor,
+    at,
+    times,
+    tasks,
+    needs,
+    flight,
+    done,
+    selected,
+    asking,
+    itemsFor,
+    answers,
+    asksViewer,
+    source,
+    mayCancel,
+    taskClass,
+    ago,
+  } = page;
 
   // ---- Nav ----
 
@@ -1804,7 +1713,7 @@ ${usageRail}  <div class="foot open"><div><span class="kicker">Router log</span>
 
   // An item whose task is older than the finished tasks the model keeps
   // (only a resolve item can be): the item is all the page knows of it.
-  const orphanRow = ({ item, path }: Item): string =>
+  const orphanRow = ({ item, path }: NeedsItem): string =>
     `${rowHead(item.taskId, path, "ask")}
       <span class="dot ask"></span>
       <div class="line1"><a class="id" href="${href(item.taskId)}">${esc(item.taskId)}</a><span class="excerpt">Not among the last finished tasks</span></div>
@@ -1913,7 +1822,7 @@ ${group(
   // An item the viewer may not act on shows what it waits for, without a
   // form, so a page without a viewer has no form at all.
   const itemForm = (
-    it: Item,
+    it: NeedsItem,
     t: TaskView | undefined,
     path: string,
   ): string => {
