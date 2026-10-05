@@ -40,6 +40,8 @@ jobs:
         working-directory: router
       - run: pnpm fmt:check
         working-directory: router
+      - run: pnpm fallow
+        working-directory: router
       - run: node --test router-core.test.js
         working-directory: docs/research
       - name: Check that the manifest and lockfile are unchanged

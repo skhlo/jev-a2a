@@ -22,12 +22,7 @@ import { sampleJournal } from "./board-fixture.ts";
 import { renderBoard } from "./board-page.ts";
 import { sampleModel, sampleModelAt } from "./board-sample.ts";
 
-export const SHOTS_DIR = join(
-  import.meta.dirname,
-  "..",
-  "design",
-  "screenshots",
-);
+const SHOTS_DIR = join(import.meta.dirname, "..", "design", "screenshots");
 
 // A screenshot has no keyboard: the pop-up is drawn open as a page without
 // a script opens it (?usage), and the sheet, which the script opens, is

@@ -159,7 +159,7 @@ export function calendarDate(value: unknown): string | null {
 }
 // Seconds since the epoch, or an ISO date or date-time with its offset, as
 // milliseconds; anything else, or a calendar date that does not exist, null.
-export function timestamp(value: unknown): number | null {
+function timestamp(value: unknown): number | null {
   if (typeof value === "number") {
     const ms = value * 1000;
     return Number.isFinite(ms) && Math.abs(ms) <= 8.64e15 ? ms : null;

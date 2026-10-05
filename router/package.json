@@ -13,13 +13,16 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc",
     "fmt": "prettier --write .",
-    "fmt:check": "prettier --check ."
+    "fmt:check": "prettier --check .",
+    "fallow": "fallow --only dead-code,dupes --fail-on-issues",
+    "fallow:health": "fallow health --report-only"
   },
   "dependencies": {
     "@getpaseo/client": "0.10.2"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
+    "fallow": "3.31.0",
     "prettier": "3.9.9",
     "typescript": "^7.0.2"
   }

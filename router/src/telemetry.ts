@@ -486,7 +486,7 @@ export function agentLine(agent: AgentSnapshot): string {
 
 // The sidebar's row in words: branch (starred when dirty), diff, PR and
 // its checks.
-export function checkoutLine(c: Checkout): string {
+function checkoutLine(c: Checkout): string {
   const parts = [`${c.branch ?? c.kind}${c.dirty ? "*" : ""}`];
   if (c.diff) parts.push(`+${c.diff.additions} −${c.diff.deletions}`);
   if (c.pr)

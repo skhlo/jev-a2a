@@ -20,7 +20,7 @@ const TERMINAL_ID =
 
 // The CLIs a terminal placement may run, each with its own idea of an
 // empty prompt (see paseo.ts); Claude Code unless `terminals` names another.
-export const TERMINAL_CLIS = ["claude", "codex"] as const;
+const TERMINAL_CLIS = ["claude", "codex"] as const;
 export type TerminalCli = (typeof TERMINAL_CLIS)[number];
 const isTerminalCli = (value: unknown): value is TerminalCli =>
   TERMINAL_CLIS.some((cli) => cli === value);
