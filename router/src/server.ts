@@ -25,9 +25,9 @@ import {
 import { renderBoard } from "./board-page.ts";
 import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
-import { journalVersion, readJournal } from "./journal.ts";
+import { readJournalSince, type Entry, type JournalMark } from "./journal.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
-import { fold, servedBy } from "./shell.ts";
+import { fold, foldMore, servedBy } from "./shell.ts";
 import { waitsOnSessions } from "./core.ts";
 import type { Event, Outcome, State } from "./types.ts";
 
@@ -59,9 +59,12 @@ export type SessionStatus = "current" | "replaced" | null;
 // Whether the record has work waiting only for a session this router
 // serves, read without the lock, as the board reads it. Serve asks after
 // its own runs and whenever another writer (the CLI on this host) appends.
-export const waitsReader = (config: RouterConfig) => (): boolean => {
-  const state = fold(config, readJournal(config.home));
-  return waitsOnSessions(state, servedBy(config, state));
+export const waitsReader = (config: RouterConfig) => {
+  const record = recordReader(config);
+  return (): boolean => {
+    const { state } = record();
+    return waitsOnSessions(state, servedBy(config, state));
+  };
 };
 
 // The serve runner: one run at a time through a queue (so the journal lock
@@ -274,40 +277,67 @@ export function keepReading<H>(
   };
 }
 
-// The record as the board reads it, without the lock: the journal folded
-// again only once it has changed. A replay clones the state at every
-// event, which made every board request replay the whole record (1.2 to
-// 2.4 s on a live one). The version is read before the journal, so an
-// append in between is folded at the next request rather than missed.
-export type BoardRecord = { state: State; times: Record<string, string> };
+// The record as the board, the wake and the events endpoint read it,
+// without the lock: kept between reads, with only the lines appended since
+// folded onto it. A replay clones the state at every event, which made
+// every read replay the whole record (1.2 to 2.4 s on a live one), and the
+// journal changes at least every serve.poll. A journal that is not the one
+// read before (truncated, replaced) is folded from the start, and so is one
+// whose first `configured` line has just arrived, as that line sets where
+// the fold starts. Readers made with the same configuration object share
+// one record.
+export type BoardRecord = {
+  state: State;
+  times: Readonly<Record<string, string>>;
+};
+const records = new WeakMap<RouterConfig, () => BoardRecord>();
 export function recordReader(config: RouterConfig): () => BoardRecord {
-  let kept: (BoardRecord & { version: string }) | null = null;
-  return () => {
-    const version = journalVersion(config.home);
-    if (kept?.version !== version) {
-      const entries = readJournal(config.home);
-      kept = {
-        version,
-        state: fold(config, entries),
-        times: messageTimes(entries),
+  const shared = records.get(config);
+  if (shared) return shared;
+  const hasConfigured = (entries: Entry[]): boolean =>
+    entries.some((e) => e.event.type === "configured");
+  let record: BoardRecord | null = null;
+  let mark: JournalMark | null = null;
+  let configured = false;
+  const read = (): BoardRecord => {
+    let got = readJournalSince(config.home, record && mark);
+    const first = !configured && hasConfigured(got.entries);
+    if (record && got.from === "mark" && first)
+      got = readJournalSince(config.home, null);
+    if (!record || got.from === "start") {
+      record = {
+        state: fold(config, got.entries),
+        times: Object.freeze(messageTimes(got.entries)),
       };
-    }
-    return kept;
+      configured = hasConfigured(got.entries);
+    } else if (got.entries.length)
+      record = {
+        state: foldMore(record.state, got.entries),
+        times: Object.freeze({
+          ...record.times,
+          ...messageTimes(got.entries),
+        }),
+      };
+    mark = got.mark;
+    return record;
   };
+  records.set(config, read);
+  return read;
 }
 
 // Whether `by` is a session the record knows, read without the journal
 // lock, as the board reads it: the events endpoint must not contend with
 // the run it is about to queue.
-export const sessionReader =
-  (config: RouterConfig) =>
-  (by: string): SessionStatus => {
-    const state = fold(config, readJournal(config.home));
+export const sessionReader = (config: RouterConfig) => {
+  const record = recordReader(config);
+  return (by: string): SessionStatus => {
+    const { state } = record();
     if (!state.sessions[by]) return null;
     return Object.values(state.placements).some((p) => p.session === by)
       ? "current"
       : "replaced";
   };
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);

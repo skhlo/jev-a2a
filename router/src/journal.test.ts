@@ -3,15 +3,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
+  statSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openJournal, readJournal } from "./journal.ts";
+import {
+  openJournal,
+  readJournal,
+  readJournalSince,
+  type JournalRead,
+} from "./journal.ts";
 
 const fresh = (): string => mkdtempSync(join(tmpdir(), "journal-"));
 const line = (n: number): string =>
@@ -91,6 +100,56 @@ test("a torn final line is dropped by the writer and skipped by the reader", asy
   const again = await openJournal(home);
   assert.equal(readFileSync(path, "utf8"), korean);
   again.release();
+});
+
+test("a reader goes on from its mark: a missing journal, appends, a torn line, a truncation, a replacement of the same size and a rewrite", () => {
+  const home = fresh();
+  const path = join(home, "journal.jsonl");
+  const nows = (read: JournalRead): unknown[] =>
+    read.entries.map((entry) => entry.event.now);
+  // No journal: nothing, and no mark.
+  const none = readJournalSince(home, null);
+  assert.deepEqual(none, { entries: [], from: "start", mark: null });
+  writeFileSync(path, `${line(1)}${line(2)}`);
+  const first = readJournalSince(home, none.mark);
+  assert.equal(first.from, "start");
+  assert.deepEqual(nows(first), [1, 2]);
+  // Unchanged: nothing new, and the same mark.
+  const same = readJournalSince(home, first.mark);
+  assert.deepEqual([same.from, nows(same)], ["mark", []]);
+  assert.equal(same.mark, first.mark);
+  // An append with a torn line after it: only the whole line is read, and
+  // the torn one waits for its newline.
+  appendFileSync(path, `${line(3)}${line(4).slice(0, 10)}`);
+  const more = readJournalSince(home, first.mark);
+  assert.deepEqual([more.from, nows(more)], ["mark", [3]]);
+  appendFileSync(path, line(4).slice(10));
+  const rest = readJournalSince(home, more.mark);
+  assert.deepEqual([rest.from, nows(rest)], ["mark", [4]]);
+  // Cut back, as repair cuts a torn line: read from the start.
+  appendFileSync(path, line(5).slice(0, 10));
+  const torn = readJournalSince(home, rest.mark);
+  assert.deepEqual([torn.from, nows(torn)], ["mark", []]);
+  truncateSync(path, statSync(path).size - 10);
+  const cut = readJournalSince(home, torn.mark);
+  assert.deepEqual([cut.from, nows(cut)], ["start", [1, 2, 3, 4]]);
+  // Replaced by a file of the same size that ends with the same line
+  // (another inode): from the start.
+  const next = join(home, "next.jsonl");
+  writeFileSync(next, `${line(6)}${line(7)}${line(8)}${line(4)}`);
+  renameSync(next, path);
+  assert.equal(statSync(path).size, cut.mark?.size);
+  const replaced = readJournalSince(home, cut.mark);
+  assert.deepEqual([replaced.from, nows(replaced)], ["start", [6, 7, 8, 4]]);
+  // Rewritten in place and longer, no longer ending where the mark did
+  // with its line: from the start.
+  writeFileSync(path, `${line(1)}${line(2)}${line(3)}${line(5)}${line(6)}`);
+  const rewritten = readJournalSince(home, replaced.mark);
+  assert.deepEqual(
+    [rewritten.from, nows(rewritten)],
+    ["start", [1, 2, 3, 5, 6]],
+  );
+  assert.deepEqual(readJournal(home), rewritten.entries);
 });
 
 test("corrupt lines are refused, including a null event", () => {

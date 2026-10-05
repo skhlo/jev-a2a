@@ -106,9 +106,17 @@ export const servedBy =
 // hold for the whole record.
 export function fold(config: RouterConfig, entries: Entry[]): State {
   const first = entries.find((e) => e.event.type === "configured")?.event;
-  let state = initial(
-    first ? validateConfig(first.config) : coreConfig(config),
+  return foldMore(
+    initial(first ? validateConfig(first.config) : coreConfig(config)),
+    entries,
   );
+}
+
+// Folds `entries` onto `state`, the fold of the record before them. The core
+// returns a new state for each event, so `state` itself is left as it was.
+// Whoever goes on from a fold whose record had no `configured` line must
+// fold from the start once one arrives, as it changes where the fold starts.
+export function foldMore(state: State, entries: Entry[]): State {
   for (const { event } of entries) {
     // The journal holds events the core accepted; the core re-validates on
     // replay and the throw below catches anything that no longer fits.

@@ -3,9 +3,11 @@ import test, { after, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request, type Server } from "node:http";
 import {
+  appendFileSync,
   existsSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -27,7 +29,8 @@ import {
   type Run,
   type SessionStatus,
 } from "./server.ts";
-import { BOARD_VERSION } from "./board.ts";
+import { BOARD_VERSION, messageTimes } from "./board.ts";
+import { coreConfig, fold, foldMore } from "./shell.ts";
 import {
   config as fixture,
   extend,
@@ -1545,4 +1548,73 @@ test("board: the record is folded again only when the journal changes, and each 
   } finally {
     server.close();
   }
+});
+
+test("board: the kept record folds only the lines appended since, and folds again from the start when the journal is cut, replaced or first configured", (t) => {
+  const record = scratch(t, "server-more-");
+  const path = join(record, "journal.jsonl");
+  const lines = (entries: Entry[]): string =>
+    entries.map((entry) => `${JSON.stringify(entry)}\n`).join("");
+  const at = journal.at(-1)?.at ?? "";
+  const submit = (n: number): Entry => ({
+    at,
+    event: {
+      type: "submit",
+      by: "you",
+      messageId: `M${n}`,
+      text: `Task ${n}`,
+      to: "orchestrator",
+    },
+  });
+  // A record with no `configured` line, folded under today's configuration.
+  const prefix = journal.filter((entry) => entry.event.type !== "configured");
+  writeFileSync(path, lines(prefix));
+  const config = { ...fixture, home: record };
+  const read = recordReader(config);
+  // The wake and the events endpoint share the board's record.
+  assert.equal(recordReader(config), read);
+  const first = read();
+  assert.ok(Object.isFrozen(first.times));
+  assert.equal(read(), first);
+  // An append, with a torn line after it: the whole lines are folded onto
+  // the kept state, which stays as it was, and the torn one waits.
+  appendFileSync(path, `${lines([submit(50), submit(51)])}{"at":"${at}","ev`);
+  const second = read();
+  const upTo = [...prefix, submit(50), submit(51)];
+  assert.deepEqual(second.state, fold(config, upTo));
+  assert.deepEqual(second.times, messageTimes(upTo));
+  assert.ok(Object.isFrozen(second.times));
+  assert.equal(second.state.tasks.length, first.state.tasks.length + 2);
+  assert.equal(read(), second);
+  // Only what was appended is folded: an earlier line rewritten in place
+  // at the same length is not read again.
+  const text = readFileSync(path, "utf8");
+  writeFileSync(path, text.replace('"text":"Task 50"', '"text":"Task 5X"'));
+  appendFileSync(path, `ent":{"type":"tick","now":${NOW}}}\n`);
+  const third = read();
+  assert.ok(third.state.tasks.some((task) => task.text === "Task 50"));
+  // Cut back (as repair cuts a torn line): folded from the start.
+  writeFileSync(path, lines(upTo));
+  assert.deepEqual(read().state, fold(config, upTo));
+  // Replaced by another file: folded from the start.
+  const next = join(record, "next.jsonl");
+  const other = [...prefix, submit(52)];
+  writeFileSync(next, lines(other));
+  renameSync(next, path);
+  assert.deepEqual(read().state, fold(config, other));
+  // A first `configured` line sets where the whole fold starts, so the
+  // record is folded again: going on from the kept state would differ.
+  const rules = structuredClone(coreConfig(config));
+  rules.policy.threshold = 0.85;
+  const configured: Entry = {
+    at,
+    event: { type: "configured", config: rules },
+  };
+  appendFileSync(path, lines([configured, submit(53)]));
+  const all = [...other, configured, submit(53)];
+  assert.deepEqual(read().state, fold(config, all));
+  assert.notDeepEqual(
+    fold(config, all),
+    foldMore(fold(config, other), [configured, submit(53)]),
+  );
 });

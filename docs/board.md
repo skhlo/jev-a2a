@@ -295,10 +295,12 @@ The page reads and acts without a script. Its script adds:
 - A draft is keyed by its form's `data-path`, which shifts when an earlier
   item goes, and such a draft stays in storage instead of filling the moved
   form.
-- The script's behaviour has no test in CI.
-- The first request after the record changes still replays the whole
-  journal (about 2 s on a record of 1,600 lines); the requests after it
-  read the kept fold.
+- The script's behaviour has no test in CI; `src/board-check.ts` checks it
+  in a local Chromium (see `router/design/README.md`).
+- The first request after `router serve` starts replays the whole journal
+  (about 2 s on a record of 1,600 lines), and so does one after the
+  journal is cut back or replaced; after that a request folds only the
+  lines appended since.
 
 How the page is held to its design, and where it departs from it on
 purpose, is in [`router/design/README.md`](../router/design/README.md).

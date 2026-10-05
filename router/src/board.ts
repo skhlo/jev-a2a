@@ -146,7 +146,7 @@ export type BoardModel = {
   open: TaskView[];
   finished: TaskView[];
   // When each message was recorded, by message id.
-  times: Record<string, string>;
+  times: Readonly<Record<string, string>>;
   log: State["log"];
   // When the placements' snapshots were taken; null without telemetry.
   telemetryAt: string | null;
@@ -194,7 +194,7 @@ export function boardModel(
   state: State,
   config: RouterConfig,
   now: number,
-  times: Record<string, string> = {},
+  times: Readonly<Record<string, string>> = {},
   actor: Actor | null = null,
   telemetry: Telemetry | null = null,
   usage: UsageState | null = null,

@@ -161,8 +161,10 @@ The brief named three for the page rather than the design, done in this
 port: the Usage tab's page (`src/usage-page.ts`) is gone, its readers,
 store, `router usage`, configuration section and the model's `usage`
 field kept; a task opens in place; and the server keeps the record's fold
-between requests, folding again only when the journal changes, so a
-request no longer replays the whole record.
+between requests and folds onto it only the lines appended since (the
+journal changes at least every `serve.poll`), so a request no longer
+replays the whole record. The wake and the events endpoint read the same
+kept record.
 
 The generic parts the Usage tab added stay in `src/board-page.ts`, named
 for what they are: `chip`, `meter` with its pace tick (which also draws the
