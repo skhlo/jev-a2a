@@ -216,8 +216,11 @@ and its outcome.
 
 ## Widths
 
-From 901px to 1180px the rail is a fixed 272px column and a card's status
-takes its own line; the tasks and the detail share the rest. From 900px
+From 1279px down a card's status takes its own line. From 901px to 1180px
+the rail is a fixed 272px column, the tasks and the detail share the rest,
+and an open sheet, at least 320px wide, may spill over the detail. A task
+row's second line wraps when it is too narrow for its text and
+recipients. From 900px
 down the page is one column that scrolls: the rail with its Usage section,
 the tasks, then the detail. The sheet, the usage pop-up and the peek take
 the screen's width, and the key line keeps only what a tap can do: `r` and

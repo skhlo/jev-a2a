@@ -107,6 +107,19 @@ where the page must work without its script:
   lever's form takes the focus once the detail lands. The link alone still
   works, and an open whose fetch fails follows it (the design's links
   navigate);
+- a task row's second line wraps rather than squeeze the text after the
+  status below 8em, and the recipients move under it: the design's line
+  squeezed that text to nothing from 901px to about 930px when a row named
+  "no recipient", and to a few characters for a row with two recipients;
+- from 901px to 1180px the sheet is at least 320px wide and spills over
+  the detail column, as it is an overlay: below about 1024px the tasks
+  column is narrower than the sheet's head, which hid the close button and
+  scrolled the sheet sideways;
+- the narrow card (the status on its own line under the name) holds from
+  1279px down, not 1180px, and the facts tables' heads may wrap: from
+  1181px to 1279px the wide card overflowed the rail by up to 25px,
+  cutting off its levers, and the six-column table the detail by up to
+  10px;
 - the screenshots are taken with reduced motion, so the sheet's slide and
   the pop-up's rise do not catch them half drawn.
 

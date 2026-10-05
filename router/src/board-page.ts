@@ -2655,10 +2655,11 @@ textarea::placeholder, .filter input::placeholder { color: var(--text-3); }
 .task .line1 { grid-column: 2; display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .task .line1 .excerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs); color: var(--text); }
 .task .age { grid-column: 3; grid-row: 1; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; }
-.task .line2 { grid-column: 2 / -1; display: flex; gap: 8px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); min-width: 0; margin-top: 1px; }
+.task .line2 { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); min-width: 0; margin-top: 1px; }
 .task .line2 .state { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: .3px; white-space: nowrap; color: var(--text-2); }
-.task .line2 .sub { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; }
+/* The line wraps rather than squeeze the sub below 8em: the recipients move under it, still at the right. */
+.task .line2 .sub { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task .line2 .to { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; margin-left: auto; }
 .task .line2 .to + .to::before, .task .line2 .to + .stale::before { content: "· "; }
 .task .line2 .to + .stale::before { color: var(--text-3); }
 .task .line2 .stale { white-space: nowrap; }
@@ -2872,22 +2873,17 @@ table.data tr.all td { border-bottom: 0; }
 @media (min-width: 901px) and (max-width: 1180px) {
   .bento { grid-template-columns: 272px minmax(0, 4fr) minmax(0, 5fr); }
   .nav .who { max-width: 160px; }
+  /* The sheet is an overlay: below 1024px the tasks column is narrower than its head, so it spills over the detail. */
+  .bento > .sheet { min-width: 320px; }
 }
-/* 1180px and less: a card's first line holds the dot, the name (one line, ellipsized) and the meter; its status
-   takes its own line under the name, then the health row with the lever. */
-@media (max-width: 1180px) {
+/* 1279px and less: a card's first line holds the dot, the name (one line, ellipsized) and the meter; its status
+   takes its own line under the name, then the health row with the lever. (The design draws this at 1180px and
+   less, but from 1181px to 1279px the wide card overflows the rail by up to 25px, and the six-column facts table
+   the detail by up to 10px unless its heads may wrap.) */
+@media (max-width: 1279px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
   .card .stats { min-width: 0; overflow: hidden; }
   .card .body { grid-template-columns: minmax(0, 1fr); }
-  /* Facts tables become records (the detail column is too narrow for six columns from here down): the key cells
-     on the first line, the rest labelled on the second. */
-  table.rec, table.rec tbody { display: block; }
-  table.rec tr:has(> th) { display: none; }
-  table.rec tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 6px 0; border-bottom: 1px solid var(--hair-soft); }
-  table.rec tr::before { content: ""; order: 1; flex: 0 0 100%; }
-  table.rec td { order: 2; display: block; min-width: 0; padding: 0; border: 0; text-align: left; overflow-wrap: anywhere; }
-  table.rec td.key { order: 0; }
-  table.rec td[data-label]::before { content: attr(data-label) " "; color: var(--text-3); }
   .card .name .key { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card.idle .body { grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; }
   .card.idle .tele { display: contents; }
@@ -2896,6 +2892,18 @@ table.data tr.all td { border-bottom: 0; }
   .card.idle .what { grid-area: 2 / 1 / 3 / 3; }
   .card.idle .tele > .line { grid-area: 3 / 1; font-size: var(--fs-small); color: var(--text-2); }
   .card.idle .tele > .lever { grid-area: 3 / 2; align-self: center; }
+  table.rec th { white-space: normal; }
+}
+/* 1180px and less: facts tables become records (the detail column is too narrow for six columns from here down):
+   the key cells on the first line, the rest labelled on the second. */
+@media (max-width: 1180px) {
+  table.rec, table.rec tbody { display: block; }
+  table.rec tr:has(> th) { display: none; }
+  table.rec tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 6px 0; border-bottom: 1px solid var(--hair-soft); }
+  table.rec tr::before { content: ""; order: 1; flex: 0 0 100%; }
+  table.rec td { order: 2; display: block; min-width: 0; padding: 0; border: 0; text-align: left; overflow-wrap: anywhere; }
+  table.rec td.key { order: 0; }
+  table.rec td[data-label]::before { content: attr(data-label) " "; color: var(--text-3); }
 }
 /* 900px and less: one column that scrolls as a page, in DOM order (rail, tasks, detail). */
 @media (max-width: 900px) {

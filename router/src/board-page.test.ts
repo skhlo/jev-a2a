@@ -3092,7 +3092,7 @@ test("v0.13 script: the pop-up opens and closes in place, keeps open across a re
   );
 });
 
-test("v0.13 style: the rail a fixed 272px from 901px to 1180px, facts tables as records at 1180px and less, the pop-up as the page at 900px and less", () => {
+test("v0.13 style: the rail a fixed 272px and the sheet at least 320px from 901px to 1180px, narrow cards at 1279px and less, facts tables as records at 1180px and less, the pop-up as the page at 900px and less, a row's second line wrapping", () => {
   const html = renderBoard(sampleModel(), { task: "T2" });
   const css = html.match(/<style>([^]*?)<\/style>/)?.[1] ?? "";
   const block = (open: string): string => {
@@ -3100,11 +3100,29 @@ test("v0.13 style: the rail a fixed 272px from 901px to 1180px, facts tables as 
     assert.ok(at >= 0, open);
     return css.slice(at, css.indexOf("\n}\n", at));
   };
+  const middle = block("@media (min-width: 901px) and (max-width: 1180px) {");
+  for (const rule of [
+    "  .bento { grid-template-columns: 272px minmax(0, 4fr) minmax(0, 5fr); }",
+    // The tasks column is narrower than the sheet's head below 1024px.
+    "  .bento > .sheet { min-width: 320px; }",
+  ])
+    assert.ok(middle.includes(rule), rule);
+  // The wide card overflows the rail up to 1279px, and the facts table's
+  // heads must wrap to fit the detail.
+  const cards = block("@media (max-width: 1279px) {");
+  for (const rule of [
+    "  .cards { grid-template-columns: minmax(0, 1fr); }",
+    "  .card .name .key { min-width: 0; overflow: hidden;",
+    "  table.rec th { white-space: normal; }",
+  ])
+    assert.ok(cards.includes(rule), rule);
+  // A row's second line wraps rather than squeeze its sub below 8em.
   assert.ok(
-    block("@media (min-width: 901px) and (max-width: 1180px) {").includes(
-      "  .bento { grid-template-columns: 272px minmax(0, 4fr) minmax(0, 5fr); }",
+    css.includes(
+      ".task .line2 { grid-column: 2 / -1; display: flex; flex-wrap: wrap;",
     ),
   );
+  assert.ok(css.includes(".task .line2 .sub { flex: 1 1 8em; min-width: 0;"));
   const records = block("@media (max-width: 1180px) {");
   for (const rule of [
     "table.rec, table.rec tbody { display: block; }",
