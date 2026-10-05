@@ -864,12 +864,14 @@ const codexHistory = {
   ).map(([startDate, tokens]) => ({ startDate, tokens })),
 };
 // Claude's last good reading: the 5-hour window 92% used with 82% of it
-// gone (above pace, in the 90% band), the week within pace, Opus at 0, and
-// extra usage enabled with nothing spent.
+// gone (above pace, in the 90% band), the week within pace, Opus at 0,
+// Sonnet's week reset at 09:40, after the reading (at 09:45 its row reads
+// "reset passed"), and extra usage enabled with nothing spent.
 const claudeUsage = {
   five_hour: { utilization: 92, resets_at: "2026-09-30T10:40:00Z" },
   seven_day: { utilization: 64, resets_at: "2026-10-02T20:00:00Z" },
   seven_day_opus: { utilization: 0, resets_at: "2026-10-02T20:00:00Z" },
+  seven_day_sonnet: { utilization: 12, resets_at: "2026-09-30T09:40:00Z" },
   extra_usage: { is_enabled: true, used_credits: 0, monthly_limit: 5000 },
 };
 const deepseekBalance = {
@@ -1066,6 +1068,43 @@ export const otherUsage: UsageState = {
       checkedAt: clockAt("09:44:28"),
       error: null,
       reading: openrouterManaged(clockAt("09:44:27")),
+    }),
+  ],
+};
+
+// A store whose reads last ended at 09:32:30 and stalled there: no
+// refresh has failed, so every reading is stale by its age alone. Codex
+// reported its plan and credits but no quota window.
+export const agedUsage: UsageState = {
+  at: clockAt("09:32:30"),
+  every: 120,
+  accounts: [
+    account("codex", {
+      status: "ready",
+      checkedAt: clockAt("09:32:29"),
+      error: null,
+      reading: codexReading(
+        { rateLimits: { planType: "plus", credits: { balance: "12" } } },
+        clockAt("09:32:28"),
+      ),
+    }),
+    account("claude", {
+      status: "ready",
+      checkedAt: clockAt("09:32:29"),
+      error: null,
+      reading: claudeReading(claudeUsage, clockAt("09:32:28")),
+    }),
+    account("deepseek", {
+      status: "ready",
+      checkedAt: clockAt("09:32:28"),
+      error: null,
+      reading: deepseekReading(deepseekBalance, clockAt("09:32:27")),
+    }),
+    account("openrouter", {
+      status: "ready",
+      checkedAt: clockAt("09:32:28"),
+      error: null,
+      reading: openrouterKeyOnly(clockAt("09:32:27")),
     }),
   ],
 };

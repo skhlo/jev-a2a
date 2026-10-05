@@ -405,7 +405,9 @@ test("Codex quota and history fail apart and keep their original times", async (
   const load = createLoaders(home, {}, readers).codex;
   const first = await load();
   assert.equal(first.allowance, "ready");
-  assert.equal(metric(first.details[0]!, "Lifetime tokens"), 120);
+  const activity = first.details[0];
+  assert.ok(activity);
+  assert.equal(metric(activity, "Lifetime tokens"), 120);
   assert.equal(first.notice, null);
   assert.equal(JSON.stringify(first).includes("private-"), false);
 
@@ -699,5 +701,7 @@ test("OpenRouter key, credits and history keep their values apart, including his
   const onlyHistory = await createLoaders(home, env, readers).openrouter();
   assert.equal(onlyHistory.allowance, "unavailable");
   assert.deepEqual(onlyHistory.metrics, []);
-  assert.equal(metric(onlyHistory.details[0]!, "OpenRouter spend"), 5);
+  const spending = onlyHistory.details[0];
+  assert.ok(spending);
+  assert.equal(metric(spending, "OpenRouter spend"), 5);
 });

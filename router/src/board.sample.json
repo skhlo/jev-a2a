@@ -1258,6 +1258,12 @@
               "usedPercent": 0,
               "minutes": 10080,
               "resetsAt": "2026-10-02T20:00:00.000Z"
+            },
+            {
+              "label": "7-day · Sonnet",
+              "usedPercent": 12,
+              "minutes": 10080,
+              "resetsAt": "2026-09-30T09:40:00.000Z"
             }
           ],
           "metrics": [

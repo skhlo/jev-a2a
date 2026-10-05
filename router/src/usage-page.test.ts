@@ -13,6 +13,7 @@ import {
 import { band, pace, renderBoard } from "./board-page.ts";
 import { amount, renderUsage, type UsageModel } from "./usage-page.ts";
 import {
+  agedUsage,
   config,
   firstUsage,
   NOW,
@@ -23,9 +24,16 @@ import {
 } from "./board-fixture.ts";
 import { sampleModel } from "./board-sample.ts";
 import { dataPaths } from "./design-paths.ts";
-import type { UsageState } from "./usage.ts";
+import {
+  deepseekReading,
+  LABEL,
+  openrouterReading,
+  WINDOW_SUFFIX,
+  type UsageState,
+} from "./usage.ts";
 
 const ME = "me@example.com";
+const NOW_ISO = new Date(NOW).toISOString();
 const model = (state: UsageState | null, now = NOW): BoardModel =>
   boardModel(
     boardState(config, sampleJournal, now),
@@ -192,6 +200,9 @@ test("the head: Usage's own chips (the worst window in its band, the stale count
   const claude = fresh.accounts[1];
   assert.ok(claude?.reading);
   claude.reading.observedAt = NOW - 30_000;
+  claude.reading.windows = claude.reading.windows.filter(
+    (w) => w.resetsAt === null || w.resetsAt > NOW,
+  );
   claude.error = null;
   claude.status = "ready";
   assert.deepEqual(
@@ -264,6 +275,22 @@ test("subscriptions: a row per window with the share used, the meter and its pac
   );
   // A current account says nothing of its freshness.
   assert.ok(!codex.includes('class="badge"'));
+  // A window whose reset has passed says so, with no pace and no colour.
+  const sonnet = "usage.accounts[1].reading.windows[3]";
+  const claude = account(page, 1);
+  assert.deepEqual(textsOf(claude, `left(${sonnet}.resetsAt, at)`), [
+    "reset passed",
+  ]);
+  assert.match(
+    claude,
+    new RegExp(
+      `<div class="entry" data-path="${escape(sonnet)}">[^]*?<span class="note"></span>`,
+    ),
+  );
+  assert.ok(!claude.includes(`data-path="pace(${sonnet}, at)"`));
+  // A subscription that reported no window says so on its row.
+  const aged = renderUsage(withUsage(model(agedUsage)));
+  assert.ok(strip(account(aged, 0)).includes("CodexNo quota windows reported"));
 });
 
 test("freshness per account only when it is not current, naming what failed", () => {
@@ -294,6 +321,14 @@ test("freshness per account only when it is not current, naming what failed", ()
   // Aged past ten minutes, a current account goes stale.
   const later = renderUsage(withUsage(model(usage, NOW + 11 * 60_000)));
   assert.ok(strip(account(later, 0)).includes("stalelast reading 11m ago"));
+  // A store that stalled: no refresh failed, every reading stale by its age
+  // alone, with no failure named.
+  const aged = renderUsage(withUsage(model(agedUsage)));
+  for (const i of [0, 1, 2, 3]) {
+    const text = strip(account(aged, i));
+    assert.ok(text.includes("stalelast reading 12m ago"), text);
+    assert.ok(!text.includes("Could not refresh"), text);
+  }
 });
 
 test("balances: the balance leading, the key beside it, neutral; a missing management key reads as such", () => {
@@ -320,9 +355,23 @@ test("balances: the balance leading, the key beside it, neutral; a missing manag
       '<span class="meter" title="key allowance used"><span class="bar"><i style="width: 40%"></i></span><span class="num" data-path="usage.accounts[3].reading.windows[0].usedPercent">40%</span></span>',
     ),
   );
-  // No band and no accent in the balances.
-  const balances = page.slice(page.indexOf('class="panel balances"'));
-  assert.ok(!/class="[^"]*\b(warn|err|attn|ask)\b/.test(balances));
+  // No band and no accent in the balances, even with the key's allowance
+  // at 75% and 90%.
+  for (const share of [40, 75, 90]) {
+    const m = sampleModel();
+    const w = m.usage?.accounts[3]?.reading?.windows[0];
+    assert.ok(w);
+    w.usedPercent = share;
+    const html = renderUsage(withUsage(m));
+    const balances = html.slice(html.indexOf('class="panel balances"'));
+    assert.ok(
+      !/class="[^"]*\b(warn|err|attn|ask)\b/.test(balances),
+      String(share),
+    );
+    assert.ok(
+      balances.includes(`<span class="meter" title="key allowance used">`),
+    );
+  }
   // With a management key: the balance and the spending.
   const managed = account(renderUsage(withUsage(model(otherUsage))), 3);
   assert.deepEqual(
@@ -415,7 +464,13 @@ test("data labels render as text: a hostile label, value, notice or title is esc
   assert.ok(codex && reading && w && detail && table);
   codex.name = hostile;
   codex.error = hostile;
+  codex.url = hostile;
   w.label = hostile;
+  detail.throughDate = hostile;
+  // The worst window, which the head's chip names.
+  const worst = m.usage?.accounts[1]?.reading?.windows[0];
+  assert.ok(worst);
+  worst.label = hostile;
   reading.metrics.push({ label: hostile, value: hostile, unit: null });
   reading.notice = hostile;
   detail.title = hostile;
@@ -432,6 +487,9 @@ test("data labels render as text: a hostile label, value, notice or title is esc
   assert.ok(page.includes(`<td>${safe}</td>`));
   assert.ok(page.includes(`<th>${safe}</th>`));
   assert.ok(page.includes(`<dt>${safe}</dt><dd>${safe}</dd>`));
+  assert.ok(page.includes(`href="${safe}"`));
+  assert.ok(page.includes(`through ${safe}`));
+  assert.ok(headOf(page).includes(`<b>92%</b> Claude ${safe} · stale</span>`));
   // Absent values stay dashes, and the page takes only a known palette.
   const forged = renderUsage(withUsage(m), {
     theme: '"><script>alert(2)</script>',
@@ -443,6 +501,84 @@ test("data labels render as text: a hostile label, value, notice or title is esc
       '<html lang="en" data-theme="one-dark">',
     ),
   );
+});
+
+test("the labels the page places by name are the ones the normalizers write", () => {
+  const at = Date.parse(NOW_ISO);
+  const openrouter = openrouterReading(
+    { data: { limit: 10, limit_remaining: 4 } },
+    { data: { total_credits: 9, total_usage: 2 } },
+    at,
+  );
+  assert.deepEqual(
+    openrouter.metrics.slice(0, 3).map((m) => m.label),
+    [LABEL.accountBalance, LABEL.keyRemaining, LABEL.keyLimit],
+  );
+  assert.equal(openrouter.windows[0]?.label, LABEL.keyAllowance);
+  const deepseek = deepseekReading(
+    { balance_infos: [{ currency: "USD", total_balance: "3" }] },
+    at,
+  );
+  assert.equal(deepseek.metrics[0]?.label, LABEL.balance);
+  // Placed: the balances lead, the key's figures stand beside them with its
+  // allowance in the small meter, and a window's name drops the suffix.
+  const page = renderUsage(withUsage(sampleModel()));
+  assert.deepEqual(
+    textsOf(account(page, 2), "usage.accounts[2].reading.metrics[0].value"),
+    ["$4.12"],
+  );
+  assert.ok(account(page, 2).includes('<span class="figure leading">'));
+  assert.ok(strip(account(page, 3)).includes("key $12.00 left of $20.00"));
+  assert.ok(account(page, 3).includes('title="key allowance used"'));
+  const label = sampleModel().usage?.accounts[0]?.reading?.windows[0]?.label;
+  assert.ok(label);
+  assert.ok(label.endsWith(WINDOW_SUFFIX));
+  assert.deepEqual(
+    textsOf(account(page, 0), "usage.accounts[0].reading.windows[0].label"),
+    [label.slice(0, -WINDOW_SUFFIX.length)],
+  );
+});
+
+test("the script the views share: it swaps the panels the page marks, keeps open disclosures across a refresh, and a board key without its part does nothing", () => {
+  const page = renderUsage(withUsage(sampleModel()));
+  const board = renderBoard(sampleModel(), { task: "T2" });
+  // The parts each view marks, in its markup before the script.
+  const marked = (html: string) =>
+    [
+      ...html
+        .slice(0, html.indexOf("<script>"))
+        .matchAll(/data-part="([^"]+)"/g),
+    ].map((m) => m[1]);
+  assert.deepEqual(marked(page), ["subscriptions", "balances"]);
+  assert.deepEqual(marked(board), ["agents", "tasks", "detail"]);
+  const script = page.slice(
+    page.indexOf("<script>") + 8,
+    page.lastIndexOf("</script>"),
+  );
+  assert.ok(
+    script.includes(
+      `const parts = () => [".nav .counts", ".nav .tick", ...$$("[data-part]").map((el) => '[data-part="' + CSS.escape(el.dataset.part) + '"]')];`,
+    ),
+  );
+  assert.ok(script.includes("  for (const part of parts()) {"));
+  assert.ok(!/\.subscriptions|\.balances/.test(script));
+  // Open disclosures come back at start and after each refresh.
+  assert.match(script, /\n {2}showLog\(\);\n {2}unfold\(\);\n/);
+  assert.match(script, /\nunfold\(\);\n/);
+  assert.ok(script.includes('localStorage.setItem("router-open"'));
+  // l and / do nothing without the log and the filter, so the key falls
+  // through on the Usage view.
+  assert.ok(
+    script.includes(
+      'const toggleLog = () => {\n  if (!$(".agents .foot")) return false;',
+    ),
+  );
+  assert.ok(
+    script.includes(
+      '  "/": () => {\n    const input = $(".filter input");\n    input?.focus();\n    return Boolean(input);\n  },',
+    ),
+  );
+  assert.doesNotThrow(() => new Function(script));
 });
 
 test("the page reads without a script and takes no input: no form, the help's keys and the theme switch, the refresh", () => {

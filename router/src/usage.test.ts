@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ACCOUNT_IDS,
+  calendarDate,
   claudeReading,
   codexReading,
   createUsageStore,
@@ -174,6 +175,27 @@ test("DeepSeek keeps every currency and never turns a missing balance into zero"
   assert.match(result.notice ?? "", /insufficient/);
   assert.throws(() =>
     deepseekReading({ balance_infos: [{ currency: "USD" }] }, now),
+  );
+});
+
+test("a calendar date is a day that exists, written YYYY-MM-DD, and the times and the histories both use that check", () => {
+  assert.equal(calendarDate("2026-09-30"), "2026-09-30");
+  assert.equal(calendarDate("2028-02-29"), "2028-02-29");
+  for (const bad of [
+    "2026-02-30",
+    "2026-13-01",
+    "2026-9-30",
+    "2026-09-30Z",
+    20260930,
+  ])
+    assert.equal(calendarDate(bad), null, String(bad));
+  // A reset on a day that does not exist is no reset.
+  assert.equal(
+    claudeReading(
+      { five_hour: { utilization: 1, resets_at: "2026-02-30T10:00:00Z" } },
+      now,
+    ).windows[0]?.resetsAt,
+    null,
   );
 });
 

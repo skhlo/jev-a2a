@@ -601,12 +601,16 @@ test("the sample holds usage in the states the Usage view binds: a current subsc
   );
   assert.deepEqual(codex?.reading?.details[0]?.status, "ready");
   // Claude: the last reading and its time are kept beside the error; a
-  // window past 90% and one at zero.
+  // window past 90%, one at zero, and one whose reset has passed since.
   assert.ok(claude?.error && claude.reading);
   assert.equal(claude.reading.observedAt, "2026-09-30T09:31:30.000Z");
   assert.deepEqual(
     claude.reading.windows.map((w) => w.usedPercent),
-    [92, 64, 0],
+    [92, 64, 0, 12],
+  );
+  assert.ok(
+    Date.parse(claude.reading.windows[3]?.resetsAt ?? "") <
+      Date.parse(usage.at ?? ""),
   );
   // OpenRouter without a management key: the key's figures and a notice,
   // and the account balance named as not read.
