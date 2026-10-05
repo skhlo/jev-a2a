@@ -2463,6 +2463,7 @@ test("the core carries no deployment: any valid configuration works, invalid one
   });
   // Deliberately invalid configurations, so each is only `unknown` here.
   const cases: [broken: unknown, message: RegExp][] = [
+    [{ ...config, policy: undefined }, /policy is required/],
     [withPolicy({ threshold: 5 }), /threshold/],
     [withPolicy({ threshold: NaN }), /threshold/],
     [withPolicy({ deadline: -1 }), /deadline/],
@@ -2471,9 +2472,20 @@ test("the core carries no deployment: any valid configuration works, invalid one
     [withParticipant({ hosts: ["mbp", "mbp"] }), /distinct host/],
     [withParticipant({ hosts: [7] }), /distinct host/],
     [withParticipant({ idempotent: "yes" }), /idempotent/],
+    [withParticipant({ responsibility: " " }), /needs a responsibility/],
+    [{ ...config, participants: [] }, /at least one participant/],
     [{ ...config, participants: [null] }, /participant ids/],
     [{ ...config, permissions: { you: "orchestrator" } }, /must be a list/],
     [{ ...config, principals: [] }, /principals must be an object/],
+    [
+      { ...config, principals: { orchestrator: "requester" } },
+      /principal orchestrator collides with a participant id/,
+    ],
+    [{ ...config, permissions: [] }, /permissions must be an object/],
+    [
+      { ...config, permissions: { toString: ["knowledge"] } },
+      /unknown principal toString/,
+    ],
   ];
   for (const [broken, message] of cases)
     assert.throws(() => initial(broken as Config), message);

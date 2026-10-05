@@ -108,10 +108,21 @@ test("what the router refuses, with the reason", () => {
     [{ ...valid, policy: { ...valid.policy, threshold: 2 } }, /threshold/],
     [{ ...valid, hosts: {} }, /hosts maps/],
     [{ ...valid, hosts: { mbp: {} } }, /hosts\.mbp\.paseo/],
+    [{ ...valid, agents: [] }, /agents maps placement keys/],
     [{ ...valid, agents: { "nobody@mbp": "A" } }, /unknown placement/],
     [
       { ...valid, agents: { "environment@mba": "A" } },
       /host mba is not in hosts/,
+    ],
+    [
+      {
+        ...valid,
+        participants: valid.participants.map((p) =>
+          p.id === "orchestrator" ? { ...p, hosts: ["constructor"] } : p,
+        ),
+        agents: { "orchestrator@constructor": "A" },
+      },
+      /host constructor is not in hosts/,
     ],
     [{ ...valid, agents: { "orchestrator@mbp": 3 } }, /must be an agent id/],
     [
@@ -127,6 +138,10 @@ test("what the router refuses, with the reason", () => {
       /takes no message key, so orchestrator must be idempotent: false/,
     ],
     [{ ...valid, terminals: "codex" }, /terminals maps terminal placements/],
+    [
+      { ...valid, terminals: { toString: "codex" } },
+      /terminals.toString names no terminal placement/,
+    ],
     [
       { ...valid, terminals: { "orchestrator@mbp": "codex" } },
       /terminals.orchestrator@mbp names no terminal placement in agents/,
@@ -163,6 +178,14 @@ test("what the router refuses, with the reason", () => {
       { ...valid, serve: { identities: { "me@example.com": "you" } } },
       /configured principals/,
     ],
+    // A name every object answers to is not a configured principal.
+    [
+      {
+        ...valid,
+        serve: { identities: { "me@example.com": ["constructor"] } },
+      },
+      /configured principals/,
+    ],
   ];
   for (const [value, reason] of cases)
     assert.throws(
@@ -170,6 +193,11 @@ test("what the router refuses, with the reason", () => {
       reason,
       JSON.stringify(value).slice(0, 80),
     );
+  // Each refusal names the file it is in.
+  const path = write({ ...valid, hosts: {} });
+  assert.throws(() => loadConfig(path), {
+    message: `Invalid router configuration (${path}): hosts maps each machine to its Paseo endpoint`,
+  });
 });
 
 test("a terminal placement is accepted for a participant that is not idempotent, runs Claude Code unless terminals names another CLI, and hands the adapter each named session's CLI", () => {
