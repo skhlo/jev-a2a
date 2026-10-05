@@ -15,25 +15,27 @@ import {
   type PlacementView,
 } from "../src/board.ts";
 import {
-  age,
   amount,
   band,
-  count,
   counts,
   dh,
   diff,
-  hms,
-  label,
-  left,
   pace,
   renderBoard,
   repo,
-  stale,
-  staleTask,
-  time,
   wshort,
   type RenderOptions,
 } from "../src/board-page.ts";
+import {
+  age,
+  count,
+  hms,
+  label,
+  left,
+  stale,
+  staleTask,
+  time,
+} from "../src/board-parts.ts";
 import {
   agedUsage,
   answeredJournal,
