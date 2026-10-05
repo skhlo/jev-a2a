@@ -137,5 +137,5 @@ JSON file.
 With [`usage`](#usage) on, the router host may also hold, all optional:
 `OPENROUTER_MANAGEMENT_KEY` (OpenRouter's account balance and spending),
 `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY` (otherwise read from Pi's
-`~/.pi/agent/auth.json`), and `ROUTER_CLAUDE_OAUTH_TOKEN` (otherwise
-Claude Code's own login on the host).
+`~/.pi/agent/auth.json`). Claude has no variable: its token is Claude
+Code's own login on the host.

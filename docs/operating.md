@@ -84,9 +84,9 @@ What each account reads, with this host's own logins:
   the current limits and the account's daily token history. It needs
   `codex` on `PATH` (the service's `PATH` includes mise's shims) and a
   signed-in Codex; the router never reads Codex's own credentials.
-- Claude: the OAuth token in `~/.claude/.credentials.json` (or
-  `$CLAUDE_CONFIG_DIR`), or `ROUTER_CLAUDE_OAUTH_TOKEN`; never
-  `CLAUDE_CODE_OAUTH_TOKEN`. The router does not refresh the token: an
+- Claude: the OAuth token in `~/.claude/.credentials.json` (or under
+  `$CLAUDE_CONFIG_DIR`) and nowhere else, so its expiry always applies;
+  never `CLAUDE_CODE_OAUTH_TOKEN`. The router does not refresh the token: an
   expired login reads "Claude login expired; open Claude Code.", and
   opening Claude Code renews it.
 - DeepSeek: `DEEPSEEK_API_KEY`, else the `deepseek` API-key entry in Pi's

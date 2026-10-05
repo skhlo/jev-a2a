@@ -501,13 +501,26 @@ test("Claude reads Claude Code's credential file, says when it expired, and neve
   await assert.rejects(load(), {
     message: "Claude login expired; open Claude Code.",
   });
-  // The router's own variable wins over the file.
-  await createLoaders(
-    home,
-    { ROUTER_CLAUDE_OAUTH_TOKEN: "router-token" },
-    readers,
-  ).claude();
-  assert.deepEqual(used, ["file-token", "router-token"]);
+  // No variable stands in for the file, so its expiry always applies.
+  await assert.rejects(
+    createLoaders(
+      home,
+      { ...inherited, ROUTER_CLAUDE_OAUTH_TOKEN: "router-token" },
+      readers,
+    ).claude(),
+    { message: "Claude login expired; open Claude Code." },
+  );
+  // CLAUDE_CONFIG_DIR moves the file, as it does for Claude Code.
+  const moved = join(home, "moved");
+  await mkdir(moved);
+  await writeFile(
+    join(moved, ".credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: "moved-token", expiresAt: now + 60_000 },
+    }),
+  );
+  await createLoaders(home, { CLAUDE_CONFIG_DIR: moved }, readers).claude();
+  assert.deepEqual(used, ["file-token", "moved-token"]);
   assert.ok(!used.includes("agent-token"));
   assert.ok(!used.includes("never-used"));
   // A provider's error never becomes the message.

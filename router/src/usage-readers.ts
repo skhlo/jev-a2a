@@ -74,7 +74,6 @@ async function apiKey(
 const ROUTER_SECRETS = [
   "ROUTER_TOKEN",
   "TYPESAFE_API_KEY",
-  "ROUTER_CLAUDE_OAUTH_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN",
   "OPENROUTER_API_KEY",
   "OPENROUTER_MANAGEMENT_KEY",
@@ -254,16 +253,15 @@ export function readUsageRpc(
   });
 }
 
-// Claude Code's OAuth access token: $ROUTER_CLAUDE_OAUTH_TOKEN, else the
-// credential file Claude Code keeps and refreshes. A general
-// CLAUDE_CODE_OAUTH_TOKEN inherited from an agent's environment is not used.
+// Claude Code's OAuth access token, from the credential file Claude Code
+// keeps and refreshes ($CLAUDE_CONFIG_DIR, else ~/.claude) and from nowhere
+// else, so its expiry always applies. A CLAUDE_CODE_OAUTH_TOKEN inherited
+// from an agent's environment is not used.
 async function claudeToken(
   home: string,
   env: NodeJS.ProcessEnv,
   now: number,
 ): Promise<string> {
-  const fromEnv = usableKey(env.ROUTER_CLAUDE_OAUTH_TOKEN);
-  if (fromEnv) return fromEnv;
   const dir = env.CLAUDE_CONFIG_DIR || join(home, ".claude");
   const file = await jsonFile(join(dir, ".credentials.json"));
   const oauth = record(file.claudeAiOauth);
