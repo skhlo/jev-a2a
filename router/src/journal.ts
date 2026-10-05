@@ -21,7 +21,6 @@ export type Entry = { at: string; event: Record<string, unknown> };
 
 export type Journal = {
   readonly path: string;
-  entries(): Entry[];
   append(event: Record<string, unknown>): void;
   release(): void;
 };
@@ -50,9 +49,6 @@ export async function openJournal(
   repair(path);
   return {
     path,
-    entries() {
-      return readJournal(home);
-    },
     append(event) {
       appendFileSync(
         path,

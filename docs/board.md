@@ -300,10 +300,11 @@ The page reads and acts without a script. Its script adds:
   form.
 - The script's behaviour has no test in CI; `src/board-check.ts` checks it
   in a local Chromium (see `router/design/README.md`).
-- Requests and serve's runs share one kept fold of the record. The first
-  read after `router serve` starts replays the whole journal (about 2 s on
-  a record of 1,600 lines), and so does one after the journal is cut back
-  or replaced; after that a read folds only the lines appended since.
+- The first read of the record after `router serve` starts replays the
+  whole journal (about 2 s on a record of 1,600 lines), and so does one
+  after the journal is cut back or replaced. After that, requests and
+  serve's runs share one kept fold, which folds only the lines appended
+  since.
 
 How the page is held to its design, and where it departs from it on
 purpose, is in [`router/design/README.md`](../router/design/README.md).

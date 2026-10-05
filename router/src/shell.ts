@@ -1,7 +1,8 @@
-// The imperative shell. One run: lock the journal, fold it into state, mark
-// interrupted attempts unknown, move the clock, apply the caller's event,
-// then perform the core's commands for every placement this router can reach
-// and record each result. Nothing survives a run except the journal.
+// The imperative shell. One run: lock the journal, read its fold into state,
+// mark interrupted attempts unknown, move the clock, apply the caller's
+// event, then perform the core's commands for every placement this router
+// can reach and record each result. A run keeps nothing but what it appends
+// to the journal; the fold serve keeps between runs is that journal's.
 import {
   allDeliveries,
   blockedReason,
@@ -69,10 +70,11 @@ export type ShellOptions = {
   crash?: "after_attempt" | "after_send" | undefined;
   // The record as serve's kept fold holds it (see journalFolder): its state
   // and whether the journal has a `configured` line. It is read once the
-  // run holds the lock, so no other writer appends while it is read.
-  // Folding the whole journal instead blocked serve's event loop for a full
-  // replay on every run. Absent, the run folds the journal itself, as the
-  // CLI's one-shot commands do.
+  // run holds the lock, so no other writer appends while it is read, and
+  // the run never changes it in place (reduce returns a new state). Folding
+  // the whole journal instead blocked serve's event loop for a full replay
+  // on every run. Absent, the run folds the journal itself, as the CLI's
+  // one-shot commands do.
   record?: () => Readonly<{ state: State; configured: boolean }>;
 };
 
@@ -193,14 +195,10 @@ export async function openShell(
     }
     return adapter;
   };
+  const read = options.record ?? journalFolder(config);
   let configured: boolean;
   try {
-    if (options.record) ({ state, configured } = options.record());
-    else {
-      const entries = journal.entries();
-      state = fold(config, entries);
-      configured = Boolean(configuredIn(entries));
-    }
+    ({ state, configured } = read());
   } catch (error) {
     journal.release();
     throw error;

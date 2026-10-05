@@ -13,6 +13,7 @@ import {
   type ShellOptions,
 } from "./shell.ts";
 import { readJournal } from "./journal.ts";
+import { reduce } from "./core.ts";
 import {
   RouterBug,
   sendFailure,
@@ -270,6 +271,24 @@ test("a run handed serve's kept fold starts from it, records the configuration o
   assert.deepEqual(sent, ["D1/M1"]);
   // The kept fold and a fold of the whole journal agree afterwards.
   assert.deepEqual(folded().state, fold(config, readJournal(home)));
+  // A run starts from the record it is handed, not from its own read of the
+  // journal: a hold the journal does not have shows in the run's state.
+  shell = await openShell(config, {
+    ...served(1_040),
+    record: () => {
+      const kept = folded();
+      return {
+        ...kept,
+        state: reduce(kept.state, {
+          type: "observe",
+          placement: "orchestrator@mbp",
+          hold: true,
+        }),
+      };
+    },
+  });
+  assert.equal(shell.state.placements["orchestrator@mbp"]?.hold, true);
+  await shell.close();
 });
 
 test("a key conflict aborts the run with the send left attempting", async (t) => {

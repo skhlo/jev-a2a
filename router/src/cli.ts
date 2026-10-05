@@ -167,7 +167,6 @@ const shellOptions: ShellOptions = {
   crash:
     crash === "after_attempt" || crash === "after_send" ? crash : undefined,
 };
-const open = (): Promise<Shell> => openShell(config, shellOptions);
 
 if (command === "serve") {
   await serve(config);
@@ -176,7 +175,7 @@ if (command === "serve") {
 } else if (command === "usage") {
   await readUsage(config);
 } else {
-  const shell = await open();
+  const shell = await openShell(config, shellOptions);
   let exitCode = 0;
   try {
     exitCode = await main(shell, config);
@@ -198,8 +197,7 @@ async function serve(config: RouterConfig): Promise<void> {
   // writes the record without passing through serve, so the runner also
   // watches the journal file.
   mkdirSync(config.home, { recursive: true });
-  // The runs, the wake, the events endpoint and the board read one kept
-  // fold of the record.
+  // One kept fold of the record for all of serve (see recordReader).
   const record = recordReader(config);
   const runner = serveRunner({
     open: () => openShell(config, { ...shellOptions, record }),

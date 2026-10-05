@@ -274,20 +274,20 @@ export function keepReading<H>(
   };
 }
 
-// The record as the board, the wake and the events endpoint read it,
-// without the lock: the journal's kept fold (see journalFolder) with the
-// message times beside it. A read returns the same record until the journal
-// changes. Serve makes one and hands it to those three and to its runs,
-// which read it under the lock, so the record is folded once for all.
-type BoardRecord = {
+// The record as serve keeps it: the journal's kept fold (see journalFolder)
+// with the message times beside it. A read returns the same record until
+// the journal changes. Serve makes one for the board, the wake and the
+// events endpoint, which read it without the lock, and for its runs, which
+// read it under the lock, so the record is folded once for all.
+type KeptRecord = {
   state: State;
   times: Readonly<Record<string, string>>;
   configured: boolean;
 };
-export type RecordReader = () => BoardRecord;
+export type RecordReader = () => KeptRecord;
 export function recordReader(config: RouterConfig): RecordReader {
   const folded = journalFolder(config);
-  let record: BoardRecord | null = null;
+  let record: KeptRecord | null = null;
   return () => {
     const { state, entries, from, configured } = folded();
     if (!record || from === "start")
