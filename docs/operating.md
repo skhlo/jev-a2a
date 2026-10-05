@@ -182,3 +182,6 @@ links, forms and redirects use relative URLs.
   agent id the daemon does not know shows `missing` in its health line;
   one whose host could not be reached shows `unreachable`, with the reason
   as a tooltip.
+- A terminal placement that reports `no activity yet` has had no prompt
+  since the Paseo daemon started, and its title lacks Claude Code's idle
+  mark. One prompt typed in the terminal gives it an activity.

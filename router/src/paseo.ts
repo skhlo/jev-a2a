@@ -13,10 +13,23 @@
 // closed agent as a prompt does, so the health sheet's per-session reads
 // happen only for sessions seen idle or running.
 //
-// The subagent list is not on the public client; it is on the DaemonClient
-// the client is built over, exported under the package's internal subpath.
-// This builds the same pair createPaseoClient builds, so one connection
-// serves both; the lockfile pins the client, and with it the subpath.
+// The subagent list and the terminals are not on the public client; they
+// are on the DaemonClient the client is built over, exported under the
+// package's internal subpath. This builds the same pair createPaseoClient
+// builds, so one connection serves both; the lockfile pins the client, and
+// with it the subpath.
+//
+// A placement's session may instead be a Paseo terminal running an agent
+// CLI, named `terminal:<id>` in `agents`. Verified on the 0.10.2 daemon with
+// Claude Code 2.1.289: the terminal record carries an `activity` that
+// Paseo's Claude hooks set (`working` on a submitted prompt, `idle` with
+// `finished` when the turn ends, `needs_input` at a permission prompt), and
+// null until the session's first prompt since the daemon started; the
+// title starts with Claude Code's idle mark (✳) at the prompt and a spinner
+// during a turn; a bracketed paste and then Enter arrive as one prompt, and
+// the activity turns within a second. A terminal takes raw input only: no
+// message key, no receipt, so the router confirms a send by the activity
+// change that follows it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
@@ -42,6 +55,7 @@ import {
   type Checkout,
   type Subagents,
 } from "./telemetry.ts";
+import { terminalOf } from "./config.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
@@ -77,10 +91,18 @@ export type AdapterOptions = {
   // Activity items kept per session (the timeline is fetched with room for
   // the harness's own calls, HARNESS_ROOM more).
   tail?: number;
+  // How long a terminal send waits for the activity change that confirms
+  // it, and the pause between looks. Tests shorten them.
+  receiptMs?: number;
+  pause?: (ms: number) => Promise<void>;
 };
 
 export type ProviderSubagent = ProviderSubagentListPayload["subagents"][number];
 export type TimelineEntry = FetchAgentTimelinePayload["entries"][number];
+export type PaseoTerminal = Awaited<
+  ReturnType<DaemonClient["listTerminals"]>
+>["terminals"][number];
+type TerminalActivity = NonNullable<PaseoTerminal["activity"]>;
 
 // What the adapter asks of a daemon, so the rules above it are testable
 // without one.
@@ -90,6 +112,8 @@ export type Daemon = {
   workspaces(): Promise<PaseoWorkspace[]>;
   subagents(agentId: string): Promise<ProviderSubagent[]>;
   tail(agentId: string, limit: number): Promise<TimelineEntry[]>;
+  terminals(): Promise<PaseoTerminal[]>;
+  input(terminalId: string, data: string): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -121,6 +145,94 @@ export const isReady = (
 ): boolean =>
   (status === "idle" || (status === "closed" && !archived)) &&
   pendingPermissions === 0;
+
+// Claude Code's mark at the head of the terminal title while it waits at
+// its prompt; a spinner takes its place during a turn.
+const IDLE_MARK = "✳ ";
+
+// A terminal the router may send to now: its activity is idle or its turn
+// finished, with no prompt waiting on a person; with no activity yet, its
+// title shows the idle mark. A working session would take the paste as a
+// queued prompt, and one at a permission prompt would take it as the answer.
+export function terminalReady(t: PaseoTerminal): boolean {
+  const a = t.activity;
+  if (!a) return (t.title ?? "").startsWith(IDLE_MARK);
+  if (a.attentionReason === "needs_input") return false;
+  return a.state === "idle" || a.attentionReason === "finished";
+}
+
+// The activity in a word, for the run's report.
+function terminalStatus(t: PaseoTerminal): string {
+  const a = t.activity;
+  if (!a) return `no activity yet, title "${t.title ?? ""}"`;
+  if (a.attentionReason === "needs_input" || a.state === "attention")
+    return "needs input";
+  return a.state === "working" ? "working" : "idle";
+}
+
+// A terminal's record reduced to the board's fields: what its activity and
+// title say, its directory and checkout, and nothing a terminal does not
+// report (provider, model, context, usage).
+export function terminalSnapshotOf(
+  t: PaseoTerminal,
+  seen: string,
+): AgentSnapshot {
+  const a = t.activity ?? null;
+  const at = a ? new Date(a.changedAt).toISOString() : null;
+  const asking =
+    a?.attentionReason === "needs_input" ||
+    (a?.state === "attention" && a.attentionReason !== "finished");
+  const status: AgentSnapshot["status"] = a
+    ? a.state === "working" && !asking
+      ? "running"
+      : "idle"
+    : (t.title ?? "").startsWith(IDLE_MARK)
+      ? "idle"
+      : "initializing";
+  return {
+    seen,
+    status,
+    attention: asking
+      ? "permission"
+      : a?.attentionReason === "finished"
+        ? "finished"
+        : null,
+    attentionAt: asking || a?.attentionReason === "finished" ? at : null,
+    turnStartedAt: status === "running" ? at : null,
+    lastUserMessageAt: null,
+    permissions: [],
+    provider: null,
+    model: null,
+    thinking: null,
+    mode: null,
+    context: null,
+    usage: null,
+    error: null,
+    // The title without its leading mark (idle or spinner).
+    title: t.title?.replace(/^[^\p{L}\p{N}\s]\s+/u, "") || null,
+    cwd: t.cwd ?? null,
+    checkout: null,
+    subagents: null,
+    activity: null,
+  };
+}
+
+// Text as a bracketed paste may carry it: no escape that could end the
+// paste early or drive the terminal, line breaks as newlines.
+export const pasteable = (text: string): string =>
+  text
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
+
+// A prompt reached the session: its activity changed after the send to a
+// turn that started or already finished.
+const started = (
+  before: TerminalActivity | null | undefined,
+  after: TerminalActivity | null | undefined,
+): boolean =>
+  Boolean(after) &&
+  after?.changedAt !== before?.changedAt &&
+  (after?.state === "working" || after?.attentionReason === "finished");
 
 // The daemon's agent snapshot (protocol 0.10.1: status, activeTurn,
 // lastUserMessageAt, pendingPermissions, attentionReason and its
@@ -350,6 +462,12 @@ export function adapterOver(
 ): Adapter {
   const sheet = options.sheet ?? true;
   const tail = options.tail ?? 8;
+  const receiptMs = options.receiptMs ?? 10_000;
+  const pause =
+    options.pause ??
+    ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  const terminal = async (id: string): Promise<PaseoTerminal | null> =>
+    (await daemon.terminals()).find((t) => t.id === id) ?? null;
   // One list per adapter, and one note when it failed: the first observe
   // hears why, the rest only get their null.
   let workspaces: Promise<PaseoWorkspace[] | null> | null = null;
@@ -375,8 +493,70 @@ export function adapterOver(
       return null;
     }
   };
+  // A terminal is observed from the daemon's terminal list: its activity
+  // and title for readiness, its workspace for the checkout. A terminal has
+  // no subagent list or timeline to read.
+  const observeTerminal = async (
+    id: string,
+    seen: string,
+  ): Promise<Observation | null> => {
+    const t = await terminal(id);
+    if (!t) return null;
+    const snapshot = terminalSnapshotOf(t, seen);
+    const notes: string[] = [];
+    if (sheet) {
+      const list = await listed(notes);
+      const w =
+        list?.find((w) => w.id === t.workspaceId) ??
+        list?.find((w) => w.workspaceDirectory === t.cwd);
+      snapshot.checkout = w ? checkoutOf(w) : null;
+    }
+    return {
+      ready: terminalReady(t),
+      status: terminalStatus(t),
+      pendingPermissions: 0,
+      snapshot,
+      ...(notes.length ? { notes } : {}),
+    };
+  };
+  // A terminal send: refused before any input unless the terminal is there
+  // and ready; then the text as one bracketed paste and Enter after it.
+  // Accepted only once the activity shows the prompt started a turn; with
+  // no such change within receiptMs the prompt may sit unsent in the input
+  // or have run, so the outcome is unknown.
+  const sendTerminal = async (
+    id: string,
+    text: string,
+  ): Promise<AdapterOutcome> => {
+    let before: PaseoTerminal | null;
+    try {
+      before = await terminal(id);
+    } catch {
+      return "not_sent";
+    }
+    if (!before || !terminalReady(before)) return "not_sent";
+    try {
+      await daemon.input(id, `\x1b[200~${pasteable(text)}\x1b[201~`);
+    } catch {
+      return "not_sent";
+    }
+    try {
+      await pause(300);
+      await daemon.input(id, "\r");
+    } catch {
+      return "unknown";
+    }
+    for (let waited = 0; waited < receiptMs; waited += 250) {
+      await pause(250);
+      const now = await terminal(id).catch(() => null);
+      if (started(before.activity, now?.activity)) return "accepted";
+    }
+    return "unknown";
+  };
   return {
     async observe(agentId, seen) {
+      const id = terminalOf(agentId);
+      if (id) return observeTerminal(id, seen);
       const result = await daemon.refresh(agentId);
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
@@ -414,6 +594,8 @@ export function adapterOver(
       };
     },
     async send(agentId, key, text) {
+      const id = terminalOf(agentId);
+      if (id) return sendTerminal(id, text);
       try {
         await daemon.send(agentId, text, key);
         return "accepted";
@@ -465,6 +647,10 @@ export async function createPaseoAdapter(
             projection: "projected",
           })
         ).entries,
+      terminals: async () => (await daemonClient.listTerminals()).terminals,
+      async input(terminalId, data) {
+        daemonClient.sendTerminalInput(terminalId, { type: "input", data });
+      },
       async close() {
         try {
           await api.dispose();

@@ -273,11 +273,13 @@ const headline = (text: string): string =>
     .map((line) => line.trim())
     .find((line) => line) ?? text;
 
-// Paseo session ids are UUIDs, which wrap a card and widen a table. An id
-// that is one shows its first eight characters, and `fullId` puts the whole
-// id in the title attribute of the element that shows it. Other ids (the
-// fixture's A1, an operator's login in an end line) are unchanged.
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Paseo session ids are UUIDs, which wrap a card and widen a table: an
+// agent's, or a terminal's after `terminal:`. An id that is one shows its
+// first eight characters (after the prefix, which stays), and `fullId` puts
+// the whole id in the title attribute of the element that shows it. Other
+// ids (the fixture's A1, an operator's login in an end line) are unchanged.
+const SESSION =
+  /^(terminal:)?([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // The health row's sentence for a status that carries no error text (v0.10).
 const STATUS_NOTE: Partial<Record<AgentStatus, string>> = {
@@ -314,9 +316,12 @@ const STATUS_CLS: Record<string, string> = {
   failed: "role-err",
   canceled: "muted",
 };
-const shortId = (id: string): string => (UUID.test(id) ? id.slice(0, 8) : id);
+const shortId = (id: string): string => {
+  const m = SESSION.exec(id);
+  return m ? `${m[1] ?? ""}${m[2]}` : id;
+};
 const fullId = (id: string): string =>
-  UUID.test(id) ? ` title="${esc(id)}"` : "";
+  SESSION.test(id) ? ` title="${esc(id)}"` : "";
 // short(id) as the design applies it to a send's message id (v0.13): an id
 // over twelve characters shows its first eight, the whole id as its title.
 const shortSlot = (path: string, id: string): string =>

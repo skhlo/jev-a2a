@@ -84,7 +84,8 @@ Edit it to match yours:
 - `participants`: your agents, each with a responsibility text, and the
   same names under `permissions`, which say who may address whom;
 - `agents`: the Paseo agent id of each `participant@host`, from
-  `paseo agent ls -g --json`;
+  `paseo agent ls -g --json`, or `terminal:<id>` for an agent CLI in a
+  Paseo terminal (see the configuration reference);
 - `secrets.env`: a `ROUTER_TOKEN` you choose, and `TYPESAFE_API_KEY` if
   you have one.
 

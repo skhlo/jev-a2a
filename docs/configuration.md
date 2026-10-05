@@ -40,7 +40,7 @@ A list; at least one. Each has:
 | `name`           | A label.                                                                                                                                       |                           |
 | `kind`           | `agent` or `service`.                                                                                                                          | Anything else             |
 | `hosts`          | Host names; the participant has one placement per host. A host the router serves must also be in `hosts` below.                                | Empty, or a name repeated |
-| `idempotent`     | **Required**, `true` or `false`: whether the participant's adapter deduplicates by the router's message key. Paseo sends are keyed, so `true`. | Missing or not a boolean  |
+| `idempotent`     | **Required**, `true` or `false`: whether the participant's adapter deduplicates by the router's message key. Paseo agent sends are keyed, so `true`; a terminal takes no key, so a participant with a terminal placement is `false`. | Missing or not a boolean  |
 | `responsibility` | The text Jev reads, in full; see [participants.md](participants.md) for how to write it.                                                       | Empty                     |
 
 ### `permissions`
@@ -61,12 +61,31 @@ Machines named in `participants[].hosts`; at least one.
 
 ### `agents`
 
-Placement key (`participant@host`) to Paseo agent id. The agent id is the
-placement's session identity: a placement without an entry is not observed
-and not delivered to. `paseo agent ls -g --json` prints each agent's `id`
-across directories (`--host ssh://<host>` for another machine; the table
-form shows only the short id). Refused: a key that is not a configured
-placement, a host not in `hosts`, or an empty value.
+Placement key (`participant@host`) to the placement's session: a Paseo
+agent id, or `terminal:<id>` for an agent CLI running in a Paseo terminal.
+The value is the placement's session identity: a placement without an
+entry is not observed and not delivered to. `paseo agent ls -g --json`
+prints each agent's `id` across directories, and `paseo terminal ls --all
+--json` each terminal's (`--host ssh://<host>` for another machine; the
+table form shows only the short id). Refused: a key that is not a
+configured placement, a host not in `hosts`, an empty value, or a terminal
+for a participant that is `idempotent: true`.
+
+A terminal placement differs from an agent's:
+
+- It is ready when the terminal's activity, which the agent CLI's Paseo
+  hooks set, is idle or its turn finished, with no prompt waiting on a
+  person. Before the session's first prompt since the daemon started there
+  is no activity, and only Claude Code's idle mark (✳) at the head of the
+  terminal title makes it ready.
+- A delivery is one bracketed paste and then Enter. It is accepted only
+  when the activity shows a turn started within 10 seconds; otherwise it is
+  unknown and waits for `router resolve`, since a terminal takes no message
+  key and a repeat would run twice.
+- The session replies as `terminal:$PASEO_TERMINAL_ID`, which the reply
+  command reads from the terminal's environment.
+- The board shows no provider, model, context, subagents or activity tail
+  for it: a terminal reports none of them.
 
 ### `serve`
 

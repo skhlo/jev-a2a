@@ -98,6 +98,14 @@ test("what the router refuses, with the reason", () => {
       /host mba is not in hosts/,
     ],
     [{ ...valid, agents: { "orchestrator@mbp": 3 } }, /must be an agent id/],
+    [
+      { ...valid, agents: { "orchestrator@mbp": "terminal:" } },
+      /must be an agent id or terminal:<id>/,
+    ],
+    [
+      { ...valid, agents: { "orchestrator@mbp": "terminal:T1" } },
+      /takes no message key, so orchestrator must be idempotent: false/,
+    ],
     [{ ...valid, serve: { board: "0.0.0.0:7678" } }, /loopback/],
     [
       { ...valid, telemetry: { sheet: "yes" } },
@@ -129,6 +137,19 @@ test("what the router refuses, with the reason", () => {
       reason,
       JSON.stringify(value).slice(0, 80),
     );
+});
+
+test("a terminal placement is accepted for a participant that is not idempotent", () => {
+  const config = loadConfig(
+    write({
+      ...valid,
+      participants: valid.participants.map((p) =>
+        p.id === "orchestrator" ? { ...p, idempotent: false } : p,
+      ),
+      agents: { ...valid.agents, "orchestrator@mbp": "terminal:T1" },
+    }),
+  );
+  assert.equal(config.agents["orchestrator@mbp"], "terminal:T1");
 });
 
 test("secrets: KEY=VALUE lines fill the environment without overriding it", () => {

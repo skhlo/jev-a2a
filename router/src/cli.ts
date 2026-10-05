@@ -71,7 +71,8 @@ const USAGE = `router: a prompt with an envelope and a record
   router cancel <task> [--as <principal>]
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
-A participant's reply is authenticated by $PASEO_AGENT_ID (never --as); over
+A participant's reply is authenticated by its session (never --as):
+$PASEO_AGENT_ID, or terminal:$PASEO_TERMINAL_ID in a Paseo terminal; over
 HTTP, by $ROUTER_TOKEN from secrets.env. A participant session on this host
 submits, chooses and answers with --as <its session id>.`;
 
@@ -345,11 +346,14 @@ async function main(shell: Shell, config: RouterConfig): Promise<number> {
       say(await shell.deliver());
       return 0;
     case "reply": {
-      // A reply's identity is the session's own, never chosen by hand.
-      const by = process.env.PASEO_AGENT_ID;
+      // A reply's identity is the session's own, never chosen by hand: a
+      // Paseo agent's id, or the terminal an agent CLI runs in.
+      const terminal = process.env.PASEO_TERMINAL_ID;
+      const by =
+        process.env.PASEO_AGENT_ID || (terminal ? `terminal:${terminal}` : "");
       if (!by)
         fail(
-          "Replies come from a participant session: $PASEO_AGENT_ID is unset.",
+          "Replies come from a participant session: $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are unset.",
         );
       const kind = need("kind");
       if (!["working", "question", "completed", "failed"].includes(kind))

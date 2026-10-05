@@ -7,6 +7,13 @@ import { validateConfig } from "./core.ts";
 import type { Config } from "./types.ts";
 import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
+// A placement's session in `agents`: a Paseo agent id, or `terminal:<id>`
+// for an agent CLI in a Paseo terminal (see paseo.ts). The terminal it
+// names, or null for an agent.
+const TERMINAL = "terminal:";
+export const terminalOf = (session: string): string | null =>
+  session.startsWith(TERMINAL) ? session.slice(TERMINAL.length) || null : null;
+
 export type HostConfig = {
   // Paseo daemon endpoint: a websocket URL, or ssh://[user@]host[:port] to
   // tunnel to a loopback-bound daemon the way the Paseo CLI does.
@@ -79,7 +86,9 @@ export function loadConfig(path: string): RouterConfig {
   }
   const agents = extra.agents ?? {};
   if (!isRecord(agents))
-    return fail("agents maps placement keys to Paseo agent ids");
+    return fail(
+      "agents maps placement keys to Paseo agent ids or terminal:<id>",
+    );
   const known = new Map(
     config.participants.flatMap((p) =>
       p.hosts.map((h): [string, string] => [`${p.id}@${h}`, h]),
@@ -90,8 +99,17 @@ export function loadConfig(path: string): RouterConfig {
     const host = known.get(key);
     if (!host) fail(`agents names unknown placement ${key}`);
     else if (!hosts[host]) fail(`agents.${key}: host ${host} is not in hosts`);
-    if (typeof id !== "string" || !id)
-      return fail(`agents.${key} must be an agent id`);
+    if (typeof id !== "string" || !id || id === TERMINAL)
+      return fail(`agents.${key} must be an agent id or terminal:<id>`);
+    // A terminal takes no message key, so an unknown send to it must wait
+    // for a person rather than be retried (see idempotent in core.ts).
+    const participant = config.participants.find(
+      (p) => `${p.id}@${known.get(key)}` === key,
+    );
+    if (terminalOf(id) && participant?.idempotent)
+      fail(
+        `agents.${key} is a terminal, which takes no message key, so ${participant.id} must be idempotent: false`,
+      );
     agentIds[key] = id;
   }
   const serve = isRecord(extra.serve) ? extra.serve : {};

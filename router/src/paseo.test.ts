@@ -10,11 +10,16 @@ import {
   checkoutFor,
   checkoutOf,
   firstLine,
+  pasteable,
   subagentsOf,
+  terminalReady,
+  terminalSnapshotOf,
   type Daemon,
+  type PaseoTerminal,
   type ProviderSubagent,
   type TimelineEntry,
 } from "./paseo.ts";
+import { terminalOf } from "./config.ts";
 
 const SEEN = "2026-09-30T09:44:50.000Z";
 
@@ -432,6 +437,13 @@ function scripted(status: PaseoAgent["status"], fail: string[] = []) {
       if (fail.includes("tail")) throw new Error("timeline gone");
       return [entry("t1", { type: "user_message", text: "go" })];
     },
+    async terminals() {
+      calls.push("terminals");
+      return [];
+    },
+    async input() {
+      calls.push("input");
+    },
     async close() {
       calls.push("close");
     },
@@ -505,4 +517,184 @@ test("with the sheet off, only the rail is read", async () => {
   assert.equal(seen?.snapshot.subagents, null);
   assert.equal(seen?.snapshot.activity, null);
   assert.deepEqual(calls, ["refresh A1"]);
+});
+
+// A terminal as the daemon lists it, and a daemon holding one whose
+// activity the scripted hook changes when Enter arrives.
+const term = (
+  activity: PaseoTerminal["activity"],
+  title = "✳ Claude Code",
+): PaseoTerminal => ({
+  id: "T1",
+  name: "Terminal 1",
+  cwd: "/work/.paseo/worktrees/feat-x",
+  workspaceId: "wks_1",
+  title,
+  activity,
+});
+const idleAt = (changedAt: number): PaseoTerminal["activity"] => ({
+  state: "idle",
+  attentionReason: "finished",
+  changedAt,
+});
+function terminalDaemon(
+  start: PaseoTerminal | null,
+  onEnter: ((t: PaseoTerminal) => PaseoTerminal) | null,
+) {
+  let current = start;
+  const inputs: string[] = [];
+  const { daemon } = scripted("idle");
+  const terminals: Daemon = {
+    ...daemon,
+    async terminals() {
+      return current ? [current] : [];
+    },
+    async input(terminalId, data) {
+      assert.equal(terminalId, "T1");
+      inputs.push(data);
+      if (data === "\r" && current && onEnter) current = onEnter(current);
+    },
+  };
+  return { daemon: terminals, inputs };
+}
+const quick = { receiptMs: 1_000, pause: () => Promise.resolve() };
+
+test("a terminal session is named terminal:<id>; anything else is a Paseo agent", () => {
+  assert.equal(terminalOf("terminal:2bd05ba9"), "2bd05ba9");
+  assert.equal(terminalOf("terminal:"), null);
+  assert.equal(terminalOf("6c9370bc-d2ed-45bc-98c4-a0f1807fa42c"), null);
+});
+
+test("a terminal is ready when idle or finished with nothing asked of a person, or, before any activity, at Claude Code's idle mark", () => {
+  const cases: [PaseoTerminal, boolean][] = [
+    [term(idleAt(5)), true],
+    [term({ state: "idle", changedAt: 5 }), true],
+    [term({ state: "working", changedAt: 5 }, "◐ Claude Code"), false],
+    [
+      term({
+        state: "attention",
+        attentionReason: "needs_input",
+        changedAt: 5,
+      }),
+      false,
+    ],
+    [
+      term({ state: "idle", attentionReason: "needs_input", changedAt: 5 }),
+      false,
+    ],
+    [
+      term({ state: "attention", attentionReason: "finished", changedAt: 5 }),
+      true,
+    ],
+    [term(null), true],
+    [term(null, "◐ Claude Code"), false],
+    [term(null, "skhl@mbp:~/dotfiles"), false],
+  ];
+  for (const [t, ready] of cases)
+    assert.equal(
+      terminalReady(t),
+      ready,
+      JSON.stringify([t.activity, t.title]),
+    );
+});
+
+test("a terminal's snapshot says what its activity and title say, and nulls what a terminal does not report", () => {
+  const seen = terminalSnapshotOf(term(idleAt(Date.parse(SEEN))), SEEN);
+  assert.equal(seen.status, "idle");
+  assert.equal(seen.attention, "finished");
+  assert.equal(seen.attentionAt, SEEN);
+  assert.equal(seen.title, "Claude Code");
+  assert.equal(seen.cwd, "/work/.paseo/worktrees/feat-x");
+  assert.equal(seen.provider, null);
+  assert.equal(seen.context, null);
+  const working = terminalSnapshotOf(
+    term({ state: "working", changedAt: Date.parse(SEEN) }, "◑ Fix the bug"),
+    SEEN,
+  );
+  assert.equal(working.status, "running");
+  assert.equal(working.turnStartedAt, SEEN);
+  assert.equal(working.title, "Fix the bug");
+  const asking = terminalSnapshotOf(
+    term({ state: "attention", attentionReason: "needs_input", changedAt: 0 }),
+    SEEN,
+  );
+  assert.equal(asking.status, "idle");
+  assert.equal(asking.attention, "permission");
+  assert.equal(terminalSnapshotOf(term(null), SEEN).status, "idle");
+  assert.equal(
+    terminalSnapshotOf(term(null, "zsh"), SEEN).status,
+    "initializing",
+  );
+});
+
+test("observing a terminal reads the terminal list and joins its workspace; an unknown terminal is not found", async () => {
+  const { daemon } = terminalDaemon(term(idleAt(5)), null);
+  const seen = await adapterOver(daemon).observe("terminal:T1", SEEN);
+  assert.equal(seen?.ready, true);
+  assert.equal(seen?.status, "idle");
+  assert.equal(seen?.snapshot.checkout?.workspace, "feat-x");
+  assert.equal(seen?.snapshot.subagents, null);
+  assert.equal(
+    await adapterOver(terminalDaemon(null, null).daemon).observe(
+      "terminal:T1",
+      SEEN,
+    ),
+    null,
+  );
+});
+
+test("a terminal send is one bracketed paste and then Enter, accepted when the activity shows the prompt started a turn", async () => {
+  const { daemon, inputs } = terminalDaemon(term(idleAt(5)), (t) => ({
+    ...t,
+    activity: { state: "working", changedAt: 9 },
+  }));
+  const outcome = await adapterOver(daemon, quick).send(
+    "terminal:T1",
+    "D1/M1",
+    "[router T1 M1] Task\r\n\nFix it\u001b[201~ now",
+  );
+  assert.equal(outcome, "accepted");
+  assert.deepEqual(inputs, [
+    "\u001b[200~[router T1 M1] Task\n\nFix it[201~ now\u001b[201~",
+    "\r",
+  ]);
+});
+
+test("a turn that finished before the next look still confirms the send", async () => {
+  const { daemon } = terminalDaemon(term(idleAt(5)), (t) => ({
+    ...t,
+    activity: idleAt(9),
+  }));
+  assert.equal(
+    await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+    "accepted",
+  );
+});
+
+test("a terminal send is refused before any input when the terminal is gone or not ready, and unknown when no turn follows", async () => {
+  for (const start of [
+    null,
+    term({ state: "working", changedAt: 5 }, "◐ Claude Code"),
+    term({ state: "attention", attentionReason: "needs_input", changedAt: 5 }),
+  ]) {
+    const { daemon, inputs } = terminalDaemon(start, null);
+    assert.equal(
+      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      "not_sent",
+    );
+    assert.deepEqual(inputs, []);
+  }
+  const { daemon, inputs } = terminalDaemon(term(idleAt(5)), null);
+  assert.equal(
+    await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+    "unknown",
+  );
+  assert.equal(inputs.length, 2);
+});
+
+test("pasteable keeps text, tabs and newlines and drops what could drive the terminal", () => {
+  assert.equal(
+    pasteable("a\tb\r\nc\rd\u001b[201~\u0007e\u007f"),
+    "a\tb\nc\nd[201~e",
+  );
 });

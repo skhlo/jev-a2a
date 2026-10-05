@@ -1224,6 +1224,21 @@ test("a real record: a long request keeps a short title and session ids are shor
   assert.ok(detail.includes(`${"x".repeat(2000)}</`));
   // The fixture's short ids stay as they are.
   assert.equal(textOf(html, "placements[0].session"), "session A1");
+  // A terminal session keeps its prefix before the eight characters.
+  const terminal = `terminal:${session}`;
+  assert.ok(
+    page(
+      ME,
+      {},
+      extend({
+        type: "observe",
+        placement: "knowledge@mini",
+        session: terminal,
+      }),
+    ).includes(
+      `<span class="tag" data-path="placements[1].session" title="${terminal}">session terminal:cef0c5d5</span>`,
+    ),
+  );
   // A delivery sent to that session shows eight characters of the UUID on
   // the card; once the session ends it, the table and the end line show the
   // short id with the same tooltip.

@@ -32,6 +32,7 @@ const client = join(import.meta.dirname, "..", "client", "router.mjs");
 function run(
   url: string,
   args: string[],
+  session: Record<string, string> = { PASEO_AGENT_ID: "A1" },
 ): Promise<{ code: number | null; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [client, ...args], {
@@ -40,7 +41,7 @@ function run(
         HOME: dir,
         ROUTER_URL: url,
         ROUTER_TOKEN: "t",
-        PASEO_AGENT_ID: "A1",
+        ...session,
       },
     });
     let stderr = "";
@@ -99,6 +100,18 @@ test("client: --text-file posts the file as the reply text", async () => {
     assert.equal(missing.code, 2);
     assert.match(missing.stderr, /--text-file: .*ENOENT/);
     assert.equal(posted.length, 1);
+
+    // An agent CLI in a Paseo terminal replies as its terminal; with
+    // neither id there is no session to reply as.
+    const terminal = await run(url, [...reply, "working"], {
+      PASEO_TERMINAL_ID: "T9",
+    });
+    assert.equal(terminal.code, 0, terminal.stderr);
+    assert.partialDeepStrictEqual(posted[1], { by: "terminal:T9" });
+    const nobody = await run(url, [...reply, "working"], {});
+    assert.equal(nobody.code, 2);
+    assert.match(nobody.stderr, /\$PASEO_TERMINAL_ID are unset/);
+    assert.equal(posted.length, 2);
   } finally {
     server.close();
   }
@@ -183,7 +196,7 @@ test("client: submit, answer and choose post as the participant session", async 
     assert.match(out.stderr, /--question is required/);
 
     // The notices name --as for the router host's CLI; here the session is
-    // always $PASEO_AGENT_ID, so --as is taken and ignored.
+    // always the caller's own, so --as is taken and ignored.
     out = await run(url, [
       "choose",
       "--as",
