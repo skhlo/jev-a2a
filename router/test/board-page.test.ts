@@ -3231,3 +3231,19 @@ test("v0.13 style: the rail a fixed 272px and the sheet at least 320px from 901p
   assert.ok(detail.includes('<td data-label="Kind">'));
   assert.ok(detail.includes('<td data-label="Session">'));
 });
+
+test("a message id every object answers to keeps its time on the page", () => {
+  const entries = extend({
+    type: "submit",
+    by: "you",
+    messageId: "__proto__",
+    text: "Check the backups.",
+    to: "knowledge",
+  });
+  const sent = entries.find(
+    ({ event }) => event.type === "submit" && event.messageId === "__proto__",
+  );
+  assert.ok(sent);
+  assert.equal(messageTimes(entries)["__proto__"], sent.at);
+  assert.doesNotMatch(strip(page(ME, {}, entries)), /NaN/);
+});

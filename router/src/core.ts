@@ -1226,6 +1226,8 @@ const handlers: Handlers = {
     const entry = own(state.placements, placement);
     if (!entry) return reject("not_found", "No such placement.");
     if (session !== undefined && session !== entry.session) {
+      // A plain read on purpose: an inherited name reads as taken, and is
+      // refused before it could be written as a key.
       if (typeof session !== "string" || state.sessions[session])
         return reject("invalid", "A new session needs a new identity.");
       entry.session = session;

@@ -2435,7 +2435,12 @@ test("input limits", () => {
 
 test("a name every object answers to is no principal, session or placement", () => {
   const s = initial(config);
-  for (const name of ["constructor", "toString", "__proto__"]) {
+  for (const name of [
+    "constructor",
+    "toString",
+    "__proto__",
+    "hasOwnProperty",
+  ]) {
     const refused = expectReject(
       s,
       { type: "submit", by: name, messageId: "M1", text: "hi" },

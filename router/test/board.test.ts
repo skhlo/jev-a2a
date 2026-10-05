@@ -655,7 +655,12 @@ test("identify: Serve's login header, mapped to principals, or nothing", () => {
     null,
   );
   // A login every object answers to is mapped to nothing.
-  for (const login of ["constructor", "toString", "__proto__"])
+  for (const login of [
+    "constructor",
+    "toString",
+    "__proto__",
+    "hasOwnProperty",
+  ])
     assert.equal(
       identify({ "tailscale-user-login": login }, identities),
       null,

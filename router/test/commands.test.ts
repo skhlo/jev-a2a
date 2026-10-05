@@ -197,10 +197,15 @@ test("the router command: a mistake exits 2 with its message, and status reads a
 
 test("a placement every object answers to is refused, and holds no other", async (t) => {
   const router = routerOn(t);
-  for (const name of ["constructor", "__proto__"]) {
+  for (const name of [
+    "constructor",
+    "toString",
+    "__proto__",
+    "hasOwnProperty",
+  ]) {
     const held = await router.run(["observe", name, "--hold"]);
     assert.equal(held.code, 1, name);
-    assert.equal(held.out, "No such placement.");
+    assert.equal(held.out, "No such placement.", name);
   }
   // The run observes every placement, as serve does after a board action.
   assert.equal((await router.run(["run"])).code, 0);
