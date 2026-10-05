@@ -736,7 +736,7 @@ test("the page reads without a script and takes no input: no form, the help's ke
   );
 });
 
-test("between the breakpoints: a pair of panels stacks below 1360px, where a row of quota windows no longer fits the wider column, and the main area scrolls", () => {
+test("between the breakpoints: a pair of panels stacks below 1360px, where a row of quota windows no longer fits the wider column, no later rule splits it again, the main area scrolls, and a window's name takes what the fixed cells leave", () => {
   const css = STYLE(renderUsage(withUsage(sampleModel())));
   const block = css.slice(
     css.indexOf("@media (max-width: 1359px) {"),
@@ -748,6 +748,19 @@ test("between the breakpoints: a pair of panels stacks below 1360px, where a row
     ".bento.pair > .panel, .bento.pair .scroll { overflow: visible; }",
   ])
     assert.ok(block.includes(rule), rule);
+  // From the stacking rule on, every rule that sets the pair's columns sets
+  // one.
+  const later = css.slice(css.indexOf("@media (max-width: 1359px) {"));
+  const columns = [
+    ...later.matchAll(
+      /[^{}]*\.bento\.pair[^{}]*\{[^}]*grid-template-columns: ([^;]*);/g,
+    ),
+  ].map((m) => m[1]);
+  assert.ok(columns.length >= 2);
+  assert.deepEqual([...new Set(columns)], ["minmax(0, 1fr)"]);
+  // The name is the row's one flexible cell, and may be narrower than its
+  // text.
+  assert.ok(css.includes(".entry > .name { flex: 1 1 0; min-width: 0;"));
   // The row's fixed cells, which the 1360px follows from: measured in
   // Chromium, a window label keeps a width from 390px to 1440px.
   for (const rule of [
