@@ -5,10 +5,9 @@
 //
 // Events: replies, answers, requests and choices from other hosts, behind
 // the bearer token.
-// Board: the page (the board, and the Usage view at usage/), its view model
-// as JSON, and its actions, on loopback behind Tailscale Serve, which
-// stamps the viewer's login on each request. Serve strips its mount path,
-// so board routes match by suffix.
+// Board: the page, its view model as JSON, and its actions, on loopback
+// behind Tailscale Serve, which stamps the viewer's login on each request.
+// Serve strips its mount path, so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
 import type {
   IncomingMessage,
@@ -24,7 +23,6 @@ import {
   type Actor,
 } from "./board.ts";
 import { renderBoard } from "./board-page.ts";
-import { renderUsage } from "./usage-page.ts";
 import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
 import { readJournal } from "./journal.ts";
@@ -527,7 +525,15 @@ export function boardListener(
         .end();
       return;
     }
-    const usagePage = path.endsWith("/usage/");
+    if (path.endsWith("/usage/")) {
+      // The Usage tab is now the board's pop-up (v0.13): its address goes
+      // back to the board, relative and on this host as above, with the
+      // pop-up open while usage is on.
+      res
+        .writeHead(302, { location: `../${deps.usage ? "?usage" : ""}` })
+        .end();
+      return;
+    }
     // A record the code cannot replay is reported, not fatal: the events
     // listener in the same process must stay up.
     let view: ReturnType<typeof model>;
@@ -538,36 +544,21 @@ export function boardListener(
       log(`board: cannot read the record: ${message}`);
       return plain(500, `The record cannot be read: ${message}`);
     }
-    // One model, as JSON or as either view of the page, under the same
-    // identity.
+    // One model, as JSON or as the page, under the same identity.
     if (path.endsWith("/board.json") || wantsJson(req.headers.accept)) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(view));
-    } else if (usagePage) {
-      const { usage } = view;
-      if (!usage)
-        return plain(
-          404,
-          "Usage is off: the configuration has no usage section.",
-        );
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(
-        renderUsage(
-          { ...view, usage },
-          {
-            theme: cookie(req.headers.cookie, "router-theme"),
-          },
-        ),
-      );
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       // The selected task is in the URL so a reload and a shared link open
-      // it; the palette is the page's cookie, which renderBoard checks.
+      // it, and so is an open usage pop-up for a page without a script;
+      // the palette is the page's cookie, which renderBoard checks.
       res.end(
         renderBoard(view, {
           notice: url.searchParams.get("notice"),
           task: url.searchParams.get("task"),
           theme: cookie(req.headers.cookie, "router-theme"),
+          usage: url.searchParams.has("usage"),
         }),
       );
     }

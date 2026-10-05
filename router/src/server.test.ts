@@ -1405,7 +1405,7 @@ test("usage: a refresh that rejects logs one fixed line and reads again on sched
   }
 });
 
-test("board: the Usage view is at usage/, with the theme cookie and the same model as JSON; without usage it is a 404 that names the section", async (t) => {
+test("board: usage/ goes back to the board, with the pop-up open while usage is on; ?usage draws it open; the model carries usage as JSON", async (t) => {
   const record = scratch(t, "server-usage-");
   writeFileSync(
     join(record, "journal.jsonl"),
@@ -1425,43 +1425,62 @@ test("board: the Usage view is at usage/, with the theme cookie and the same mod
   const url = await serve(on);
   const offUrl = await serve(off);
   try {
+    // The Usage tab's address, kept for its links: a relative redirect to
+    // the board, which under Serve's mount stays /router/, with the pop-up
+    // open; a path that only ends in usage/ goes back one level as well.
+    for (const path of ["/usage/", "/router/usage/"]) {
+      const old = await fetch(url + path, { redirect: "manual" });
+      assert.equal(old.status, 302);
+      assert.equal(old.headers.get("location"), "../?usage");
+    }
+    // Without the slash it first gains one, as every page does.
+    const bare = await fetch(`${url}/usage`, { redirect: "manual" });
+    assert.equal(bare.headers.get("location"), "./usage/");
+    // Followed, the board with the pop-up open; no tab in the nav.
     const page = await fetch(`${url}/usage/`);
     assert.equal(page.status, 200);
     assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
     const html = await page.text();
-    assert.ok(html.includes("<title>Usage · Router</title>"));
-    assert.ok(html.includes('class="panel subscriptions"'));
-    // The board links to the Usage view when usage is on.
-    const board = await (await fetch(`${url}/`)).text();
-    assert.ok(board.includes('href="usage/"'));
-    // The theme is the page's cookie, as on the board.
+    assert.ok(html.includes("<title>Router</title>"));
+    assert.ok(
+      html.includes(
+        '<aside class="usage" id="usage" role="dialog" aria-label="Usage" data-path="usage">',
+      ),
+    );
+    assert.ok(
+      html.includes(
+        '<nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>',
+      ),
+    );
+    assert.ok(!html.includes('href="usage/"'));
+    // The board without ?usage draws it shut, and the rail's rows link to
+    // the page that draws it open, with the selected task.
+    const board = await (await fetch(`${url}/?task=T2`)).text();
+    assert.ok(board.includes('data-path="usage" hidden>'));
+    assert.ok(board.includes('<a class="acct" href="?task=T2&amp;usage"'));
+    // The theme is the page's cookie.
     const themed = await (
-      await fetch(`${url}/usage/`, {
+      await fetch(`${url}/?usage`, {
         headers: { cookie: "router-theme=one-dark" },
       })
     ).text();
     assert.match(themed, /<html lang="en" data-theme="one-dark">/);
-    // Asked for JSON, usage/ is the board's model, usage included.
+    // Asked for JSON, the board's model, usage included.
     const model = await jsonObject(
-      await fetch(`${url}/usage/`, { headers: { accept: "application/json" } }),
+      await fetch(`${url}/?usage`, { headers: { accept: "application/json" } }),
     );
     assert.ok(isRecord(model.usage));
     assert.equal(model.usage.at, "2026-09-30T09:44:30.000Z");
     assert.deepEqual(await jsonObject(await fetch(`${url}/board.json`)), model);
-    // Without the slash, a relative redirect: under Serve's mount the
-    // browser comes back to /router/usage/.
-    const bare = await fetch(`${url}/usage`, { redirect: "manual" });
-    assert.equal(bare.status, 302);
-    assert.equal(bare.headers.get("location"), "./usage/");
-    // Usage off: the board has no Usage tab, and usage/ says why.
-    const none = await fetch(`${offUrl}/usage/`);
-    assert.equal(none.status, 404);
-    assert.equal(
-      await none.text(),
-      "Usage is off: the configuration has no usage section.",
-    );
-    const plainBoard = await (await fetch(`${offUrl}/`)).text();
-    assert.equal(plainBoard.includes('href="usage/"'), false);
+    // Usage off: usage/ is the board, which has no section, no pop-up and
+    // no u, even when asked for it.
+    const none = await fetch(`${offUrl}/usage/`, { redirect: "manual" });
+    assert.equal(none.status, 302);
+    assert.equal(none.headers.get("location"), "../");
+    const plain = await (await fetch(`${offUrl}/?usage`)).text();
+    assert.ok(!plain.includes('<aside class="usage"'));
+    assert.ok(!plain.includes('class="usage-rail"'));
+    assert.ok(!plain.includes("<kbd>u</kbd>"));
     assert.equal(
       (await jsonObject(await fetch(`${offUrl}/board.json`))).usage,
       null,

@@ -150,8 +150,8 @@ export type BoardModel = {
   log: State["log"];
   // When the placements' snapshots were taken; null without telemetry.
   telemetryAt: string | null;
-  // The accounts' usage, for the Usage tab; null when the configuration
-  // has no usage section.
+  // The accounts' usage, for the rail's Usage section and the usage
+  // pop-up; null when the configuration has no usage section.
   usage: UsageView | null;
 };
 
