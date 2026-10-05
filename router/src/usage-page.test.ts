@@ -431,6 +431,24 @@ test("freshness per account only when it is not current, naming what failed", ()
     codex.includes("unavailablechecked 31s ago · Codex usage unavailable."),
   );
   assert.ok(codex.includes("Token activity"));
+  // Windows on a reading whose allowance is unavailable say nothing of now:
+  // no row and no chip.
+  const stray = structuredClone(usage);
+  const codexReading = stray.accounts[0]?.reading;
+  assert.ok(codexReading?.windows.length);
+  codexReading.allowance = "unavailable";
+  const claudeReading = stray.accounts[1]?.reading;
+  assert.ok(claudeReading);
+  claudeReading.windows = [];
+  const strayPage = renderUsage(withUsage(model(stray)));
+  assert.ok(
+    strip(account(strayPage, 0)).includes("Current limits are unavailable"),
+  );
+  assert.ok(!account(strayPage, 0).includes(".reading.windows["));
+  assert.ok(
+    !headOf(strayPage).includes("max(usage.accounts[].reading.windows[]"),
+    "no window chip",
+  );
   // Never read: no reading, the reason.
   assert.ok(
     strip(account(other, 1)).includes(

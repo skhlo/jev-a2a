@@ -40,9 +40,11 @@ import {
   LABEL,
   WINDOW_SUFFIX,
   type AccountView,
+  type ColumnFormat,
   type DataTable,
   type DetailView,
   type Metric,
+  type ReadingView,
   type UsageView,
   type WindowView,
 } from "./usage.ts";
@@ -97,12 +99,17 @@ const DAYS_SHOWN = 60;
 
 // How a table column draws: counts and amounts as numerals, dates and names
 // a machine wrote in mono, words as text.
-const KIND: Record<string, Column["kind"]> = {
+const KIND: Record<ColumnFormat, Column["kind"]> = {
   number: "num",
   USD: "num",
   date: "mono",
   name: "mono",
 };
+
+// A reading's windows, which say nothing of now while its allowance is
+// unavailable, a reading of history alone.
+const windowsOf = (r: ReadingView | null): WindowView[] =>
+  r && r.allowance !== "unavailable" ? r.windows : [];
 
 export function renderUsage(
   model: UsageModel,
@@ -129,7 +136,7 @@ export function renderUsage(
   // A window whose reset has passed says nothing of now and is left out; one
   // from a stale reading says so.
   const windows = subscriptions.flatMap(({ a, path }) =>
-    (a.reading?.allowance === "unavailable" ? [] : (a.reading?.windows ?? []))
+    windowsOf(a.reading)
       .map((w, k) => ({ a, w, path: `${path}.reading.windows[${k}]` }))
       .filter(({ w }) => !passed(w)),
   );
@@ -176,7 +183,7 @@ export function renderUsage(
 
   // The account's freshness, only when it is not current: a badge with the
   // reading's age, then the failure and the notice in the router's words.
-  const state = (a: AccountView, path: string): string => {
+  const freshness = (a: AccountView, path: string): string => {
     const parts: string[] = [];
     let badge = "";
     const r = a.reading;
@@ -241,7 +248,7 @@ export function renderUsage(
       note,
       columns: t.columns.map((c) => ({
         label: c.label,
-        kind: (c.format && KIND[c.format]) || "text",
+        kind: c.format ? KIND[c.format] : "text",
       })),
       rows: rows.map((r) =>
         t.columns.map((c) =>
@@ -278,7 +285,7 @@ export function renderUsage(
   ): string => {
     const r = a.reading;
     const inner =
-      state(a, path) +
+      freshness(a, path) +
       metricPairs(metrics) +
       (r?.details ?? [])
         .map((d, k) => detail(a, d, `${path}.reading.details[${k}]`))
@@ -313,9 +320,9 @@ export function renderUsage(
   // reset and what is left.
   const subscription = (a: AccountView, path: string): string => {
     const r = a.reading;
-    const shown = r && r.allowance !== "unavailable" ? r.windows : [];
-    const rows = shown.length
-      ? shown.map((w, k) => {
+    const current = windowsOf(r);
+    const rows = current.length
+      ? current.map((w, k) => {
           const wp = `${path}.reading.windows[${k}]`;
           const used = Math.max(0, w.usedPercent);
           // The band follows the share as shown: 74.6 reads 75%, amber.

@@ -53,6 +53,8 @@ export const USAGE_EVERY = 120;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+const isAccountId = (value: unknown): value is AccountId =>
+  ACCOUNT_IDS.some((id) => id === value);
 
 export function loadConfig(path: string): RouterConfig {
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -137,18 +139,19 @@ export function loadConfig(path: string): RouterConfig {
     if (typeof every !== "number" || !(every >= 30 && every <= 3600))
       return fail("usage.every is a number of seconds, 30 to 3600");
     const listed: unknown = extra.usage.accounts ?? ACCOUNT_IDS;
+    const ids = Array.isArray(listed) ? listed.filter(isAccountId) : [];
     if (
       !Array.isArray(listed) ||
-      !listed.length ||
-      new Set(listed).size !== listed.length ||
-      !listed.every((id) => ACCOUNT_IDS.some((known) => known === id))
+      !ids.length ||
+      ids.length !== listed.length ||
+      new Set(ids).size !== ids.length
     )
       return fail(
         `usage.accounts lists accounts once each, among ${ACCOUNT_IDS.join(", ")}`,
       );
     usage = {
       every,
-      accounts: ACCOUNT_IDS.filter((id) => listed.includes(id)),
+      accounts: ACCOUNT_IDS.filter((id) => ids.includes(id)),
     };
   }
   return {

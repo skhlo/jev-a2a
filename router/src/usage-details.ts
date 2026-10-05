@@ -108,15 +108,16 @@ function optional(label: string, value: number | null, unit: string | null) {
 export function openrouterDetails(value: unknown, now: number): UsageDetail {
   const data = record(value);
   if (!Array.isArray(data.data)) throw new Error("No OpenRouter activity.");
-  type Totals = {
-    input: number | null;
-    output: number | null;
-    reasoning: number | null;
-    requests: number | null;
-    cost: number | null;
-    byok: number | null;
-    tokens: number | null;
-  };
+  const FIELDS = [
+    "input",
+    "output",
+    "reasoning",
+    "requests",
+    "cost",
+    "byok",
+    "tokens",
+  ] as const;
+  type Totals = Record<(typeof FIELDS)[number], number | null>;
   const empty = (): Totals => ({
     input: 0,
     output: 0,
@@ -127,7 +128,7 @@ export function openrouterDetails(value: unknown, now: number): UsageDetail {
     tokens: 0,
   });
   const add = (a: Totals, b: Totals) => {
-    for (const key of Object.keys(a) as (keyof Totals)[])
+    for (const key of FIELDS)
       a[key] = sum(a[key], b[key], key !== "cost" && key !== "byok");
   };
   const models = new Map<

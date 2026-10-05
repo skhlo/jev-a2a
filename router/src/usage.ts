@@ -71,13 +71,15 @@ export type Metric = {
   unit: string | null;
 };
 // A column's format says what its cells are: a count, an amount in USD, a
-// calendar date, a name a machine wrote (a model or a provider), or words.
+// calendar date, a name a machine wrote (a model or a provider), or words
+// (null).
+export type ColumnFormat = "number" | "USD" | "date" | "name";
 export type DataTable = {
   title: string;
   columns: {
     key: string;
     label: string;
-    format: "number" | "USD" | "date" | "name" | null;
+    format: ColumnFormat | null;
   }[];
   rows: Record<string, string | number | null>[];
 };
@@ -127,10 +129,15 @@ export class ReadError extends Error {
   override name = "ReadError";
 }
 
+// The router's words for a failure: a reader's own sentence, else
+// `fallback`.
+export const said = (error: unknown, fallback: string): string =>
+  error instanceof ReadError ? error.message : fallback;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
 export function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return isRecord(value) ? value : {};
 }
 export function number(value: unknown): number | null {
   if (typeof value !== "number" && typeof value !== "string") return null;
@@ -451,7 +458,7 @@ export function createUsageStore(
             s.error = null;
           } catch (error: unknown) {
             s.status = s.reading ? "stale" : "unavailable";
-            s.error = error instanceof ReadError ? error.message : failed(s);
+            s.error = said(error, failed(s));
           }
           s.checkedAt = clock();
         }),

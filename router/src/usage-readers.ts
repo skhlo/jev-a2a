@@ -29,6 +29,7 @@ import {
   openrouterReading,
   ReadError,
   record,
+  said,
 } from "./usage.ts";
 import type {
   AccountId,
@@ -70,9 +71,10 @@ async function apiKey(
   return credential.type === "api_key" ? usableKey(credential.key) : undefined;
 }
 
-// The router's own credentials, which a provider's subprocess has no use
-// for: these names, and every name the router's secrets file sets
-// (`secrets`, from loadSecrets).
+// Credentials the Codex child has no use for: the router's token, Jev's
+// key, an inherited Claude Code token and the API keys the other readers
+// send. childEnv drops these and every name in `secrets`, the names the
+// router's secrets file sets (loadSecrets).
 const ROUTER_SECRETS = [
   "ROUTER_TOKEN",
   "TYPESAFE_API_KEY",
@@ -325,10 +327,6 @@ function retained<T extends { observedAt: number }, A extends unknown[]>(
     }
   };
 }
-
-// The router's words for a failure: a reader's own sentence, else `fallback`.
-const said = (error: unknown, fallback: string): string =>
-  error instanceof ReadError ? error.message : fallback;
 
 // An account from its current allowance and its histories, which are read
 // and kept apart: history alone is a reading with the allowance
