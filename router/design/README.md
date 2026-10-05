@@ -98,15 +98,12 @@ where the page must work without its script:
   they are shut, and with the help open `←` closes the help first. `↑` `↓`
   move between the rows only from a row, a card or nothing in particular,
   so a focused button, a link in the sheet or a scrolling table keeps them,
-  and `⇧` with an arrow or `↵` stays the browser's;
+  and `⇧` with an arrow or `↵` is the browser's;
 - a link to a task (a row's id, a card's task, the peek's Open task, an
-  Answer lever) opens it in place: the script fetches the page for the
-  task, swaps the detail and adds the link to the history, so Back and
-  Forward move between the tasks as they do after following it; no
-  periodic refresh starts while the open is on its way, and an Answer
-  lever's form takes the focus once the detail lands. The link alone still
-  works, and an open whose fetch fails follows it (the design's links
-  navigate);
+  Answer lever) opens the task in place, where the design's links
+  navigate; the link alone still works. How an open keeps the history, and
+  what it does when its fetch fails or hangs, is in
+  [docs/board.md](../../docs/board.md#the-script);
 - a task row's second line wraps rather than squeeze the text after the
   status below 8em, and the route (the sender, the recipients, a late
   warning) moves under it whole: the design's line squeezed that text to

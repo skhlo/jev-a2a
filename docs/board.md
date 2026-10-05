@@ -88,10 +88,10 @@ From 900px down the pop-up is the page, each row wrapping into the
 screen's width, and a wide table scrolls sideways inside its own box.
 Without a script a rail row is a link to the page with the pop-up drawn
 open (`?usage`) and every account's details shown, and the close button,
-like a row while the pop-up is open, a link back; `usage/`, the old Usage tab's address, redirects there. With
-the script the pop-up opens in place and stays open across a refresh, and
-an account's details or a table's older days stay open on that device (in
-`localStorage`).
+like a row while the pop-up is open, a link back; `usage/`, the old Usage
+tab's address, redirects there. With the script the pop-up opens in place
+and stays open across a refresh, and an account's details or a table's
+older days stay open on that device (in `localStorage`).
 
 Not ported from API Dash: Claude's local statistics and its usage cache,
 the macOS Keychain, Pi Atlas, the API cards' Pi spend and "balance lasts"
@@ -204,8 +204,8 @@ Blue marks what needs you and nothing else: a question already answered, or
 one that waits on another principal, is not blue. The selected task is in
 the URL (`?task=T2`), so a reload or a shared link opens it; without one the
 page opens the first task that needs you, else the newest open one, else
-the newest finished one. A task opens in place: its row is marked at once
-and its detail swapped in, and the URL follows.
+the newest finished one. With the script a task opens in place, its row
+marked at once ([the script](#the-script)).
 
 The facts tables (deliveries, notices and Jev's judgments) are tables on a
 wide screen. At 1180px and less each row becomes a record: the key cells on
@@ -265,24 +265,26 @@ The page reads and acts without a script. Its script adds:
   peek's Open task, an Answer lever) fetches the page for that task and
   swaps in its detail, whatever the detail holds, and an Answer lever then
   goes to its form. The link joins the history as if it had been followed,
-  so Back returns to the task before it. No refresh starts while the fetch
-  is on its way. A fetch that fails follows the link, and a click with a
-  modifier key keeps the browser's own;
+  so Back and Forward move between the tasks, each opened in place again.
+  No refresh starts while the fetch is on its way. A fetch that fails, or
+  has not answered in 12 seconds, follows the link instead, and a click
+  with a modifier key keeps the browser's own;
 - the keys. `?` opens the help, which lists them; in short, `↑`/`↓` move
   between task rows (from a row, a card or nothing in particular: on a
-  button, a link or a scrolling table they scroll as usual, and so does
-  `⇧` with an arrow), `↵` or `→` opens the focused task (or the focused
-  card's sheet), and `←` or `esc` goes back: it closes the help, then the
-  usage, then the peek, then the sheet. Space opens the peek (the row's
-  open question with a reply box), where `↵` sends the reply; `s` opens the
-  sheet, `a` goes to the answer box, `c` cancels, `p` holds or releases,
-  `r` opens or closes the router log, `u` opens or closes the usage, `/`
-  filters, and `⌘↩` or `Ctrl ↩` sends the form you are typing in. In the
-  usage pop-up `↑`/`↓` move between the accounts, `→` or `↵` opens the
-  focused account's details, and `←` closes them, or the pop-up when they
-  are shut; with the help open over it, `←` closes the help. A key that ends an IME composition (a Hangul syllable, a kana
-  conversion) is left to the text. On a screen without a keyboard, the
-  footer's `r` and `?` take a tap;
+  button, a link or a scrolling table they scroll as usual), `↵` or `→`
+  opens the focused task (or the focused card's sheet), and `←` or `esc`
+  goes back: it closes the help, then the usage, then the peek, then the
+  sheet. `⇧` with an arrow or `↵` is the browser's. Space opens the peek
+  (the row's open question with a reply box), where `↵` sends the reply;
+  `s` opens the sheet, `a` goes to the answer box, `c` cancels, `p` holds
+  or releases, `r` opens or closes the router log, `u` opens or closes the
+  usage, `/` filters, and `⌘↩` or `Ctrl ↩` sends the form you are typing
+  in. In the usage pop-up `↑`/`↓` move between the accounts, `→` or `↵`
+  opens the focused account's details, and `←` closes them, or the pop-up
+  when they are shut; with the help open over it, `←` closes the help. A
+  key that ends an IME composition (a Hangul syllable, a kana conversion)
+  is left to the text. On a screen without a keyboard, the footer's `r`
+  and `?` take a tap;
 - the palettes, on the help's last row: Flexoki, light or dark with the
   system, and One Dark. The choice is kept in `localStorage` and in a
   `router-theme` cookie, so the server paints it before the script runs.
