@@ -15,15 +15,10 @@ import {
   type PlacementView,
 } from "../src/board.ts";
 import {
-  amount,
-  band,
   counts,
-  dh,
   diff,
-  pace,
   renderBoard,
   repo,
-  wshort,
   type RenderOptions,
 } from "../src/board-page.ts";
 import {
@@ -36,6 +31,7 @@ import {
   staleTask,
   time,
 } from "../src/board-parts.ts";
+import { amount, band, dh, pace, wshort } from "../src/board-usage.ts";
 import {
   agedUsage,
   answeredJournal,

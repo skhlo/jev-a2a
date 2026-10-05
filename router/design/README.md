@@ -184,7 +184,8 @@ replays the whole record. Who shares that fold is in `docs/board.md`.
 The generic parts the Usage tab added are in `src/board-parts.ts`, named
 for what they are: `chip`, `meter` with its pace tick (which also draws the
 cards' context meter and the rail's windows), `pairs`, `table` and
-`disclosure`; `pace` and `band` stay in `src/board-page.ts`.
+`disclosure`. `pace` and `band`, which read a window, are in
+`src/board-usage.ts`.
 
 `pr.mergeable` is read as Paseo's word (`CONFLICTING` shows "conflicts"):
 a deviation in v0.11, the design's own rule since v0.12.
