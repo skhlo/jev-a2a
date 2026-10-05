@@ -1,8 +1,14 @@
 // The guards on both HTTP surfaces, exercised over real sockets on port 0.
-import test from "node:test";
+import test, { after, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request, type Server } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -37,7 +43,15 @@ import type { Entry } from "./journal.ts";
 import type { Event } from "./types.ts";
 import base from "./example-config.ts";
 
+// The record the tests share, and a scratch one a test makes for itself;
+// each is removed when its tests end.
 const home = mkdtempSync(join(tmpdir(), "server-"));
+after(() => rmSync(home, { recursive: true }));
+const scratch = (t: TestContext, prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  t.after(() => rmSync(dir, { recursive: true }));
+  return dir;
+};
 const config: RouterConfig = {
   ...base,
   home,
@@ -249,8 +263,8 @@ test("events: a person is refused; a replaced session may reply and answer but n
   }
 });
 
-test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", () => {
-  const record = mkdtempSync(join(tmpdir(), "server-sessions-"));
+test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", (t) => {
+  const record = scratch(t, "server-sessions-");
   writeFileSync(
     join(record, "journal.jsonl"),
     replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
@@ -269,8 +283,8 @@ test("sessionReader: reads the record without the journal lock and tells a curre
   assert.ok(!existsSync(join(record, "journal.lock")));
 });
 
-test("waitsReader: reads the record without the lock and says whether a served session is worth looking at again", () => {
-  const record = mkdtempSync(join(tmpdir(), "server-waits-"));
+test("waitsReader: reads the record without the lock and says whether a served session is worth looking at again", (t) => {
+  const record = scratch(t, "server-waits-");
   const write = (entries: Entry[]): void =>
     writeFileSync(
       join(record, "journal.jsonl"),
@@ -841,8 +855,8 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
   }
 });
 
-test("board: asked for JSON, the board serves its model, identified as the page is", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-model-"));
+test("board: asked for JSON, the board serves its model, identified as the page is", async (t) => {
+  const record = scratch(t, "server-model-");
   writeFileSync(
     join(record, "journal.jsonl"),
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
@@ -961,8 +975,8 @@ const formsIn = (html: string) =>
     };
   });
 
-test("board: the page opens the task in its URL, paints a known palette, and every form posts as before", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-page-"));
+test("board: the page opens the task in its URL, paints a known palette, and every form posts as before", async (t) => {
+  const record = scratch(t, "server-page-");
   writeFileSync(
     join(record, "journal.jsonl"),
     replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
@@ -1087,8 +1101,8 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
   }
 });
 
-test("board: a record the code cannot replay is a 500, not a crash", async () => {
-  const broken = mkdtempSync(join(tmpdir(), "server-broken-"));
+test("board: a record the code cannot replay is a 500, not a crash", async (t) => {
+  const broken = scratch(t, "server-broken-");
   writeFileSync(
     join(broken, "journal.jsonl"),
     `${JSON.stringify({ at: "t", event: { type: "attempt", deliveryId: "D9" } })}\n`,
@@ -1214,8 +1228,8 @@ test(
   },
 );
 
-test("board: the model carries the telemetry file beside the record; a bad file is logged once and shown as none", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-telemetry-"));
+test("board: the model carries the telemetry file beside the record; a bad file is logged once and shown as none", async (t) => {
+  const record = scratch(t, "server-telemetry-");
   writeFileSync(
     join(record, "journal.jsonl"),
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
@@ -1391,8 +1405,8 @@ test("usage: a refresh that rejects logs one fixed line and reads again on sched
   }
 });
 
-test("board: the Usage view is at usage/, with the theme cookie and the same model as JSON; without usage it is a 404 that names the section", async () => {
-  const record = mkdtempSync(join(tmpdir(), "server-usage-"));
+test("board: the Usage view is at usage/, with the theme cookie and the same model as JSON; without usage it is a 404 that names the section", async (t) => {
+  const record = scratch(t, "server-usage-");
   writeFileSync(
     join(record, "journal.jsonl"),
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),

@@ -1,9 +1,9 @@
 // The board reads the record without touching it: a lock-free journal read,
 // a pure model, and the actions its page posts. board-page.test.ts covers
 // the page itself.
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -35,6 +35,13 @@ const times = messageTimes(journal);
 const identities = config.serve.identities;
 const viewer = (login: string) =>
   identify({ "tailscale-user-login": login }, identities);
+// A scratch directory under the system's temporary one, removed when the
+// test that made it ends.
+const scratch = (t: TestContext, prefix: string): string => {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  t.after(() => rmSync(dir, { recursive: true }));
+  return dir;
+};
 
 test("the fixture is a journal: every event was accepted", () => {
   assert.doesNotThrow(() => boardState(config, journal, NOW));
@@ -55,15 +62,15 @@ test("the fixture is a journal: every event was accepted", () => {
   );
 });
 
-test("readJournal skips a line still being written", () => {
-  const home = mkdtempSync(join(tmpdir(), "board-"));
+test("readJournal skips a line still being written", (t) => {
+  const home = scratch(t, "board-");
   const path = join(home, "journal.jsonl");
   const line = JSON.stringify({ at: "t", event: { type: "tick", now: 1 } });
   writeFileSync(path, `${line}\n${line}\n${line.slice(0, 10)}`);
   assert.equal(readJournal(home).length, 2);
   writeFileSync(path, `${line}\n${line}\n${line}\n`);
   assert.equal(readJournal(home).length, 3);
-  assert.deepEqual(readJournal(mkdtempSync(join(tmpdir(), "board-"))), []);
+  assert.deepEqual(readJournal(scratch(t, "board-")), []);
   assert.equal(readFileSync(path, "utf8").split("\n").length, 4);
 });
 
