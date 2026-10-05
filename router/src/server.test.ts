@@ -998,6 +998,11 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
     assert.equal(await theme(), "flexoki");
     assert.equal(await theme("router-theme=one-dark"), "one-dark");
     assert.equal(await theme("a=1; router-theme=one-dark; b=2"), "one-dark");
+    // Of two, the first: a browser sends the most specific path first.
+    assert.equal(
+      await theme("router-theme=one-dark; router-theme=flexoki"),
+      "one-dark",
+    );
     assert.equal(await theme("router-theme=solarized"), "flexoki");
     assert.equal(
       await theme('router-theme="><script>alert(1)</script>'),

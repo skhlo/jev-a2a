@@ -482,7 +482,7 @@ export const head = (
   const tabs = VIEWS.filter((v) => v.name === view || v.shown(model))
     .map(
       (v) =>
-        `<a${v.name === view ? ' class="active"' : ""} href="${v.name === view ? "./" : `${up}${v.dir}` || "./"}">${v.words}</a>`,
+        `<a${v.name === view ? ' class="active"' : ""} data-view="${v.name}" href="${v.name === view ? "./" : `${up}${v.dir}` || "./"}">${v.words}</a>`,
     )
     .join("");
   return `<header class="nav">
@@ -2269,8 +2269,15 @@ const selected = () => $(".detail")?.dataset.task;
 
 // Theme: the server paints the cookie's palette. A palette chosen on this
 // device, in the help, wins and goes into both stores, so the next page
-// paints it first.
+// paints it first. The cookie's path is the board's directory, from the
+// Board tab's relative link on \`page\`, so every view reads the one
+// cookie: /router/ and /router/usage/ both set path=/router, the path a
+// board page gives a cookie by default.
 const THEMES = ["flexoki", "one-dark"];
+const themeCookie = (name, board, page) => {
+  const dir = new URL(board, page).pathname;
+  return "router-theme=" + name + "; path=" + (dir.length > 1 ? dir.slice(0, -1) : dir) + "; max-age=31536000; samesite=lax";
+};
 const paint = () => $$(".themes button").forEach((b) => {
   b.classList.toggle("on", b.dataset.theme === root.dataset.theme);
   b.setAttribute("aria-pressed", String(b.dataset.theme === root.dataset.theme));
@@ -2278,7 +2285,7 @@ const paint = () => $$(".themes button").forEach((b) => {
 const theme = (name) => {
   root.dataset.theme = name;
   localStorage.setItem("router-theme", name);
-  document.cookie = "router-theme=" + name + "; max-age=31536000; samesite=lax";
+  document.cookie = themeCookie(name, $('.nav [data-view="board"]')?.getAttribute("href") ?? "./", location.href);
   paint();
 };
 const saved = localStorage.getItem("router-theme");

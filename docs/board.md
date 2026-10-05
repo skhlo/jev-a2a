@@ -237,6 +237,8 @@ The page reads and acts without a script. Its script adds:
 - the palettes, on the help's last row: Flexoki, light or dark with the
   system, and One Dark. The choice is kept in `localStorage` and in a
   `router-theme` cookie, so the server paints it before the script runs.
+  The cookie belongs to the board's directory, so the Board and Usage tabs
+  share it.
 
 ## Open items
 

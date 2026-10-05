@@ -133,19 +133,19 @@ test("nav on both tabs: Board | Usage | JSON, the open one marked, every link re
   const page = renderUsage(withUsage(sampleModel()));
   assert.ok(
     headOf(board).includes(
-      '<nav><a class="active" href="./">Board</a><a href="usage/">Usage</a><a href="board.json">JSON</a></nav>',
+      '<nav><a class="active" data-view="board" href="./">Board</a><a data-view="usage" href="usage/">Usage</a><a href="board.json">JSON</a></nav>',
     ),
   );
   assert.ok(
     headOf(page).includes(
-      '<nav><a href="../">Board</a><a class="active" href="./">Usage</a><a href="../board.json">JSON</a></nav>',
+      '<nav><a data-view="board" href="../">Board</a><a class="active" data-view="usage" href="./">Usage</a><a href="../board.json">JSON</a></nav>',
     ),
   );
   assert.equal(page.match(/board\.json/g)?.length, 1);
   const off = renderBoard(model(null), { task: "T2" });
   assert.ok(
     headOf(off).includes(
-      '<nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>',
+      '<nav><a class="active" data-view="board" href="./">Board</a><a href="board.json">JSON</a></nav>',
     ),
   );
   // The head is the same element: only its chips, its tick and the marked
@@ -156,6 +156,55 @@ test("nav on both tabs: Board | Usage | JSON, the open one marked, every link re
       .replace(/<span class="tick"[^]*?<\/span>\n/, "")
       .replace(/<nav>[^]*<\/nav>/, "");
   assert.equal(bare(page), bare(board));
+});
+
+test("both tabs set the one theme cookie, at the board's directory from the Board tab's link", () => {
+  const board = renderBoard(sampleModel(), { task: "T2" });
+  const page = renderUsage(withUsage(sampleModel()));
+  // The page's own cookie function, as its script defines it.
+  const script = page.slice(page.indexOf("<script>") + 8);
+  const start = script.indexOf("const themeCookie = ");
+  const source = script.slice(start, script.indexOf("\n};\n", start) + 3);
+  assert.ok(start >= 0 && source.endsWith("};"));
+  assert.ok(board.includes(source));
+  const themeCookie = new Function(`${source}\nreturn themeCookie;`)() as (
+    name: string,
+    board: string,
+    page: string,
+  ) => string;
+  // The Board tab's link, as each page renders it.
+  const boardLink = (html: string): string => {
+    const href = /<a[^>]* data-view="board" href="([^"]*)"/.exec(
+      headOf(html),
+    )?.[1];
+    assert.ok(href);
+    return href;
+  };
+  const shared =
+    "router-theme=one-dark; path=/router; max-age=31536000; samesite=lax";
+  assert.equal(
+    themeCookie("one-dark", boardLink(board), "https://host.example/router/"),
+    shared,
+  );
+  assert.equal(
+    themeCookie(
+      "one-dark",
+      boardLink(page),
+      "https://host.example/router/usage/",
+    ),
+    shared,
+  );
+  // Served at the root, as on a spare port, the path is the root.
+  assert.equal(
+    themeCookie("flexoki", boardLink(page), "http://127.0.0.1:7678/usage/"),
+    "router-theme=flexoki; path=/; max-age=31536000; samesite=lax",
+  );
+  // The switch sets that cookie, from the Board tab on this page.
+  assert.ok(
+    script.includes(
+      `document.cookie = themeCookie(name, $('.nav [data-view="board"]')?.getAttribute("href") ?? "./", location.href);`,
+    ),
+  );
 });
 
 test("the head: Usage's own chips (the worst window in its band, the stale count) and its freshness line; the board keeps its chips", () => {
