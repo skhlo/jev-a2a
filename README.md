@@ -9,7 +9,7 @@ of what was asked, who took it, and what came back.
 > worked example. It is not a product: no releases, no support, and the
 > contracts can change between commits.
 
-![The board: agents, open tasks, and the selected task's exchange](router/design/screenshots/board.png)
+![The board replaying a sample record: requests arrive, Jev routes them, an agent asks and is answered, tasks finish](router/design/screenshots/board.gif)
 
 ```sh
 router submit "Is this machine current with merged main of the dotfiles baseline?"

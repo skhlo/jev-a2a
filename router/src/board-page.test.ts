@@ -53,7 +53,7 @@ import {
 } from "./board-fixture.ts";
 import { dataPaths } from "./design-paths.ts";
 import { sampleModel } from "./board-sample.ts";
-import { shots } from "./board-shots.ts";
+import { recording, shots } from "./board-shots.ts";
 import type { Entry } from "./journal.ts";
 import {
   emptySnapshot,
@@ -2411,7 +2411,7 @@ test("v0.12 escapes what it adds: the remote and its title, the who title, the m
   assert.ok(html.includes(`title="message M2 · you/${safe}">from`));
 });
 
-test("the README's screenshots: the sample board with the rail's Usage section, the same page with the usage pop-up open, and with one sheet shown", () => {
+test("the screenshots: the sample board with the rail's Usage section, the same page with the usage pop-up open, and with one sheet shown", () => {
   const pages = shots();
   assert.deepEqual(Object.keys(pages), ["board", "board-usage", "board-sheet"]);
   const popup = (html: string): string =>
@@ -2428,6 +2428,44 @@ test("the README's screenshots: the sample board with the rail's Usage section, 
   assert.deepEqual(shown(pages.board ?? ""), []);
   assert.deepEqual(shown(pages["board-usage"] ?? ""), []);
   assert.deepEqual(shown(pages["board-sheet"] ?? ""), ["orchestrator@mbp"]);
+});
+
+test("the README's recording: a frame after each run of the sample's record, at its time, with a task open, the whole sample last", () => {
+  const frames = recording();
+  assert.deepEqual(
+    frames.map((f) => f.task),
+    // T1 and T2 arrive, T2 asks, T3 arrives, T2 is answered and works on,
+    // T3 finishes, T4 and T5 arrive and run, T6 arrives last.
+    [
+      ...["T1", "T2", "T2", "T3", "T2", "T2", "T2", "T2", "T3"],
+      ...["T4", "T4", "T5", "T5", "T5", "T5", "T6"],
+    ],
+  );
+  assert.equal(frames[0]?.html.includes('data-task="T2"'), false);
+  assert.deepEqual(
+    frames.map((f) => f.html.match(/updated (\d\d:\d\dZ)/)?.[1]),
+    [
+      ...["09:02Z", "09:10Z", "09:14Z", "09:15Z", "09:16Z", "09:20Z"],
+      ...["09:25Z", "09:31Z", "09:38Z", "09:40Z"],
+      ...Array<string>(5).fill("09:44Z"),
+      "09:45Z",
+    ],
+  );
+  assert.equal(frames.at(-1)?.html, renderBoard(sampleModel(), { task: "T6" }));
+  assert.deepEqual(
+    frames.map((f) => f.seconds),
+    [...Array<number>(frames.length - 1).fill(1.5), 4],
+  );
+  // The telemetry (09:44:51) and the usage (09:44:30) are snapshots near
+  // the sample's end: each shows from the first frame at or after it.
+  assert.deepEqual(
+    frames.map((f) => !f.html.includes("no telemetry")),
+    [...Array<boolean>(15).fill(false), true],
+  );
+  assert.deepEqual(
+    frames.map((f) => f.html.includes('<section class="usage-rail"')),
+    [...Array<boolean>(13).fill(false), true, true, true],
+  );
 });
 
 // ---- Usage (v0.13): the rail's section and the pop-up ----
