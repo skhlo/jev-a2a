@@ -150,9 +150,11 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
 - `/`: the page, or the view model as JSON for a client whose `Accept`
   ranks `application/json` above `text/html`; `/board.json` is the model
   regardless. See [board-model.md](board-model.md).
-- `/usage/`: the Usage view, or the same model as JSON on that `Accept`.
-  Without a `usage` section the page is a 404 that says so; JSON still
-  gets the model, its `usage` `null`.
+- `/`: with `?usage`, the page with the usage pop-up drawn open, which is
+  how a page without a script opens it.
+- `/usage/`: the old Usage tab's address, kept for its links: a redirect
+  to the board with the pop-up open (`../?usage`), or to the bare board
+  (`../`) without a `usage` section.
 - `/whoami`: the `tailscale-*` headers seen, with the `login` and
   `principals` they map to once the login is in `serve.identities` (`null`
   and empty before). Read `tailscale-user-login` from it to fill in
