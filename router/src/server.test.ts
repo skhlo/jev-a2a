@@ -1,7 +1,7 @@
 // The guards on both HTTP surfaces, exercised over real sockets on port 0.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -684,6 +684,62 @@ test("sameSite: browsers must come from the page; other clients pass", () => {
   assert.equal(sameSite({ origin: "not a url", host: "x" }), false);
 });
 
+test("board: the trailing-slash redirect stays on this host, directly and under Serve's mount, whatever the last segment says", async () => {
+  writeFileSync(
+    join(home, "journal.jsonl"),
+    `${JSON.stringify({ at: "t", event: { type: "tick", now: 1 } })}\n`,
+  );
+  const server = createServer(boardListener({ config, handle }));
+  const url = await serve(server);
+  const { port } = new URL(url);
+  // The path as sent, unnormalized, as a hostile link can make a browser
+  // send it.
+  const located = (path: string) =>
+    new Promise<{ status: number; location: string | null }>(
+      (resolve, reject) => {
+        const req = request(
+          { host: "127.0.0.1", port, path, method: "GET" },
+          (res) => {
+            res.resume();
+            const { location } = res.headers;
+            resolve({
+              status: res.statusCode ?? 0,
+              location: location ?? null,
+            });
+          },
+        );
+        req.on("error", reject);
+        req.end();
+      },
+    );
+  try {
+    for (const path of [
+      "/http:evil.com",
+      "/https:evil.com",
+      "/.//evil.com",
+      "/router",
+      "/router/usage",
+      "/usage",
+    ]) {
+      const { status, location } = await located(path);
+      assert.equal(status, 302, path);
+      assert.ok(location, path);
+      // Where a browser lands: opened directly, and through Serve, which
+      // strips the /router mount before the router sees the path.
+      for (const page of [
+        new URL(`http://127.0.0.1:${port}${path}`),
+        new URL(`https://host.example.ts.net/router${path}`),
+      ]) {
+        const landed = new URL(location, page);
+        assert.equal(landed.origin, page.origin, `${path} from ${page.href}`);
+        assert.equal(landed.pathname, `${page.pathname}/`, path);
+      }
+    }
+  } finally {
+    server.close();
+  }
+});
+
 test("board: no identity or a forged site gets no action; a viewer's action runs and redirects", async () => {
   writeFileSync(
     join(home, "journal.jsonl"),
@@ -778,7 +834,7 @@ test("board: no identity or a forged site gets no action; a viewer's action runs
     // mount Serve stripped.
     const moved = await fetch(`${url}/router`, { redirect: "manual" });
     assert.equal(moved.status, 302);
-    assert.equal(moved.headers.get("location"), "router/");
+    assert.equal(moved.headers.get("location"), "./router/");
     assert.equal((await fetch(`${url}/`, { method: "PUT" })).status, 405);
   } finally {
     server.close();
@@ -1330,7 +1386,7 @@ test("board: the Usage view is at usage/, with the theme cookie and the same mod
     // browser comes back to /router/usage/.
     const bare = await fetch(`${url}/usage`, { redirect: "manual" });
     assert.equal(bare.status, 302);
-    assert.equal(bare.headers.get("location"), "usage/");
+    assert.equal(bare.headers.get("location"), "./usage/");
     // Usage off: the board has no Usage tab, and usage/ says why.
     const none = await fetch(`${offUrl}/usage/`);
     assert.equal(none.status, 404);

@@ -509,10 +509,12 @@ export function boardListener(
       // Under a mount such as /router, the page's relative links need the
       // trailing slash. The location is relative too: Serve strips the
       // mount, so /router/usage arrives as /usage, and only the last
-      // segment with its slash comes back to /router/usage/.
+      // segment with its slash comes back to /router/usage/. The leading
+      // ./ keeps a segment such as "https:evil.com" a path on this host
+      // rather than a URL with its own scheme.
       res
         .writeHead(302, {
-          location: `${path.slice(path.lastIndexOf("/") + 1)}/`,
+          location: `./${path.slice(path.lastIndexOf("/") + 1)}/`,
         })
         .end();
       return;
