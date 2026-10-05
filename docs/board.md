@@ -87,8 +87,8 @@ value the provider did not report is a dash, never 0.
 From 900px down the pop-up is the page, each row wrapping into the
 screen's width, and a wide table scrolls sideways inside its own box.
 Without a script a rail row is a link to the page with the pop-up drawn
-open (`?usage`) and every account's details shown, and the close button a
-link back; `usage/`, the old Usage tab's address, redirects there. With
+open (`?usage`) and every account's details shown, and the close button,
+like a row while the pop-up is open, a link back; `usage/`, the old Usage tab's address, redirects there. With
 the script the pop-up opens in place and stays open across a refresh, and
 an account's details or a table's older days stay open on that device (in
 `localStorage`).
@@ -260,10 +260,14 @@ The page reads and acts without a script. Its script adds:
 - opening a task in place: a link to a task (a row's id, a card's task, the
   peek's Open task, an Answer lever) fetches the page for that task and
   swaps in its detail, whatever the detail holds, and an Answer lever then
-  goes to its form. A fetch that fails follows the link, and a click with a
+  goes to its form. The link joins the history as if it had been followed,
+  so Back returns to the task before it. No refresh starts while the fetch
+  is on its way. A fetch that fails follows the link, and a click with a
   modifier key keeps the browser's own;
 - the keys. `?` opens the help, which lists them; in short, `↑`/`↓` move
-  between task rows, `↵` or `→` opens the focused task (or the focused
+  between task rows (from a row, a card or nothing in particular: on a
+  button, a link or a scrolling table they scroll as usual, and so does
+  `⇧` with an arrow), `↵` or `→` opens the focused task (or the focused
   card's sheet), and `←` or `esc` goes back: it closes the help, then the
   usage, then the peek, then the sheet. Space opens the peek (the row's
   open question with a reply box), where `↵` sends the reply; `s` opens the
@@ -272,7 +276,7 @@ The page reads and acts without a script. Its script adds:
   filters, and `⌘↩` or `Ctrl ↩` sends the form you are typing in. In the
   usage pop-up `↑`/`↓` move between the accounts, `→` or `↵` opens the
   focused account's details, and `←` closes them, or the pop-up when they
-  are shut. A key that ends an IME composition (a Hangul syllable, a kana
+  are shut; with the help open over it, `←` closes the help. A key that ends an IME composition (a Hangul syllable, a kana
   conversion) is left to the text. On a screen without a keyboard, the
   footer's `r` and `?` take a tap;
 - the palettes, on the help's last row: Flexoki, light or dark with the

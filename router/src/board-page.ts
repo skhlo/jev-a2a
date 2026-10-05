@@ -254,13 +254,18 @@ const COLUMN_KIND: Record<ColumnFormat, Column["kind"]> = {
 
 // The providers' marks in the rail, by account id: Simple Icons 16.34.0
 // (CC0), "claude" and "openai", on a 24×24 view box in currentColor. The
-// marks themselves belong to their owners.
-const MARKS: Record<string, string> = {
-  claude:
+// marks themselves belong to their owners. A map, so a lookup finds
+// only these and never a property every object inherits.
+const MARKS = new Map<string, string>([
+  [
+    "claude",
     "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z",
-  codex:
+  ],
+  [
+    "codex",
     "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z",
-};
+  ],
+]);
 
 // A task's first line, for the detail title: the design sized the title for
 // the sample's short texts, and a real request runs to pages. The full text
@@ -876,13 +881,14 @@ export function renderBoard(
   // subscription account, and the pop-up with every account, which a row or
   // u opens beside the rail. Neither is drawn while the model carries no
   // usage. Without a script a row is a link to this page with the pop-up
-  // drawn open (`?usage`), and its close button a link back; the script
-  // toggles the pop-up in place.
+  // drawn open (`?usage`), and while it is open the row and its close
+  // button are links back; the script toggles the pop-up in place.
   const usage = model.usage;
   const usageOpen = Boolean(usage && options.usage);
-  const usageHref = esc(
-    `?${selected ? `task=${encodeURIComponent(selected)}&` : ""}usage`,
-  );
+  const usageClose = selected ? href(selected) : "./";
+  const usageHref = usageOpen
+    ? usageClose
+    : esc(`?${selected ? `task=${encodeURIComponent(selected)}&` : ""}usage`);
   const readAt = usage?.at ? `read ${time(usage.at)}` : "not read yet";
   // What an account that is not current says of its age: the reading's
   // while stale, the last check's while unavailable.
@@ -965,7 +971,7 @@ export function renderBoard(
       else if (a.status === "ready") tip.push("no quota windows reported");
     }
     tip.push(readAt);
-    const mark = MARKS[a.id];
+    const mark = MARKS.get(a.id);
     return `<a class="acct${a.status === "stale" ? " stale" : ""}${shown.length ? "" : " off"}" href="${usageHref}" data-path="${path}" aria-expanded="${usageOpen}" aria-controls="usage" title="${esc(tip.join(" · "))}"><span class="l1">${mark ? `<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${mark}"/></svg>` : ""}${slot(`${path}.name`, esc(a.name), "nm")}${slot(`${path}.status`, a.status === "loading" ? "reading" : esc(a.status), `st${a.status === "ready" ? "" : " off"}`)}${reset}</span><span class="l2">${wins.join("")}</span></a>`;
   };
   // Pinned under the cards, above the router log; balances stay in the
@@ -1365,7 +1371,7 @@ export function renderBoard(
       : "not read yet";
     const tip = `${u.at ? `usage read ${stamp(u.at)}` : "usage not read yet"} · every ${u.every}s`;
     return `<aside class="usage" id="usage" role="dialog" aria-label="Usage" data-path="usage"${usageOpen ? "" : " hidden"}>
-  <div class="top"><span class="kicker">Usage</span>${slot("time(usage.at), usage.every", fresh, "fresh", "span", ` title="${esc(tip)}"`)}<span class="spacer"></span><kbd class="k">u</kbd><a class="close" href="${selected ? href(selected) : "./"}" role="button" aria-label="Close" title="Close (u, esc)">×</a></div>
+  <div class="top"><span class="kicker">Usage</span>${slot("time(usage.at), usage.every", fresh, "fresh", "span", ` title="${esc(tip)}"`)}<span class="spacer"></span><kbd class="k">u</kbd><a class="close" href="${usageClose}" role="button" aria-label="Close" title="Close (u, esc)">×</a></div>
   <div class="body">
 ${groups.join("\n")}
   </div>
@@ -3124,7 +3130,14 @@ const syncUsage = () => {
   $$(".acct").forEach((a) => a.setAttribute("aria-expanded", String(usageOpen())));
   place();
 };
+// The element that opened the pop-up, and how to find it again when a
+// refresh has replaced it: a row by its task, else by its tag and path.
 let usageFrom = null;
+const finder = (el) => {
+  const task = el?.matches(".task a.id") && el.closest(".task").dataset.task;
+  if (task) return '.task[data-task="' + CSS.escape(task) + '"] a.id';
+  return el?.dataset?.path ? el.localName + '[data-path="' + CSS.escape(el.dataset.path) + '"]' : null;
+};
 const setUsage = (open, from = null) => {
   const u = usage();
   if (!u) return false;
@@ -3132,11 +3145,15 @@ const setUsage = (open, from = null) => {
   u.hidden = !open;
   syncUsage();
   if (open && !was) {
-    usageFrom = from ?? document.activeElement;
+    const el = from ?? document.activeElement;
+    usageFrom = { el, find: finder(el) };
     const toggle = (from && $('.toggle[data-path="' + CSS.escape(from.dataset.path + ".name") + '"]', u)) || $(".toggle", u);
     toggle?.focus({ preventScroll: true });
   } else if (!open && was) {
-    if (usageFrom?.isConnected && (u.contains(document.activeElement) || document.activeElement === document.body)) usageFrom.focus();
+    const to = usageFrom?.el.isConnected ? usageFrom.el : usageFrom?.find && $(usageFrom.find);
+    const lost = u.contains(document.activeElement) || document.activeElement === document.body;
+    if (lost && to) to.focus();
+    else if (u.contains(document.activeElement)) document.activeElement.blur();
     usageFrom = null;
   }
   return true;
@@ -3150,15 +3167,20 @@ addEventListener("resize", place);
 // row or an account's toggle that the new page has too) or a text
 // selection, so what is being typed, read or copied is not pulled away.
 // Opening a task in place is the same fetch, which swaps the detail
-// whatever it holds; a later fetch supersedes an earlier one still on its
-// way. The notice is outside the swapped parts.
+// whatever it holds; a later open supersedes an earlier one still on its
+// way, and no periodic fetch starts while an open is on its way, so the
+// open lands and its address and focus follow it. The notice is outside
+// the swapped parts.
 const parts = () => [".nav .counts", ".nav .tick", ...$$("[data-part]").map((el) => '[data-part="' + CSS.escape(el.dataset.part) + '"]')];
 let fetches = 0;
-// The task an open is fetching: a refresh meanwhile fetches it too.
+// The open on its way, until its page lands or its fetch fails: its task,
+// the hash its link names, and whether it adds its link to the history
+// (an open the viewer started) or finds the address set (Back, Forward,
+// the task an action returns to).
 let opening = null;
-const refresh = async (id = opening ?? selected()) => {
-  const forced = id !== null && id === opening;
-  if (document.hidden && !forced) return;
+const refresh = async (open = null) => {
+  if (!open && (opening || document.hidden)) return;
+  const id = open ? open.id : selected();
   const mine = ++fetches;
   const query = id ? "?task=" + encodeURIComponent(id) : "";
   let doc;
@@ -3168,7 +3190,7 @@ const refresh = async (id = opening ?? selected()) => {
     doc = new DOMParser().parseFromString(await r.text(), "text/html");
   } catch {
     // An open that cannot fetch follows its link instead.
-    if (forced && mine === fetches) location.assign(query);
+    if (open && mine === fetches) location.assign((query || location.pathname) + open.hash);
     return;
   }
   if (mine !== fetches) return;
@@ -3188,7 +3210,7 @@ const refresh = async (id = opening ?? selected()) => {
   for (const part of parts()) {
     const old = $(part);
     const next = $(part, doc);
-    const swap = forced && part === '[data-part="detail"]' && old?.dataset.task !== id;
+    const swap = open && part === '[data-part="detail"]' && old?.dataset.task !== next?.dataset.task;
     if (!old || !next || (!swap && ((old.contains(focus) && !kept) || selectedIn(old)))) continue;
     const top = $(".scroll", old)?.scrollTop ?? 0;
     old.replaceWith(next);
@@ -3198,16 +3220,16 @@ const refresh = async (id = opening ?? selected()) => {
   // The hidden sheets are swapped whole; the open one keeps its element,
   // its scroll and its slide, and takes the new head and body, unless it
   // holds the focus or a selection. It goes when its placement is gone.
-  const open = sheet();
-  $$(".bento > .sheet").forEach((s) => s !== open && s.remove());
+  const showing = sheet();
+  $$(".bento > .sheet").forEach((s) => s !== showing && s.remove());
   $$(".bento > .sheet", doc).forEach((s) => s.dataset.key !== shown && $(".bento").append(s));
   const fresh = shown && sheetFor(shown, doc);
-  if (open && !fresh) open.remove();
-  else if (open && fresh && !open.contains(focus) && !selectedIn(open)) {
-    const top = $(".body", open).scrollTop;
-    open.dataset.path = fresh.dataset.path;
-    open.replaceChildren(...fresh.children);
-    $(".body", open).scrollTop = top;
+  if (showing && !fresh) showing.remove();
+  else if (showing && fresh && !showing.contains(focus) && !selectedIn(showing)) {
+    const top = $(".body", showing).scrollTop;
+    showing.dataset.path = fresh.dataset.path;
+    showing.replaceChildren(...fresh.children);
+    $(".body", showing).scrollTop = top;
   }
   // The pop-up likewise: shut, it is swapped whole; open, it keeps its
   // element, its scroll and its place, and takes the new content. It comes
@@ -3229,7 +3251,24 @@ const refresh = async (id = opening ?? selected()) => {
   if (peeked && !peek() && $(peeked)) openPeek($(peeked));
   const input = $(".filter input");
   if (input && input !== focus) input.value = words;
-  if (selected() && selected() !== new URLSearchParams(location.search).get("task")) history.replaceState(null, "", "?task=" + encodeURIComponent(selected()));
+  // The address follows: an open the viewer started adds its link to the
+  // history, as following it would (a link to the address itself adds
+  // nothing). When the page shows another task than the address names (the
+  // bare page, a task that has gone), the address takes it, keeping its
+  // notice and hash.
+  if (open) opening = null;
+  if (open?.push && query + open.hash !== location.search + location.hash) history.pushState(null, "", (query || location.pathname) + open.hash);
+  const here = new URLSearchParams(location.search);
+  if (selected() && selected() !== here.get("task")) {
+    here.set("task", selected());
+    history.replaceState(null, "", "?" + here + location.hash);
+  }
+  // An Answer lever's open goes to its form.
+  const target = open?.hash && document.getElementById(decodeURIComponent(open.hash.slice(1)));
+  if (target) {
+    target.scrollIntoView({ block: "nearest" });
+    $("textarea", target)?.focus();
+  }
   fold();
   showLog();
   unfold();
@@ -3237,31 +3276,30 @@ const refresh = async (id = opening ?? selected()) => {
   filter();
   drafts();
 };
-setInterval(refresh, Number($("#app").dataset.refresh) * 1000);
+setInterval(() => refresh(), Number($("#app").dataset.refresh) * 1000);
 
 // Opening a task in place (v0.13): a link to a task (a row's id, a card's
 // task, the peek's Open task, an Answer lever) marks its row at once, then
 // swaps in the page fetched for the task; an Answer lever then goes to its
-// form. The link still works without the script, and a modified click keeps
-// the browser's own.
-const openTask = async (id, hash = "") => {
-  if (!id) return;
-  $$(".task[aria-current]").forEach((r) => {
-    r.classList.remove("selected");
-    r.removeAttribute("aria-current");
-  });
-  const row = $('.task[data-task="' + CSS.escape(id) + '"]');
-  row?.classList.add("selected");
-  row?.setAttribute("aria-current", "true");
-  opening = id;
-  await refresh(id);
-  if (opening === id) opening = null;
-  const target = hash && document.getElementById(decodeURIComponent(hash.slice(1)));
-  if (target) {
-    target.scrollIntoView({ block: "nearest" });
-    $("textarea", target)?.focus();
+// form. Back and Forward open the task their entry names. The link still
+// works without the script, and a modified click keeps the browser's own.
+const openTask = (id, hash = "", push = true) => {
+  const row = id && $('.task[data-task="' + CSS.escape(id) + '"]');
+  if (row) {
+    $$(".task[aria-current]").forEach((r) => {
+      r.classList.remove("selected");
+      r.removeAttribute("aria-current");
+    });
+    row.classList.add("selected");
+    row.setAttribute("aria-current", "true");
   }
+  opening = { id, hash, push };
+  return refresh(opening);
 };
+addEventListener("popstate", () => {
+  const id = new URLSearchParams(location.search).get("task");
+  if (id !== selected()) openTask(id, location.hash, false);
+});
 const plain = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 document.addEventListener("click", (e) => {
@@ -3331,7 +3369,10 @@ document.addEventListener("click", (e) => {
 // The keys the footer and the help name (v0.13). Each returns whether it
 // did something.
 const typing = (el) => el?.matches("input, textarea, select");
-const move = (step) => {
+// ↑ ↓ move between the rows from a row, a card or nothing in particular;
+// on a button, a link or a scrolling table they are the browser's.
+const move = (step, el) => {
+  if (el && el !== document.body && !el.matches(".task a.id, .card")) return false;
   const links = $$(".group:not(.collapsed) .task:not([hidden]) a.id");
   const at = links.indexOf(document.activeElement);
   const next = at < 0 ? $(".task[aria-current] a.id") ?? links[0] : links[Math.min(links.length - 1, Math.max(0, at + step))];
@@ -3390,8 +3431,8 @@ const usageKey = (key, el) => {
   return true;
 };
 const KEYS = {
-  ArrowDown: () => move(1),
-  ArrowUp: () => move(-1),
+  ArrowDown: (row, el) => move(1, el),
+  ArrowUp: (row, el) => move(-1, el),
   Enter: openKey,
   ArrowRight: openKey,
   ArrowLeft: back,
@@ -3448,8 +3489,13 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (typing(el) || e.metaKey || e.ctrlKey || e.altKey) return;
-  // While the pop-up is open its arrows and ↵ move between its accounts.
-  if (usageOpen() && USAGE_KEYS.includes(e.key) && (usage().contains(el) || !el || el === document.body)) {
+  // ⇧ with an arrow or ↵ is the browser's (selecting, a new window).
+  if (e.shiftKey && (e.key.startsWith("Arrow") || e.key === "Enter")) return;
+  // While the pop-up is open, and the help is not over it, its arrows and
+  // ↵ move between its accounts from a toggle, the pop-up or nothing in
+  // particular.
+  const inUsage = !el || el === document.body || el === usage() || el.matches(".usage .toggle");
+  if (usageOpen() && $(".help").hidden && USAGE_KEYS.includes(e.key) && inUsage) {
     if (usageKey(e.key, el)) e.preventDefault();
     return;
   }
@@ -3472,7 +3518,7 @@ if (params.has("usage")) {
 }
 if (returned && params.has("notice") && !params.has("task") && returned !== selected() && $('.task[data-task="' + CSS.escape(returned) + '"]')) {
   history.replaceState(null, "", "?task=" + encodeURIComponent(returned) + "&notice=" + encodeURIComponent(params.get("notice")));
-  refresh(returned);
+  openTask(returned, "", false);
 }
 paint();
 fold();

@@ -78,8 +78,9 @@ where the page must work without its script:
   all its lines;
 - a rail row is a link to the page with the pop-up drawn open (`?usage`)
   and the pop-up's close button a link back, where the design has buttons,
-  so the pop-up opens and closes without a script; the script toggles it in
-  place and drops `?usage` from the address. `usage/`, the old tab's
+  so the pop-up opens and closes without a script (while it is open a row
+  is a link back too); the script toggles it in place and drops `?usage`
+  from the address. `usage/`, the old tab's
   address, redirects to the board with `?usage`;
 - an account's details and a day table's older days are drawn open, so a
   page without a script shows them; the script shuts each one this device
@@ -94,13 +95,38 @@ where the page must work without its script:
 - `esc` closes the help, then the usage, then the peek, then the sheet (the
   design's order leaves out the peek, which `esc` has always closed); in
   the pop-up `←` closes the focused account's details, or the pop-up when
-  they are shut;
+  they are shut, and with the help open `←` closes the help first. `↑` `↓`
+  move between the rows only from a row, a card or nothing in particular,
+  so a focused button, a link in the sheet or a scrolling table keeps them,
+  and `⇧` with an arrow or `↵` stays the browser's;
 - a link to a task (a row's id, a card's task, the peek's Open task, an
   Answer lever) opens it in place: the script fetches the page for the
-  task, swaps the detail and moves the address; the link alone still works
-  (the design's links navigate);
+  task, swaps the detail and adds the link to the history, so Back and
+  Forward move between the tasks as they do after following it; no
+  periodic refresh starts while the open is on its way, and an Answer
+  lever's form takes the focus once the detail lands. The link alone still
+  works, and an open whose fetch fails follows it (the design's links
+  navigate);
 - the screenshots are taken with reduced motion, so the sheet's slide and
   the pop-up's rise do not catch them half drawn.
+
+## The script in a browser
+
+The unit tests read the page's script as text. `src/board-check.ts` runs
+it: it serves the sample on a loopback port, drives a headless Chromium
+over the DevTools protocol, and checks opening a task in place with
+refreshes racing its fetch, an open whose fetch fails, Back and Forward
+after an open, the focus coming back from the usage pop-up after a refresh
+replaced its opener, and the arrow and `esc` basics. It is not part of
+`pnpm test`, and CI, which has no browser, does not run it. Run it in
+`router/` after changing the script:
+
+```sh
+pnpm exec node src/board-check.ts
+```
+
+It needs `chromium` on `PATH` (or `$CHROMIUM`), prints a line per check
+and exits non-zero when one fails.
 
 ## The design's own departures from its brief
 

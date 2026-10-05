@@ -2327,14 +2327,19 @@ test("v0.13 log and keys: the log collapses to its newest line and r opens it; t
   );
   assert.ok(!bare.includes('<aside class="usage"'));
   // The page's script binds the map: the arrows, ↵, r and u, and no j, k, h
-  // or l; it keeps the IME guard, and parses.
+  // or l; it keeps the IME guard, and parses. ↑ ↓ are taken from a row, a
+  // card or nothing in particular; ⇧ with an arrow or ↵ is the browser's;
+  // the pop-up's keys wait while the help is over it.
   const script = html.slice(
     html.indexOf("<script>") + 8,
     html.lastIndexOf("</script>"),
   );
   for (const binding of [
-    "  ArrowDown: () => move(1),",
-    "  ArrowUp: () => move(-1),",
+    "  ArrowDown: (row, el) => move(1, el),",
+    "  ArrowUp: (row, el) => move(-1, el),",
+    '  if (el && el !== document.body && !el.matches(".task a.id, .card")) return false;',
+    '  if (e.shiftKey && (e.key.startsWith("Arrow") || e.key === "Enter")) return;',
+    '  if (usageOpen() && $(".help").hidden && USAGE_KEYS.includes(e.key) && inUsage) {',
     "  Enter: openKey,",
     "  ArrowRight: openKey,",
     "  ArrowLeft: back,",
@@ -2973,9 +2978,24 @@ test("v0.13 usage escapes every model string: an account's name, a window's labe
   table.title = hostile;
   table.columns.push({ key: "x", label: hostile, format: null });
   table.rows[0] = { ...table.rows[0], x: hostile };
+  // An API account's provider strings: the balance in words, which is its
+  // own tooltip without a notice, and the key's remaining and limit.
+  const api = m.usage?.accounts[3]?.reading;
+  const [balance, left, limit] = api?.metrics ?? [];
+  assert.ok(api && balance && left && limit);
+  api.notice = null;
+  balance.value = hostile;
+  left.value = hostile;
+  limit.value = hostile;
   const html = renderBoard(m, { task: "T2", usage: true });
   assert.ok(!html.includes("<script>alert"));
   assert.ok(!html.includes('"&<'));
+  const key = accountOf(html, 3);
+  const at = (i: number) =>
+    `data-path="usage.accounts[3].reading.metrics[${i}].value"`;
+  assert.ok(key.includes(`${at(0)} title="${safe}">${safe}</span>`));
+  assert.ok(key.includes(`${at(1)}>${safe}</span>`));
+  assert.ok(key.includes(`${at(2)}>of ${safe}</span>`));
   // The rail: the name, the tooltip with the error and the window, the
   // window's length title.
   const [row0, row1] = railRows(html);
@@ -3026,10 +3046,15 @@ test("v0.13 script: the pop-up opens and closes in place, keeps open across a re
     'localStorage.setItem("router-open", JSON.stringify(keys));',
     "  unfold();\n  syncUsage();\n  filter();",
     // Open in place: the row is marked at once, the fetch swaps the detail,
-    // the address follows; a failed fetch follows the link.
+    // no periodic fetch starts meanwhile, the open adds its link to the
+    // history and Back opens the entry's task; a failed fetch follows the
+    // link.
     '    openTask(url.searchParams.get("task"), url.hash);',
-    'history.replaceState(null, "", "?task=" + encodeURIComponent(selected()));',
-    "    if (forced && mine === fetches) location.assign(query);",
+    "  if (!open && (opening || document.hidden)) return;",
+    '  if (open?.push && query + open.hash !== location.search + location.hash) history.pushState(null, "", (query || location.pathname) + open.hash);',
+    '    history.replaceState(null, "", "?" + here + location.hash);',
+    "  if (id !== selected()) openTask(id, location.hash, false);",
+    "    if (open && mine === fetches) location.assign((query || location.pathname) + open.hash);",
     "  if (mine !== fetches) return;",
     // A modified click keeps the browser's own.
     "const plain = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;",
@@ -3045,11 +3070,26 @@ test("v0.13 script: the pop-up opens and closes in place, keeps open across a re
   assert.doesNotThrow(() => new Function(script));
   // The links the script takes over work without it: a row's id, the
   // peek's Open task, an Answer lever, a usage row and the close button.
+  // While the pop-up is open a usage row closes it, as the button does.
   assert.ok(
     html.includes('<a class="id" data-path="open[2].id" href="?task=T2">'),
   );
-  assert.ok(html.includes('href="?task=T2&amp;usage"'));
+  assert.match(
+    html,
+    /<a class="acct[^"]*" href="\?task=T2" data-path="usage\.accounts\[0\]"/,
+  );
   assert.ok(html.includes('<a class="close" href="?task=T2"'));
+  assert.match(
+    renderBoard(sampleModel(), { task: "T2" }),
+    /<a class="acct[^"]*" href="\?task=T2&amp;usage" data-path="usage\.accounts\[0\]"/,
+  );
+  // A refresh that replaced the pop-up's opener finds it again by its
+  // task or path.
+  assert.ok(
+    script.includes(
+      "    const to = usageFrom?.el.isConnected ? usageFrom.el : usageFrom?.find && $(usageFrom.find);",
+    ),
+  );
 });
 
 test("v0.13 style: the rail a fixed 272px from 901px to 1180px, facts tables as records at 1180px and less, the pop-up as the page at 900px and less", () => {
