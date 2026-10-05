@@ -1105,7 +1105,7 @@ test("board: the page opens the task in its URL, paints a known palette, and eve
   }
 });
 
-test("board: a record the code cannot replay is a 500, not a crash", async (t) => {
+test("board: a record the code cannot replay is a 500, not a crash, and the icon request does not read it", async (t) => {
   const broken = scratch(t, "server-broken-");
   writeFileSync(
     join(broken, "journal.jsonl"),
@@ -1121,6 +1121,15 @@ test("board: a record the code cannot replay is a 500, not a crash", async (t) =
     assert.match(await page.text(), /cannot be read/);
     // The process is still serving.
     assert.equal((await fetch(`${url}/whoami`)).status, 200);
+    // The browser's icon request is answered without reading the record,
+    // at the root and under Serve's mount, rather than redirected to a
+    // whole board.
+    for (const path of ["/favicon.ico", "/router/favicon.ico"]) {
+      const icon = await fetch(`${url}${path}`, { redirect: "manual" });
+      assert.equal(icon.status, 204, path);
+      assert.equal(icon.headers.get("location"), null);
+      assert.equal(await icon.text(), "");
+    }
   } finally {
     server.close();
   }

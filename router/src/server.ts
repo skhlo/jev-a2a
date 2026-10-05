@@ -564,6 +564,12 @@ export function boardListener(
       );
       return;
     }
+    if (path.endsWith("/favicon.ico")) {
+      // The board has no icon. Said at once, without reading the record:
+      // the redirect below would send the browser to a whole board.
+      res.writeHead(204, { "cache-control": "max-age=86400" }).end();
+      return;
+    }
     if (!path.endsWith("/") && !path.endsWith("/board.json")) {
       // Under a mount such as /router, the page's relative links need the
       // trailing slash. The location is relative too: Serve strips the
