@@ -360,8 +360,9 @@ turn ends, `idle` again on SessionEnd and kept after the CLI exits), and is
 null before the first prompt since the daemon started and after an Esc or
 Ctrl-C; the title starts with `✳` at the prompt and in a permission dialog,
 with a spinner during a turn, and is the shell's once the CLI exits; a
-named session draws its name into the prompt box's top rule; a bracketed
-paste then Enter arrives as one prompt. Input is raw keystrokes:
+session's name and tags (such as fast mode) end the prompt box's top rule,
+right-aligned after as many `─` as the width leaves; a bracketed paste then
+Enter arrives as one prompt. Input is raw keystrokes:
 no message key, no receipt. Therefore:
 
 - `ready` requires the `✳` title, no `working` activity, and Claude Code's
@@ -384,7 +385,9 @@ no message key, no receipt. Therefore:
   title leaves the title and an idle activity; the cursor rule catches it
   only while the shell's prompt is under the box. Under a terminal
   multiplexer Claude Code keeps a static title, so with no activity (after
-  a daemon restart mid-turn) a turn is not seen.
+  a daemon restart mid-turn) a turn is not seen. A name and tags as wide as
+  the terminal leave no `─` before them, and the box does not read as a
+  prompt.
 - A participant with a terminal placement is configured `idempotent: false`,
   which the config enforces, so its `unknown` sends are never repeated.
 - The session replies as `terminal:$PASEO_TERMINAL_ID`, which the reply
