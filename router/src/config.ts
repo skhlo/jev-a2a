@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { validateConfig } from "./core.ts";
-import type { Config } from "./types.ts";
+import type { Config, Participant, Role } from "./types.ts";
 import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
 // A placement's session in `agents`: a Paseo agent id, or `terminal:<id>`
@@ -102,158 +102,216 @@ export function loadConfig(path: string): RouterConfig {
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
   const config = validateConfig(raw);
   const extra = raw as Record<string, unknown>;
-  const fail = (message: string): never => {
-    throw new Error(`Invalid router configuration (${path}): ${message}`);
-  };
-  if (!isRecord(extra.hosts) || !Object.keys(extra.hosts).length)
-    return fail("hosts maps each machine to its Paseo endpoint");
+  try {
+    const hosts = hostsOf(extra.hosts);
+    const agents = agentsOf(extra.agents ?? {}, config.participants, hosts);
+    const terminals = terminalsOf(extra.terminals ?? {}, agents);
+    const serve = serveOf(extra.serve, config.principals ?? {});
+    const jev = jevOf(extra.jev);
+    const telemetry = telemetryOf(extra.telemetry);
+    const usage = usageOf(extra.usage);
+    return {
+      ...config,
+      home:
+        text(extra.home, "") ||
+        join(homedir(), ".local", "state", "jev-router"),
+      hosts,
+      agents,
+      terminals,
+      serve,
+      jev,
+      telemetry,
+      usage,
+    };
+  } catch (error: unknown) {
+    if (!(error instanceof Refusal)) throw error;
+    throw new Error(`Invalid router configuration (${path}): ${error.message}`);
+  }
+}
+
+// A section that breaks a rule; loadConfig names the file.
+class Refusal extends Error {}
+function refuse(message: string): never {
+  throw new Refusal(message);
+}
+
+// A string that is not empty, else the fallback.
+const text = (value: unknown, fallback: string): string =>
+  typeof value === "string" && value ? value : fallback;
+// Seconds from `min` to an hour; `fallback` when absent.
+const seconds = (
+  name: string,
+  value: unknown,
+  { fallback, min }: { fallback: number; min: number },
+): number => {
+  const given = value === undefined ? fallback : value;
+  if (typeof given !== "number" || !(given >= min && given <= 3600))
+    refuse(`${name} is a number of seconds, ${min} to 3600`);
+  return given;
+};
+// A record's own entry: never one every object answers to, like toString.
+const own = <T>(record: Record<string, T>, key: string): T | undefined =>
+  Object.hasOwn(record, key) ? record[key] : undefined;
+// An optional section's fields; none when it is absent.
+const section = (value: unknown): Record<string, unknown> =>
+  isRecord(value) ? value : {};
+
+function hostsOf(value: unknown): Record<string, HostConfig> {
+  if (!isRecord(value) || !Object.keys(value).length)
+    refuse("hosts maps each machine to its Paseo endpoint");
   const hosts: Record<string, HostConfig> = {};
-  for (const [name, entry] of Object.entries(extra.hosts)) {
+  for (const [name, entry] of Object.entries(value)) {
     if (!isRecord(entry) || typeof entry.paseo !== "string" || !entry.paseo)
-      return fail(`hosts.${name}.paseo is a websocket URL or ssh://host`);
+      refuse(`hosts.${name}.paseo is a websocket URL or ssh://host`);
     hosts[name] = {
       paseo: entry.paseo,
-      replyCommand:
-        typeof entry.replyCommand === "string" && entry.replyCommand
-          ? entry.replyCommand
-          : "router",
+      replyCommand: text(entry.replyCommand, "router"),
     };
   }
-  const agents = extra.agents ?? {};
-  if (!isRecord(agents))
-    return fail(
-      "agents maps placement keys to Paseo agent ids or terminal:<id>",
-    );
-  const known = new Map(
-    config.participants.flatMap((p) =>
-      p.hosts.map((h): [string, string] => [`${p.id}@${h}`, h]),
+  return hosts;
+}
+
+function agentsOf(
+  value: unknown,
+  participants: Participant[],
+  hosts: Record<string, HostConfig>,
+): Record<string, string> {
+  if (!isRecord(value))
+    refuse("agents maps placement keys to Paseo agent ids or terminal:<id>");
+  const placements = new Map(
+    participants.flatMap((participant) =>
+      participant.hosts.map(
+        (host): [string, { participant: Participant; host: string }] => [
+          `${participant.id}@${host}`,
+          { participant, host },
+        ],
+      ),
     ),
   );
-  const agentIds: Record<string, string> = {};
-  for (const [key, id] of Object.entries(agents)) {
-    const host = known.get(key);
-    if (!host) fail(`agents names unknown placement ${key}`);
-    else if (!hosts[host]) fail(`agents.${key}: host ${host} is not in hosts`);
+  const sessions: Record<string, string> = {};
+  for (const [key, id] of Object.entries(value)) {
+    const { participant, host } =
+      placements.get(key) ?? refuse(`agents names unknown placement ${key}`);
+    if (!own(hosts, host))
+      refuse(`agents.${key}: host ${host} is not in hosts`);
     if (typeof id !== "string" || !id)
-      return fail(`agents.${key} must be an agent id or terminal:<id>`);
-    const terminal = id.startsWith(TERMINAL) ? (terminalOf(id) ?? "") : null;
-    if (terminal !== null && !TERMINAL_ID.test(terminal))
-      fail(
-        `agents.${key} must name a terminal by its full id (paseo terminal ls --all --json)`,
-      );
-    // A terminal takes no message key, so an unknown send to it must wait
-    // for a person rather than be retried (see idempotent in core.ts).
-    const participant = config.participants.find(
-      (p) => `${p.id}@${host}` === key,
-    );
-    if (terminal !== null && participant?.idempotent)
-      fail(
-        `agents.${key} is a terminal, which takes no message key, so ${participant.id} must be idempotent: false`,
-      );
-    agentIds[key] = id;
+      refuse(`agents.${key} must be an agent id or terminal:<id>`);
+    if (id.startsWith(TERMINAL)) checkTerminal(key, id, participant);
+    sessions[key] = id;
   }
-  const listedClis = extra.terminals ?? {};
-  if (!isRecord(listedClis))
-    return fail('terminals maps terminal placements to a CLI, e.g. "codex"');
+  return sessions;
+}
+
+function checkTerminal(
+  key: string,
+  id: string,
+  participant: Participant,
+): void {
+  if (!TERMINAL_ID.test(terminalOf(id) ?? ""))
+    refuse(
+      `agents.${key} must name a terminal by its full id (paseo terminal ls --all --json)`,
+    );
+  // A terminal takes no message key, so an unknown send to it must wait
+  // for a person rather than be retried (see idempotent in core.ts).
+  if (participant.idempotent)
+    refuse(
+      `agents.${key} is a terminal, which takes no message key, so ${participant.id} must be idempotent: false`,
+    );
+}
+
+function terminalsOf(
+  value: unknown,
+  agents: Record<string, string>,
+): Record<string, TerminalCli> {
+  if (!isRecord(value))
+    refuse('terminals maps terminal placements to a CLI, e.g. "codex"');
   const terminals: Record<string, TerminalCli> = {};
-  for (const [key, cli] of Object.entries(listedClis)) {
-    if (terminalOf(agentIds[key] ?? "") === null)
-      return fail(`terminals.${key} names no terminal placement in agents`);
+  for (const [key, cli] of Object.entries(value)) {
+    if (terminalOf(own(agents, key) ?? "") === null)
+      refuse(`terminals.${key} names no terminal placement in agents`);
     if (!isTerminalCli(cli))
-      return fail(
-        `terminals.${key} must be one of ${TERMINAL_CLIS.join(", ")}`,
-      );
+      refuse(`terminals.${key} must be one of ${TERMINAL_CLIS.join(", ")}`);
     terminals[key] = cli;
   }
-  const serve = isRecord(extra.serve) ? extra.serve : {};
-  const board =
-    typeof serve.board === "string" && serve.board
-      ? serve.board
-      : "127.0.0.1:7678";
+  return terminals;
+}
+
+function serveOf(
+  value: unknown,
+  principals: Record<string, Role>,
+): RouterConfig["serve"] {
+  const serve = section(value);
+  const board = text(serve.board, "127.0.0.1:7678");
   // The board trusts Tailscale Serve's login header, so it must only be
   // reachable through Serve: loopback, never an interface address.
   if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(board))
-    fail(`serve.board must be a loopback address, not ${board}`);
-  const wake = serve.wake === undefined ? 20 : serve.wake;
-  if (typeof wake !== "number" || !(wake >= 0 && wake <= 3600))
-    return fail("serve.wake is a number of seconds, 0 to 3600");
-  const poll = serve.poll === undefined ? 0 : serve.poll;
-  if (typeof poll !== "number" || !(poll >= 0 && poll <= 3600))
-    return fail("serve.poll is a number of seconds, 0 to 3600");
-  const identities: Record<string, string[]> = {};
-  if (serve.identities !== undefined) {
-    if (!isRecord(serve.identities))
-      fail("serve.identities maps a tailnet login to a list of principals");
-    else
-      for (const [login, list] of Object.entries(serve.identities)) {
-        const principals: string[] = [];
-        for (const p of Array.isArray(list) ? list : [undefined])
-          if (typeof p === "string" && p in (config.principals ?? {}))
-            principals.push(p);
-          else
-            return fail(
-              `serve.identities.${login} must list configured principals`,
-            );
-        identities[login] = principals;
-      }
-  }
-  const jev = isRecord(extra.jev) ? extra.jev : {};
-  const telemetry = isRecord(extra.telemetry) ? extra.telemetry : {};
-  if (telemetry.sheet !== undefined && typeof telemetry.sheet !== "boolean")
-    return fail("telemetry.sheet is true or false");
-  let usage: RouterConfig["usage"] = null;
-  if (extra.usage !== undefined) {
-    if (!isRecord(extra.usage))
-      return fail('usage is an object such as { "every": 120 }');
-    const every =
-      extra.usage.every === undefined ? USAGE_EVERY : extra.usage.every;
-    if (typeof every !== "number" || !(every >= 30 && every <= 3600))
-      return fail("usage.every is a number of seconds, 30 to 3600");
-    const listed: unknown = extra.usage.accounts ?? ACCOUNT_IDS;
-    const ids = Array.isArray(listed) ? listed.filter(isAccountId) : [];
-    if (
-      !Array.isArray(listed) ||
-      !ids.length ||
-      ids.length !== listed.length ||
-      new Set(ids).size !== ids.length
-    )
-      return fail(
-        `usage.accounts lists accounts once each, among ${ACCOUNT_IDS.join(", ")}`,
-      );
-    usage = {
-      every,
-      accounts: ACCOUNT_IDS.filter((id) => ids.includes(id)),
-    };
-  }
+    refuse(`serve.board must be a loopback address, not ${board}`);
+  const wake = seconds("serve.wake", serve.wake, { fallback: 20, min: 0 });
+  const poll = seconds("serve.poll", serve.poll, { fallback: 0, min: 0 });
   return {
-    ...config,
-    home:
-      typeof extra.home === "string" && extra.home
-        ? extra.home
-        : join(homedir(), ".local", "state", "jev-router"),
-    hosts,
-    agents: agentIds,
-    terminals,
-    serve: {
-      listen:
-        typeof serve.listen === "string" && serve.listen
-          ? serve.listen
-          : "127.0.0.1:7677",
-      board,
-      identities,
-      wake,
-      poll,
-    },
-    jev: {
-      model:
-        typeof jev.model === "string" && jev.model ? jev.model : "jev-latest",
-      ...(typeof jev.url === "string" && jev.url ? { url: jev.url } : {}),
-      ...(typeof jev.timeoutMs === "number"
-        ? { timeoutMs: jev.timeoutMs }
-        : {}),
-    },
-    telemetry: { sheet: telemetry.sheet ?? true },
-    usage,
+    listen: text(serve.listen, "127.0.0.1:7677"),
+    board,
+    identities: identitiesOf(serve.identities, principals),
+    wake,
+    poll,
+  };
+}
+
+function identitiesOf(
+  value: unknown,
+  principals: Record<string, Role>,
+): Record<string, string[]> {
+  if (value === undefined) return {};
+  if (!isRecord(value))
+    refuse("serve.identities maps a tailnet login to a list of principals");
+  const configured = (list: unknown): list is string[] =>
+    Array.isArray(list) &&
+    list.every((p) => typeof p === "string" && Object.hasOwn(principals, p));
+  const identities: Record<string, string[]> = {};
+  for (const [login, list] of Object.entries(value)) {
+    if (!configured(list))
+      refuse(`serve.identities.${login} must list configured principals`);
+    identities[login] = list;
+  }
+  return identities;
+}
+
+function jevOf(value: unknown): RouterConfig["jev"] {
+  const jev = section(value);
+  return {
+    model: text(jev.model, "jev-latest"),
+    ...(typeof jev.url === "string" && jev.url ? { url: jev.url } : {}),
+    ...(typeof jev.timeoutMs === "number" ? { timeoutMs: jev.timeoutMs } : {}),
+  };
+}
+
+function telemetryOf(value: unknown): RouterConfig["telemetry"] {
+  const { sheet } = section(value);
+  if (sheet !== undefined && typeof sheet !== "boolean")
+    refuse("telemetry.sheet is true or false");
+  return { sheet: sheet ?? true };
+}
+
+function usageOf(value: unknown): RouterConfig["usage"] {
+  if (value === undefined) return null;
+  if (!isRecord(value)) refuse('usage is an object such as { "every": 120 }');
+  const every = seconds("usage.every", value.every, {
+    fallback: USAGE_EVERY,
+    min: 30,
+  });
+  const listed: unknown = value.accounts ?? ACCOUNT_IDS;
+  if (
+    !Array.isArray(listed) ||
+    !listed.length ||
+    !listed.every(isAccountId) ||
+    new Set(listed).size !== listed.length
+  )
+    refuse(
+      `usage.accounts lists accounts once each, among ${ACCOUNT_IDS.join(", ")}`,
+    );
+  return {
+    every,
+    accounts: ACCOUNT_IDS.filter((id) => listed.includes(id)),
   };
 }
 

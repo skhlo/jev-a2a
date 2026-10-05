@@ -60,59 +60,89 @@ const includes = <T extends string>(
   typeof value === "string" && (list as readonly string[]).includes(value);
 
 export function validateConfig(config: unknown): Config {
-  const fail = (message: string): never => {
-    throw new Error(`Invalid router configuration: ${message}`);
-  };
-  if (!isRecord(config)) return fail("a configuration object is required");
+  if (!isRecord(config)) refuse("a configuration object is required");
   const { policy, participants, principals = {}, permissions = {} } = config;
-  if (!isRecord(policy)) return fail("policy is required");
+  checkPolicy(policy);
+  const ids = participantIds(participants);
+  checkPrincipals(principals, ids);
+  checkPermissions(permissions, ids, principals);
+  return config as unknown as Config;
+}
+
+// The first rule a configuration breaks.
+function refuse(message: string): never {
+  throw new Error(`Invalid router configuration: ${message}`);
+}
+
+function checkPolicy(policy: unknown): void {
+  if (!isRecord(policy)) refuse("policy is required");
   if (
     typeof policy.threshold !== "number" ||
     !(policy.threshold > 0 && policy.threshold <= 1)
   )
-    fail("policy.threshold must be in (0, 1]");
+    refuse("policy.threshold must be in (0, 1]");
   for (const key of ["deadline", "maxText", "maxOpenTasks"])
-    if (!positive(policy[key])) fail(`policy.${key} must be a positive number`);
+    if (!positive(policy[key]))
+      refuse(`policy.${key} must be a positive number`);
+}
+
+function participantIds(participants: unknown): Set<string> {
   if (!Array.isArray(participants) || !participants.length)
-    return fail("at least one participant is required");
+    refuse("at least one participant is required");
   const ids = new Set<string>();
-  for (const p of participants as unknown[]) {
-    if (!isRecord(p) || typeof p.id !== "string" || !p.id || ids.has(p.id))
-      return fail(
-        `participant ids must be unique non-empty strings (${String(isRecord(p) ? p.id : p)})`,
-      );
-    ids.add(p.id);
-    if (!includes(["agent", "service"], p.kind))
-      fail(`${p.id} kind must be agent or service`);
-    if (
-      !Array.isArray(p.hosts) ||
-      !p.hosts.length ||
-      p.hosts.some((host: unknown) => typeof host !== "string" || !host) ||
-      new Set(p.hosts).size !== p.hosts.length
-    )
-      fail(`${p.id} needs a non-empty list of distinct host names`);
-    if (typeof p.responsibility !== "string" || !p.responsibility.trim())
-      fail(`${p.id} needs a responsibility`);
-    if (typeof p.idempotent !== "boolean")
-      fail(`${p.id} must declare idempotent: true | false`);
-  }
-  if (!isRecord(principals)) return fail("principals must be an object");
+  for (const p of participants as unknown[]) ids.add(checkParticipant(p, ids));
+  return ids;
+}
+
+// A participant's id, unique among those before it, once its fields are
+// checked.
+function checkParticipant(p: unknown, ids: Set<string>): string {
+  if (!isRecord(p) || typeof p.id !== "string" || !p.id || ids.has(p.id))
+    refuse(
+      `participant ids must be unique non-empty strings (${String(isRecord(p) ? p.id : p)})`,
+    );
+  if (!includes(["agent", "service"], p.kind))
+    refuse(`${p.id} kind must be agent or service`);
+  if (!distinctNames(p.hosts))
+    refuse(`${p.id} needs a non-empty list of distinct host names`);
+  if (typeof p.responsibility !== "string" || !p.responsibility.trim())
+    refuse(`${p.id} needs a responsibility`);
+  if (typeof p.idempotent !== "boolean")
+    refuse(`${p.id} must declare idempotent: true | false`);
+  return p.id;
+}
+const distinctNames = (list: unknown): boolean =>
+  Array.isArray(list) &&
+  list.length > 0 &&
+  list.every((name: unknown) => typeof name === "string" && name) &&
+  new Set(list).size === list.length;
+
+function checkPrincipals(
+  principals: unknown,
+  ids: Set<string>,
+): asserts principals is Record<string, unknown> {
+  if (!isRecord(principals)) refuse("principals must be an object");
   for (const [id, role] of Object.entries(principals)) {
     if (!includes(ROLES, role))
-      fail(`principal ${id} has unknown role ${String(role)}`);
-    if (ids.has(id)) fail(`principal ${id} collides with a participant id`);
+      refuse(`principal ${id} has unknown role ${String(role)}`);
+    if (ids.has(id)) refuse(`principal ${id} collides with a participant id`);
   }
-  if (!isRecord(permissions)) return fail("permissions must be an object");
+}
+
+function checkPermissions(
+  permissions: unknown,
+  ids: Set<string>,
+  principals: Record<string, unknown>,
+): void {
+  if (!isRecord(permissions)) refuse("permissions must be an object");
   for (const [id, targets] of Object.entries(permissions)) {
-    if (!ids.has(id) && !(id in principals))
-      fail(`permissions name unknown principal ${id}`);
-    if (!Array.isArray(targets))
-      return fail(`permissions for ${id} must be a list`);
+    if (!ids.has(id) && !Object.hasOwn(principals, id))
+      refuse(`permissions name unknown principal ${id}`);
+    if (!Array.isArray(targets)) refuse(`permissions for ${id} must be a list`);
     for (const target of targets as unknown[])
       if (typeof target !== "string" || !ids.has(target))
-        fail(`${id} may address unknown participant ${String(target)}`);
+        refuse(`${id} may address unknown participant ${String(target)}`);
   }
-  return config as unknown as Config;
 }
 
 const MESSAGE_ID = /^[A-Za-z0-9._:-]{1,64}$/;
