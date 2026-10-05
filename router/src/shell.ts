@@ -328,6 +328,14 @@ export async function openShell(
     }
   }
 
+  // Codex in a terminal runs shell commands in a sandbox that cannot reach
+  // the router, and does not ask to leave it unprompted (ticket 018), so a
+  // prompt that gives it a router command says to ask.
+  const sandboxNote = (placement: string): string =>
+    config.terminals[placement] === "codex"
+      ? " That command has to reach the router from outside your sandbox, so request escalated permissions for it."
+      : "";
+
   function envelope(taskId: string, deliveryId: string): string {
     const delivery = findDelivery(state, deliveryId);
     if (!delivery) throw new Error(`${deliveryId} vanished`);
@@ -338,7 +346,7 @@ export async function openShell(
       send.kind === "answer"
         ? `[router ${taskId} ${send.messageId}] Answer to your question. When done, run: ${reply}`
         : `[router ${taskId} ${send.messageId}] Task from the router. When done, run: ${reply}`;
-    return `${head} (use --kind question to ask the sender something, --kind working for progress, --kind failed if you cannot do it).\n\n${send.text}`;
+    return `${head} (use --kind question to ask the sender something, --kind working for progress, --kind failed if you cannot do it).${sandboxNote(`${delivery.participant}@${delivery.host}`)}\n\n${send.text}`;
   }
 
   // What a participant sender is told, with the client command that answers
@@ -352,9 +360,10 @@ export async function openShell(
       config.hosts[placement?.host ?? ""]?.replyCommand ?? "router";
     const as = `--as ${placement?.session ?? "<session>"}`;
     const head = `[router ${task.id} ${key}]`;
+    const note = sandboxNote(task.via ?? "");
     if (due.kind === "question") {
       const delivery = task.deliveries.find((d) => d.id === due.deliveryId);
-      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --delivery ${due.deliveryId} --question ${due.questionId} --text "<answer>" (or --text-file <path>).\n\n${delivery?.question?.text ?? ""}`;
+      return `${head} ${delivery?.participant ?? task.recipient ?? "The recipient"} asks about your request. Answer with: ${command} answer ${as} --task ${task.id} --delivery ${due.deliveryId} --question ${due.questionId} --text "<answer>" (or --text-file <path>).${note}\n\n${delivery?.question?.text ?? ""}`;
     }
     if (due.kind === "choose") {
       const routing =
@@ -362,7 +371,7 @@ export async function openShell(
       const suggested = routing?.suggestions.length
         ? `; suggested ${routing.suggestions.join(", ")}`
         : "";
-      return `${head} The router could not pick a recipient for your request (${(routing?.reason ?? "unknown").replaceAll("_", " ")}${suggested}). Choose with: ${command} choose ${as} --task ${task.id} --to <participant>, one of: ${task.permitted.join(", ")}.\n\n${task.text}`;
+      return `${head} The router could not pick a recipient for your request (${(routing?.reason ?? "unknown").replaceAll("_", " ")}${suggested}). Choose with: ${command} choose ${as} --task ${task.id} --to <participant>, one of: ${task.permitted.join(", ")}.${note}\n\n${task.text}`;
     }
     // Each delivery's last word, with the session and message it came
     // from, so the prompt alone says who answered.

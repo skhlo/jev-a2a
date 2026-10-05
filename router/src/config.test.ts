@@ -9,6 +9,7 @@ import {
   callerSession,
   loadConfig,
   loadSecrets,
+  terminalClis,
   terminalOf,
 } from "./config.ts";
 import base from "./example-config.ts";
@@ -28,6 +29,15 @@ const valid = {
     mini: { paseo: "ssh://mini" },
   },
   agents: { "orchestrator@mbp": "A1", "knowledge@mini": "A2" },
+};
+// The orchestrator on mbp as a terminal, which it may be once it is not
+// idempotent.
+const withTerminal = {
+  ...valid,
+  participants: valid.participants.map((p) =>
+    p.id === "orchestrator" ? { ...p, idempotent: false } : p,
+  ),
+  agents: { ...valid.agents, "orchestrator@mbp": `terminal:${TERMINAL_ID}` },
 };
 
 test("a valid file gets its defaults", () => {
@@ -116,6 +126,19 @@ test("what the router refuses, with the reason", () => {
       { ...valid, agents: { "orchestrator@mbp": `terminal:${TERMINAL_ID}` } },
       /takes no message key, so orchestrator must be idempotent: false/,
     ],
+    [{ ...valid, terminals: "codex" }, /terminals maps terminal placements/],
+    [
+      { ...valid, terminals: { "orchestrator@mbp": "codex" } },
+      /terminals.orchestrator@mbp names no terminal placement in agents/,
+    ],
+    [
+      { ...withTerminal, terminals: { "nobody@mbp": "codex" } },
+      /terminals.nobody@mbp names no terminal placement/,
+    ],
+    [
+      { ...withTerminal, terminals: { "orchestrator@mbp": "pi" } },
+      /terminals.orchestrator@mbp must be one of claude, codex/,
+    ],
     [{ ...valid, serve: { board: "0.0.0.0:7678" } }, /loopback/],
     [
       { ...valid, telemetry: { sheet: "yes" } },
@@ -149,20 +172,18 @@ test("what the router refuses, with the reason", () => {
     );
 });
 
-test("a terminal placement is accepted for a participant that is not idempotent", () => {
-  const config = loadConfig(
-    write({
-      ...valid,
-      participants: valid.participants.map((p) =>
-        p.id === "orchestrator" ? { ...p, idempotent: false } : p,
-      ),
-      agents: {
-        ...valid.agents,
-        "orchestrator@mbp": `terminal:${TERMINAL_ID}`,
-      },
-    }),
-  );
+test("a terminal placement is accepted for a participant that is not idempotent, runs Claude Code unless terminals names another CLI, and hands the adapter each named session's CLI", () => {
+  const config = loadConfig(write(withTerminal));
   assert.equal(config.agents["orchestrator@mbp"], `terminal:${TERMINAL_ID}`);
+  assert.deepEqual(config.terminals, {});
+  assert.deepEqual(terminalClis(config), {});
+  const codex = loadConfig(
+    write({ ...withTerminal, terminals: { "orchestrator@mbp": "codex" } }),
+  );
+  assert.deepEqual(codex.terminals, { "orchestrator@mbp": "codex" });
+  assert.deepEqual(terminalClis(codex), {
+    [`terminal:${TERMINAL_ID}`]: "codex",
+  });
 });
 
 test("a session is a Paseo agent id or terminal:<id>; the caller's own comes from the agent's id first, else its terminal's", () => {

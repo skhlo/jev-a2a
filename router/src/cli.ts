@@ -10,6 +10,7 @@ import {
   callerSession,
   loadConfig,
   loadSecrets,
+  terminalClis,
   USAGE_EVERY,
   type RouterConfig,
 } from "./config.ts";
@@ -161,7 +162,10 @@ const crash = process.env.ROUTER_CRASH;
 const apiKey = process.env.TYPESAFE_API_KEY;
 const shellOptions: ShellOptions = {
   adapter: (endpoint) =>
-    createPaseoAdapter(endpoint, { sheet: config.telemetry.sheet }),
+    createPaseoAdapter(endpoint, {
+      sheet: config.telemetry.sheet,
+      clis: terminalClis(config),
+    }),
   judge: apiKey
     ? (question) => judge(question, { ...config.jev, apiKey })
     : null,

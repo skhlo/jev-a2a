@@ -19,14 +19,15 @@
 // builds, so one connection serves both; package.json pins the client's
 // exact version, and with it the subpath.
 //
-// A placement's session may instead be Claude Code in a Paseo terminal,
-// named `terminal:<id>` in `agents`. A terminal takes raw input only: no
-// message key, no receipt. So the router sends only to Claude Code's empty
-// prompt box, read from the terminal's title, activity and screen, and
-// confirms a send by the activity change that follows it. The facts this
-// relies on, verified on the 0.10.2 daemon with Claude Code 2.1.289, and
-// what it does not cover, are in the contract's Adapters section (Paseo
-// terminal).
+// A placement's session may instead be an agent CLI in a Paseo terminal,
+// named `terminal:<id>` in `agents`: Claude Code, or Codex where the
+// configuration's `terminals` says so. A terminal takes raw input only: no
+// message key, no receipt. So the router sends only to the CLI's empty
+// prompt, read from the terminal's activity and screen (and Claude Code's
+// title), and confirms a send by the activity change that follows it. The
+// facts this relies on, verified on the 0.10.2 daemon with Claude Code
+// 2.1.289 and Codex 0.159.2 and 0.160.0, and what it does not cover, are in
+// the contract's Adapters section (Paseo terminal).
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
@@ -53,7 +54,7 @@ import {
   type Checkout,
   type Subagents,
 } from "./telemetry.ts";
-import { terminalOf } from "./config.ts";
+import { terminalOf, type TerminalCli } from "./config.ts";
 import type { AdapterOutcome } from "./types.ts";
 
 export type Observation = {
@@ -93,6 +94,9 @@ export type AdapterOptions = {
   // it, and the wait itself. Tests shorten them.
   receiptMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  // The CLI in each terminal session (`terminal:<id>`) that does not run
+  // Claude Code.
+  clis?: Record<string, TerminalCli>;
 };
 
 export type ProviderSubagent = ProviderSubagentListPayload["subagents"][number];
@@ -169,9 +173,14 @@ export function terminalCondition(t: PaseoTerminal): TerminalCondition {
     : "waiting";
 }
 
-// A terminal's visible lines (a dim cell read as a space) and the row its
-// cursor is on.
-export type Screen = { lines: string[]; cursorRow: number | null };
+// A terminal's visible lines (a dim cell read as a space), the same lines
+// as drawn, and where its cursor is.
+export type Screen = {
+  lines: string[];
+  raw: string[];
+  cursorRow: number | null;
+  cursorCol: number | null;
+};
 
 // Claude Code's prompt box on the screen, empty and in use: the last two
 // rule lines hold a lone ❯ (its dim placeholder read as spaces), with only
@@ -193,16 +202,97 @@ export function promptEmpty(screen: Screen): boolean {
   );
 }
 
+// Codex's status line while a turn runs ("Working (3s • esc to
+// interrupt)"), shown too while its automatic reviewer weighs an approval,
+// when the activity says needs_input and the composer looks empty. It is
+// not shown while an answer streams; the activity covers that.
+const CODEX_RUNNING = / • esc to interrupt\)$/;
+
+// Where a terminal stands on its screen: at an empty prompt, in a turn its
+// record does not show, or anywhere else.
+export type PromptState = "empty" | "busy" | "other";
+
+// Codex's composer, empty and in use: the last line that starts with a `›`
+// not drawn dim (the transcript's earlier prompts are dim, and so is the
+// placeholder), with nothing after it, a blank line under it, at most the
+// footer below that, and the cursor just after the `›`. A draft (even with
+// the cursor moved to its start), an approval overlay, a startup notice,
+// the shell after Codex exits and the frame a killed Codex leaves all fail
+// it.
+export function codexPrompt(screen: Screen): PromptState {
+  if (screen.raw.some((line) => CODEX_RUNNING.test(line.trimEnd())))
+    return "busy";
+  const shown = screen.lines.map((line) => line.trimEnd());
+  while (shown.length && !shown.at(-1)) shown.pop();
+  const row = shown.findLastIndex((line) => line.startsWith("›"));
+  return row >= 0 &&
+    shown[row] === "›" &&
+    !shown[row + 1] &&
+    shown.length - 1 - row <= 3 &&
+    screen.cursorRow === row &&
+    screen.cursorCol === 2
+    ? "empty"
+    : "other";
+}
+
+// What a Codex terminal's record says: a turn by the activity Paseo's Codex
+// hooks set (they reach Paseo only from `codex --no-daemon`), else waiting.
+// The title cannot tell: it shows a turn seconds late, or keeps stale
+// spinner frames, so an exited Codex is told by the screen alone. Nor can a
+// needs_input activity, which outlives a declined approval.
+const codexCondition = (t: PaseoTerminal): TerminalCondition =>
+  t.activity?.state === "working" ? "working" : "waiting";
+
+// Codex's title without what it adds while it works or waits on an
+// approval: "[ ! ] Action Required | " and spinner frames.
+const SPINNER = /^[⠀-⣿](?: [⠀-⣿])*\s*/u;
+const codexTitle = (t: PaseoTerminal): string | null =>
+  (t.title ?? "")
+    .replace(/^\[ [!.] \] Action Required \| /u, "")
+    .split(" | ")
+    .map((part) => part.replace(SPINNER, ""))
+    .filter(Boolean)
+    .join(" | ") || null;
+
+// What the router reads of each CLI in a terminal: its condition from the
+// record, where it stands on the screen when the record says waiting, its
+// title for the board, and its name and not-ready line for the run's report.
+type TerminalProfile = {
+  name: string;
+  notAtPrompt: string;
+  condition(t: PaseoTerminal): TerminalCondition;
+  prompt(screen: Screen): PromptState;
+  title(t: PaseoTerminal): string | null;
+};
+const PROFILES: Record<TerminalCli, TerminalProfile> = {
+  claude: {
+    name: "Claude Code",
+    notAtPrompt: "at its prompt with text in it or a dialog open",
+    condition: terminalCondition,
+    prompt: (screen) => (promptEmpty(screen) ? "empty" : "other"),
+    title: (t) => (t.title ?? "").replace(MARK, "") || null,
+  },
+  codex: {
+    name: "Codex",
+    notAtPrompt:
+      "not at an empty Codex composer: a draft, a dialog, or Codex not running",
+    condition: codexCondition,
+    prompt: codexPrompt,
+    title: codexTitle,
+  },
+};
+
 // The terminal in words, for the run's report.
 function terminalStatus(
   t: PaseoTerminal,
+  profile: TerminalProfile,
   condition: TerminalCondition,
-  empty: boolean,
+  prompt: PromptState | null,
 ): string {
-  if (condition === "working") return "working";
+  if (condition === "working" || prompt === "busy") return "working";
   if (condition === "away")
-    return `Claude Code is not running in the terminal (title "${t.title ?? ""}")`;
-  return empty ? "idle" : "at its prompt with text in it or a dialog open";
+    return `${profile.name} is not running in the terminal (title "${t.title ?? ""}")`;
+  return prompt === "empty" ? "idle" : profile.notAtPrompt;
 }
 
 // A terminal's record reduced to the board's fields: what its condition
@@ -212,8 +302,10 @@ function terminalStatus(
 export function terminalSnapshotOf(
   t: PaseoTerminal,
   seen: string,
+  cli: TerminalCli = "claude",
 ): AgentSnapshot {
-  const condition = terminalCondition(t);
+  const profile = PROFILES[cli];
+  const condition = profile.condition(t);
   const a = t.activity ?? null;
   const at = a ? new Date(a.changedAt).toISOString() : null;
   const finished = condition === "waiting" && a?.attentionReason === "finished";
@@ -237,7 +329,7 @@ export function terminalSnapshotOf(
     context: null,
     usage: null,
     error: null,
-    title: (t.title ?? "").replace(MARK, "") || null,
+    title: profile.title(t),
     cwd: t.cwd ?? null,
     checkout: null,
     subagents: null,
@@ -502,6 +594,8 @@ export function adapterOver(
     ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
   const terminal = async (id: string): Promise<PaseoTerminal | null> =>
     (await daemon.terminals()).find((t) => t.id === id) ?? null;
+  const cliOf = (session: string): TerminalCli =>
+    options.clis?.[session] ?? "claude";
   // One list per adapter, and one note when it failed: the first observe
   // hears why, the rest only get their null.
   let workspaces: Promise<PaseoWorkspace[] | null> | null = null;
@@ -527,29 +621,37 @@ export function adapterOver(
       return null;
     }
   };
-  // Whether a terminal waiting at the idle mark shows an empty prompt
-  // box; a screen that cannot be read is not one, with a note.
-  const emptyPrompt = async (id: string, notes: string[]): Promise<boolean> =>
+  // Where a terminal whose record says waiting stands on its screen; a
+  // screen that cannot be read is no empty prompt, with a note.
+  const promptOf = async (
+    id: string,
+    profile: TerminalProfile,
+    notes: string[],
+  ): Promise<PromptState> =>
     (await attempt(
       "screen",
       `terminal:${id}`,
-      async () => promptEmpty(await daemon.screen(id)),
+      async () => profile.prompt(await daemon.screen(id)),
       notes,
-    )) ?? false;
-  // A terminal is observed from the daemon's terminal list, and, when it
-  // waits at the idle mark, its screen: ready only at an empty prompt box.
+    )) ?? "other";
+  // A terminal is observed from the daemon's terminal list, and, when its
+  // record says it waits, its screen: ready only at the CLI's empty prompt.
   // Its workspace gives the checkout; a terminal has no subagent list or
   // timeline to read.
   const observeTerminal = async (
     id: string,
+    cli: TerminalCli,
     seen: string,
   ): Promise<Observation | null> => {
     const t = await terminal(id);
     if (!t) return null;
-    const condition = terminalCondition(t);
-    const snapshot = terminalSnapshotOf(t, seen);
+    const profile = PROFILES[cli];
+    const condition = profile.condition(t);
+    const snapshot = terminalSnapshotOf(t, seen, cli);
     const notes: string[] = [];
-    const empty = condition === "waiting" && (await emptyPrompt(id, notes));
+    const prompt =
+      condition === "waiting" ? await promptOf(id, profile, notes) : null;
+    if (prompt === "busy") snapshot.status = "running";
     if (sheet) {
       const list = await listed(notes);
       const w =
@@ -558,8 +660,8 @@ export function adapterOver(
       snapshot.checkout = w ? checkoutOf(w) : null;
     }
     return {
-      ready: empty,
-      status: terminalStatus(t, condition, empty),
+      ready: prompt === "empty",
+      status: terminalStatus(t, profile, condition, prompt),
       pendingPermissions: 0,
       snapshot,
       ...(notes.length ? { notes } : {}),
@@ -573,8 +675,10 @@ export function adapterOver(
   // the outcome is unknown.
   const sendTerminal = async (
     id: string,
+    cli: TerminalCli,
     text: string,
   ): Promise<AdapterOutcome> => {
+    const profile = PROFILES[cli];
     let before: PaseoTerminal | null;
     try {
       before = await terminal(id);
@@ -583,8 +687,8 @@ export function adapterOver(
     }
     if (
       !before ||
-      terminalCondition(before) !== "waiting" ||
-      !(await emptyPrompt(id, []))
+      profile.condition(before) !== "waiting" ||
+      (await promptOf(id, profile, [])) !== "empty"
     )
       return "not_sent";
     try {
@@ -608,7 +712,7 @@ export function adapterOver(
   return {
     async observe(agentId, seen) {
       const id = terminalOf(agentId);
-      if (id) return observeTerminal(id, seen);
+      if (id) return observeTerminal(id, cliOf(agentId), seen);
       const result = await daemon.refresh(agentId);
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
@@ -647,7 +751,7 @@ export function adapterOver(
     },
     async send(agentId, key, text) {
       const id = terminalOf(agentId);
-      if (id) return sendTerminal(id, text);
+      if (id) return sendTerminal(id, cliOf(agentId), text);
       try {
         await daemon.send(agentId, text, key);
         return "accepted";
@@ -726,14 +830,18 @@ type TerminalState = Extract<
 >["state"];
 
 // A grid snapshot as a Screen. The capture call returns plain text even
-// when asked for colour, and Claude Code draws the placeholder in an empty
-// prompt box dim (verified with 2.1.289), so a dim cell reads as a space.
+// when asked for colour, and Claude Code and Codex draw the placeholder in
+// an empty prompt dim (verified with Claude Code 2.1.289 and Codex 0.159.2
+// and 0.160.0), so in `lines` a dim cell reads as a space; `raw` keeps it,
+// for Codex's status line, which is mostly dim.
 export function screenFrom(state: TerminalState): Screen {
   return {
     lines: state.grid.map((row) =>
       row.map((cell) => (cell.dim ? " " : cell.char)).join(""),
     ),
+    raw: state.grid.map((row) => row.map((cell) => cell.char).join("")),
     cursorRow: state.cursor.row,
+    cursorCol: state.cursor.col,
   };
 }
 
