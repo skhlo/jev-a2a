@@ -65,7 +65,7 @@ async function serveSample(home: string): Promise<{
 type Page = {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   evaluate(expression: string): Promise<unknown>;
-  close(): void;
+  close(): Promise<void>;
 };
 
 // A headless Chromium on a loopback debugging port, and its one page.
@@ -83,24 +83,33 @@ async function launch(profile: string): Promise<Page> {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
-  const port = await new Promise<string>((resolve, reject) => {
-    let text = "";
-    chromium.stderr.on("data", (chunk: Buffer) => {
-      text += chunk.toString();
-      const found = /DevTools listening on ws:\/\/[^:]+:(\d+)\//.exec(text);
-      if (found?.[1]) resolve(found[1]);
+  // Its page's DevTools address; a start that fails stops the browser.
+  const pageUrl = async (): Promise<string> => {
+    const port = await new Promise<string>((resolve, reject) => {
+      let text = "";
+      chromium.stderr.on("data", (chunk: Buffer) => {
+        text += chunk.toString();
+        const found = /DevTools listening on ws:\/\/[^:]+:(\d+)\//.exec(text);
+        if (found?.[1]) resolve(found[1]);
+      });
+      chromium.on("exit", () => reject(new Error(`Chromium exited: ${text}`)));
     });
-    chromium.on("exit", () => reject(new Error(`Chromium exited: ${text}`)));
-  });
-  const list: unknown = await (
-    await fetch(`http://127.0.0.1:${port}/json/list`)
-  ).json();
-  const target = Array.isArray(list)
-    ? list.find((t: unknown) => isRecord(t) && t.type === "page")
-    : undefined;
-  if (!isRecord(target) || typeof target.webSocketDebuggerUrl !== "string")
-    throw new Error("no page to drive");
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
+    const list: unknown = await (
+      await fetch(`http://127.0.0.1:${port}/json/list`)
+    ).json();
+    const target = Array.isArray(list)
+      ? list.find((t: unknown) => isRecord(t) && t.type === "page")
+      : undefined;
+    if (!isRecord(target) || typeof target.webSocketDebuggerUrl !== "string")
+      throw new Error("no page to drive");
+    return target.webSocketDebuggerUrl;
+  };
+  const socket = new WebSocket(
+    await pageUrl().catch((error: unknown) => {
+      chromium.kill();
+      throw error;
+    }),
+  );
   await new Promise((resolve) =>
     socket.addEventListener("open", resolve, { once: true }),
   );
@@ -134,9 +143,16 @@ async function launch(profile: string): Promise<Page> {
   return {
     send,
     evaluate,
+    // Resolves once the browser has exited, so its profile can go.
     close: () => {
       socket.close();
+      if (chromium.exitCode !== null || chromium.signalCode !== null)
+        return Promise.resolve();
+      const exited = new Promise<void>((resolve) =>
+        chromium.once("exit", () => resolve()),
+      );
       chromium.kill();
+      return exited;
     },
   };
 }
@@ -368,6 +384,27 @@ if (import.meta.main) {
   mkdirSync(home);
   const served = await serveSample(home);
   const page = await launch(profile);
+  // The browser would outlive a check that is interrupted: stop it first.
+  const gone = () =>
+    rmSync(scratch, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  // A signal can come twice (timeout sends it to the process and then its
+  // group), so a later one waits for the first one's cleanup.
+  let stopping = false;
+  for (const signal of ["SIGINT", "SIGTERM"] as const)
+    process.on(signal, () => {
+      if (stopping) return;
+      stopping = true;
+      served.close();
+      void page.close().then(() => {
+        gone();
+        process.exit(130);
+      });
+    });
   let failed: string[] = [];
   try {
     await page.send("Network.enable");
@@ -382,10 +419,9 @@ if (import.meta.main) {
     });
     failed = await checks(page, served.url);
   } finally {
-    page.close();
     served.close();
-    await pause(500);
-    rmSync(scratch, { recursive: true, force: true });
+    await page.close();
+    gone();
   }
   console.log(failed.length ? `${failed.length} failed` : "every check passed");
   process.exitCode = failed.length ? 1 : 0;
