@@ -37,9 +37,9 @@ import {
 
 // ---- Formats: the generator's helpers over the same fields ----
 
-export const DASH = "—";
+const DASH = "—";
 
-export const esc = (value: unknown): string =>
+const esc = (value: unknown): string =>
   String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -58,7 +58,7 @@ export const time = (iso: string | null | undefined): string => {
 };
 
 // A stretch of time in its largest unit, floored: 45s, 14m, 2h 05m, 3d.
-export const span = (ms: number): string => {
+const span = (ms: number): string => {
   const s = Math.abs(Math.trunc(ms / 1000));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
@@ -85,8 +85,7 @@ export const hms = (iso: string | null | undefined): string => {
   return at ? `${at.toISOString().slice(11, 19)}Z` : DASH;
 };
 
-export const thousands = (value: number): string =>
-  value.toLocaleString("en-US");
+const thousands = (value: number): string => value.toLocaleString("en-US");
 
 // diff(additions, deletions): "+a −d", the minus sign U+2212.
 export const diff = (additions: number, deletions: number): string =>
@@ -130,13 +129,13 @@ const fullDate = (at: Date, seconds = false): string =>
 
 // The full date behind a clock or an age, as a title. The design printed
 // the clock alone, which is ambiguous for anything older than a day.
-export const dated = (iso: string | null | undefined, prefix = ""): string => {
+const dated = (iso: string | null | undefined, prefix = ""): string => {
   const at = instant(iso);
   return at ? ` title="${prefix}${fullDate(at)}"` : "";
 };
 
 // A time to the second with its date, or a dash.
-export const stamp = (iso: string | null): string => {
+const stamp = (iso: string | null): string => {
   const at = instant(iso);
   return at ? fullDate(at, true) : DASH;
 };
@@ -217,9 +216,7 @@ const windowsOf = (r: ReadingView | null): WindowView[] =>
 // shown_windows(a): the windows of an account's rail row, with their index
 // in the reading: account-wide (no " · " scope in the label), with a length,
 // longest first, so 7D comes before 5H.
-export const shownWindows = (
-  r: ReadingView | null,
-): { k: number; w: WindowView }[] =>
+const shownWindows = (r: ReadingView | null): { k: number; w: WindowView }[] =>
   windowsOf(r)
     .map((w, k) => ({ k, w }))
     .filter(({ w }) => w.minutes && !w.label.includes(" · "))
@@ -328,7 +325,7 @@ const shortSlot = (path: string, id: string): string =>
     : slot(path, esc(id));
 
 // An element that names the model path it reads.
-export const slot = (
+const slot = (
   path: string,
   html: string,
   cls = "",
@@ -557,7 +554,7 @@ type Theme = (typeof THEMES)[number];
 
 // The palette a cookie names, else the default, so the cookie cannot put
 // text into the page.
-export const themeOf = (name: string | null | undefined): Theme =>
+const themeOf = (name: string | null | undefined): Theme =>
   THEMES.find((t) => t === name) ?? THEMES[0];
 
 // ---- Generic parts ----
@@ -568,7 +565,7 @@ export const themeOf = (name: string | null | undefined): Theme =>
 
 // A chip in the head: a count in bold, then its words, in the `attn` tone
 // or none. `words` is markup.
-export const chip = (
+const chip = (
   path: string,
   figure: string | number,
   words: string,
@@ -606,7 +603,7 @@ export const band = (share: number): "" | "warn" | "err" => {
 // figure names its own class); a null share draws the track alone. Small by
 // default (the board's context meter and the rail's windows); `wide` takes
 // its cell (the pop-up's windows).
-export const meter = (m: {
+const meter = (m: {
   share: number | null;
   tone?: string;
   wide?: boolean;
@@ -629,7 +626,7 @@ export const meter = (m: {
 
 // pairs: labels and their figures, inline and wrapping, each reading its
 // own path. Labels and figures are text.
-export const pairs = (
+const pairs = (
   items: { path: string; label: string; value: string }[],
 ): string =>
   items.length
@@ -644,9 +641,9 @@ export const pairs = (
 // names them, in a block the script opens and keeps open by its key (as a
 // disclosure's); a page without a script shows them. Cells are text; a null
 // one is a dash.
-export type Column = { label: string; kind: "text" | "mono" | "num" };
-export type Row = { cells: (string | null)[]; gap?: boolean; bar?: number };
-export const table = (t: {
+type Column = { label: string; kind: "text" | "mono" | "num" };
+type Row = { cells: (string | null)[]; gap?: boolean; bar?: number };
+const table = (t: {
   path: string;
   title: string;
   columns: Column[];
@@ -689,7 +686,7 @@ export const table = (t: {
 // the block open, so a page without a script shows it; the script shuts
 // each block not kept open, at start and after each refresh. `label` and
 // `title` are text, `body` markup; `id` ties the toggle to its block.
-export const disclosure = (d: {
+const disclosure = (d: {
   key: string;
   id: string;
   path: string;
