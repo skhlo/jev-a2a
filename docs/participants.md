@@ -46,11 +46,12 @@ some that should go elsewhere or to `none`.
 
 `eval` prints, for thresholds from 0.60 to 0.95 in steps of 0.05, how
 many requests would be dispatched, how many of those wrongly, and how many
-handed back, and exits 1 when any request got no usable judgment. The rule, which
-`router roster` enforces: a change goes live only with no wrong dispatch
-at the configured threshold on the whole set, since a new text shifts
-every other participant's probabilities too. `--model <id>` judges with another model; pin
-`jev.model` to a dated version once the threshold is tuned to it.
+handed back, and exits 1 when any request got no usable judgment. The
+rule, which `router roster` enforces: a change goes live only with no
+wrong dispatch at the configured threshold on the whole set, since a new
+text shifts every other participant's probabilities too. `--model <id>`
+judges with another model; pin `jev.model` to a dated version once the
+threshold is tuned to it.
 
 Adding a participant, in order: write the text in the owner's repository
 and merge it; add its labeled requests to the set; create its Paseo
@@ -60,27 +61,33 @@ sessions; then, on the router host:
 router roster add design mba:~/Projects/design/responsibility.md mba=<session>
 ```
 
-- **The text** is the file's `## design` section, or the whole file when it
-  has none, without its HTML comments. It is read over ssh as committed on the `main` branch of the
-  file's repository on that host, without a fetch, so an edit that is not
-  merged there is not read. The participant keeps where it came from as
-  `responsibilityFrom`.
+- **The text** is the file's `## design` section, up to the next `#` or
+  `##` heading, or the whole file when it has no `##` sections, without
+  its HTML comments. A file with sections but no `## design` is refused.
+  It is read over ssh (or on the router host, for its own files) as
+  committed on the `main` branch of the file's repository on that host,
+  without a fetch, so an edit that is not merged there is not read. The
+  command prints the commit of `main` it read, with its date. The
+  participant keeps where it came from as `responsibilityFrom`.
 - **The grants** are all to all: the new participant may address everyone,
   and everyone who may address anyone may address it.
 - **The check:** the set is judged with the candidate configuration, as
-  `eval` does. A wrong dispatch at the threshold, a request Jev did not
-  answer, or no request expecting the participant refuses the change, and
-  nothing is written.
+  `eval` does, routed as the requester. A wrong dispatch at the threshold,
+  a request Jev did not answer, or no request expecting the participant
+  refuses the change, and nothing is written.
 - **Then** the old configuration is kept as `config.json.bak-<time>`, the
   candidate swapped in, `serve` restarted, and each placement watched until
   it is bound, as `router roster repoint` does.
 
 `router roster refresh <id>` reads the text again after its owner changes
 it (name `<host>:<path>` the first time, for a participant added by hand).
-`router roster remove <id>` drops the participant, its grants and its
-placements, and relabels its requests to `none` in the set, which you then
-commit. Both are judged the same way first. Each takes `--set <file>` for a
-set other than the bundled one.
+A new text is judged first and `serve` restarted; a new source with the
+same text is only written down. `router roster remove <id>` drops the
+participant, its grants and its placements, and relabels its requests to
+`none` in the set, which you then commit; it is judged first too. Adding
+a removed participant back is judged against those relabeled requests, so
+label them for it again first. Each takes `--set <file>` for a set other
+than the bundled one.
 
 ## A participant as the sender
 

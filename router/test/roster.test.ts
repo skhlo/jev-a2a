@@ -1,4 +1,4 @@
-// `router roster` on a scratch configuration, record and labelled set:
+// `router roster` on a scratch configuration, record and labeled set:
 // what each command refuses without touching any of them, how it rewrites
 // the configuration, and that it waits for serve's first run to bind a new
 // session.
@@ -46,7 +46,7 @@ type File = Record<string, unknown> & {
   permissions: Record<string, string[]>;
 };
 
-// Labelled requests whose first word is in the text of the participant
+// Labeled requests whose first word is in the text of the participant
 // that owns them (the fixture's, and design's below).
 const SET = [
   "# A test set.",
@@ -57,7 +57,7 @@ const SET = [
 const DESIGN =
   '{"text": "logo: draw a new logo", "expect": "design", "lang": "en"}';
 
-// The fixture's configuration as a file, with its record and a labelled
+// The fixture's configuration as a file, with its record and a labeled
 // set beside it, and roster's dependencies around them. Jev picks the
 // participant whose text has the request's first word. serve's restart
 // stands for its first run: it records the configuration, then binds what
@@ -87,8 +87,10 @@ function setup(
   );
   const setPath = join(dir, "requests.jsonl");
   writeFileSync(setPath, `${set.join("\n")}\n`);
-  // Responsibility files by host:path, as their merged main has them.
+  // Responsibility files by host:path, as their main has them, and the
+  // requests Jev gives no answer for.
   const files = new Map<string, string>();
+  const unanswered = new Set<string>();
   const read = recordReader({ ...fixture, home: dir });
   const log: string[] = [];
   const counts = { restarts: 0 };
@@ -105,12 +107,14 @@ function setup(
         session === "unknown" ? null : session === "K" ? "K2" : session,
       ),
     read: (host, path) => {
-      const file = files.get(`${host}:${path}`);
-      return file === undefined
+      const text = files.get(`${host}:${path}`);
+      return text === undefined
         ? Promise.reject(new Error("No such file"))
-        : Promise.resolve(file);
+        : Promise.resolve({ at: "1a2b3c4 2026-10-05", text });
     },
     judge: (question) => {
+      if (unanswered.has(question.state.request))
+        return Promise.resolve({ ok: false, reason: "timeout", ms: 0 });
       const options = Object.keys(question.criteria);
       const word = question.state.request.split(":")[0] ?? "";
       const choice =
@@ -128,9 +132,12 @@ function setup(
         ms: 0,
       });
     },
+    requester: () => "you",
     setPath,
     restart: () => {
       counts.restarts++;
+      // A first run that failed records nothing.
+      if (!binds) return Promise.resolve();
       appendFileSync(
         journalPath,
         `${JSON.stringify({
@@ -143,7 +150,7 @@ function setup(
       );
       const now = (JSON.parse(readFileSync(configPath, "utf8")) as File).agents;
       for (const [placement, session] of Object.entries(now))
-        if (binds && read().state.placements[placement]?.session !== session)
+        if (read().state.placements[placement]?.session !== session)
           appendFileSync(
             journalPath,
             `${JSON.stringify({
@@ -163,6 +170,7 @@ function setup(
     configPath,
     setPath,
     files,
+    unanswered,
     deps,
     log,
     counts,
@@ -344,67 +352,74 @@ test("roster repoint: a restart that bound nothing is repaired by asking again; 
 
 // design's text, in a file with a section for each participant it names.
 const OWNERS =
-  "# Owners\n\n## design\n<!-- Copied into the router; keep it short. -->\nOwns the logo and the board's look.\n\n## other\nweather reports.\n";
+  "# Owners\n\n## design\n<!-- Copied into the router; keep it short. -->\nOwns the logo and the board's look.\n\n# Others\n\n## other\nweather reports.\n";
 const SOURCE = "mini:~/work/responsibility.md";
+const TEXT = `design's text: 35 characters from ${SOURCE}, main at 1a2b3c4 2026-10-05.`;
 
 test("roster add: refuses, touching nothing, what it cannot add", async (t) => {
-  const { dir, configPath, setPath, files, deps, log, counts } = setup(
-    t,
-    undefined,
-    [...SET, DESIGN],
-  );
+  const { dir, configPath, setPath, files, unanswered, deps, log, counts } =
+    setup(t, undefined, [...SET, DESIGN]);
   files.set(SOURCE, OWNERS);
   files.set("mini:/weather.md", "Owns the logo, and the weather.");
+  files.set("mini:/empty.md", "## design\n<!-- to write -->\n## other\nx\n");
+  files.set("mini:/cased.md", "## Design\nOwns the logo.\n");
+  files.set("mini:/open.md", "<!-- a note\nOwns the logo.\n");
   const before = [
     readFileSync(configPath, "utf8"),
     readFileSync(setPath, "utf8"),
   ];
   const refused = (
-    id: string,
     from: string,
     placements: string[],
     message: RegExp,
     given = deps,
+    id = "design",
   ) =>
     assert.rejects(
       add(id, from, placements, given),
       (error) => error instanceof UsageError && message.test(error.message),
       `${id} ${from} ${placements.join(" ")}`,
     );
-  await refused("a b", SOURCE, ["mini=D1"], /^a b is not a participant id/);
   await refused(
-    "knowledge",
     SOURCE,
     ["mini=D1"],
     /^knowledge is in the roster already/,
+    deps,
+    "knowledge",
   );
-  await refused("design", SOURCE, ["mini"], /^mini is not <host>=<session>/);
+  await refused(SOURCE, ["mini"], /^mini is not <host>=<session>/);
+  await refused(SOURCE, ["mini=D1", "mini=D2"], /^mini is named twice/);
+  await refused(SOURCE, ["lab01=D1"], /^lab01 is not in hosts/);
+  await refused(SOURCE, ["mini=A1"], /record knows A1 already/);
+  await refused(SOURCE, ["mini=unknown"], /^Paseo on mini does not know/);
+  await refused("mini", ["mini=D1"], /^mini is not <host>:<path>/);
+  await refused("lab01:/x.md", ["mini=D1"], /^lab01 is not in hosts/);
   await refused(
-    "design",
-    SOURCE,
-    ["mini=D1", "mini=D2"],
-    /^mini is named twice/,
-  );
-  await refused("design", SOURCE, ["lab01=D1"], /^lab01 is not in hosts/);
-  await refused("design", SOURCE, ["mini=A1"], /record knows A1 already/);
-  await refused(
-    "design",
-    SOURCE,
-    ["mini=unknown"],
-    /^Paseo on mini does not know/,
-  );
-  await refused("design", "mini", ["mini=D1"], /^mini is not <host>:<path>/);
-  await refused(
-    "design",
     "mini:/nope.md",
     ["mini=D1"],
     /^Cannot read \/nope\.md on mini: No such file/,
   );
-  // The eval: no request expects design, and a text that takes the
-  // weather from none.
+  // The text: none in its section, sections but none its own, a comment
+  // that never ends.
+  await refused(
+    "mini:/empty.md",
+    ["mini=D1"],
+    /^mini:\/empty\.md has no text for design/,
+  );
+  await refused(
+    "mini:/cased.md",
+    ["mini=D1"],
+    /^mini:\/cased\.md has sections, and none is ## design/,
+  );
+  await refused(
+    "mini:/open.md",
+    ["mini=D1"],
+    /^mini:\/open\.md has a <!-- that never ends/,
+  );
+  // The eval: no request expects design; a text that takes the weather
+  // from none; a request Jev does not answer.
   writeFileSync(join(dir, "plain.jsonl"), `${SET.join("\n")}\n`);
   await refused(
-    "design",
     SOURCE,
     ["mini=D1"],
     /^No request in .*plain\.jsonl expects design/,
@@ -415,15 +430,21 @@ test("roster add: refuses, touching nothing, what it cannot add", async (t) => {
   );
   log.length = 0;
   await refused(
-    "design",
     "mini:/weather.md",
     ["mini=D1"],
     /^The eval refuses it: 1 of 4 requests/,
   );
-  assert.deepEqual(log, [
-    "Judging 4 labelled requests with the new texts.",
-    "  none -> design 0.94: weather: will it rain",
-  ]);
+  assert.match(
+    log.at(-1) ?? "",
+    /^NO {2}en none {9}design 0\.94 {8}weather: will it rain$/,
+  );
+  unanswered.add("VM: start the ci-runner");
+  log.length = 0;
+  await refused(SOURCE, ["mini=D1"], /^The eval refuses it: 1 of 4 requests/);
+  assert.match(
+    log.at(-1) ?? "",
+    /no answer \(timeout\) +VM: start the ci-runner$/,
+  );
   assert.deepEqual(
     [readFileSync(configPath, "utf8"), readFileSync(setPath, "utf8")],
     before,
@@ -461,7 +482,8 @@ test("roster add: a participant from its section of a responsibility file, grant
   assert.equal(after.agents["design@mbp"], TERMINAL);
   assert.equal(counts.restarts, 1);
   assert.deepEqual(log, [
-    "Judging 4 labelled requests with the new texts.",
+    TEXT,
+    "Judging 4 labeled requests with the new texts.",
     "Eval: none of 4 requests sent wrong at 0.9.",
     `design added on mini, mbp; the old configuration is ${deps.configPath}.bak-20261006T130501Z.`,
     "design@mini: serve binds D1, ready.",
@@ -469,7 +491,7 @@ test("roster add: a participant from its section of a responsibility file, grant
   ]);
 });
 
-test("roster remove: the participant, its grants and placements go; its labelled requests expect none, the rest as written", async (t) => {
+test("roster remove: the participant, its grants and placements go; its labeled requests expect none, the rest as written", async (t) => {
   const { setPath, deps, log, counts, fileNow } = setup(t);
   await assert.rejects(
     remove("nobody", deps),
@@ -492,22 +514,59 @@ test("roster remove: the participant, its grants and placements go; its labelled
   );
   assert.equal(counts.restarts, 1);
   assert.deepEqual(log, [
-    "Judging 3 labelled requests with the new texts.",
+    "Judging 3 labeled requests with the new texts.",
     "Eval: none of 3 requests sent wrong at 0.9.",
+    `Relabeled 1 request for knowledge to expect none in ${setPath}; commit that.`,
     `knowledge removed; the old configuration is ${deps.configPath}.bak-20261006T130501Z.`,
-    `Relabelled 1 request for knowledge to expect none in ${setPath}; commit that.`,
     "knowledge has 1 open delivery in the record; router status shows it.",
+    "serve runs without knowledge.",
   ]);
 });
 
-test("roster refresh: the text read again from the file named, which it keeps; unchanged, nothing happens", async (t) => {
-  const { files, deps, log, counts, fileNow } = setup(t);
+test("roster remove: refused when another participant would take its requests; fails when serve's first run records nothing", async (t) => {
+  // environment's text takes the notes once knowledge, before it, is gone.
+  const { configPath, setPath, deps, counts, binding } = setup(t, (file) => ({
+    ...file,
+    participants: file.participants.map((p) =>
+      p.id === "environment"
+        ? { ...p, responsibility: `${String(p.responsibility)} Notes too.` }
+        : p,
+    ),
+  }));
+  const before = [
+    readFileSync(configPath, "utf8"),
+    readFileSync(setPath, "utf8"),
+  ];
+  await assert.rejects(
+    remove("knowledge", deps),
+    /^UsageError: The eval refuses it: 1 of 3 requests/,
+  );
+  assert.deepEqual(
+    [readFileSync(configPath, "utf8"), readFileSync(setPath, "utf8")],
+    before,
+  );
+  binding(false);
+  assert.equal(await remove("incus", deps), 1);
+  assert.equal(counts.restarts, 1);
+});
+
+test("roster refresh: a new text judged and served; a new source only written down; unchanged, nothing happens", async (t) => {
+  const { configPath, files, deps, log, counts, fileNow } = setup(t);
   await assert.rejects(
     refresh("knowledge", undefined, deps),
     /^UsageError: knowledge's text has no source yet/,
   );
-  // A file with no section for knowledge is all knowledge's.
+  // A text that takes the weather from none is refused, and nothing changes.
+  files.set("mini:/weather.md", "Notes, and the weather.\n");
+  const before = readFileSync(configPath, "utf8");
+  await assert.rejects(
+    refresh("knowledge", "mini:/weather.md", deps),
+    /^UsageError: The eval refuses it/,
+  );
+  assert.equal(readFileSync(configPath, "utf8"), before);
+  // A file with no sections is all knowledge's.
   files.set("mini:/vault/responsibility.md", "Notes and research.\n");
+  log.length = 0;
   assert.equal(
     await refresh("knowledge", "mini:/vault/responsibility.md", deps),
     0,
@@ -516,15 +575,25 @@ test("roster refresh: the text read again from the file named, which it keeps; u
   assert.equal(entry()?.responsibility, "Notes and research.");
   assert.equal(entry()?.responsibilityFrom, "mini:/vault/responsibility.md");
   assert.equal(counts.restarts, 1);
+  assert.equal(log.at(-1), "serve runs with knowledge's new text.");
+  // The same text from elsewhere: written down, not judged, no restart.
+  files.set("mini:/copy.md", "Notes and research.\n");
+  log.length = 0;
+  assert.equal(await refresh("knowledge", "mini:/copy.md", deps), 0);
+  assert.equal(entry()?.responsibilityFrom, "mini:/copy.md");
+  assert.equal(counts.restarts, 1);
+  assert.ok(!log.some((line) => line.startsWith("Judging")));
+  // Asked again: nothing to do.
   log.length = 0;
   assert.equal(await refresh("knowledge", undefined, deps), 0);
-  assert.deepEqual(log, [
-    "knowledge's text is as mini:/vault/responsibility.md has it already.",
-  ]);
+  assert.equal(
+    log.at(-1),
+    "knowledge's text is as mini:/copy.md has it already.",
+  );
   assert.equal(counts.restarts, 1);
 });
 
-test("roster's read: a responsibility file as committed on its repository's main, not as edited since", async (t) => {
+test("roster's read: a responsibility file as committed on its repository's main, not as edited since; only over ssh or here", async (t) => {
   const dir = scratch(t, "roster-read-");
   const git = (...args: string[]) =>
     execFileSync(
@@ -545,12 +614,16 @@ test("roster's read: a responsibility file as committed on its repository's main
   git("-C", "work", "commit", "-q", "-am", "draft");
   writeFileSync(file, "## design\nNot committed.\n");
   // The router host's own Paseo is not over ssh: read here.
-  assert.equal(
-    await readOver("ws://127.0.0.1:6767/ws", file),
-    "## design\nOwns the logo.\n",
-  );
+  const read = await readOver("ws://127.0.0.1:6767/ws", file);
+  assert.equal(read.text, "## design\nOwns the logo.\n");
+  assert.match(read.at, /^[0-9a-f]{7,} \d{4}-\d{2}-\d{2}$/);
   await assert.rejects(
     readOver("ws://127.0.0.1:6767/ws", join(dir, "work", "docs", "gone.md")),
     /gone\.md/,
+  );
+  // Another machine's Paseo, reached without ssh: its files are not here.
+  await assert.rejects(
+    readOver("ws://mini.example.ts.net:6767/ws", file),
+    /^Error: ws:\/\/mini\.example\.ts\.net:6767\/ws is neither ssh nor this machine\./,
   );
 });

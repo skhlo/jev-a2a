@@ -38,6 +38,11 @@ export type SetupDeps = {
   log(line: string): void;
 };
 
+// Where a script over ssh finds node and git: a command over ssh runs
+// without the login profile that sets PATH.
+export const HOST_PATH = `PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH`;
+
 // What runs on the host, as `sh -c`: arguments are the clone URL, the
 // commit and the router's URL; the token comes on stdin. It refuses a host
 // with a configuration, which would make it a router host, and a commit
@@ -45,8 +50,7 @@ export type SetupDeps = {
 // into it.
 const SCRIPT = `set -e
 clone=$1 commit=$2 url=$3
-PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
-export PATH
+${HOST_PATH}
 IFS= read -r token
 config="$HOME/.config/jev-router"
 repo="$HOME/.local/share/jev-router/repo"

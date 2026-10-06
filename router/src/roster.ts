@@ -1,16 +1,21 @@
 // `router roster ...`: changes to the roster made the way they were made by
 // hand, with the checks the hand steps relied on. A candidate configuration
 // is checked as loadConfig reads it and, when a responsibility text
-// changes, judged against the labelled requests; then the file is kept as
-// a dated copy, the candidate swapped in, and serve restarted to read it.
-// The record takes any configuration that loads (a `configured` event only
-// validates, and placements are only ever added), so no replay is needed.
+// changes, judged against the labeled requests; then the file is kept as a
+// dated copy, the candidate swapped in, and serve restarted to read it and
+// watched until its first run has.
+//
+// The hand removal replayed a copy of the journal under the new file; this
+// does not. The record takes any configuration validateConfig accepts (a
+// `configured` event is refused for nothing else), history replays under
+// the configurations the journal recorded, and placements are never
+// removed, only no longer served. Watching the first run is the check.
 //
 // `repoint` points a placement at a new session after its Paseo session
 // was replaced: a daemon restart closes terminals, and a reopened terminal
 // or a cleared agent context gets a new id. `add`, `remove` and `refresh`
-// change the participants; a text is read over ssh from its owner's main
-// branch.
+// change the participants; a text is read over ssh as committed on its
+// repository's main on the host that owns it.
 import { execFile } from "node:child_process";
 import {
   chmodSync,
@@ -28,12 +33,22 @@ import {
   type RouterConfig,
 } from "./config.ts";
 import { own, responsibilityTexts } from "./core.ts";
-import { evaluate, parseSet, type Labeled } from "./eval.ts";
-import { shellCommand } from "./host-setup.ts";
+import {
+  evaluate,
+  failures,
+  parseSet,
+  verdictLine,
+  type Labeled,
+} from "./eval.ts";
+import { HOST_PATH, shellCommand } from "./host-setup.ts";
 import type { JudgeResult } from "./jev.ts";
 import { sshArgs } from "./paseo.ts";
 import { refuse } from "./request.ts";
 import type { JudgmentQuestion, State } from "./types.ts";
+
+// A responsibility file as read: the commit of main it was read at, with
+// its date, and the file.
+export type Read = { at: string; text: string };
 
 export type RosterDeps = {
   configPath: string;
@@ -43,10 +58,12 @@ export type RosterDeps = {
   // daemon does not know it.
   resolve(host: string, session: string): Promise<string | null>;
   // A responsibility file on `host`, as its repository's main has it.
-  read(host: string, path: string): Promise<string>;
-  // Jev's answer to a routing question, for the eval.
+  read(host: string, path: string): Promise<Read>;
+  // Jev's answer to a routing question, for the eval, asked as the
+  // requester `router eval` routes as.
   judge(question: JudgmentQuestion): Promise<JudgeResult>;
-  // The labelled requests: router/eval/requests.jsonl in this checkout.
+  requester(): string;
+  // The labeled requests: router/eval/requests.jsonl in this checkout.
   setPath: string;
   // Restarts serve and waits until it answers.
   restart(): Promise<void>;
@@ -56,7 +73,8 @@ export type RosterDeps = {
 };
 
 // serve's first run observes every placement; a slow host takes a while.
-const BIND_SECONDS = 90;
+const WATCH_SECONDS = 90;
+const STILL = `its first run may still be going. router status shows when it does; if it never does, see serve's log`;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -66,45 +84,74 @@ const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const participantOf = (placement: string): string =>
   placement.slice(0, placement.lastIndexOf("@"));
+const hostOf = (placement: string): string =>
+  placement.slice(placement.lastIndexOf("@") + 1);
 const plural = (count: number, one: string, many: string): string =>
   `${count} ${count === 1 ? one : many}`;
 
+// `left<separator>right`, both sides given.
+function split(text: string, separator: string): [string, string] | null {
+  const at = text.indexOf(separator);
+  const right = text.slice(at + separator.length);
+  return at > 0 && right ? [text.slice(0, at), right] : null;
+}
+
 // What reads a responsibility file on its host, as `sh -c` with the path:
-// the file as committed on its repository's main branch there, so an edit
-// not merged is not read. No fetch: a host may have no login for its
-// origin, or no origin. A path under ~/ is the host user's.
+// main's commit and date on the first line, then the file as committed on
+// main, so an edit not merged there is not read. No fetch: a host may have
+// no login for its origin, or no origin. A path under ~/ is the host
+// user's.
 const READ = `set -e
-PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
+${HOST_PATH}
 case $1 in "~/"*) file="$HOME/\${1#"~/"}" ;; *) file=$1 ;; esac
 cd "$(dirname "$file")"
+git log -1 --format='%h %cs' main
 git show "main:./$(basename "$file")"
 `;
 
+// An endpoint on this machine.
+const LOCAL = /^(127\.|localhost$|\[::1\]$)/;
+
 // The file at `path` on the host whose Paseo is at `endpoint`: over that
-// ssh, or here when the endpoint is not ssh (the router host's own).
-export function readOver(endpoint: string, path: string): Promise<string> {
+// ssh, or here when the endpoint is on this machine.
+export function readOver(endpoint: string, path: string): Promise<Read> {
   const ssh = endpoint.startsWith("ssh://") ? sshArgs(endpoint) : null;
+  if (!ssh && !LOCAL.test(new URL(endpoint).hostname))
+    return Promise.reject(
+      new Error(`${endpoint} is neither ssh nor this machine.`),
+    );
   const [file, args]: [string, string[]] = ssh
     ? ["ssh", [...ssh.options, ssh.destination, shellCommand(READ, [path])]]
     : ["sh", ["-c", READ, "sh", path]];
   return new Promise((resolve, reject) => {
     execFile(file, args, { timeout: 60_000 }, (error, stdout, stderr) => {
+      const newline = stdout.indexOf("\n");
       if (error) reject(new Error(stderr.trim() || error.message));
-      else resolve(stdout);
+      else
+        resolve({
+          at: stdout.slice(0, newline),
+          text: stdout.slice(newline + 1),
+        });
     });
   });
 }
 
-// A participant's text in a responsibility file: its `## <id>` section, or
-// the whole file when it has none. HTML comments, notes to whoever edits
-// the file, are not read, as the file shows when rendered.
-function textIn(file: string, id: string): string {
+// A participant's text in a responsibility file `from`: its `## <id>`
+// section, up to the next heading of the same level or above, or the whole
+// file when it has no sections. HTML comments, notes to whoever edits the
+// file, are not read, as the file shows when rendered.
+function textIn(file: string, id: string, from: string): string {
   const shown = file.replace(/<!--[\s\S]*?-->/g, "");
+  if (shown.includes("<!--")) refuse(`${from} has a <!-- that never ends.`);
   const lines = shown.split("\n");
   const start = lines.findIndex((line) => line.trimEnd() === `## ${id}`);
-  if (start < 0) return shown.trim();
+  if (start < 0) {
+    if (lines.some((line) => line.startsWith("## ")))
+      refuse(`${from} has sections, and none is ## ${id}.`);
+    return shown.trim();
+  }
   const end = lines.findIndex(
-    (line, index) => index > start && line.startsWith("## "),
+    (line, index) => index > start && /^#{1,2} /.test(line),
   );
   return lines
     .slice(start + 1, end < 0 ? undefined : end)
@@ -119,17 +166,20 @@ async function textFrom(
   config: RouterConfig,
   deps: RosterDeps,
 ): Promise<string> {
-  const colon = from.indexOf(":");
-  const host = from.slice(0, colon);
-  const path = from.slice(colon + 1);
-  if (colon < 1 || !path) refuse(`${from} is not <host>:<path>.`);
+  const [host, path] =
+    split(from, ":") ?? refuse(`${from} is not <host>:<path>.`);
   if (!own(config.hosts, host)) refuse(`${host} is not in hosts.`);
-  const file = await deps
+  const read = await deps
     .read(host, path)
     .catch((error: unknown) =>
       refuse(`Cannot read ${path} on ${host}: ${messageOf(error)}`),
     );
-  return textIn(file, id) || refuse(`${from} has no text for ${id}.`);
+  const text =
+    textIn(read.text, id, from) || refuse(`${from} has no text for ${id}.`);
+  deps.log(
+    `${id}'s text: ${text.length} characters from ${from}, main at ${read.at}.`,
+  );
+  return text;
 }
 
 // The configuration file as written, to edit.
@@ -148,15 +198,6 @@ function sectionOf(
   const made: Record<string, unknown> = {};
   file[key] = made;
   return made;
-}
-
-// `next` as loadConfig would read it from `path`.
-function checked(path: string, next: Record<string, unknown>): RouterConfig {
-  try {
-    return configOf(structuredClone(next), path);
-  } catch (error: unknown) {
-    return refuse(messageOf(error));
-  }
 }
 
 // Writes `next` as the configuration, keeping the old one as a dated copy;
@@ -180,64 +221,51 @@ function swapConfig(
   return backup;
 }
 
-// The labelled requests in `source` judged with `candidate`'s texts, as
-// its requester is routed (as `router eval` does). Refused when Jev does
-// not answer one, or sends one to the wrong participant at the threshold.
-async function judged(
-  candidate: RouterConfig,
-  source: string,
-  deps: RosterDeps,
-  expected?: string,
-): Promise<void> {
-  const principals = candidate.principals ?? {};
-  const requester =
-    Object.keys(principals).find((id) => principals[id] === "requester") ??
-    refuse("The configuration has no requester to route as.");
-  const permitted = own(candidate.permissions ?? {}, requester) ?? [];
-  let set: Labeled[];
-  try {
-    set = parseSet(source, [...permitted, "none"]);
-  } catch (error: unknown) {
-    return refuse(`${deps.setPath}: ${messageOf(error)}`);
-  }
-  if (expected && !set.some((item) => item.expect === expected))
-    refuse(
-      `No request in ${deps.setPath} expects ${expected}; label some first.`,
-    );
-  deps.log(`Judging ${set.length} labelled requests with the new texts.`);
-  const verdicts = await evaluate(
-    set,
-    responsibilityTexts(candidate.participants, permitted),
-    deps.judge,
-  );
-  const threshold = candidate.policy.threshold;
-  const failed = verdicts.filter(
-    (v) =>
-      v.choice === null ||
-      (v.choice !== v.expect && v.choice !== "none" && v.p >= threshold),
-  );
-  for (const v of failed)
-    deps.log(
-      `  ${v.expect} -> ${v.choice === null ? `no answer (${v.reason ?? "unknown"})` : `${v.choice} ${v.p.toFixed(2)}`}: ${v.text}`,
-    );
-  if (failed.length)
-    refuse(
-      `The eval refuses it: ${failed.length} of ${set.length} requests sent wrong at ${threshold} or not answered. Nothing changed.`,
-    );
-  deps.log(`Eval: none of ${set.length} requests sent wrong at ${threshold}.`);
-}
-
-// Puts `next` in place once it loads and, with a set, once the eval passes;
-// the old file's copy.
-async function change(
+// `next` once it loads as loadConfig would read it and, given a labeled
+// set, once the set judged with its texts sends nothing wrong at the
+// threshold and every request is answered, as `router eval` rules. With
+// `expected`, some request must expect that participant.
+async function approved(
   next: Record<string, unknown>,
   set: string | null,
   deps: RosterDeps,
   expected?: string,
-): Promise<string> {
-  const candidate = checked(deps.configPath, next);
-  if (set !== null) await judged(candidate, set, deps, expected);
-  return swapConfig(deps.configPath, next, deps.now());
+): Promise<RouterConfig> {
+  let candidate: RouterConfig;
+  try {
+    candidate = configOf(structuredClone(next), deps.configPath);
+  } catch (error: unknown) {
+    return refuse(messageOf(error));
+  }
+  if (set === null) return candidate;
+  const permitted = own(candidate.permissions ?? {}, deps.requester()) ?? [];
+  let items: Labeled[];
+  try {
+    items = parseSet(set, [...permitted, "none"]);
+  } catch (error: unknown) {
+    return refuse(`${deps.setPath}: ${messageOf(error)}`);
+  }
+  if (expected && !items.some((item) => item.expect === expected))
+    refuse(
+      `No request in ${deps.setPath} expects ${expected}; label some first.`,
+    );
+  deps.log(`Judging ${items.length} labeled requests with the new texts.`);
+  const verdicts = await evaluate(
+    items,
+    responsibilityTexts(candidate.participants, permitted),
+    deps.judge,
+  );
+  const threshold = candidate.policy.threshold;
+  const failed = failures(verdicts, threshold);
+  for (const v of failed) deps.log(verdictLine(v));
+  if (failed.length)
+    refuse(
+      `The eval refuses it: ${failed.length} of ${items.length} requests sent wrong at ${threshold} or not answered. Nothing changed.`,
+    );
+  deps.log(
+    `Eval: none of ${items.length} requests sent wrong at ${threshold}.`,
+  );
+  return candidate;
 }
 
 // Refuses a session `placement` cannot take: one the record has seen but
@@ -251,7 +279,7 @@ async function checkSession(
   session: string,
   deps: RosterDeps,
 ): Promise<void> {
-  const host = placement.slice(placement.lastIndexOf("@") + 1);
+  const host = hostOf(placement);
   const seen = own(state.sessions, session);
   if (seen && own(state.placements, placement)?.session !== session)
     refuse(
@@ -304,28 +332,43 @@ function pointed(
   return file;
 }
 
-// After a restart: whether serve's first run binds `session` at
-// `placement`, looking once a second.
-async function watchBind(
-  placement: string,
-  session: string,
+// After a restart: whether serve's first run has done what `done` looks
+// for in the record, looking once a second; it says what it found, or
+// `failure` is logged.
+async function watchRun(
+  done: (state: State) => string | null,
+  failure: string,
   deps: RosterDeps,
 ): Promise<number> {
-  for (let tries = 0; tries < BIND_SECONDS; tries++) {
-    const entry = own(deps.record().placements, placement);
-    if (entry?.session === session) {
-      deps.log(
-        `${placement}: serve binds ${session}, ${entry.ready ? "ready" : "not ready yet"}.`,
-      );
+  for (let tries = 0; tries < WATCH_SECONDS; tries++) {
+    const found = done(deps.record());
+    if (found) {
+      deps.log(found);
       return 0;
     }
     await deps.sleep(1000);
   }
-  deps.log(
-    `${placement}: serve has not bound ${session} in ${BIND_SECONDS} seconds; its first run may still be going. router status shows when it does; if it never does, see serve's log and run this again.`,
-  );
+  deps.log(failure);
   return 1;
 }
+
+// Whether serve's first run binds `session` at `placement`.
+const watchBind = (
+  placement: string,
+  session: string,
+  deps: RosterDeps,
+  next = "",
+): Promise<number> =>
+  watchRun(
+    (state) => {
+      const entry = own(state.placements, placement);
+      return entry?.session === session
+        ? `${placement}: serve binds ${session}, ${entry.ready ? "ready" : "not ready yet"}.`
+        : null;
+    },
+    `${placement}: serve has not bound ${session} in ${WATCH_SECONDS} seconds; ${STILL}${next}.`,
+    deps,
+  );
 
 // `router roster repoint <participant@host> <session>`: 0 when serve binds
 // the placement to the session. Asked again after a restart that bound
@@ -349,11 +392,9 @@ export async function repoint(
   // A configuration already changed (a restart that failed) only needs
   // serve to read it.
   if (configured !== session) {
-    const backup = await change(
-      pointed(deps.configPath, placement, session, deps.log),
-      null,
-      deps,
-    );
+    const file = pointed(deps.configPath, placement, session, deps.log);
+    await approved(file, null, deps);
+    const backup = swapConfig(deps.configPath, file, deps.now());
     deps.log(
       `${placement}: ${configured} -> ${session}; the old configuration is ${backup}.`,
     );
@@ -366,47 +407,44 @@ export async function repoint(
       `${plural(open, "open delivery", "open deliveries")} went to the old session ${before}; router needs-you lists what they need.`,
     );
   await deps.restart();
-  return watchBind(placement, session, deps);
+  return watchBind(placement, session, deps, " and run this again");
 }
 
 // `router roster add <participant> <host>:<path> <host>=<session>...`: the
 // participant with its text from the file, a placement on each host, and
 // grants all to all, as the roster has them: it may address everyone, and
-// everyone it. The labelled requests must expect it somewhere. 0 when
-// serve binds every placement.
+// everyone it. The labeled requests must expect it somewhere. 0 when serve
+// binds every placement.
 export async function add(
   id: string,
   from: string,
-  placements: string[],
+  pairs: string[],
   deps: RosterDeps,
 ): Promise<number> {
   const config = loadConfig(deps.configPath);
-  if (!/^[\w-]+$/.test(id))
-    refuse(`${id} is not a participant id: use letters, digits, - and _.`);
   if (config.participants.some((p) => p.id === id))
     refuse(`${id} is in the roster already; refresh changes its text.`);
-  const sessions = new Map<string, string>();
-  for (const pair of placements) {
-    const equals = pair.indexOf("=");
-    const host = pair.slice(0, equals);
-    const session = pair.slice(equals + 1);
-    if (equals < 1 || !session) refuse(`${pair} is not <host>=<session>.`);
-    if (sessions.has(host)) refuse(`${host} is named twice.`);
-    sessions.set(host, session);
+  // Placement key -> its session.
+  const placements = new Map<string, string>();
+  for (const pair of pairs) {
+    const [host, session] =
+      split(pair, "=") ?? refuse(`${pair} is not <host>=<session>.`);
+    if (placements.has(`${id}@${host}`)) refuse(`${host} is named twice.`);
+    placements.set(`${id}@${host}`, session);
   }
   const state = deps.record();
-  for (const [host, session] of sessions)
-    await checkSession(config, state, `${id}@${host}`, session, deps);
+  for (const [placement, session] of placements)
+    await checkSession(config, state, placement, session, deps);
   const text = await textFrom(from, id, config, deps);
   const file = fileOf(deps.configPath);
-  const hosts = [...sessions.keys()];
+  const hosts = [...placements.keys()].map(hostOf);
   file.participants = [
     ...records(file.participants),
     {
       id,
       kind: "agent",
       hosts,
-      idempotent: ![...sessions.values()].some((s) => terminalOf(s) !== null),
+      idempotent: ![...placements.values()].some((s) => terminalOf(s) !== null),
       responsibility: text,
       responsibilityFrom: from,
     },
@@ -415,27 +453,22 @@ export async function add(
   for (const list of Object.values(permissions))
     if (Array.isArray(list) && !list.includes(id)) list.push(id);
   permissions[id] = config.participants.map((p) => p.id);
-  const agents = sectionOf(file, "agents");
-  for (const [host, session] of sessions) agents[`${id}@${host}`] = session;
-  const backup = await change(
-    file,
-    readFileSync(deps.setPath, "utf8"),
-    deps,
-    id,
-  );
+  Object.assign(sectionOf(file, "agents"), Object.fromEntries(placements));
+  await approved(file, readFileSync(deps.setPath, "utf8"), deps, id);
+  const backup = swapConfig(deps.configPath, file, deps.now());
   deps.log(
     `${id} added on ${hosts.join(", ")}; the old configuration is ${backup}.`,
   );
   await deps.restart();
   let code = 0;
-  for (const [host, session] of sessions)
-    code = Math.max(code, await watchBind(`${id}@${host}`, session, deps));
+  for (const [placement, session] of placements)
+    code = Math.max(code, await watchBind(placement, session, deps));
   return code;
 }
 
-// The labelled requests with those expecting `id` expecting none, as
+// The labeled requests with those expecting `id` expecting none, as
 // written otherwise; how many changed.
-function relabelled(set: string, id: string): { set: string; count: number } {
+function relabeled(set: string, id: string): { set: string; count: number } {
   let count = 0;
   const lines = set.split("\n").map((line) => {
     let item: unknown;
@@ -452,7 +485,7 @@ function relabelled(set: string, id: string): { set: string; count: number } {
 }
 
 // `router roster remove <participant>`: the participant, its grants and its
-// placements go. The labelled requests that expected it expect none, in
+// placements go. The labeled requests that expected it expect none, in
 // this checkout's set, for a person to commit.
 export async function remove(id: string, deps: RosterDeps): Promise<number> {
   const config = loadConfig(deps.configPath);
@@ -471,15 +504,18 @@ export async function remove(id: string, deps: RosterDeps): Promise<number> {
       for (const placement of Object.keys(section))
         if (participantOf(placement) === id) delete section[placement];
   }
-  const { set, count } = relabelled(readFileSync(deps.setPath, "utf8"), id);
-  const backup = await change(file, set, deps);
-  deps.log(`${id} removed; the old configuration is ${backup}.`);
+  const { set, count } = relabeled(readFileSync(deps.setPath, "utf8"), id);
+  await approved(file, set, deps);
+  // The set first: a set that still expects a removed participant no
+  // longer parses.
   if (count) {
     writeFileSync(deps.setPath, set);
     deps.log(
-      `Relabelled ${plural(count, "request", "requests")} for ${id} to expect none in ${deps.setPath}; commit that.`,
+      `Relabeled ${plural(count, "request", "requests")} for ${id} to expect none in ${deps.setPath}; commit that.`,
     );
   }
+  const backup = swapConfig(deps.configPath, file, deps.now());
+  deps.log(`${id} removed; the old configuration is ${backup}.`);
   const open = deps
     .record()
     .tasks.flatMap((task) => task.deliveries)
@@ -489,11 +525,20 @@ export async function remove(id: string, deps: RosterDeps): Promise<number> {
       `${id} has ${plural(open, "open delivery", "open deliveries")} in the record; router status shows ${open === 1 ? "it" : "them"}.`,
     );
   await deps.restart();
-  return 0;
+  return watchRun(
+    (state) =>
+      state.config.participants.some((p) => p.id === id)
+        ? null
+        : `serve runs without ${id}.`,
+    `serve has not recorded the configuration without ${id} in ${WATCH_SECONDS} seconds; ${STILL}.`,
+    deps,
+  );
 }
 
 // `router roster refresh <participant> [<host>:<path>]`: its text read
-// again from where it came from, or from the file named, which it keeps.
+// again from where it came from, or from the file named, which it keeps. A
+// new text is judged, and serve restarted; a new source alone is only
+// written down, since serve does not read it.
 export async function refresh(
   id: string,
   from: string | undefined,
@@ -522,15 +567,24 @@ export async function refresh(
   }
   entry.responsibility = text;
   entry.responsibilityFrom = source;
-  // Only a new text needs the eval.
-  const backup = await change(
+  await approved(
     file,
     changed ? readFileSync(deps.setPath, "utf8") : null,
     deps,
   );
+  const backup = swapConfig(deps.configPath, file, deps.now());
   deps.log(
     `${id}'s text ${changed ? "is new" : "is unchanged"}, from ${source}; the old configuration is ${backup}.`,
   );
+  if (!changed) return 0;
   await deps.restart();
-  return 0;
+  return watchRun(
+    (state) =>
+      state.config.participants.find((p) => p.id === id)?.responsibility ===
+      text
+        ? `serve runs with ${id}'s new text.`
+        : null,
+    `serve has not recorded ${id}'s new text in ${WATCH_SECONDS} seconds; ${STILL}.`,
+    deps,
+  );
 }

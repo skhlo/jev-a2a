@@ -155,7 +155,7 @@ a user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)
 | `router roster repoint <participant@host> <session>`                | Point a placement at its new Paseo session, restart `serve` and see it bound                                 |
 | `router roster add <participant> <host>:<path> <host>=<session>...` | Add a participant, its text read from its owner's main branch; judged by the eval first                      |
 | `router roster remove <participant>`                                | Drop a participant and relabel its requests to `none`; judged by the eval first                              |
-| `router roster refresh <participant>`                               | Read a participant's text again; judged by the eval first                                                    |
+| `router roster refresh <participant> [<host>:<path>]`               | Read a participant's text again; a new text is judged by the eval first                                      |
 
 Agents use `router reply`. `router observe <placement> --hold` keeps the
 router from sending to a session a person is typing in; `router resolve`

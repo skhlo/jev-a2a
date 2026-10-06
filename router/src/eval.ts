@@ -114,6 +114,24 @@ const correct = (v: Verdict): boolean => v.choice === v.expect;
 const dispatched = (v: Verdict, threshold: number): boolean =>
   v.choice !== null && v.choice !== "none" && v.p >= threshold;
 
+// The requests that keep a change from going live at `threshold`: those
+// sent to the wrong participant, and those Jev gave no usable answer for.
+export const failures = (verdicts: Verdict[], threshold: number): Verdict[] =>
+  verdicts.filter(
+    (v) => v.choice === null || (dispatched(v, threshold) && !correct(v)),
+  );
+
+// One request's line in the table: right or not, what Jev chose and how
+// sure it was.
+export function verdictLine(v: Verdict): string {
+  const mark = correct(v) ? "ok " : "NO ";
+  const got =
+    v.choice === null
+      ? `no answer (${v.reason ?? "unknown"})`
+      : `${v.choice} ${v.p.toFixed(2)}`;
+  return `${mark} ${v.lang} ${v.expect.padEnd(12)} ${got.padEnd(18)} ${v.text}`;
+}
+
 export function curve(
   verdicts: Verdict[],
   thresholds: number[] = THRESHOLDS,
@@ -136,16 +154,7 @@ export function renderEval(
   model: string,
 ): string[] {
   const lines: string[] = [];
-  for (const v of verdicts) {
-    const mark = correct(v) ? "ok " : "NO ";
-    const got =
-      v.choice === null
-        ? `no answer (${v.reason ?? "unknown"})`
-        : `${v.choice} ${v.p.toFixed(2)}`;
-    lines.push(
-      `${mark} ${v.lang} ${v.expect.padEnd(12)} ${got.padEnd(18)} ${v.text}`,
-    );
-  }
+  for (const v of verdicts) lines.push(verdictLine(v));
   const right = verdicts.filter(correct).length;
   const answered = [
     ...new Set(verdicts.map((v) => v.model).filter((m) => m !== null)),
