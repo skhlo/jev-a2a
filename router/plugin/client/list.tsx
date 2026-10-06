@@ -1,9 +1,15 @@
 // The task list: Needs you, In flight and Done (the last ten), each row the
-// title, its age and a dot, then line 2 (format.ts rowLine).
+// title, its age and a dot, then line 2 (format.ts rowLine). A group's
+// heading collapses it to the heading and its count, as on the board.
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { age, rowDot, rowLine, type ListRow, type Viewer } from "./format.ts";
 import { Button, Dot, Parts, Txt, useLook } from "./ui.tsx";
+
+// The collapsed groups, kept while the app runs: the board keeps them on
+// the device, but the plugin SDK has no device storage.
+let collapsed: string[] = [];
 
 type Props = {
   viewer: Viewer;
@@ -25,26 +31,44 @@ export function TaskList({
 }: Props) {
   const { c, mode } = useLook();
   const compact = mode === "compact";
+  const [shut, setShut] = useState(collapsed);
+  const toggle = (name: string) => {
+    collapsed = shut.includes(name)
+      ? shut.filter((n) => n !== name)
+      : [...shut, name];
+    setShut(collapsed);
+  };
   const group = (name: string, n: string, rows: ListRow[]) => (
     <View key={name}>
-      <View
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={name}
+        aria-expanded={!shut.includes(name)}
+        onPress={() => toggle(name)}
         style={{
           flexDirection: "row",
-          alignItems: "baseline",
-          gap: 8,
+          alignItems: "center",
+          gap: 6,
           paddingHorizontal: 12,
-          marginTop: 12,
-          marginBottom: 8,
+          paddingTop: 12,
+          paddingBottom: 8,
         }}
       >
-        <Txt muted strong>
-          {name}
-        </Txt>
-        <Txt size="sm" muted>
-          {n}
-        </Txt>
-      </View>
-      {rows.length ? (
+        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
+          <Txt muted strong>
+            {name}
+          </Txt>
+          <Txt size="sm" muted>
+            {n}
+          </Txt>
+        </View>
+        <Icon
+          name={shut.includes(name) ? "ChevronRight" : "ChevronDown"}
+          size={14}
+          color={c.foregroundMuted}
+        />
+      </Pressable>
+      {shut.includes(name) ? null : rows.length ? (
         rows.map((row) => (
           <TaskRow
             key={row.id}
