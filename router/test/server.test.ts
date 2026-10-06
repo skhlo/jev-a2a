@@ -702,6 +702,50 @@ test("runner: an event run arms one look while work waits; the look runs deliver
   f.runner.stop();
 });
 
+test("runner: a nudge runs at once while work waits, joins one already queued, queues the next during a run, and is ignored otherwise", async () => {
+  let recordWaits = false;
+  const f = fakeRunner({ waits: () => false, recordWaits: () => recordWaits });
+  // Nothing waits for a session: the poll is enough.
+  assert.equal(f.runner.nudge(), false);
+  await f.settle();
+  assert.equal(f.inRun(), false);
+  // Work waits: a run at once, not at the 20 s look, and a second nudge
+  // joins the first.
+  recordWaits = true;
+  assert.equal(f.runner.nudge(), true);
+  assert.equal(f.runner.nudge(), true);
+  await f.settle();
+  assert.ok(f.inRun());
+  await f.finishRun();
+  assert.equal(f.inRun(), false, "one run for both nudges");
+  assert.deepEqual(f.log, [
+    "nudge: Recorded D2/M2 as attempting to A1 before calling the adapter.",
+  ]);
+  // During a run, which may have looked before the turn ended, a nudge
+  // queues the next.
+  const handled = f.runner.handle({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "x",
+  });
+  await f.settle();
+  assert.ok(f.inRun());
+  assert.equal(f.runner.nudge(), true);
+  await f.finishRun();
+  await handled;
+  assert.ok(f.inRun(), "the nudge's run follows");
+  // A nudge during a nudge's own run likewise queues the next: that run
+  // has already looked.
+  assert.equal(f.runner.nudge(), true);
+  await f.finishRun();
+  assert.ok(f.inRun(), "the second nudge's run follows");
+  await f.finishRun();
+  assert.equal(f.inRun(), false);
+  f.runner.stop();
+  assert.equal(f.runner.nudge(), false);
+});
+
 test("runner: a look logs a telemetry complaint once while it lasts, and again after a run without it", async () => {
   let lines = [
     "orchestrator@mbp: idle",
@@ -1880,4 +1924,49 @@ test("board: the kept record folds only the lines appended since, and folds agai
   const changed = read();
   assert.ok(changed.state.tasks.some((task) => task.text === "Task 52"));
   assert.ok(changed.state.tasks.some((task) => task.text === "Task 54"));
+});
+
+test("board: POST /nudge asks the runner for a run, needs no identity, and refuses one from another device or site", async () => {
+  let answer = true;
+  let nudges = 0;
+  const nudge = (): boolean => {
+    nudges += 1;
+    return answer;
+  };
+  const server = createServer(boardOf({ config, handle, nudge }));
+  const url = await serve(server);
+  const post = (headers: Record<string, string> = {}) =>
+    fetch(`${url}/router/nudge`, { method: "POST", headers });
+  try {
+    let res = await post();
+    assert.equal(res.status, 202);
+    assert.equal(await res.text(), "run queued");
+    answer = false;
+    res = await post();
+    assert.equal(await res.text(), "nothing waits");
+    // From another device through Tailscale Serve, or a browser's
+    // cross-site request: refused, and the runner is not asked.
+    for (const headers of [
+      { "x-forwarded-for": "100.64.0.9" },
+      { "tailscale-user-login": "me@example.com" },
+      { "sec-fetch-site": "cross-site" },
+    ]) {
+      res = await post(headers);
+      assert.equal(res.status, 403);
+      await res.text();
+    }
+    assert.equal(nudges, 2, "a refused request does not nudge");
+  } finally {
+    server.close();
+  }
+  // A board without a runner, as board-check builds one, says so.
+  const bare = createServer(boardOf({ config, handle }));
+  const bareUrl = await serve(bare);
+  try {
+    const res = await fetch(`${bareUrl}/nudge`, { method: "POST" });
+    assert.equal(res.status, 404);
+    await res.text();
+  } finally {
+    bare.close();
+  }
 });
