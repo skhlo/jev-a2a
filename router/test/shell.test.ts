@@ -147,6 +147,50 @@ test("a failed observation records not ready: an earlier idle does not send this
   await shell.close();
 });
 
+test("a host the run cannot reach is tried once in the run, and the next run tries it again", async (t) => {
+  const home = scratch(t, "shell-");
+  const config: RouterConfig = {
+    ...configFor(home),
+    hosts: {
+      mbp: { paseo: "fake://mbp", replyCommand: "router" },
+      mini: { paseo: "fake://mini", replyCommand: "router" },
+    },
+    agents: {
+      "orchestrator@mbp": "A1",
+      "knowledge@mini": "K1",
+      "environment@mini": "E1",
+    },
+  };
+  const tried: string[] = [];
+  const options: ShellOptions = {
+    ...scripted({}),
+    adapter: (endpoint) => {
+      tried.push(endpoint);
+      return endpoint === "fake://mini"
+        ? Promise.reject(
+            new Error("ssh: connect to host mini port 22: timed out"),
+          )
+        : scripted({}).adapter(endpoint);
+    },
+  };
+  for (const run of [1, 2]) {
+    const shell = await openShell(config, options);
+    const report = (await shell.deliver()).join("\n");
+    await shell.close();
+    for (const key of ["knowledge@mini", "environment@mini"])
+      assert.match(
+        report,
+        new RegExp(`${key}: mini unreachable \\(ssh: connect`),
+      );
+    assert.equal(shell.state.placements["orchestrator@mbp"]?.ready, true);
+    assert.deepEqual(
+      tried.filter((e) => e === "fake://mini").length,
+      run,
+      `run ${run} connects to mini once`,
+    );
+  }
+});
+
 test("a quiet run records nothing: the tick is held until an event follows it, and an observation only when it changed the placement", async (t) => {
   const home = scratch(t, "shell-");
   const config = configFor(home);

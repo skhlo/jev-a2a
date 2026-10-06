@@ -184,13 +184,16 @@ export async function openShell(
   const journal = await openJournal(config.home);
   const now = options.now ?? Date.now;
   let state: State;
-  const adapters = new Map<string, Adapter>();
+  // One connection per host for the run. A host the run could not reach
+  // stays unreached until the next run, rather than costing a connect
+  // timeout for each of its placements, notices and deliveries.
+  const adapters = new Map<string, Promise<Adapter>>();
   const adapterFor = async (host: string): Promise<Adapter> => {
     const entry = config.hosts[host];
     if (!entry) throw new Error(`No endpoint configured for host ${host}`);
     let adapter = adapters.get(host);
     if (!adapter) {
-      adapter = await options.adapter(entry.paseo);
+      adapter = options.adapter(entry.paseo);
       adapters.set(host, adapter);
     }
     return adapter;
@@ -553,7 +556,14 @@ export async function openShell(
     waits: () => waitsOnSessions(state, isServed),
     async close() {
       try {
-        await Promise.all([...adapters.values()].map((a) => a.close()));
+        await Promise.all(
+          [...adapters.values()].map((a) =>
+            a.then(
+              (adapter) => adapter.close(),
+              () => undefined,
+            ),
+          ),
+        );
       } finally {
         journal.release();
       }

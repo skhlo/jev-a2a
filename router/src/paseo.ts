@@ -804,7 +804,7 @@ export async function createPaseoAdapter(
     clientType: "cli",
     // One connection for one run, and the next run is the retry. A client
     // that reconnects never settles connect() while the host is gone, and
-    // the ssh tunnel takes one connection, so it would never come back.
+    // the ssh tunnel takes one connection, so a retry finds no listener.
     reconnect: { enabled: false },
   });
   try {
@@ -976,9 +976,11 @@ function openSshTunnel(endpoint: string): Promise<Tunnel> {
         failure = error.message;
         accepted.destroy(error);
       });
-      ssh.on("exit", (code, signal) => {
+      // After ssh has exited and its output is read, so the client's
+      // connection ends only once the failure says why.
+      ssh.on("close", (code, signal) => {
         if (code !== 0 || signal)
-          failure = stderr.trim() || `ssh exited with ${signal ?? code}`;
+          failure ??= stderr.trim() || `ssh exited with ${signal ?? code}`;
         accepted.destroy(failure ? new Error(failure) : undefined);
       });
       accepted.on("error", () => undefined);
@@ -989,7 +991,7 @@ function openSshTunnel(endpoint: string): Promise<Tunnel> {
         if (child && !child.killed) child.kill();
       });
       accepted.pipe(ssh.stdin);
-      ssh.stdout.pipe(accepted);
+      ssh.stdout.pipe(accepted, { end: false });
     });
     server.once("error", (error) => {
       close();

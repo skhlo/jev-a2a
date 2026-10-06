@@ -531,10 +531,11 @@ test("a failed sheet read nulls its field and leaves a note; the rail and the re
   assert.equal(calls.filter((c) => c === "workspaces").length, 1);
 });
 
-// What creating an adapter for `endpoint` comes to, in a process of its
-// own, so an adapter that never settles (whose client keeps the process
-// alive) or one that crashes fails this test rather than hanging it.
-function adapterFor(endpoint: string, path?: string): Promise<string> {
+// What creating an adapter for `endpoint` comes to, with `bin` first on
+// PATH when given, in a process of its own, so an adapter that never
+// settles (whose client keeps the process alive) or one that crashes fails
+// this test rather than hanging it.
+function adapterOutcome(endpoint: string, bin?: string): Promise<string> {
   const script = `const [paseo, endpoint] = process.argv.slice(1);
 const { createPaseoAdapter } = await import(paseo);
 try {
@@ -551,7 +552,9 @@ process.exit(0);`;
       ["--no-warnings", "--input-type=module", "-e", script, paseo, endpoint],
       {
         timeout: 10_000,
-        env: { ...process.env, ...(path ? { PATH: path } : {}) },
+        env: {
+          PATH: bin ? `${bin}:${process.env.PATH ?? ""}` : process.env.PATH,
+        },
       },
       (error, stdout, stderr) => {
         if (error?.killed)
@@ -570,7 +573,10 @@ test("a daemon the run cannot reach fails the adapter at once, rather than being
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const { port } = server.address() as AddressInfo;
   await new Promise<void>((done) => server.close(() => done()));
-  assert.match(await adapterFor(`ws://127.0.0.1:${port}/ws`), /^rejected: /);
+  assert.match(
+    await adapterOutcome(`ws://127.0.0.1:${port}/ws`),
+    /^rejected: /,
+  );
   // Over ssh, an ssh that fails as it does for a host that has dropped off
   // the network, and at once, before the client's first bytes reach it: a
   // stand-in on PATH.
@@ -581,7 +587,19 @@ test("a daemon the run cannot reach fails the adapter at once, rather than being
     { mode: 0o755 },
   );
   assert.equal(
-    await adapterFor("ssh://mba", `${bin}:${process.env.PATH ?? ""}`),
+    await adapterOutcome("ssh://mba", bin),
+    "rejected: SSH to ssh://mba failed: ssh: connect to host mba port 22: Operation timed out",
+  );
+  // Still ssh's own reason when its output ends before it exits and its
+  // message comes after: the order the three arrive in varies.
+  const late = scratch(t, "ssh-");
+  writeFileSync(
+    join(late, "ssh"),
+    '#!/bin/sh\nexec 1>&-\n(sleep 0.2; echo "ssh: connect to host mba port 22: Operation timed out" >&2) &\nexit 255\n',
+    { mode: 0o755 },
+  );
+  assert.equal(
+    await adapterOutcome("ssh://mba", late),
     "rejected: SSH to ssh://mba failed: ssh: connect to host mba port 22: Operation timed out",
   );
 });
