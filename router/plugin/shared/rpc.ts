@@ -84,10 +84,24 @@ const waits = z
   })
   .nullable();
 
+// A delivery without the whole task; `answered` is the answer its open
+// turn took, null once the agent has replied to it.
+const headDelivery = z.object({
+  id: z.string(),
+  placement: z.string(),
+  sendKind: z.string(),
+  outcome: z.string(),
+  waits,
+  update: z.object({ kind: updateKind, text: z.string() }).nullable(),
+  answered: z
+    .object({ text: z.string(), at: z.string().nullable() })
+    .nullable(),
+});
+
 // One task as its row shows it; `rev` changes whenever the task does.
 // `question` is the waiting question's text (its needs-you item carries
-// the ids an answer names); `answered` is the answer the latest delivery's
-// open turn took, null once the agent has replied to it.
+// the ids an answer names). `latest` is its last delivery, for the row;
+// `deliveries` the ones not yet ended, for the Agents page.
 const taskHead = z.object({
   id: z.string(),
   title: z.string(),
@@ -104,19 +118,8 @@ const taskHead = z.object({
     .object({ choice: z.string(), probability: z.number().nullable() })
     .nullable(),
   question: z.string().nullable(),
-  latest: z
-    .object({
-      id: z.string(),
-      placement: z.string(),
-      sendKind: z.string(),
-      outcome: z.string(),
-      waits,
-      update: z.object({ kind: updateKind, text: z.string() }).nullable(),
-      answered: z
-        .object({ text: z.string(), at: z.string().nullable() })
-        .nullable(),
-    })
-    .nullable(),
+  latest: headDelivery.nullable(),
+  deliveries: z.array(headDelivery),
   // "no reply <age>" while a delivery has had no reply for 30 minutes.
   stale: z.string().nullable(),
   rev: z.string(),

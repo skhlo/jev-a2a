@@ -97,6 +97,11 @@ test("the summary heads each task with what its row shows", () => {
     update: { kind: "question", text: "Force push?" },
     answered: null,
   });
+  // The deliveries not yet ended, for the Agents page: T2's open one is
+  // its latest; T3's ended one is gone.
+  assert.deepEqual(head("T2")?.deliveries, [head("T2")?.latest]);
+  assert.deepEqual(head("T3")?.deliveries, []);
+  assert.equal(head("T3")?.latest?.id, "D2");
   // A delivery that waits says why, as its row on the page does.
   const waiting = summarize(modelOf(sampleJournal)).open.find(
     (t) => t.id === "T1",

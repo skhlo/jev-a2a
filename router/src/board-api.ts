@@ -49,6 +49,37 @@ function timesOf(
 const taskRev = (t: TaskView, own: Record<string, string>): string =>
   digest({ t, own });
 
+// A delivery as the app reads it without the whole task: where it went,
+// its send, what it waits for, its latest update and the answer its open
+// turn took.
+type HeadDelivery = {
+  id: string;
+  placement: string;
+  sendKind: string;
+  outcome: string;
+  waits: DeliveryView["waits"];
+  update: Pick<UpdateView, "kind" | "text"> | null;
+  answered: { text: string; at: string | null } | null;
+};
+
+const deliveryOf = (
+  d: DeliveryView,
+  own: Readonly<Record<string, string>>,
+): HeadDelivery => {
+  const answer = answerOf(d)?.send;
+  return {
+    id: d.id,
+    placement: d.placement,
+    sendKind: d.send.kind,
+    outcome: d.send.outcome,
+    waits: d.waits,
+    update: d.latest ? { kind: d.latest.kind, text: d.latest.text } : null,
+    answered: answer
+      ? { text: answer.text, at: own[answer.messageId] ?? null }
+      : null,
+  };
+};
+
 // One task as its list row needs it; router/plugin/shared/rpc.ts says what
 // each field means to the app.
 export type TaskHead = {
@@ -65,15 +96,8 @@ export type TaskHead = {
   reason: NonNullable<TaskView["routing"]>["reason"] | null;
   judgment: { choice: string; probability: number | null } | null;
   question: string | null;
-  latest: {
-    id: string;
-    placement: string;
-    sendKind: string;
-    outcome: string;
-    waits: DeliveryView["waits"];
-    update: Pick<UpdateView, "kind" | "text"> | null;
-    answered: { text: string; at: string | null } | null;
-  } | null;
+  latest: HeadDelivery | null;
+  deliveries: HeadDelivery[];
   stale: string | null;
   rev: string;
 };
@@ -85,7 +109,6 @@ function headOf(
 ): TaskHead {
   const judged = t.judgments.at(-1);
   const last = t.deliveries.at(-1);
-  const answer = last ? answerOf(last)?.send : undefined;
   const own = timesOf(t, times);
   return {
     id: t.id,
@@ -106,21 +129,10 @@ function headOf(
         }
       : null,
     question: t.deliveries.find((d) => d.question)?.question?.text ?? null,
-    latest: last
-      ? {
-          id: last.id,
-          placement: last.placement,
-          sendKind: last.send.kind,
-          outcome: last.send.outcome,
-          waits: last.waits,
-          update: last.latest
-            ? { kind: last.latest.kind, text: last.latest.text }
-            : null,
-          answered: answer
-            ? { text: answer.text, at: own[answer.messageId] ?? null }
-            : null,
-        }
-      : null,
+    latest: last ? deliveryOf(last, own) : null,
+    deliveries: t.deliveries
+      .filter((d) => !d.end)
+      .map((d) => deliveryOf(d, own)),
     stale: staleTask(t, at, own),
     rev: taskRev(t, own),
   };
