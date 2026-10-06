@@ -6,7 +6,8 @@
 // Events: replies, answers, requests and choices from other hosts, each
 // behind its host's bearer token.
 // Board: the page, its view model as JSON, and its actions, on loopback
-// behind Tailscale Serve, which stamps the viewer's login on each request.
+// behind Tailscale Serve, which stamps the viewer's login on each request;
+// and, for this host only, the Paseo plugin's nudge and API.
 // Serve strips its mount path, so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener } from "node:http";
@@ -18,6 +19,13 @@ import {
   messageTimes,
   type Actor,
 } from "./board.ts";
+import {
+  actedOn,
+  apiEvent,
+  appActor,
+  fullTask,
+  summarize,
+} from "./board-api.ts";
 import { renderBoard } from "./board-page.ts";
 import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
@@ -505,6 +513,25 @@ export function sameSite(
   }
 }
 
+// Why a request to the board did not come from a process on this host, or
+// null when it did: Tailscale Serve adds the caller's address and login; a
+// browser marks a request from another site; and a page whose name was
+// pointed at loopback sends that name as its Host.
+function notFromThisHost(
+  headers: Record<string, string | string[] | undefined>,
+): string | null {
+  if (headers["x-forwarded-for"] || headers["tailscale-user-login"])
+    return "Accepted from this host only.";
+  if (!sameSite(headers)) return "Not accepted from other sites.";
+  const host = headers.host;
+  if (
+    typeof host !== "string" ||
+    !/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host)
+  )
+    return "Accepted at a loopback address only.";
+  return null;
+}
+
 // One cookie's value from a Cookie header, or null.
 function cookie(header: string | undefined, name: string): string | null {
   for (const pair of (header ?? "").split(";")) {
@@ -616,19 +643,89 @@ export function boardListener(
     }
     // The Paseo plugin's turn-end hook, which posts to this address on
     // its own host. It changes nothing in the record, so it needs no
-    // identity; but a request that came through Tailscale Serve, from
-    // another device, is refused, so the tailnet cannot keep serve
-    // running, and so is a browser's cross-site request, as for actions.
+    // identity; but only a process on this host may send it, so the
+    // tailnet cannot keep serve running.
     if (req.method === "POST" && path.endsWith("/nudge")) {
-      if (req.headers["x-forwarded-for"] || req.headers["tailscale-user-login"])
-        return plain(403, "Nudges are accepted from this host only.");
-      if (!sameSite(req.headers))
-        return plain(403, "Nudges are not accepted from other sites.");
+      const refused = notFromThisHost(req.headers);
+      if (refused) return plain(403, refused);
       if (!deps.nudge) return plain(404, "No runner to nudge here.");
       return plain(202, deps.nudge() ? "run queued" : "nothing waits");
     }
+    // The Paseo plugin's API (src/board-api.ts): the board's summary, a
+    // task, and the actions. Only a process on this host may call it, and
+    // it acts as the CLI here does without --as, so it adds no one who
+    // could not already act.
+    const api = /\/api\/(summary|task|action)$/.exec(path)?.[1];
+    if (api) {
+      const refused = notFromThisHost(req.headers);
+      if (refused) return plain(403, refused);
+      const json = (status: number, value: unknown): void => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(value));
+      };
+      const by = appActor(config);
+      const read = (): ReturnType<typeof model> | null => {
+        try {
+          return model(now(), by);
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          log(`board: cannot read the record: ${message}`);
+          json(500, { message: `The record cannot be read: ${message}` });
+          return null;
+        }
+      };
+      if (api === "action") {
+        if (req.method !== "POST") return plain(405, "POST an action");
+        if (!by) return json(403, { message: "No principals to act as." });
+        body(req).then((text) => {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            return json(400, { message: "The action is not JSON." });
+          }
+          const action = apiEvent(parsed, by, config.principals ?? {});
+          if (!action.ok) return json(400, { message: action.message });
+          log(`board: paseo ${JSON.stringify(action.event)}`);
+          deps.handle(action.event).then(
+            ({ outcome }) => {
+              const view = read();
+              if (!view) return;
+              const id = actedOn(action.event, view);
+              json(200, {
+                outcome,
+                rev: summarize(view).rev,
+                task: id ? fullTask(view, id) : null,
+              });
+            },
+            (error: unknown) =>
+              json(500, {
+                message: error instanceof Error ? error.message : String(error),
+              }),
+          );
+        });
+        return;
+      }
+      if (req.method !== "GET") return plain(405, "GET the summary or a task");
+      const view = read();
+      if (!view) return;
+      if (api === "task") {
+        const task = fullTask(view, url.searchParams.get("id") ?? "");
+        return task
+          ? json(200, task)
+          : json(404, { message: "No such task on the board." });
+      }
+      const summary = summarize(view);
+      return json(
+        200,
+        url.searchParams.get("sinceRev") === summary.rev
+          ? { unchanged: true, rev: summary.rev }
+          : summary,
+      );
+    }
     if (req.method !== "GET")
-      return plain(405, "GET, or POST actions or nudge");
+      return plain(405, "GET, or POST actions, nudge or api/action");
     if (path.endsWith("/whoami")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(

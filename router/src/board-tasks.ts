@@ -26,7 +26,7 @@ import type { Judgment, StuckReason } from "./types.ts";
 // A task's first line, for the detail title: the design sized the title for
 // the sample's short texts, and a real request runs to pages. The full text
 // is in the transcript, and in the title attribute.
-const headline = (text: string): string =>
+export const headline = (text: string): string =>
   text
     .split(/\r?\n/)
     .map((line) => line.trim())

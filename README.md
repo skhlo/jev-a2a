@@ -263,7 +263,7 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 | `router/eval/`               | The maintainer's labeled request set                                  |
 | `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
 | `router/jev-router.service`  | The systemd user unit for `router serve`                              |
-| `router/plugin/`             | The router's Paseo plugin: wakes `serve` when an agent's turn ends    |
+| `router/plugin/`             | The router's Paseo plugin: wakes `serve`, answers the board's RPCs    |
 | `router/AGENTS.md`           | Context for coding agents, with Fallow's commands                     |
 | `docs/`                      | Reference pages                                                       |
 | `docs/research/`             | The spec, the executable model it was verified on, and background     |
@@ -276,8 +276,9 @@ pnpm fmt:check
 pnpm fallow      # unused files, exports and dependencies, duplicated code
 ```
 
-CI runs these plus `node --test router-core.test.js` in `docs/research/`, and
-fails if the run changed `package.json` or the lockfile. Regenerating the
+CI runs these, the same `pnpm install`, `pnpm test` and `pnpm typecheck` in
+`router/plugin/`, and `node --test router-core.test.js` in `docs/research/`,
+and fails if the run changed a `package.json` or a lockfile. Regenerating the
 sample and the screenshots after a view-model change:
 [docs/board-model.md](docs/board-model.md#the-contract) and
 [router/design/README.md](router/design/README.md#files).

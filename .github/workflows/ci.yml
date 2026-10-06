@@ -42,7 +42,15 @@ jobs:
         working-directory: router
       - run: pnpm fallow
         working-directory: router
+      # The Paseo plugin is its own package: its SDK and zod stay out of
+      # the router's dependencies. Its tests read the router's code.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        working-directory: router/plugin
+      - run: pnpm test
+        working-directory: router/plugin
+      - run: pnpm typecheck
+        working-directory: router/plugin
       - run: node --test router-core.test.js
         working-directory: docs/research
-      - name: Check that the manifest and lockfile are unchanged
-        run: git diff --exit-code -- router/package.json router/pnpm-lock.yaml
+      - name: Check that the manifests and lockfiles are unchanged
+        run: git diff --exit-code -- router/package.json router/pnpm-lock.yaml router/plugin/package.json router/plugin/pnpm-lock.yaml

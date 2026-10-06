@@ -37,10 +37,13 @@ update it when workflows change.
   it was changed by hand: checked, judged by the eval when a text changes,
   kept as a dated copy, swapped in, and `serve` restarted and watched.
 - `plugin/` is the router's Paseo plugin, installed into the router host's
-  daemon (`../docs/operating.md`). Paseo compiles it from that directory
-  alone, so it imports nothing from `src/`; `test/plugin.test.ts` holds
-  its reading of the configuration (the path, `serve.board`, `agents`) to
-  `src/config.ts`'s.
+  daemon (`../docs/operating.md`), and its own package: the plugin SDK and
+  zod stay out of the router's dependencies. Paseo compiles it from that
+  directory alone, so it imports nothing from `src/`: its RPCs fetch
+  serve's board API (`src/board-api.ts`), and `plugin/shared/rpc.ts`
+  declares their shapes. `plugin/test/plugin.test.ts` holds those shapes
+  to the router's types and the API's answers, and its reading of the
+  configuration (the path, `serve.board`, `agents`) to `src/config.ts`'s.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.
@@ -55,6 +58,8 @@ The README's development section says what each does.
 - Build: none; Node runs the TypeScript directly.
 - Test: `pnpm test`
 - Typecheck or lint: `pnpm typecheck`, `pnpm fmt:check`, `pnpm fallow`
+- The plugin: `pnpm install`, `pnpm test` and `pnpm typecheck` in
+  `plugin/`
 - Advice only: `pnpm fallow:health`
 
 ## Fallow
