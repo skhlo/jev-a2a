@@ -34,33 +34,29 @@ const unreachable = (url: string, error: unknown): string =>
   `Cannot reach the router at ${url}: ${error instanceof Error ? error.message : String(error)}`;
 
 // `router check`: whether the router answers, takes this host's token and
-// runs this checkout's commit. 0 when all three hold.
+// runs this checkout's commit, from one request. 0 when all three hold.
 async function check(url: string, token: string, io: Io): Promise<number> {
-  let health, own;
+  let answer: Awaited<ReturnType<typeof ask>>;
   try {
-    health = await ask(url, "/health");
-    own = await ask(url, "/check", {
+    answer = await ask(url, "/check", {
       headers: { authorization: `Bearer ${token}` },
     });
   } catch (error: unknown) {
     io.err(unreachable(url, error));
     return 1;
   }
-  const host =
-    own.status === 200 && typeof own.body.host === "string"
-      ? own.body.host
-      : null;
-  const theirs =
-    typeof health.body.commit === "string" ? health.body.commit : null;
+  const { ok, status, body } = answer;
+  const host = ok && typeof body.host === "string" ? body.host : null;
+  const theirs = typeof body.commit === "string" ? body.commit : null;
   const ours = checkoutCommit();
   const same = theirs !== null && theirs === ours;
   io.out(`router: ${url} answers`);
   io.out(
     host
       ? `token: accepted for ${host}`
-      : own.status === 401
+      : status === 401
         ? "token: refused"
-        : `token: the router answered ${own.status}`,
+        : `token: the router answered ${status}`,
   );
   io.out(
     same
@@ -99,7 +95,7 @@ export async function runReplyHost(
       `On a reply host, router acts as its own session ${session}, not ${named}.`,
     );
   const event = build(argsOf(inv, () => session));
-  let sent;
+  let sent: Awaited<ReturnType<typeof ask>>;
   try {
     sent = await ask(url, "/events", {
       method: "POST",
@@ -122,10 +118,11 @@ export async function runReplyHost(
   if (Array.isArray(answer.report))
     for (const line of answer.report) io.out(String(line));
   // The router says which commit it runs; a host left behind is told.
-  const ours = checkoutCommit();
-  if (typeof answer.commit === "string" && ours && answer.commit !== ours)
+  const theirs = typeof answer.commit === "string" ? answer.commit : null;
+  const ours = theirs && checkoutCommit();
+  if (theirs && ours && theirs !== ours)
     io.err(
-      `This host's router is at ${short(ours)}, the router's at ${short(answer.commit)}: run router host setup for this host on the router host.`,
+      `This host's router is at ${short(ours)}, the router's at ${short(theirs)}: run router host setup for this host on the router host.`,
     );
   return sent.ok && answer.ok === true ? 0 : 1;
 }

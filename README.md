@@ -86,9 +86,9 @@ Edit it to match yours:
 - `agents`: the Paseo agent id of each `participant@host`, from
   `paseo agent ls -g --json`, or `terminal:<id>` for Claude Code (or,
   named in `terminals`, Codex) in a Paseo terminal;
-- `secrets.env`: `TYPESAFE_API_KEY` if you have one, and a token for each
-  other host that takes part, named for the host (`ROUTER_TOKEN_MINI` for
-  `mini`). With no other host, leave the tokens out.
+- `secrets.env`: `TYPESAFE_API_KEY` if you have one. Each other host's
+  token (`ROUTER_TOKEN_MINI` for `mini`) is added by `router host setup`,
+  below.
 
 Every key, its default and what is refused is in
 [docs/configuration.md](docs/configuration.md); `policy.deadline` is in
@@ -122,13 +122,15 @@ and git:
 router host setup mini
 ```
 
-It clones this repository to `~/.local/share/jev-router/repo` on that host
-at the router's commit, writes the `router` wrapper, and writes the host's
-`~/.config/jev-router/secrets.env`: `ROUTER_URL`, and as `ROUTER_TOKEN`
-the host's own token, which it first adds to the router's `secrets.env` as
-`ROUTER_TOKEN_<HOST>` if it is missing. It ends with `router check` there.
-Run it again to bring the host to the router's commit; to change a token,
-delete its line from the router's `secrets.env` first.
+A host's token is `ROUTER_TOKEN_<HOST>` in the router's `secrets.env`;
+setup adds it when it is missing, and restarts the `jev-router` service
+whenever `serve` does not take it yet. On the host it checks out this
+repository in `~/.local/share/jev-router/repo` at the commit `serve` runs,
+writes the `router` wrapper, and writes `~/.config/jev-router/secrets.env`
+there: `ROUTER_URL`, and the token as `ROUTER_TOKEN`. It ends with
+`router check` there. Run it again after the router moves to another
+commit; to change a token, delete its line from the router's `secrets.env`
+first.
 
 With no configuration on that host (keep no `config.json` there),
 `router` sends `reply`, `submit`, `answer` and `choose` to the router as

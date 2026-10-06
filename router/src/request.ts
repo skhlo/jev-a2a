@@ -37,8 +37,8 @@ $PASEO_AGENT_ID, or terminal:$PASEO_TERMINAL_ID in a Paseo terminal. A
 participant session on the router host submits, chooses and answers with
 --as <its session id>. On a host without a configuration, reply, submit,
 answer and choose go to the router at $ROUTER_URL as the session itself,
-with $ROUTER_TOKEN; both are read from secrets.env beside the
-configuration's path.`;
+with $ROUTER_TOKEN, and check checks them; both are read from secrets.env
+beside the configuration's path.`;
 
 const parse = (args: string[]) =>
   parseArgs({

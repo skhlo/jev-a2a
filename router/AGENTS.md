@@ -26,7 +26,7 @@ update it when workflows change.
   `src/router-host.ts`, the process around `src/commands.ts` (the commands
   on the record, which the tests run in-process); without one,
   `src/reply-host.ts` sends `reply`, `submit`, `answer` and `choose` to
-  `serve`. Both build events with `src/request.ts`. The reply host's path
+  `serve`, and `check` asks it whether the two work together. Both build events with `src/request.ts`. The reply host's path
   loads no package, so it runs from a checkout without `pnpm install`;
   `test/reply-host.test.ts` runs it once from a copy of `src/`.
   `router host setup` (`src/host-setup.ts`) installs that checkout on a

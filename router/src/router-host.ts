@@ -42,7 +42,7 @@ import {
 import { openShell, type ShellOptions } from "./shell.ts";
 import { writeTelemetry } from "./telemetry.ts";
 import { actingAs, runCommand } from "./commands.ts";
-import { overSsh, setupHost } from "./host-setup.ts";
+import { overSsh, serveCheck, setupHost } from "./host-setup.ts";
 import { invocation, UsageError } from "./request.ts";
 
 const inv = invocation(process.argv.slice(2), process.env);
@@ -59,7 +59,8 @@ const config = ((): RouterConfig => {
 })();
 // The names the secrets file sets, which no child process the router
 // starts for usage inherits.
-const secretNames = loadSecrets(join(configPath, "..", "secrets.env"));
+const secretsPath = join(configPath, "..", "secrets.env");
+const secretNames = loadSecrets(secretsPath);
 
 function fail(message: string): never {
   console.error(message);
@@ -105,12 +106,12 @@ async function hostSetup(): Promise<number> {
   const [verb, host] = inv.rest;
   if (verb !== "setup" || !host) fail("Use router host setup <host>.");
   return setupHost(host, config, {
-    commit: checkoutCommit(),
     origin: checkoutOrigin(),
     env: process.env,
-    secrets: join(configPath, "..", "secrets.env"),
-    remote: overSsh,
+    secrets: secretsPath,
+    ask: serveCheck(config.serve.listen),
     restart: restartServe,
+    remote: overSsh,
     log: (line) => console.log(line),
   });
 }
@@ -123,7 +124,7 @@ async function restartServe(): Promise<void> {
     });
   } catch {
     fail(
-      "Could not restart jev-router: restart serve so it takes the new token, then run this again.",
+      "Could not restart jev-router: restart serve so it takes the token, then run this again.",
     );
   }
   const health = `http://${config.serve.listen}/health`;
