@@ -8,4 +8,7 @@
   // Any duplicated block fails: the threshold is the duplicated share of
   // the code in percent, and 0 means no limit.
   "duplicates": { "threshold": 0.001 },
+  // The health report scores the router's code; the tests' own helpers stay
+  // out of it. The tests remain entry points for the dead-code check.
+  "health": { "ignore": ["test/**"] },
 }

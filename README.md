@@ -260,8 +260,12 @@ sample and the screenshots after a view-model change:
 [docs/board-model.md](docs/board-model.md#the-contract) and
 [router/design/README.md](router/design/README.md#files).
 
-`pnpm fallow:health` reports complexity hotspots; it is advice, not a check,
-and CI does not run it.
+`pnpm fallow:health` runs the tests with Node's coverage on, then reports
+complexity hotspots. Its CRAP score grows with a function's complexity and
+with how much of it the tests leave unrun, so the functions over its limit
+are mostly complex code the tests miss; the cyclomatic and cognitive
+limits do not depend on coverage. It is advice, not a check, and CI does
+not run it.
 
 ## License
 

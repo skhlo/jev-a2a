@@ -49,9 +49,13 @@ The README's development section says what each does.
   (`fallow health`, and the complexity part of `fallow audit`) is advice
   here: read its findings, and do not add `fallow-ignore` comments to
   silence them.
+- `pnpm fallow:health` clears and refills `.coverage/` with the tests' V8
+  coverage, then reads it with `fallow health --coverage .coverage`; a bare
+  `fallow health` estimates CRAP scores instead.
 - Use `fallow dead-code --format json --quiet`,
   `fallow dupes --format json --quiet`, and
-  `fallow health --format json --quiet` for targeted checks.
+  `fallow health --coverage .coverage --format json --quiet` (after
+  `pnpm fallow:health`; rerun it after an edit) for targeted checks.
 - Use `fallow list --entry-points --format json --quiet` to inspect
   project shape.
 
