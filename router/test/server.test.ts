@@ -15,19 +15,19 @@ import {
   bind,
   BindError,
   boardListener,
+  doorKeys,
   eventsListener,
   keepReading,
   recordReader,
   sameSite,
   serveRunner,
-  doorKeys,
   sessionReader,
   waitsReader,
   type Bindable,
   type BindOptions,
   type DoorKey,
+  type KnownSession,
   type Run,
-  type Session,
 } from "../src/server.ts";
 import { BOARD_VERSION, messageTimes } from "../src/board.ts";
 import { coreConfig, fold } from "../src/shell.ts";
@@ -71,7 +71,7 @@ const config: RouterConfig = {
 
 // Every caller is a current session unless a test says otherwise, and
 // the shared token lets it through from any host.
-const sessionOf = (): Session => ({ host: "mbp", current: true });
+const sessionOf = (): KnownSession => ({ host: "mbp", current: true });
 const shared: DoorKey[] = [{ host: null, token: "secret" }];
 
 const handled: Event[] = [];
@@ -277,7 +277,7 @@ test("events: a host's token acts only for that host's sessions; the shared one 
     { host: "mini", token: "mini-token" },
     { host: "mba", token: "mba-token" },
   ];
-  const listening = (keys: DoorKey[]) =>
+  const listening = (door: DoorKey[]) =>
     createServer(
       eventsListener(
         {
@@ -293,7 +293,7 @@ test("events: a host's token acts only for that host's sessions; the shared one 
                 ? { host: "mba", current: true }
                 : null,
         },
-        keys,
+        door,
       ),
     );
   const hosts = listening(keys);
@@ -364,6 +364,19 @@ test("doorKeys: each configured host's ROUTER_TOKEN_<HOST>, and the shared ROUTE
     ],
   );
   assert.deepEqual(keysOf({}), []);
+  // One token for two keys would act for whichever came first.
+  assert.throws(
+    () => keysOf({ ROUTER_TOKEN_MINI: "m", ROUTER_TOKEN: "m" }),
+    /^UsageError: mini and the shared ROUTER_TOKEN have the same token/,
+  );
+  assert.throws(
+    () =>
+      doorKeys(
+        { ...config, hosts: { ...hosts, mba_2: hosts.mini } },
+        { ROUTER_TOKEN_MBA_2: "b" },
+      ),
+    /mba-2 and mba_2 have the same token/,
+  );
 });
 
 test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", (t) => {

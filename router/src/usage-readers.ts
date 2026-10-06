@@ -71,12 +71,13 @@ async function apiKey(
   return credential.type === "api_key" ? usableKey(credential.key) : undefined;
 }
 
-// Credentials the Codex child has no use for: the router's token, Jev's
-// key, an inherited Claude Code token and the API keys the other readers
-// send. childEnv drops these and every name in `secrets`, the names the
-// router's secrets file sets (loadSecrets).
+// Credentials the Codex child has no use for: the router's tokens
+// (ROUTER_TOKEN and each ROUTER_TOKEN_<HOST>), Jev's key, an inherited
+// Claude Code token and the API keys the other readers send. childEnv drops
+// these and every name in `secrets`, the names the router's secrets file
+// sets (loadSecrets).
+const ROUTER_TOKENS = /^ROUTER_TOKEN(_|$)/;
 const ROUTER_SECRETS = [
-  "ROUTER_TOKEN",
   "TYPESAFE_API_KEY",
   "CLAUDE_CODE_OAUTH_TOKEN",
   "OPENROUTER_API_KEY",
@@ -89,7 +90,10 @@ export const childEnv = (
 ): NodeJS.ProcessEnv =>
   Object.fromEntries(
     Object.entries(env).filter(
-      ([key]) => !ROUTER_SECRETS.includes(key) && !secrets.includes(key),
+      ([key]) =>
+        !ROUTER_TOKENS.test(key) &&
+        !ROUTER_SECRETS.includes(key) &&
+        !secrets.includes(key),
     ),
   );
 

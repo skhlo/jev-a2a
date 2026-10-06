@@ -86,9 +86,9 @@ Edit it to match yours:
 - `agents`: the Paseo agent id of each `participant@host`, from
   `paseo agent ls -g --json`, or `terminal:<id>` for Claude Code (or,
   named in `terminals`, Codex) in a Paseo terminal;
-- `secrets.env`: a token for each other host that takes part, named for
-  the host (`ROUTER_TOKEN_MINI` for `mini`), and `TYPESAFE_API_KEY` if you
-  have one.
+- `secrets.env`: `TYPESAFE_API_KEY` if you have one, and a token for each
+  other host that takes part, named for the host (`ROUTER_TOKEN_MINI` for
+  `mini`). With no other host, leave the tokens out.
 
 Every key, its default and what is refused is in
 [docs/configuration.md](docs/configuration.md); `policy.deadline` is in

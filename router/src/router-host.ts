@@ -100,17 +100,17 @@ try {
 // event is one shell run, and runs are handled one at a time so the journal
 // lock is never contended from inside the server.
 async function serve(config: RouterConfig): Promise<void> {
-  // Each host that sends events has its own token; one token for two hosts
-  // would make the host it acts for ambiguous.
+  // Each host that sends events has its own token. Naming the hosts that
+  // have one shows a token whose name matches no host.
   const keys = doorKeys(config, process.env);
-  if (!keys.length)
-    fail(
-      "No host has a token: add ROUTER_TOKEN_<HOST> to secrets.env for each host that sends events.",
-    );
-  if (new Set(keys.map((key) => key.token)).size < keys.length)
-    fail("Two tokens in secrets.env are the same; each host needs its own.");
-  if (keys.some((key) => key.host === null))
-    console.log(
+  const hosts = keys.flatMap((key) => (key.host === null ? [] : [key.host]));
+  console.log(
+    hosts.length
+      ? `events from ${hosts.join(", ")}, each with its own token`
+      : "events: no host has a token, so the door refuses every event",
+  );
+  if (hosts.length < keys.length)
+    console.error(
       "ROUTER_TOKEN, the shared token, is still set: any host holding it acts for every session. Remove it once each host has its own.",
     );
   // Runs are serialized by the runner; while anything waits only for a

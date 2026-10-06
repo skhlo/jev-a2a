@@ -24,6 +24,7 @@ import type { RouterConfig } from "./config.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
 import { journalFolder, servedBy } from "./shell.ts";
 import { own, waitsOnSessions } from "./core.ts";
+import { refuse } from "./request.ts";
 import type { Event, Outcome, State } from "./types.ts";
 
 export type Run = { outcome: Outcome; report: string[] };
@@ -37,7 +38,7 @@ export type ServerDeps = {
   // host; and for a request or a choice the session a placement binds now.
   // A reply or an answer from a replaced session still reaches the core,
   // which knows whether that session holds the delivery.
-  sessionOf(by: string): Session | null;
+  sessionOf(by: string): KnownSession | null;
   log?: (line: string) => void;
   // The board's clock; a test fixes it to read a fixture's record.
   now?: () => number;
@@ -51,7 +52,7 @@ const NEEDS_CURRENT = ["submit", "choose"];
 
 // A session the record knows: the host it runs on, and whether a
 // placement binds it now.
-export type Session = { host: string; current: boolean };
+export type KnownSession = { host: string; current: boolean };
 
 // A token the events door takes, and the host whose sessions it acts for.
 // The shared ROUTER_TOKEN, from before each host had its own, acts for a
@@ -62,18 +63,30 @@ export type DoorKey = { host: string | null; token: string };
 const tokenName = (host: string): string =>
   `ROUTER_TOKEN_${host.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 
-// The door's keys: each configured host's token, and the shared one.
-export const doorKeys = (
+// The door's keys: each configured host's token, and the shared one. A
+// token two keys hold would act for whichever came first, so it is
+// refused, naming both: two host names may also read one variable.
+export function doorKeys(
   config: RouterConfig,
   env: Record<string, string | undefined>,
-): DoorKey[] =>
-  [
+): DoorKey[] {
+  const keys = [
     ...Object.keys(config.hosts).map((host) => ({
       host,
       token: env[tokenName(host)],
     })),
     { host: null, token: env.ROUTER_TOKEN },
   ].filter((key): key is DoorKey => Boolean(key.token));
+  const name = (key: DoorKey): string => key.host ?? "the shared ROUTER_TOKEN";
+  for (const key of keys) {
+    const first = keys.find((other) => other.token === key.token);
+    if (first && first !== key)
+      refuse(
+        `${name(first)} and ${name(key)} have the same token; each host needs its own.`,
+      );
+  }
+  return keys;
+}
 
 // Whether the record has work waiting only for a session this router
 // serves, read without the lock, as the board reads it. Serve asks after
@@ -331,7 +344,7 @@ export function recordReader(config: RouterConfig): RecordReader {
 // with the run it is about to queue.
 export const sessionReader =
   (record: RecordReader) =>
-  (by: string): Session | null => {
+  (by: string): KnownSession | null => {
     const { state } = record();
     const session = own(state.sessions, by);
     if (!session) return null;
@@ -358,7 +371,8 @@ export function eventsListener(
   keys: DoorKey[],
 ): RequestListener {
   const wanted = keys.map((key) => ({ ...key, token: Buffer.from(key.token) }));
-  const holder = (header: string | undefined) => {
+  // The key whose token the request presents, if any.
+  const keyFor = (header: string | undefined) => {
     const given = Buffer.from(header?.replace(/^Bearer\s+/i, "") ?? "");
     return wanted.find(
       ({ token }) =>
@@ -372,7 +386,7 @@ export function eventsListener(
     };
     if (req.method === "GET" && req.url === "/health")
       return reply(200, { ok: true });
-    const key = holder(req.headers.authorization);
+    const key = keyFor(req.headers.authorization);
     if (!key) return reply(401, { ok: false, code: "unauthorized" });
     if (req.method !== "POST" || req.url !== "/events")
       return reply(404, { ok: false, code: "not_found" });
@@ -396,7 +410,7 @@ export function eventsListener(
           message: error instanceof Error ? error.message : String(error),
         });
       const by = typeof event.by === "string" ? event.by : "";
-      let session: Session | null;
+      let session: KnownSession | null;
       try {
         session = deps.sessionOf(by);
       } catch (error: unknown) {

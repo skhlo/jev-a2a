@@ -140,9 +140,8 @@ otherwise. Logs: `journalctl --user -u jev-router`. After a code change:
 Exit codes:
 
 - `2`: a reason a restart cannot change (the port is taken, the
-  configuration is invalid, no host has a token, two hosts have the same
-  one). The unit stays down
-  with the message in `systemctl --user status jev-router`.
+  configuration is invalid, two hosts have the same token). The unit stays
+  down with the message in `systemctl --user status jev-router`.
 - `75`: the listen address was not up yet. `serve` waits up to 120 seconds
   for it (a tailnet address arrives after the service at boot), then exits
   75 and the unit restarts it.
@@ -156,7 +155,8 @@ On `serve.listen`:
 - `POST /events` with `Authorization: Bearer <the host's token>`: what
   `router` on another host sends (`reply`, `submit`, `answer`, `choose`).
   A token acts only for sessions on its own host; an event as a session on
-  another host is refused with `wrong_host`.
+  another host is refused with `wrong_host`. `serve` names the hosts that
+  have a token when it starts; with none, it refuses every event.
 - `GET /health`: `{"ok":true}`, no token.
 
 On `serve.board` (loopback; expose it through Tailscale Serve):
