@@ -217,13 +217,14 @@ export function apiEvent(
         message: `${actor.login} has no requester principal.`,
       };
     if (!text("text").trim()) return { ok: false, message: "Missing text." };
+    const host = text("host").trim();
     const event: Event = {
       type: "submit",
       by,
       messageId: text("messageId").trim() || newMessageId(),
       text: text("text").trim(),
       to: text("to").trim() || null,
-      hosts: text("host").trim() ? [text("host").trim()] : null,
+      hosts: host ? [host] : null,
     };
     return { ok: true, event };
   }

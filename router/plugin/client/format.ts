@@ -80,31 +80,20 @@ export const shortSession = (id: string): string => {
 export const count = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`;
 
-// A status pill's colour: the warning role only while the task waits on
-// the viewer, as the board marks its rows; another principal's question
-// waits like a queued task.
-const ASKING: TaskHead["status"][] = [
-  "needs_answer",
-  "needs_recipient",
-  "uncertain",
-];
+// A status pill's colour: the warning role whenever the task waits on the
+// viewer, whatever its status, as the board marks its badge; another
+// principal's question waits like a queued task.
 export const statusTone = (
   status: TaskHead["status"],
   needsViewer: boolean,
 ): Tone =>
-  status === "failed"
-    ? "danger"
-    : status === "completed"
-      ? "ok"
-      : needsViewer && ASKING.includes(status)
-        ? "warn"
+  needsViewer
+    ? "warn"
+    : status === "failed"
+      ? "danger"
+      : status === "completed"
+        ? "ok"
         : "muted";
-
-const OUTCOME_TONE: Record<string, Tone> = {
-  rejected: "danger",
-  failed: "danger",
-};
-const outcomeTone = (outcome: string): Tone => OUTCOME_TONE[outcome] ?? "muted";
 
 type Waits = NonNullable<Delivery["waits"]>;
 
@@ -230,6 +219,29 @@ export function viewerOf(s: Summary): Viewer {
   };
 }
 
+// What an open delivery is, in the order the row and the delivery pill
+// read it (src/board-tasks.ts readingOf): what it waits for, the send while
+// it is not accepted, the answer its question got, the latest update, else
+// delivered.
+type Reading<A, U> =
+  | { kind: "waits"; waits: Waits }
+  | { kind: "unaccepted" }
+  | { kind: "answered"; answer: A }
+  | { kind: "updated"; update: U }
+  | { kind: "delivered" };
+function readingOf<A, U>(
+  waits: Waits | null,
+  outcome: string,
+  answer: A | null,
+  update: U | null,
+): Reading<A, U> {
+  if (waits) return { kind: "waits", waits };
+  if (outcome !== "accepted") return { kind: "unaccepted" };
+  if (answer !== null) return { kind: "answered", answer };
+  if (update !== null) return { kind: "updated", update };
+  return { kind: "delivered" };
+}
+
 // ---- The list row ----
 
 // Line 2's rule, the HTML board's row sub: what the task waits on or last
@@ -248,19 +260,18 @@ export function rowSub(h: TaskHead, now: number): Part[] {
   const left = countdown(h.deadline, now);
   const d = h.latest;
   if (!d) return [left];
-  if (d.waits) return [{ text: waitWords(d.placement, d.waits) }, left];
-  if (d.outcome !== "accepted")
-    return [
-      { text: `${d.sendKind} ${d.outcome}`, tone: outcomeTone(d.outcome) },
-      left,
-    ];
-  if (d.answered)
-    return [
-      { text: `answered ${time(d.answered.at)} ${d.answered.text}` },
-      left,
-    ];
-  if (d.update) return [{ text: d.update.text }, left];
-  return [{ text: "delivered, no reply yet" }, left];
+  const r = readingOf(d.waits, d.outcome, d.answered, d.update);
+  const text =
+    r.kind === "waits"
+      ? waitWords(d.placement, r.waits)
+      : r.kind === "unaccepted"
+        ? `${d.sendKind} ${d.outcome}`
+        : r.kind === "answered"
+          ? `answered ${time(r.answer.at)} ${r.answer.text}`
+          : r.kind === "updated"
+            ? r.update.text
+            : "delivered, no reply yet";
+  return [{ text }, left];
 }
 
 // A finished task's verdict: how many deliveries completed, the reason and
@@ -312,6 +323,21 @@ export const rowDot = (row: ListRow): Tone | null =>
 
 // ---- The detail ----
 
+// An item the viewer may not act on, as the board reads it without a form.
+export function itemWaits({ principal, item }: Item, t: Task | null): string {
+  const on = ` · waits on ${principal}`;
+  switch (item.kind) {
+    case "answer": {
+      const d = t?.deliveries.find((x) => x.id === item.deliveryId);
+      return `Answer ${d?.placement ?? t?.recipient ?? DASH} on ${item.deliveryId}, question ${item.questionId}${on}`;
+    }
+    case "choose":
+      return `Choose a recipient for ${item.taskId} · ${label(item.reason)}${on}`;
+    case "resolve":
+      return `Resolve ${item.deliveryId} · send ${item.messageId} · ${label(item.reason)}${on}`;
+  }
+}
+
 const CHOSEN_BY: Record<NonNullable<Task["chosenBy"]>, string> = {
   judgment: "chosen by Jev",
   address: "named on the request",
@@ -344,19 +370,22 @@ const answered = (d: Delivery): boolean =>
 // asks the viewer.
 export function deliveryState(d: Delivery, asksViewer: boolean): Part {
   if (d.end) return { text: label(d.end.reason) };
-  if (d.waits) return { text: waitWords(d.placement, d.waits) };
-  if (d.send.outcome !== "accepted")
-    return {
-      text: `${d.send.kind} ${d.send.outcome}`,
-      tone: outcomeTone(d.send.outcome),
-    };
-  if (answered(d)) return { text: "answered" };
-  if (d.latest)
-    return {
-      text: d.latest.kind,
-      ...(d.question && asksViewer ? { tone: "warn" } : {}),
-    };
-  return { text: "delivered" };
+  const r = readingOf(d.waits, d.send.outcome, answered(d) || null, d.latest);
+  switch (r.kind) {
+    case "waits":
+      return { text: waitWords(d.placement, r.waits) };
+    case "unaccepted":
+      return { text: `${d.send.kind} ${d.send.outcome}` };
+    case "answered":
+      return { text: "answered" };
+    case "updated":
+      return {
+        text: r.update.kind,
+        ...(d.question && asksViewer ? { tone: "warn" } : {}),
+      };
+    case "delivered":
+      return { text: "delivered" };
+  }
 }
 
 // A delivery row's second line.
@@ -373,7 +402,10 @@ export type Said = { key: string; who: string | null; text: string };
 
 // The conversation in time order: each send with its outcome, each
 // update, a delivery's end and who ended it, the routing state, and the
-// request itself while nothing was delivered.
+// request itself while nothing was delivered. Same-time lines keep the
+// board's order (src/board-tasks.ts thread): sends, the routing line,
+// updates, then ends; an end without a time sorts last ("9" follows every
+// ISO year).
 export function conversation({ task: t, times }: FullTask): Said[] {
   const from = sender(t.source);
   const lines: { at: string; order: number; said: Said }[] = [];

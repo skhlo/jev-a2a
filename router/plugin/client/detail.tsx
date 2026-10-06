@@ -15,6 +15,7 @@ import {
   deliveryState,
   firstLine,
   itemKey,
+  itemWaits,
   judgmentLines,
   label,
   metaLine,
@@ -48,7 +49,8 @@ export function TaskDetail({ host, id, viewer, now, onBack }: Props) {
   const head = viewer.head(id);
   const query = useTask(host, id, head?.rev ?? null);
   const full = query.data ?? null;
-  const items = viewer.itemsFor(id).filter((it) => it.act);
+  const items = viewer.itemsFor(id);
+  const waiting = items.filter((it) => !it.act);
   return (
     <ScrollView style={{ flex: 1 }}>
       <View
@@ -92,9 +94,20 @@ export function TaskDetail({ host, id, viewer, now, onBack }: Props) {
             </Txt>
           )}
         </View>
-        {items.map((it) => (
-          <Form key={itemKey(it.item)} host={host} it={it} full={full} />
-        ))}
+        {items
+          .filter((it) => it.act)
+          .map((it) => (
+            <Form key={itemKey(it.item)} host={host} it={it} full={full} />
+          ))}
+        {waiting.length ? (
+          <View style={{ gap: 8, marginBottom: 24, marginLeft: 4 }}>
+            {waiting.map((it) => (
+              <Txt key={itemKey(it.item)} size="sm" muted>
+                {itemWaits(it, full?.task ?? null)}
+              </Txt>
+            ))}
+          </View>
+        ) : null}
         {full ? <Record host={host} full={full} viewer={viewer} /> : null}
         {full && mode === "compact" && mayCancel(viewer, full) ? (
           <CancelButton host={host} full={full} />
@@ -151,10 +164,11 @@ function Head({
 // In the head, or at full width after the Log on a phone.
 function CancelButton({ host, full }: { host: string; full: FullTask }) {
   const [open, setOpen] = useState(false);
+  const button = useFormButton();
   return (
     <>
       <Button
-        {...useFormButton()}
+        {...button}
         variant="outline"
         label="Cancel task"
         onPress={() => setOpen(true)}
@@ -250,10 +264,11 @@ function Record({
                   <Txt lines={1}>{d.placement}</Txt>
                 </View>
                 <Pill part={deliveryState(d, viewer.asksViewer(d.id))} />
-                {viewer.identified && !d.end && !t.final ? (
+                {viewer.identified ? (
                   <HoldButton
                     host={host}
                     placement={d.placement}
+                    open={!d.end && !t.final}
                     viewer={viewer}
                   />
                 ) : null}
@@ -326,20 +341,23 @@ function Record({
   );
 }
 
-// Hold or Release the placement a delivery runs on.
+// Hold the placement an open delivery runs on, or Release a held one from
+// any delivery on it, so a hold outlives the task it was set from.
 function HoldButton({
   host,
   placement,
+  open,
   viewer,
 }: {
   host: string;
   placement: string;
+  open: boolean;
   viewer: Viewer;
 }) {
   const held = viewer.onHold(placement);
   const hold = useAct(host, useRpc(rpc.taskHold));
   const release = useAct(host, useRpc(rpc.taskRelease));
-  if (held === null) return null;
+  if (held === null || (!held && !open)) return null;
   const act = held ? release : hold;
   return (
     <Button

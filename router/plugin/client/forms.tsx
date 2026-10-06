@@ -126,9 +126,10 @@ export function AnswerForm({
   );
 }
 
-// Jev's suggestions in its order, the first chosen. Without any (Jev's
-// answer was unusable or Jev was not reached), the sender names the
-// participant, as on the board.
+// Jev's suggestions in its order, the first chosen; a choice Jev no
+// longer suggests falls back to the first. Without any (Jev's answer was
+// unusable or Jev was not reached), the sender names the participant, as
+// on the board.
 export function ChooseForm({
   host,
   item,
@@ -138,7 +139,10 @@ export function ChooseForm({
   item: Of<"choose">;
   task: Task | null;
 }) {
-  const [chosen, setChosen] = useState(item.suggestions[0] ?? "");
+  const [choice, setChoice] = useState(item.suggestions[0] ?? "");
+  const first = item.suggestions[0];
+  const chosen =
+    first === undefined || item.suggestions.includes(choice) ? choice : first;
   const send = useAct(host, useRpc(rpc.taskChoose));
   const button = useFormButton();
   const judged = task?.judgments[task.judgments.length - 1];
@@ -154,7 +158,7 @@ export function ChooseForm({
               key={name}
               first={i === 0}
               on={name === chosen}
-              onPress={() => setChosen(name)}
+              onPress={() => setChoice(name)}
             >
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Txt lines={1}>{name}</Txt>
@@ -168,7 +172,7 @@ export function ChooseForm({
           <Input
             label={`Recipient for ${item.taskId}`}
             value={chosen}
-            onChange={setChosen}
+            onChange={setChoice}
             placeholder="Participant id"
             minHeight={44}
             multiline={false}
@@ -303,6 +307,8 @@ export function SubmitModal({
     setTo(key);
     next();
   };
+  // A placement the roster no longer lists reads, and sends, as Jev's
+  // choice.
   const placement = placements.find((p) => p.key === to);
   return (
     <Modal title="New task" open={open} onOpenChange={onOpenChange}>
@@ -340,13 +346,13 @@ export function SubmitModal({
                 overflow: "hidden",
               }}
             >
-              <RadioRow first on={to === null} onPress={() => choose(null)}>
+              <RadioRow first on={!placement} onPress={() => choose(null)}>
                 <Txt>Let Jev choose</Txt>
               </RadioRow>
               {placements.map((p) => (
                 <RadioRow
                   key={p.key}
-                  on={to === p.key}
+                  on={p === placement}
                   onPress={() => choose(p.key)}
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>

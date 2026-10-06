@@ -33,6 +33,7 @@ import {
   deliveryLine,
   deliveryState,
   firstLine,
+  itemWaits,
   judgmentLines,
   label,
   metaLine,
@@ -51,12 +52,12 @@ import {
   type Part,
 } from "../client/format.ts";
 
-// The board as serve's API gives it to the fixture's operator login.
-function board(entries: Entry[]) {
-  const actor = identify(
-    { "tailscale-user-login": "me@example.com" },
-    config.serve.identities,
-  );
+// The board as serve's API gives it to the fixture's operator login, or
+// to a viewer serve cannot identify.
+function board(entries: Entry[], login: string | null = "me@example.com") {
+  const actor = login
+    ? identify({ "tailscale-user-login": login }, config.serve.identities)
+    : null;
   const model = boardModel(
     boardState(config, entries, NOW),
     config,
@@ -157,9 +158,17 @@ test("client: each row's reading is the HTML board's row for the same record", (
 });
 
 test("client: the detail's delivery states, chosen-by words and resolve sentences are the HTML board's", () => {
+  const seen = new Set<string>();
   let states = 0;
-  for (const entries of [sampleJournal, attemptingJournal, replacedJournal]) {
+  for (const entries of [
+    sampleJournal,
+    attemptingJournal,
+    replacedJournal,
+    answeredJournal,
+    deliveredJournal,
+  ]) {
     const { summary, task, page } = board(entries);
+    const viewer = viewerOf(summary);
     for (const head of [...summary.open, ...summary.finished]) {
       const full = task(head.id);
       const html = page(head.id);
@@ -173,11 +182,13 @@ test("client: the detail's delivery states, chosen-by words and resolve sentence
         ).exec(html);
         const cell = tr?.[1]?.split("<td")[4];
         assert.ok(cell, `${d.id} has a state cell`);
-        assert.equal(deliveryState(d, false).text, plain(`<td${cell}`), d.id);
+        const state = deliveryState(d, viewer.asksViewer(d.id));
+        assert.equal(state.text, plain(`<td${cell}`), d.id);
+        assert.equal(state.tone === "warn", cell.includes("badge ask"), d.id);
+        seen.add(state.text);
         states += 1;
       });
     }
-    const viewer = viewerOf(summary);
     for (const it of viewer.items) {
       if (it.item.kind !== "resolve") continue;
       const { deliveryId, reason, taskId } = it.item;
@@ -190,7 +201,55 @@ test("client: the detail's delivery states, chosen-by words and resolve sentence
       );
     }
   }
-  assert.ok(states >= 4, `${states} delivery states compared`);
+  assert.ok(states >= 6, `${states} delivery states compared`);
+  for (const state of ["answered", "delivered", "question"])
+    assert.ok(seen.has(state), `a delivery reads ${state}`);
+});
+
+test("client: a status pill warns exactly where the board's badge asks", () => {
+  let asks = 0;
+  for (const entries of [
+    sampleJournal,
+    attemptingJournal,
+    replacedJournal,
+    answeredJournal,
+    deliveredJournal,
+    viaJournal,
+  ]) {
+    const { summary, page } = board(entries);
+    const viewer = viewerOf(summary);
+    for (const h of [...summary.open, ...summary.finished]) {
+      const badge =
+        /<div class="title"><h2[^]*?<\/h2><span class="([^"]*)"/.exec(
+          page(h.id),
+        )?.[1];
+      assert.ok(badge?.startsWith("badge"), `${h.id} has a badge`);
+      const needed = viewer.itemsFor(h.id).some((it) => it.mine);
+      assert.equal(
+        statusTone(h.status, needed) === "warn",
+        badge === "badge ask",
+        h.id,
+      );
+      if (needed) asks += 1;
+    }
+  }
+  assert.ok(asks >= 4, `${asks} badges ask`);
+});
+
+test("client: an item the viewer may not act on reads as the board's, without a form", () => {
+  let compared = 0;
+  for (const entries of [sampleJournal, replacedJournal]) {
+    const { summary, task, page } = board(entries, null);
+    const viewer = viewerOf(summary);
+    for (const it of viewer.items) {
+      assert.equal(it.act, false);
+      if (!viewer.head(it.item.taskId)) continue;
+      const words = itemWaits(it, task(it.item.taskId).task);
+      assert.ok(plain(page(it.item.taskId)).includes(words), words);
+      compared += 1;
+    }
+  }
+  assert.ok(compared >= 3, `${compared} items compared`);
 });
 
 test("client: an item of a principal the viewer lacks waits on it; one whose task left the board keeps a row", () => {
@@ -262,6 +321,13 @@ test("client: the detail's meta line, conversation, deliveries and Jev's lines",
   assert.equal(
     deliveryLine(d, t4.times),
     "D3 · request M4 · accepted · session K1 · last reply 09:44Z",
+  );
+  assert.equal(
+    deliveryLine(
+      { ...d, send: { ...d.send, messageId: "0123456789abcdef" } },
+      t4.times,
+    ),
+    "D3 · request 01234567 · accepted · session K1 · last reply 09:44Z",
   );
   const t6 = task("T6");
   assert.deepEqual(
