@@ -23,6 +23,7 @@ import {
   NOW,
 } from "../src/board-fixture.ts";
 import type { Entry } from "../src/journal.ts";
+import type { Outcome } from "../src/types.ts";
 
 const actor = appActor(config);
 const roles = config.principals ?? {};
@@ -294,10 +295,21 @@ test("an action the router cannot take is refused with the reason", () => {
   );
 });
 
-test("an action's task: the one it names, the one holding the delivery, or the new request", () => {
+test("an action's task: the one the router's outcome names, the one the action names, or the one holding the delivery", () => {
   const model = modelOf(journal);
+  const done: Outcome = { ok: true, message: "done" };
+  // A request: the task the router recorded it as, even where another
+  // sender's task shares its message id.
   assert.equal(
-    actedOn({ type: "cancel", by: "you", taskId: "T2" }, model),
+    actedOn(
+      { type: "submit", by: "you", messageId: "M4", text: "x", to: null },
+      { ...done, taskId: "T5" },
+      model,
+    ),
+    "T5",
+  );
+  assert.equal(
+    actedOn({ type: "cancel", by: "you", taskId: "T2" }, done, model),
     "T2",
   );
   assert.equal(
@@ -310,13 +322,7 @@ test("an action's task: the one it names, the one holding the delivery, or the n
         outcome: "finished",
         evidence: "seen",
       },
-      model,
-    ),
-    "T4",
-  );
-  assert.equal(
-    actedOn(
-      { type: "submit", by: "you", messageId: "M4", text: "x", to: null },
+      done,
       model,
     ),
     "T4",
@@ -324,6 +330,7 @@ test("an action's task: the one it names, the one holding the delivery, or the n
   assert.equal(
     actedOn(
       { type: "observe", placement: "environment@mbp", hold: true },
+      done,
       model,
     ),
     null,

@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request, type Server } from "node:http";
+import { connect } from "node:net";
 import {
   appendFileSync,
   existsSync,
@@ -2071,6 +2072,50 @@ test("board: the plugin's API takes an action as the app's principals and return
     assert.equal(events.length, 1, "a refused action is not handled");
   } finally {
     server.close();
+  }
+});
+
+test("a client that goes away mid-body leaves serve up, on every door that reads one", async () => {
+  const events = createServer(
+    eventsListener({ config, handle, sessionOf }, keys),
+  );
+  const board = createServer(boardOf({ config, handle }));
+  const eventsUrl = await serve(events);
+  const boardUrl = await serve(board);
+  // Headers and part of a body, then the connection drops.
+  const cut = (url: string, path: string, headers: string[]) =>
+    new Promise<void>((done) => {
+      const socket = connect(Number(new URL(url).port), "127.0.0.1", () => {
+        socket.write(
+          [
+            `POST ${path} HTTP/1.1`,
+            "Host: 127.0.0.1",
+            "Content-Length: 1000",
+            ...headers,
+            "",
+            '{"type":',
+          ].join("\r\n"),
+        );
+        setTimeout(() => {
+          socket.destroy();
+          done();
+        }, 50);
+      });
+    });
+  try {
+    await cut(eventsUrl, "/events", ["Authorization: Bearer secret"]);
+    await cut(boardUrl, "/actions", ["Tailscale-User-Login: me@example.com"]);
+    await cut(boardUrl, "/api/action", ["Content-Type: application/json"]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const health = await fetch(`${eventsUrl}/health`);
+    assert.equal(health.status, 200);
+    await health.text();
+    const whoami = await fetch(`${boardUrl}/whoami`);
+    assert.equal(whoami.status, 200);
+    await whoami.text();
+  } finally {
+    events.close();
+    board.close();
   }
 });
 

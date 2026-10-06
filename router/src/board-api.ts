@@ -16,7 +16,7 @@ import {
 } from "./board.ts";
 import { answerOf, headline, staleTask } from "./board-parts.ts";
 import { newMessageId } from "./request.ts";
-import type { Event, Role } from "./types.ts";
+import type { Event, Outcome, Role } from "./types.ts";
 
 // A short digest of a value's JSON: equal values, equal revs.
 const digest = (value: unknown): string =>
@@ -246,9 +246,15 @@ export function apiEvent(
   return actionEvent(form, actor, roles);
 }
 
-// The task an action changed, to return with its result: the one it
-// names, the one holding the resolved delivery, or the request just made.
-export function actedOn(event: Event, model: BoardModel): string | null {
+// The task an action changed, to return with its result: the one the
+// router's outcome names (a request, new or repeated), the one the action
+// names, or the one holding the resolved delivery.
+export function actedOn(
+  event: Event,
+  outcome: Outcome,
+  model: BoardModel,
+): string | null {
+  if (outcome.ok && outcome.taskId) return outcome.taskId;
   const tasks = [...model.open, ...model.finished];
   switch (event.type) {
     case "answer":
@@ -260,8 +266,6 @@ export function actedOn(event: Event, model: BoardModel): string | null {
         tasks.find((t) => t.deliveries.some((d) => d.id === event.deliveryId))
           ?.id ?? null
       );
-    case "submit":
-      return tasks.find((t) => t.messageId === event.messageId)?.id ?? null;
     default:
       return null;
   }

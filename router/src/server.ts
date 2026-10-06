@@ -404,12 +404,14 @@ export const sessionReader =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-function body(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
+function body(req: IncomingMessage): Promise<string | null> {
+  return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
+    // The client went away before sending it all: nothing to apply, and
+    // no one to answer.
+    req.on("error", () => resolve(null));
   });
 }
 
@@ -445,6 +447,7 @@ export function eventsListener(
     if (req.method !== "POST" || req.url !== "/events")
       return reply(404, { ok: false, code: "not_found" });
     body(req).then((text) => {
+      if (text === null) return;
       let event: unknown;
       try {
         event = JSON.parse(text);
@@ -584,6 +587,10 @@ function wantsJson(accept: string | undefined): boolean {
   );
 }
 
+// The Paseo plugin's routes under api/ on the board's address.
+const API_ROUTES = ["summary", "task", "action"] as const;
+type ApiRoute = (typeof API_ROUTES)[number];
+
 // A board answer as text or as JSON.
 type Reply = {
   plain(status: number, text: string): void;
@@ -654,7 +661,7 @@ export function boardListener(
   // it acts as the CLI here does without --as, so it adds no one who
   // could not already act.
   const answerApi = (
-    route: "summary" | "task" | "action",
+    route: ApiRoute,
     req: IncomingMessage,
     url: URL,
     json: Reply["json"],
@@ -670,6 +677,7 @@ export function boardListener(
       if (req.method !== "POST") return refuse(405, "POST an action.");
       if (!by) return refuse(403, "No principals to act as.");
       body(req).then((text) => {
+        if (text === null) return;
         let parsed: unknown;
         try {
           parsed = JSON.parse(text);
@@ -683,7 +691,7 @@ export function boardListener(
           ({ outcome }) => {
             const view = viewFor(by, fail);
             if (!view) return;
-            const id = actedOn(action.event, view);
+            const id = actedOn(action.event, outcome, view);
             json(200, {
               outcome,
               rev: summarize(view).rev,
@@ -732,6 +740,7 @@ export function boardListener(
       if (!sameSite(req.headers))
         return plain(403, "Actions are accepted from the board page only.");
       body(req).then((text) => {
+        if (text === null) return;
         const form = new URLSearchParams(text);
         const action = actionEvent(form, actor, config.principals ?? {});
         if (!action.ok) return back(action.message);
@@ -754,9 +763,8 @@ export function boardListener(
       if (!deps.nudge) return plain(404, "No runner to nudge here.");
       return plain(202, deps.nudge() ? "run queued" : "nothing waits");
     }
-    const route = /\/api\/(summary|task|action)$/.exec(path)?.[1];
-    if (route === "summary" || route === "task" || route === "action")
-      return answerApi(route, req, url, json);
+    const route = API_ROUTES.find((name) => path.endsWith(`/api/${name}`));
+    if (route) return answerApi(route, req, url, json);
     if (req.method !== "GET")
       return plain(405, "GET, or POST actions, nudge or api/action");
     if (path.endsWith("/whoami"))

@@ -46,8 +46,9 @@ import type {
 export type Shell = {
   readonly state: State;
   // Applies an event; appends it to the journal when the core accepts it
-  // and it changed the record (a tick that ended nothing and an
-  // observation that changed nothing are applied, not appended).
+  // and it changed the record (a tick that ended nothing, an observation
+  // that changed nothing and a repeat the core recognised are applied, not
+  // appended).
   apply(event: Event): Outcome;
   // Performs every deliverable command for this host, returning what happened.
   deliver(): Promise<string[]>;

@@ -19,7 +19,8 @@ import {
 } from "../../src/config.ts";
 import base from "../../src/example-config.ts";
 import type { BoardSummary, TaskHead } from "../../src/board-api.ts";
-import type { TaskView } from "../../src/board.ts";
+import { boardState, type TaskView } from "../../src/board.ts";
+import { reduce } from "../../src/core.ts";
 import {
   config as fixture,
   NOW,
@@ -344,18 +345,55 @@ test("plugin: a serve too slow for Paseo's limit fails saying the action may be 
     env: { ROUTER_CONFIG: configAt(t, `127.0.0.1:${port}`) },
     timeoutMs: 50,
   });
-  await assert.rejects(
-    app.call(rpc.taskCancel, { taskId: "T1" }),
-    /^Error: The router's serve did not answer in 0\.05 s\. It may still be recorded; refetch the task before trying again\.$/,
-  );
+  const late = (advice: string) =>
+    new RegExp(
+      `^Error: The router's serve did not answer in 0\\.05 s\\.${advice.replaceAll(".", "\\.")}$`,
+    );
+  // A call that named its message may be repeated as it was.
   await assert.rejects(
     app.call(rpc.taskSubmit, { text: "Tidy", messageId: "app-1" }),
-    /^Error: The router's serve did not answer in 0\.05 s\. It may still be recorded; a retry with the same messageId is safe\.$/,
+    late(" It may still be recorded; a retry with the same messageId is safe."),
+  );
+  // Without one, or for another action, the board says what happened.
+  for (const call of [
+    app.call(rpc.taskSubmit, { text: "Tidy" }),
+    app.call(rpc.taskCancel, { taskId: "T1" }),
+  ])
+    await assert.rejects(
+      call,
+      late(" It may still be recorded; refetch the board before trying again."),
+    );
+  await assert.rejects(
+    app.call(rpc.taskHold, { placement: "environment@mbp" }),
+    late(" Repeating it is safe."),
   );
   await assert.rejects(
     app.call(rpc.boardSummary, {}),
     /^Error: The router's serve did not answer in 0\.05 s\.$/,
   );
+});
+
+test("plugin: the app's message ids follow the router's rule", () => {
+  for (const id of [
+    "app-1",
+    "a.b:c_d",
+    "a".repeat(64),
+    "a".repeat(65),
+    "app 1",
+    "x/y",
+    "",
+  ]) {
+    const app = rpc.taskSubmit.input.safeParse({ text: "x", messageId: id });
+    const core = reduce(boardState(fixture, sampleJournal, NOW), {
+      type: "submit",
+      by: "you",
+      messageId: id,
+      text: "x",
+    }).last;
+    const refused =
+      core?.ok === false && core.message.startsWith("A message ID");
+    assert.equal(app.success, !refused, JSON.stringify(id));
+  }
 });
 
 test("plugin: with serve down, an RPC fails naming where it looked and why", async (t) => {

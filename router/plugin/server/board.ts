@@ -30,10 +30,9 @@ const served = z.object({
   task: z.unknown(),
 });
 
-// What a request to serve may say past serve's own answer: `orNull` when a
-// 404 is an answer (no such task), `slow` what to add when serve takes too
-// long (whether an action may have been recorded, and what to do).
-type Ask = { body?: unknown; orNull?: boolean; slow?: string };
+// A request to serve: its JSON body, if an action; whether a 404 is an
+// answer (no such task); and what to add when serve takes too long.
+type Ask = { body?: unknown; orNull?: boolean; onTimeout?: string };
 
 // One request to serve's API, with a JSON body for an action: the JSON it
 // answers, null for a 404 when `orNull` says so, or an error with its
@@ -41,7 +40,7 @@ type Ask = { body?: unknown; orNull?: boolean; slow?: string };
 async function api(
   { env, timeoutMs = 25_000 }: BoardDeps,
   path: string,
-  { body, orNull = false, slow = "" }: Ask = {},
+  { body, orNull = false, onTimeout = "" }: Ask = {},
 ): Promise<unknown> {
   const { board } = routerConfig(env);
   let response: Response;
@@ -61,7 +60,7 @@ async function api(
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "TimeoutError")
       throw new Error(
-        `The router's serve did not answer in ${timeoutMs / 1000} s.${slow}`,
+        `The router's serve did not answer in ${timeoutMs / 1000} s.${onTimeout}`,
       );
     throw new Error(
       `The router's serve does not answer at ${board}: ${reason(error)}`,
@@ -86,6 +85,9 @@ async function api(
   return json;
 }
 
+type Action =
+  "answer" | "choose" | "resolve" | "cancel" | "hold" | "release" | "submit";
+
 export function serveBoard(
   server: Handles,
   deps: BoardDeps = { env: process.env },
@@ -93,7 +95,7 @@ export function serveBoard(
   const query = (
     path: string,
     params: Record<string, string | undefined>,
-    ask: Ask = {},
+    ask: Pick<Ask, "orNull"> = {},
   ) =>
     api(
       deps,
@@ -104,13 +106,18 @@ export function serveBoard(
       )}`,
       ask,
     );
-  const act = async (action: string, input: object) => {
-    const slow =
-      action === "submit" || action === "answer"
+  const act = async (action: Action, input: object) => {
+    // When serve takes too long: a call that named its message may be
+    // repeated as it was; a hold or a release always may; anything else
+    // may have been recorded, so look first.
+    const onTimeout =
+      "messageId" in input && input.messageId
         ? " It may still be recorded; a retry with the same messageId is safe."
-        : " It may still be recorded; refetch the task before trying again.";
+        : action === "hold" || action === "release"
+          ? " Repeating it is safe."
+          : " It may still be recorded; refetch the board before trying again.";
     const done = served.parse(
-      await api(deps, "action", { body: { action, ...input }, slow }),
+      await api(deps, "action", { body: { action, ...input }, onTimeout }),
     );
     if (!done.outcome.ok) throw new Error(done.outcome.message);
     return rpc.acted.parse({
