@@ -1,5 +1,6 @@
 // The router's Paseo plugin (plugin/): its turn-end hook asks serve for a
-// run at the board's address, and reads that address as the router does.
+// run at the board's address, and reads the router's configuration as the
+// router does.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -11,8 +12,9 @@ import { configPathOf, loadConfig } from "../src/config.ts";
 import base from "../src/example-config.ts";
 import contribute from "../plugin/index.server.ts";
 import {
-  boardAddress,
+  configPath,
   nudgeOnTurnEnd,
+  routerConfig,
   type Hooks,
 } from "../plugin/server/nudge.ts";
 
@@ -22,7 +24,9 @@ const valid = {
   agents: { "orchestrator@mbp": "A1" },
 };
 
-test("plugin: the board address is the one the router's configuration gives, with or without serve.board", (t) => {
+test("plugin: it reads the router's configuration as the router does: the file, serve.board with or without a value, and the placements' sessions", (t) => {
+  for (const env of [{}, { ROUTER_CONFIG: "/elsewhere/config.json" }])
+    assert.equal(configPath(env), configPathOf(undefined, env));
   const dir = scratch(t, "plugin-");
   for (const [name, value] of [
     ["unset.json", valid],
@@ -31,34 +35,45 @@ test("plugin: the board address is the one the router's configuration gives, wit
     const path = join(dir, name);
     writeFileSync(path, JSON.stringify(value));
     const env = { ROUTER_CONFIG: path };
-    assert.equal(
-      boardAddress(env),
-      loadConfig(configPathOf(undefined, env)).serve.board,
-    );
+    const loaded = loadConfig(configPathOf(undefined, env));
+    const read = routerConfig(env);
+    assert.equal(read.board, loaded.serve.board);
+    assert.deepEqual([...read.sessions], Object.values(loaded.agents));
   }
 });
 
-// A daemon's hooks as the plugin sees them: the turn-end callback, to call.
+// A daemon's hooks as the plugin sees them: the turn-end callback, to call
+// as the end of an agent's turn.
 function hooks(): Hooks & {
   registered(): boolean;
-  turnEnded(): Promise<void>;
+  turnEnded(agent?: string): Promise<void>;
 } {
   let callback: Parameters<Hooks["on"]>[1] | null = null;
   return {
-    on(name, registered) {
+    on(name, hook) {
       assert.equal(name, "agent.turn_ended");
-      callback = registered;
+      callback = hook;
       return () => undefined;
     },
     registered: () => callback !== null,
-    turnEnded() {
+    turnEnded(agent = "A1") {
       assert.ok(callback, "the hook is registered");
-      return callback({}, { signal: new AbortController().signal });
+      return callback(
+        { agent: { id: agent } },
+        { signal: new AbortController().signal },
+      );
     },
   };
 }
 
-test("plugin: a turn's end posts a nudge to serve; a failure is logged once until one gets through", async (t) => {
+// A config file in a scratch folder whose serve.board is `board`.
+function configAt(t: test.TestContext, board: string): string {
+  const path = join(scratch(t, "plugin-"), "config.json");
+  writeFileSync(path, JSON.stringify({ ...valid, serve: { board } }));
+  return path;
+}
+
+test("plugin: a placement's turn end posts a nudge to serve, another agent's does not; a failure is logged once until one gets through", async (t) => {
   let status = 202;
   const seen: string[] = [];
   const server = createServer((req, res) => {
@@ -68,20 +83,18 @@ test("plugin: a turn's end posts a nudge to serve; a failure is logged once unti
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   t.after(() => server.close());
   const { port } = server.address() as AddressInfo;
-  const path = join(scratch(t, "plugin-"), "config.json");
-  writeFileSync(
-    path,
-    JSON.stringify({ ...valid, serve: { board: `127.0.0.1:${port}` } }),
-  );
   const log: string[] = [];
   const daemon = hooks();
   nudgeOnTurnEnd(daemon, {
-    env: { ROUTER_CONFIG: path },
+    env: { ROUTER_CONFIG: configAt(t, `127.0.0.1:${port}`) },
     log: (line) => log.push(line),
   });
   await daemon.turnEnded();
   assert.deepEqual(seen, ["POST /nudge"]);
   assert.deepEqual(log, []);
+  // Another agent's turn cannot make a delivery ready.
+  await daemon.turnEnded("not-a-placement");
+  assert.deepEqual(seen, ["POST /nudge"]);
   status = 404;
   await daemon.turnEnded();
   await daemon.turnEnded();
@@ -93,6 +106,22 @@ test("plugin: a turn's end posts a nudge to serve; a failure is logged once unti
     "nudge: reaches serve again",
   ]);
   assert.equal(seen.length, 4);
+});
+
+test("plugin: with serve down, the log names the reason rather than fetch's own message", async (t) => {
+  const closed = createServer();
+  await new Promise<void>((done) => closed.listen(0, "127.0.0.1", done));
+  const { port } = closed.address() as AddressInfo;
+  await new Promise<void>((done) => closed.close(() => done()));
+  const log: string[] = [];
+  const daemon = hooks();
+  nudgeOnTurnEnd(daemon, {
+    env: { ROUTER_CONFIG: configAt(t, `127.0.0.1:${port}`) },
+    log: (line) => log.push(line),
+  });
+  await daemon.turnEnded();
+  assert.equal(log.length, 1);
+  assert.match(log[0] ?? "", /^nudge: fetch failed: connect ECONNREFUSED/);
 });
 
 test("plugin: its server entry registers the turn-end hook and returns a cleanup", () => {

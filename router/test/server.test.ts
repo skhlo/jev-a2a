@@ -735,7 +735,13 @@ test("runner: a nudge runs at once while work waits, joins one already queued, q
   await f.finishRun();
   await handled;
   assert.ok(f.inRun(), "the nudge's run follows");
+  // A nudge during a nudge's own run likewise queues the next: that run
+  // has already looked.
+  assert.equal(f.runner.nudge(), true);
   await f.finishRun();
+  assert.ok(f.inRun(), "the second nudge's run follows");
+  await f.finishRun();
+  assert.equal(f.inRun(), false);
   f.runner.stop();
   assert.equal(f.runner.nudge(), false);
 });
@@ -1920,7 +1926,7 @@ test("board: the kept record folds only the lines appended since, and folds agai
   assert.ok(changed.state.tasks.some((task) => task.text === "Task 54"));
 });
 
-test("board: POST /nudge asks the runner for a run, needs no identity, and refuses a cross-site request", async () => {
+test("board: POST /nudge asks the runner for a run, needs no identity, and refuses one from another device or site", async () => {
   let answer = true;
   let nudges = 0;
   const nudge = (): boolean => {
@@ -1938,9 +1944,17 @@ test("board: POST /nudge asks the runner for a run, needs no identity, and refus
     answer = false;
     res = await post();
     assert.equal(await res.text(), "nothing waits");
-    res = await post({ "sec-fetch-site": "cross-site" });
-    assert.equal(res.status, 403);
-    await res.text();
+    // From another device through Tailscale Serve, or a browser's
+    // cross-site request: refused, and the runner is not asked.
+    for (const headers of [
+      { "x-forwarded-for": "100.64.0.9" },
+      { "tailscale-user-login": "me@example.com" },
+      { "sec-fetch-site": "cross-site" },
+    ]) {
+      res = await post(headers);
+      assert.equal(res.status, 403);
+      await res.text();
+    }
     assert.equal(nudges, 2, "a refused request does not nudge");
   } finally {
     server.close();

@@ -2,8 +2,8 @@
   "$schema": "./node_modules/fallow/schema.json",
   // Fallow finds the CLI (package.json bin), the tests (the test script)
   // and the scripts they import. board-check.ts it cannot reach: it is run
-  // by hand.
-  "entry": ["src/board-check.ts"],
+  // by hand. The plugin's entry is loaded by Paseo.
+  "entry": ["src/board-check.ts", "plugin/index.server.ts"],
   // Any duplicated block fails: the threshold is the duplicated share of
   // the code in percent, and 0 means no limit.
   "duplicates": { "threshold": 0.001 },

@@ -254,18 +254,24 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       );
     }
   };
+  // Whether work waits, read without the lock; a read that fails is
+  // logged under `label` and counts as nothing waiting.
+  const waitsNow = (label: string): boolean => {
+    try {
+      return deps.waits();
+    } catch (error: unknown) {
+      deps.log(
+        `${label}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  };
   const onChange = (): void => {
     if (settle !== null) timers.clear(settle);
     settle = timers.set(() => {
       settle = null;
       if (busy || stopped) return;
-      try {
-        armWake(deps.waits());
-      } catch (error: unknown) {
-        deps.log(
-          `watch: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
+      armWake(waitsNow("watch"));
     }, deps.settleMs ?? 500);
   };
   // A session may just have become ready: the Paseo plugin's turn-end hook
@@ -278,14 +284,7 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
   const nudge = (): boolean => {
     if (stopped) return false;
     if (nudged) return true;
-    try {
-      if (!deps.waits()) return false;
-    } catch (error: unknown) {
-      deps.log(
-        `nudge: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return false;
-    }
+    if (!waitsNow("nudge")) return false;
     nudged = true;
     void unattended("nudge", () => {
       nudged = false;
@@ -615,16 +614,21 @@ export function boardListener(
       });
       return;
     }
-    // The Paseo plugin's turn-end hook. It changes nothing in the record,
-    // so it needs no identity; a browser's cross-site request is refused
-    // as for actions.
+    // The Paseo plugin's turn-end hook, which posts to this address on
+    // its own host. It changes nothing in the record, so it needs no
+    // identity; but a request that came through Tailscale Serve, from
+    // another device, is refused, so the tailnet cannot keep serve
+    // running, and so is a browser's cross-site request, as for actions.
     if (req.method === "POST" && path.endsWith("/nudge")) {
+      if (req.headers["x-forwarded-for"] || req.headers["tailscale-user-login"])
+        return plain(403, "Nudges are accepted from this host only.");
       if (!sameSite(req.headers))
         return plain(403, "Nudges are not accepted from other sites.");
       if (!deps.nudge) return plain(404, "No runner to nudge here.");
       return plain(202, deps.nudge() ? "run queued" : "nothing waits");
     }
-    if (req.method !== "GET") return plain(405, "GET or POST actions");
+    if (req.method !== "GET")
+      return plain(405, "GET, or POST actions or nudge");
     if (path.endsWith("/whoami")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(

@@ -39,7 +39,8 @@ update it when workflows change.
 - `plugin/` is the router's Paseo plugin, installed into the router host's
   daemon (`../docs/operating.md`). Paseo compiles it from that directory
   alone, so it imports nothing from `src/`; `test/plugin.test.ts` holds
-  its reading of the configuration to `src/config.ts`'s.
+  its reading of the configuration (the path, `serve.board`, `agents`) to
+  `src/config.ts`'s.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

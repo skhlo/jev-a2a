@@ -16,9 +16,9 @@ the sessions and delivers what is eligible:
   default; `0` leaves `serve` to run on events alone;
 - `serve` watches `journal.jsonl`, so a request made with the CLI on the
   router host, which writes the journal directly, arms that look too;
-- with the router's Paseo plugin installed (below), when an agent's turn
-  ends on the router host's daemon, at once if anything waits for a
-  session, instead of at the next look.
+- with the router's Paseo plugin installed (below), when a placement's
+  session ends a turn on the router host's daemon, at once if anything
+  waits for a session, instead of at the next look.
 
 Anything else that waits (a hold, a hand-back, an open question, a replaced
 session) waits on an event, and a quiet router arms nothing.
@@ -154,11 +154,18 @@ One instance per host: a second finds the port taken and says so.
 ## The Paseo plugin
 
 `router/plugin/` is a Paseo plugin with no UI. Installed into the router
-host's daemon, it posts `/nudge` to `serve.board` (read from the router's
-configuration) each time an agent's turn ends there. A delivery or notice
-waiting for that session then goes out at once instead of up to
-`serve.wake` seconds later. The looks stay, since Paseo's hooks are best
-effort. Sessions on other hosts are still seen at the looks.
+host's daemon, it posts `/nudge` to `serve.board` each time a placement's
+session ends a turn there. A delivery or notice waiting for that session
+then goes out at once instead of up to `serve.wake` seconds later. The
+looks stay, since Paseo's hooks are best effort, and they still find:
+
+- sessions on other hosts;
+- terminal placements, which are not Paseo agents and have no turns to
+  hook.
+
+The plugin reads the configuration at the default path, or at the
+daemon's `$ROUTER_CONFIG`; a `--config` or `ROUTER_CONFIG` given only to
+`serve` does not reach it.
 
 It needs `pluginsEnabled` on that daemon (Settings → Plugins). Install it
 once from the checkout `serve` runs, and reload it after updating the
@@ -205,8 +212,9 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
   does not match the host) is refused.
 - `POST /nudge`: what the Paseo plugin sends when a turn ends. `202` with
   `run queued` when something waits for a session, or `nothing waits`. It
-  changes nothing in the record, so it needs no identity; a cross-site
-  request is refused as for actions.
+  changes nothing in the record, so it needs no identity. A request that
+  came through Tailscale Serve, from another device, is refused, and so
+  is a cross-site request, as for actions.
 
 Routes match by suffix, so the board can be mounted under a path
 (`tailscale serve --bg --set-path /router http://127.0.0.1:7678`), and its
