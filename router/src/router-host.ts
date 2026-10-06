@@ -103,16 +103,11 @@ async function serve(config: RouterConfig): Promise<void> {
   // Each host that sends events has its own token. Naming the hosts that
   // have one shows a token whose name matches no host.
   const keys = doorKeys(config, process.env);
-  const hosts = keys.flatMap((key) => (key.host === null ? [] : [key.host]));
   console.log(
-    hosts.length
-      ? `events from ${hosts.join(", ")}, each with its own token`
+    keys.length
+      ? `events from ${keys.map((key) => key.host).join(", ")}, each with its own token`
       : "events: no host has a token, so the door refuses every event",
   );
-  if (hosts.length < keys.length)
-    console.error(
-      "ROUTER_TOKEN, the shared token, is still set: any host holding it acts for every session. Remove it once each host has its own.",
-    );
   // Runs are serialized by the runner; while anything waits only for a
   // session, it looks again every serve.wake seconds, and with serve.poll
   // set it runs that long after the end of any run regardless. The CLI on this host
