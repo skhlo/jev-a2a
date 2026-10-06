@@ -526,6 +526,20 @@ test("a failed sheet read nulls its field and leaves a note; the rail and the re
   assert.equal(calls.filter((c) => c === "workspaces").length, 1);
 });
 
+test("an agent id the daemon does not know is missing; any other failed look still throws", async () => {
+  const { daemon } = scripted("idle");
+  const unknown: Daemon = {
+    ...daemon,
+    refresh: (id) => Promise.reject(new Error(`Agent not found: ${id}`)),
+  };
+  assert.equal(await adapterOver(unknown).observe("A9", SEEN), null);
+  const down: Daemon = {
+    ...daemon,
+    refresh: () => Promise.reject(new Error("socket hang up")),
+  };
+  await assert.rejects(adapterOver(down).observe("A9", SEEN), /socket hang up/);
+});
+
 test("with the sheet off, only the rail is read", async () => {
   const { daemon, calls } = scripted("running");
   const seen = await adapterOver(daemon, { sheet: false }).observe("A1", SEEN);

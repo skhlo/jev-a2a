@@ -120,6 +120,12 @@ export type Daemon = {
   close(): Promise<void>;
 };
 
+// The daemon's refusal of an agent id it does not know.
+const unknownAgent = (error: unknown): boolean =>
+  /^Agent not found: |^Agent identifier /.test(
+    error instanceof Error ? error.message : String(error),
+  );
+
 // What a failed send means. Only a refusal before any send is a definite
 // not_sent; a key conflict is the router contradicting its own record;
 // anything else may have reached the agent.
@@ -133,7 +139,7 @@ export function sendFailure(
     throw new RouterBug(
       `${key} was already sent to ${agentId} with different text.`,
     );
-  if (/^Agent not found: |^Agent identifier /.test(message)) return "not_sent";
+  if (unknownAgent(error)) return "not_sent";
   return "unknown";
 }
 
@@ -717,7 +723,12 @@ export function adapterOver(
     async observe(agentId, seen) {
       const id = terminalOf(agentId);
       if (id) return observeTerminal(id, cliOf(agentId), seen);
-      const result = await daemon.refresh(agentId);
+      // The daemon refuses an id it does not know rather than answering
+      // null: the session is missing, not the host unreachable.
+      const result = await daemon.refresh(agentId).catch((error: unknown) => {
+        if (unknownAgent(error)) return null;
+        throw error;
+      });
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
       const snapshot = snapshotOf(result.agent, seen);
