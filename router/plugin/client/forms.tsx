@@ -2,7 +2,7 @@
 // items, and the New task and Cancel task modals. Each sends one RPC
 // through useAct (data.ts).
 import { useRpc } from "@getpaseo/plugin/client";
-import { Modal, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
 import { View } from "react-native";
 import * as rpc from "../shared/rpc.ts";
@@ -17,6 +17,7 @@ import {
   type Viewer,
 } from "./format.ts";
 import {
+  AgentMark,
   Button,
   CardRow,
   FormFoot,
@@ -357,6 +358,7 @@ export function SubmitModal({
               }}
             >
               <RadioRow first on={!placement} onPress={() => choose(null)}>
+                <Icon name="Route" size={16} color={c.foregroundMuted} />
                 <Txt>Let Jev choose</Txt>
               </RadioRow>
               {agents.map((p) => (
@@ -365,6 +367,11 @@ export function SubmitModal({
                   on={p === placement}
                   onPress={() => choose(p.key)}
                 >
+                  <AgentMark
+                    state={p.state}
+                    label={`${p.participant} ${p.words}`}
+                    behind={c.surface1}
+                  />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Txt lines={1}>
                       {p.participant} <Txt muted>{p.host}</Txt>

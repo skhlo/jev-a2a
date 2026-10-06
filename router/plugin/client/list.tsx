@@ -235,6 +235,7 @@ function AgentsRow({
   on: boolean;
   onPress: () => void;
 }) {
+  const { c } = useLook();
   return (
     <ListItem title="Agents" on={on} onPress={onPress}>
       <Txt size="sm" muted lines={1}>
@@ -263,6 +264,7 @@ function AgentsRow({
                   key={a.key}
                   state={a.state}
                   label={`${a.participant} ${a.words}`}
+                  behind={on ? c.surface2 : c.surface0}
                 />
               ))}
             </View>

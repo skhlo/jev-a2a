@@ -277,44 +277,49 @@ export function BackRow({
   );
 }
 
-// An agent's mark, 8 px like Paseo's host dot, its shape carrying the state
-// with its colour: ready a filled success dot, not ready a muted ring, held
-// a muted pause mark.
+// An agent's mark, one Lucide Bot at 16 px so that one mark reads as one
+// agent, its shape carrying the state with its colour: ready the Bot with
+// Paseo's online dot on its lower right, ringed in the surface under it;
+// not ready a muted Bot; held a muted BotOff, since a held agent takes no
+// send.
 export function AgentMark({
   state,
   label,
+  behind,
 }: {
   state: AgentState;
   // The agent's name and state words.
   label: string;
+  // The colour of the surface the mark sits on.
+  behind: string;
 }) {
   const { c } = useLook();
-  const box = { width: 8, height: 8 } as const;
-  const bar = { width: 2, backgroundColor: c.foregroundMuted } as const;
   return (
-    <View accessible accessibilityLabel={label} style={box}>
-      {state === "held" ? (
+    <View
+      accessible
+      accessibilityLabel={label}
+      style={{ width: 16, height: 16 }}
+    >
+      <Icon
+        name={state === "held" ? "BotOff" : "Bot"}
+        size={16}
+        color={state === "ready" ? c.foreground : c.foregroundMuted}
+      />
+      {state === "ready" ? (
         <View
           style={{
-            ...box,
-            flexDirection: "row",
-            justifyContent: "space-between",
-          }}
-        >
-          <View style={bar} />
-          <View style={bar} />
-        </View>
-      ) : (
-        <View
-          style={{
-            ...box,
+            position: "absolute",
+            right: -3,
+            bottom: -2,
+            width: 6,
+            height: 6,
             borderRadius: 999,
-            ...(state === "ready"
-              ? { backgroundColor: c.statusSuccess }
-              : { borderWidth: 1.5, borderColor: c.foregroundMuted }),
+            borderWidth: 1.5,
+            borderColor: behind,
+            backgroundColor: c.statusSuccess,
           }}
         />
-      )}
+      ) : null}
     </View>
   );
 }

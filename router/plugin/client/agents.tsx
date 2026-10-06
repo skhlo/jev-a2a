@@ -26,7 +26,7 @@ export function AgentsPage({
   onOpen: (taskId: string) => void;
   onBack: () => void;
 }) {
-  const { mode } = useLook();
+  const { c, mode } = useLook();
   return (
     <Page>
       <View style={{ marginBottom: 24, gap: 8 }}>
@@ -52,6 +52,7 @@ export function AgentsPage({
                 <AgentMark
                   state={a.state}
                   label={`${a.participant} ${a.words}`}
+                  behind={c.surface1}
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Txt lines={1}>{a.participant}</Txt>
