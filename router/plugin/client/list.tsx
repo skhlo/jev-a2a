@@ -33,62 +33,69 @@ export function TaskList({
   const compact = mode === "compact";
   const [shut, setShut] = useState(collapsed);
   const toggle = (name: string) => {
-    collapsed = shut.includes(name)
-      ? shut.filter((n) => n !== name)
-      : [...shut, name];
+    collapsed = collapsed.includes(name)
+      ? collapsed.filter((n) => n !== name)
+      : [...collapsed, name];
     setShut(collapsed);
   };
-  const group = (name: string, n: string, rows: ListRow[]) => (
-    <View key={name}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={name}
-        aria-expanded={!shut.includes(name)}
-        onPress={() => toggle(name)}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          paddingHorizontal: 12,
-          paddingTop: 12,
-          paddingBottom: 8,
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-          <Txt muted strong>
-            {name}
-          </Txt>
-          <Txt size="sm" muted>
-            {n}
-          </Txt>
-        </View>
-        <Icon
-          name={shut.includes(name) ? "ChevronRight" : "ChevronDown"}
-          size={14}
-          color={c.foregroundMuted}
-        />
-      </Pressable>
-      {shut.includes(name) ? null : rows.length ? (
-        rows.map((row) => (
-          <TaskRow
-            key={row.id}
-            row={row}
-            now={now}
-            on={row.id === selected}
-            onPress={() => onSelect(row.id)}
-          />
-        ))
-      ) : (
-        <View
-          style={{ paddingHorizontal: 12, paddingBottom: 8, paddingTop: 4 }}
+  const group = (name: string, n: string, rows: ListRow[]) => {
+    const open = !shut.includes(name);
+    return (
+      <View key={name}>
+        {/* aria-expanded, not accessibilityState: React Native Web drops
+          the latter's expanded. The heading's own text is its label, so a
+          screen reader also reads the count. */}
+        <Pressable
+          accessibilityRole="button"
+          aria-expanded={open}
+          onPress={() => toggle(name)}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingHorizontal: 12,
+            paddingTop: 12,
+            paddingBottom: 8,
+          }}
         >
-          <Txt size="sm" muted>
-            None
-          </Txt>
-        </View>
-      )}
-    </View>
-  );
+          <View
+            style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}
+          >
+            <Txt muted strong>
+              {name}
+            </Txt>
+            <Txt size="sm" muted>
+              {n}
+            </Txt>
+          </View>
+          <Icon
+            name={open ? "ChevronDown" : "ChevronRight"}
+            size={14}
+            color={c.foregroundMuted}
+          />
+        </Pressable>
+        {!open ? null : rows.length ? (
+          rows.map((row) => (
+            <TaskRow
+              key={row.id}
+              row={row}
+              now={now}
+              on={row.id === selected}
+              onPress={() => onSelect(row.id)}
+            />
+          ))
+        ) : (
+          <View
+            style={{ paddingHorizontal: 12, paddingBottom: 8, paddingTop: 4 }}
+          >
+            <Txt size="sm" muted>
+              None
+            </Txt>
+          </View>
+        )}
+      </View>
+    );
+  };
   return (
     <View
       style={
