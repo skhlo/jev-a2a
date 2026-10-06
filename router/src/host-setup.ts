@@ -87,9 +87,12 @@ exec "$bin/router" check
 // A word the host's shell reads back unchanged.
 const quote = (word: string): string => `'${word.replaceAll("'", `'\\''`)}'`;
 
-// The command line ssh hands the host's login shell.
+// The command line ssh hands the host's login shell: `script` run by sh
+// with `args`.
+export const shellCommand = (script: string, args: string[]): string =>
+  ["sh", "-c", script, "sh", ...args].map(quote).join(" ");
 export const remoteCommand = (args: string[]): string =>
-  ["sh", "-c", SCRIPT, "sh", ...args].map(quote).join(" ");
+  shellCommand(SCRIPT, args);
 
 // The origin as a URL the host clones without a login: an scp-style ssh
 // remote (git@github.com:owner/repo.git) becomes https.

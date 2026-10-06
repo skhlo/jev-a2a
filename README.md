@@ -141,18 +141,21 @@ a user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)
 
 ## Commands
 
-| Command                                              | What it does                                                                                                 |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `router submit [--to P [--hosts a,b]] <text>`        | Record a request and deliver it; without `--to`, Jev picks; `--hosts` narrows a participant on several hosts |
-| `router status [<task>]`                             | The record: every task, or one task with its deliveries and log                                              |
-| `router needs-you`                                   | Decisions waiting on you                                                                                     |
-| `router choose --task T --to P`                      | Name the recipient when the router handed the choice back                                                    |
-| `router answer --task T --question Q --text ...`     | Answer a question an agent asked                                                                             |
-| `router cancel <task>`                               | Cancel a task whose work has not reached anyone yet                                                          |
-| `router run`                                         | Observe the sessions and deliver what is eligible, once                                                      |
-| `router serve`                                       | Accept events from other hosts; serve the board; keep looking                                                |
-| `router host setup <host>`                           | Install or update `router` on a host reached over ssh, with its token, and check it there                    |
-| `router roster repoint <participant@host> <session>` | Point a placement at its new Paseo session, restart `serve` and see it bound                                 |
+| Command                                                             | What it does                                                                                                 |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `router submit [--to P [--hosts a,b]] <text>`                       | Record a request and deliver it; without `--to`, Jev picks; `--hosts` narrows a participant on several hosts |
+| `router status [<task>]`                                            | The record: every task, or one task with its deliveries and log                                              |
+| `router needs-you`                                                  | Decisions waiting on you                                                                                     |
+| `router choose --task T --to P`                                     | Name the recipient when the router handed the choice back                                                    |
+| `router answer --task T --question Q --text ...`                    | Answer a question an agent asked                                                                             |
+| `router cancel <task>`                                              | Cancel a task whose work has not reached anyone yet                                                          |
+| `router run`                                                        | Observe the sessions and deliver what is eligible, once                                                      |
+| `router serve`                                                      | Accept events from other hosts; serve the board; keep looking                                                |
+| `router host setup <host>`                                          | Install or update `router` on a host reached over ssh, with its token, and check it there                    |
+| `router roster repoint <participant@host> <session>`                | Point a placement at its new Paseo session, restart `serve` and see it bound                                 |
+| `router roster add <participant> <host>:<path> <host>=<session>...` | Add a participant, its text read from its owner's main branch; judged by the eval first                      |
+| `router roster remove <participant>`                                | Drop a participant and relabel its requests to `none`; judged by the eval first                              |
+| `router roster refresh <participant>`                               | Read a participant's text again; judged by the eval first                                                    |
 
 Agents use `router reply`. `router observe <placement> --hold` keeps the
 router from sending to a session a person is typing in; `router resolve`

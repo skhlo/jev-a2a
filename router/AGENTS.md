@@ -34,8 +34,8 @@ update it when workflows change.
   host over ssh; `test/host-setup.test.ts` runs its script here, with a
   scratch `HOME`, cloning a scratch repository.
 - `router roster` (`src/roster.ts`) changes the configuration file the way
-  it was changed by hand: checked, kept as a dated copy, swapped in, and
-  `serve` restarted and watched.
+  it was changed by hand: checked, judged by the eval when a text changes,
+  kept as a dated copy, swapped in, and `serve` restarted and watched.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

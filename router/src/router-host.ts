@@ -43,7 +43,14 @@ import { openShell, type ShellOptions } from "./shell.ts";
 import { writeTelemetry } from "./telemetry.ts";
 import { actingAs, runCommand } from "./commands.ts";
 import { overSsh, serveCheck, setupHost } from "./host-setup.ts";
-import { repoint } from "./roster.ts";
+import {
+  add,
+  readOver,
+  refresh,
+  remove,
+  repoint,
+  type RosterDeps,
+} from "./roster.ts";
 import { invocation, UsageError } from "./request.ts";
 
 const inv = invocation(process.argv.slice(2), process.env);
@@ -118,14 +125,29 @@ async function hostSetup(): Promise<number> {
   });
 }
 
-// `router roster repoint <participant@host> <session>`, on this host's
-// configuration and record.
+// `router roster repoint|add|remove|refresh ...`, on this host's
+// configuration, record and labelled requests.
 async function roster(): Promise<number> {
-  const [verb, placement, session] = inv.rest;
-  if (verb !== "repoint" || !placement || !session)
-    fail("Use router roster repoint <participant@host> <session>.");
+  const [verb, first, second, ...more] = inv.rest;
+  const run =
+    verb === "repoint" && first && second && !more.length
+      ? (deps: RosterDeps) => repoint(first, second, deps)
+      : verb === "add" && first && second && more.length
+        ? (deps: RosterDeps) => add(first, second, more, deps)
+        : verb === "remove" && first && !second
+          ? (deps: RosterDeps) => remove(first, deps)
+          : verb === "refresh" && first && !more.length
+            ? (deps: RosterDeps) => refresh(first, second, deps)
+            : fail(
+                "Use router roster repoint, add, remove or refresh; router --help lists their arguments.",
+              );
+  // Only repoint changes no text, so only it asks Jev nothing.
+  const key =
+    verb === "repoint"
+      ? ""
+      : (apiKey ?? fail("TYPESAFE_API_KEY is not set; add it to secrets.env."));
   const record = recordReader(config);
-  return repoint(placement, session, {
+  return run({
     configPath,
     record: () => record().state,
     resolve: async (host, id) => {
@@ -138,6 +160,10 @@ async function roster(): Promise<number> {
         await adapter.close();
       }
     },
+    read: (host, path) => readOver(own(config.hosts, host)?.paseo ?? "", path),
+    judge: (question) => judge(question, { ...config.jev, apiKey: key }),
+    setPath:
+      values.set ?? join(import.meta.dirname, "..", "eval", "requests.jsonl"),
     restart: restartServe,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: () => new Date(),
