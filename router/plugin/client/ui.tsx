@@ -279,18 +279,30 @@ export function BackRow({
 
 // An agent's mark, 8 px like Paseo's host dot, its shape carrying the state
 // with its colour: ready a filled success dot, not ready a muted ring, held
-// a muted pause mark. Its label is the state words.
-export function Glyph({ state, words }: { state: AgentState; words: string }) {
+// a muted pause mark.
+export function AgentMark({
+  state,
+  label,
+}: {
+  state: AgentState;
+  // The agent's name and state words.
+  label: string;
+}) {
   const { c } = useLook();
   const box = { width: 8, height: 8 } as const;
+  const bar = { width: 2, backgroundColor: c.foregroundMuted } as const;
   return (
-    <View accessible accessibilityLabel={words} style={box}>
+    <View accessible accessibilityLabel={label} style={box}>
       {state === "held" ? (
         <View
-          style={{ ...box, flexDirection: "row", gap: 2, paddingHorizontal: 1 }}
+          style={{
+            ...box,
+            flexDirection: "row",
+            justifyContent: "space-between",
+          }}
         >
-          <View style={{ flex: 1, backgroundColor: c.foregroundMuted }} />
-          <View style={{ flex: 1, backgroundColor: c.foregroundMuted }} />
+          <View style={bar} />
+          <View style={bar} />
         </View>
       ) : (
         <View

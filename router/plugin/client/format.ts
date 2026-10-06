@@ -1,9 +1,10 @@
 // The board's words for the app: the HTML board's rules (src/board-parts.ts,
 // src/board-context.ts and src/board-tasks.ts) over the shapes serve's board
 // API returns, as the plugin design lays them out (skhlo/designs PR #21,
-// jev-a2a v0.14). Pure, so the tests run them in Node. The app evaluates
-// this in Hermes, so it keeps to ES2020 built-ins: no replaceAll and no
-// Array.at (tsconfig.client.json checks).
+// jev-a2a v0.14). The Agents rules are the design's own: the board has no
+// Agents page. Pure, so the tests run them in Node. The app evaluates this
+// in Hermes, so it keeps to ES2020 built-ins: no replaceAll and no Array.at
+// (tsconfig.client.json checks).
 import type { FullTask, Summary } from "../shared/rpc.ts";
 
 type TaskHead = Summary["open"][number];
@@ -162,8 +163,10 @@ export type Viewer = {
   // The principal a request is sent as, the actor's first requester.
   requester: string | null;
   identified: boolean;
-  // The agents by host, for the Agents row and page and New task.
+  // The agents by host, for the Agents row and page, and in that order
+  // for New task.
   hosts: AgentHost[];
+  agents: Agent[];
 };
 
 export function viewerOf(s: Summary): Viewer {
@@ -221,11 +224,11 @@ export function viewerOf(s: Summary): Viewer {
       s.placements.find((p) => p.key === placement)?.hold ?? null,
     requester: signer("requester") ?? null,
     identified: actor !== null,
-    hosts: hostsOf(s),
+    ...agentsOf(s),
   };
 }
 
-// ---- The agents ----
+// ---- The agents (the design's Agents section) ----
 
 // An agent's state: held wins over ready, since a held agent takes no send.
 export type AgentState = "ready" | "not_ready" | "held";
@@ -242,7 +245,7 @@ const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 // Hosts by name and agents by participant, so the order holds between
 // polls.
-function hostsOf(s: Summary): AgentHost[] {
+function agentsOf(s: Summary): { hosts: AgentHost[]; agents: Agent[] } {
   const hosts = new Map<string, Agent[]>();
   const sorted = [...s.placements].sort(
     (a, b) => byName(a.host, b.host) || byName(a.participant, b.participant),
@@ -261,12 +264,14 @@ function hostsOf(s: Summary): AgentHost[] {
     };
     hosts.set(p.host, [...(hosts.get(p.host) ?? []), agent]);
   }
-  return [...hosts].map(([host, agents]) => ({ host, agents }));
+  return {
+    hosts: [...hosts].map(([host, agents]) => ({ host, agents })),
+    agents: [...hosts.values()].flat(),
+  };
 }
 
 // "<n> of <m> ready", then "<n> held" when any is held.
-export function agentCount(hosts: AgentHost[]): string {
-  const all = hosts.flatMap((h) => h.agents);
+export function readiness(all: Agent[]): string {
   const held = all.filter((a) => a.state === "held").length;
   const ready = all.filter((a) => a.state === "ready").length;
   return `${ready} of ${all.length} ready${held ? ` · ${held} held` : ""}`;
@@ -432,48 +437,48 @@ const answered = (d: Delivery): boolean =>
   !d.question &&
   d.sends.find((s) => s.messageId === d.send.messageId)?.kind === "answer";
 
-// An open delivery's state from the summary alone, as deliveryState reads
-// the whole delivery.
-export function headDeliveryState(d: HeadDelivery, asksViewer: boolean): Part {
-  const r = readingOf(d.waits, d.outcome, d.answered, d.update);
+// An open delivery's state word; a question is in the warning role while
+// it asks the viewer (asksViewer holds only while one waits).
+function stateOf(
+  r: Reading<unknown, { kind: string }>,
+  placement: string,
+  send: string,
+  asksViewer: boolean,
+): Part {
   switch (r.kind) {
     case "waits":
-      return { text: waitWords(d.placement, r.waits) };
+      return { text: waitWords(placement, r.waits) };
     case "unaccepted":
-      return { text: `${d.sendKind} ${d.outcome}` };
+      return { text: send };
     case "answered":
       return { text: "answered" };
     case "updated":
-      return {
-        text: r.update.kind,
-        ...(asksViewer ? { tone: "warn" } : {}),
-      };
+      return { text: r.update.kind, ...(asksViewer ? { tone: "warn" } : {}) };
     case "delivered":
       return { text: "delivered" };
   }
 }
 
-// A delivery row's state pill; a question is in the warning role while it
-// asks the viewer.
-export function deliveryState(d: Delivery, asksViewer: boolean): Part {
-  if (d.end) return { text: d.end.reason };
-  const r = readingOf(d.waits, d.send.outcome, answered(d) || null, d.latest);
-  switch (r.kind) {
-    case "waits":
-      return { text: waitWords(d.placement, r.waits) };
-    case "unaccepted":
-      return { text: `${d.send.kind} ${d.send.outcome}` };
-    case "answered":
-      return { text: "answered" };
-    case "updated":
-      return {
-        text: r.update.kind,
-        ...(d.question && asksViewer ? { tone: "warn" } : {}),
-      };
-    case "delivered":
-      return { text: "delivered" };
-  }
-}
+// An open delivery's state from the summary alone, as deliveryState reads
+// the whole delivery.
+export const headDeliveryState = (d: HeadDelivery, asksViewer: boolean) =>
+  stateOf(
+    readingOf(d.waits, d.outcome, d.answered, d.update),
+    d.placement,
+    `${d.sendKind} ${d.outcome}`,
+    asksViewer,
+  );
+
+// A delivery row's state pill.
+export const deliveryState = (d: Delivery, asksViewer: boolean): Part =>
+  d.end
+    ? { text: d.end.reason }
+    : stateOf(
+        readingOf(d.waits, d.send.outcome, answered(d) || null, d.latest),
+        d.placement,
+        `${d.send.kind} ${d.send.outcome}`,
+        asksViewer,
+      );
 
 // A delivery row's second line.
 export function deliveryLine(d: Delivery, times: Record<string, string>) {

@@ -3,17 +3,18 @@
 // rowLine). A group's heading collapses it to the heading and its count, as
 // on the board.
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import {
   age,
-  agentCount,
+  readiness,
   rowDot,
   rowLine,
   type ListRow,
+  type Tone,
   type Viewer,
 } from "./format.ts";
-import { Button, Dot, Glyph, Parts, Txt, useLook } from "./ui.tsx";
+import { AgentMark, Button, Dot, Parts, Txt, useLook } from "./ui.tsx";
 
 // The collapsed groups, kept while the app runs: the board keeps them on
 // the device, but the plugin SDK has no device storage.
@@ -174,86 +175,24 @@ export function TaskList({
   );
 }
 
-// The agents at a glance: the count, then each host and its agents' marks;
-// line 2 wraps when the hosts do not fit.
-function AgentsRow({
-  viewer,
+// A row of the list: line 1 a title, its trailing words and maybe a dot;
+// then line 2. Selected, it takes the surface2 fill.
+function ListItem({
+  title,
+  trailing,
+  dot,
   on,
   onPress,
+  children,
 }: {
-  viewer: Viewer;
+  title: string;
+  trailing: string;
+  dot?: Tone | null;
   on: boolean;
   onPress: () => void;
+  children: ReactNode;
 }) {
   const { c } = useLook();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
-      onPress={onPress}
-      style={{
-        gap: 4,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 8,
-        marginBottom: 4,
-        ...(on ? { backgroundColor: c.surface2 } : {}),
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Txt lines={1}>Agents</Txt>
-        </View>
-        <Txt size="sm" muted>
-          {agentCount(viewer.hosts)}
-        </Txt>
-      </View>
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          alignItems: "center",
-          columnGap: 12,
-          rowGap: 4,
-        }}
-      >
-        {viewer.hosts.map((h) => (
-          <View
-            key={h.host}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-          >
-            <Txt size="sm" muted>
-              {h.host}
-            </Txt>
-            <View style={{ flexDirection: "row", gap: 3 }}>
-              {h.agents.map((a) => (
-                <Glyph
-                  key={a.key}
-                  state={a.state}
-                  words={`${a.participant} ${a.words}`}
-                />
-              ))}
-            </View>
-          </View>
-        ))}
-      </View>
-    </Pressable>
-  );
-}
-
-function TaskRow({
-  row,
-  now,
-  on,
-  onPress,
-}: {
-  row: ListRow;
-  now: number;
-  on: boolean;
-  onPress: () => void;
-}) {
-  const { c } = useLook();
-  const dot = rowDot(row);
   return (
     <Pressable
       accessibilityRole="button"
@@ -270,16 +209,89 @@ function TaskRow({
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Txt lines={1}>
-            {row.head?.title ?? "Not among the last finished tasks"}
-          </Txt>
+          <Txt lines={1}>{title}</Txt>
         </View>
         <Txt size="sm" muted>
-          {row.head ? age(row.head.sentAt, now) : ""}
+          {trailing}
         </Txt>
         {dot ? <Dot tone={dot} /> : null}
       </View>
-      <Parts parts={rowLine(row, now)} />
+      {children}
     </Pressable>
+  );
+}
+
+// The agents at a glance: how many are ready and held, then each host and
+// its agents' marks; line 2 wraps when the hosts do not fit.
+function AgentsRow({
+  viewer,
+  on,
+  onPress,
+}: {
+  viewer: Viewer;
+  on: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <ListItem
+      title="Agents"
+      trailing={readiness(viewer.agents)}
+      on={on}
+      onPress={onPress}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          columnGap: 16,
+          rowGap: 2,
+        }}
+      >
+        {viewer.hosts.map((h) => (
+          <View
+            key={h.host}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+          >
+            <Txt size="sm" muted>
+              {h.host}
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 4 }}>
+              {h.agents.map((a) => (
+                <AgentMark
+                  key={a.key}
+                  state={a.state}
+                  label={`${a.participant} ${a.words}`}
+                />
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
+    </ListItem>
+  );
+}
+
+function TaskRow({
+  row,
+  now,
+  on,
+  onPress,
+}: {
+  row: ListRow;
+  now: number;
+  on: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <ListItem
+      title={row.head?.title ?? "Not among the last finished tasks"}
+      trailing={row.head ? age(row.head.sentAt, now) : ""}
+      dot={rowDot(row)}
+      on={on}
+      onPress={onPress}
+    >
+      <Parts parts={rowLine(row, now)} />
+    </ListItem>
   );
 }

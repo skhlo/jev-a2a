@@ -14,6 +14,7 @@ import {
   resolveWhy,
   type Agent,
   type Item,
+  type Viewer,
 } from "./format.ts";
 import {
   Button,
@@ -369,7 +370,7 @@ export function SubmitModal({
                       {p.participant} <Txt muted>{p.host}</Txt>
                     </Txt>
                   </View>
-                  <Txt muted={p.state !== "ready"}>{p.words}</Txt>
+                  <Txt muted>{p.words}</Txt>
                 </RadioRow>
               ))}
             </View>
@@ -443,5 +444,31 @@ export function CancelModal({
         </LookProvider>
       </Modal.Content>
     </Modal>
+  );
+}
+
+// Hold or Release a placement, on an open delivery's row and on the Agents
+// page.
+export function HoldButton({
+  host,
+  placement,
+  viewer,
+}: {
+  host: string;
+  placement: string;
+  viewer: Viewer;
+}) {
+  const held = viewer.onHold(placement);
+  const hold = useAct(host, useRpc(rpc.taskHold));
+  const release = useAct(host, useRpc(rpc.taskRelease));
+  if (held === null) return null;
+  const act = held ? release : hold;
+  return (
+    <Button
+      variant="outline"
+      label={held ? "Release" : "Hold"}
+      busy={act.isPending}
+      onPress={() => act.mutate({ placement })}
+    />
   );
 }

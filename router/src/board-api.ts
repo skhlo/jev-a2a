@@ -49,9 +49,7 @@ function timesOf(
 const taskRev = (t: TaskView, own: Record<string, string>): string =>
   digest({ t, own });
 
-// A delivery as the app reads it without the whole task: where it went,
-// its send, what it waits for, its latest update and the answer its open
-// turn took.
+// A delivery as a task head carries it (router/plugin/shared/rpc.ts).
 type HeadDelivery = {
   id: string;
   placement: string;
@@ -62,7 +60,7 @@ type HeadDelivery = {
   answered: { text: string; at: string | null } | null;
 };
 
-const deliveryOf = (
+const headDeliveryOf = (
   d: DeliveryView,
   own: Readonly<Record<string, string>>,
 ): HeadDelivery => {
@@ -80,8 +78,8 @@ const deliveryOf = (
   };
 };
 
-// One task as its list row needs it; router/plugin/shared/rpc.ts says what
-// each field means to the app.
+// One task as its list row and the Agents page need it;
+// router/plugin/shared/rpc.ts says what each field means to the app.
 export type TaskHead = {
   id: string;
   title: string;
@@ -129,10 +127,10 @@ function headOf(
         }
       : null,
     question: t.deliveries.find((d) => d.question)?.question?.text ?? null,
-    latest: last ? deliveryOf(last, own) : null,
+    latest: last ? headDeliveryOf(last, own) : null,
     deliveries: t.deliveries
       .filter((d) => !d.end)
-      .map((d) => deliveryOf(d, own)),
+      .map((d) => headDeliveryOf(d, own)),
     stale: staleTask(t, at, own),
     rev: taskRev(t, own),
   };

@@ -3,10 +3,8 @@
 // Log.
 import { useState } from "react";
 import { View } from "react-native";
-import { useRpc } from "@getpaseo/plugin/client";
-import * as rpc from "../shared/rpc.ts";
 import type { FullTask } from "../shared/rpc.ts";
-import { useAct, useTask } from "./data.ts";
+import { useTask } from "./data.ts";
 import {
   conversation,
   count,
@@ -23,7 +21,13 @@ import {
   type Item,
   type Viewer,
 } from "./format.ts";
-import { AnswerForm, CancelModal, ChooseForm, ResolveForm } from "./forms.tsx";
+import {
+  AnswerForm,
+  CancelModal,
+  ChooseForm,
+  HoldButton,
+  ResolveForm,
+} from "./forms.tsx";
 import {
   BackRow,
   Button,
@@ -43,7 +47,7 @@ type Props = {
   viewer: Viewer;
   now: number;
   // Where the back row returns: the list, or the Agents page.
-  back: string;
+  back: "Tasks" | "Agents";
   onBack: () => void;
 };
 
@@ -316,31 +320,5 @@ function Record({
         </View>
       </Section>
     </>
-  );
-}
-
-// Hold or Release a placement, on an open delivery's row and on the Agents
-// page.
-export function HoldButton({
-  host,
-  placement,
-  viewer,
-}: {
-  host: string;
-  placement: string;
-  viewer: Viewer;
-}) {
-  const held = viewer.onHold(placement);
-  const hold = useAct(host, useRpc(rpc.taskHold));
-  const release = useAct(host, useRpc(rpc.taskRelease));
-  if (held === null) return null;
-  const act = held ? release : hold;
-  return (
-    <Button
-      variant="outline"
-      label={held ? "Release" : "Hold"}
-      busy={act.isPending}
-      onPress={() => act.mutate({ placement })}
-    />
   );
 }

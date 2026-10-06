@@ -17,6 +17,8 @@ import { LookProvider, Txt, type Mode } from "./ui.tsx";
 
 const WIDE = 720;
 
+type Pick = "agents" | { task: string; fromAgents: boolean } | null;
+
 export function Board(props: PluginSurfaceProps) {
   // Another host is another board: start it afresh.
   return <Surface key={props.host.id} {...props} />;
@@ -41,13 +43,16 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
   // Serve's clock, read at each poll.
   const now = (summary.dataUpdatedAt || Date.now()) + (s?.skew ?? 0);
   const [submitting, setSubmitting] = useState(false);
-  // The task the viewer picked. Wide, the detail otherwise shows the
-  // board's first pick, pinned once shown so that an action or a poll
-  // moving it down the list does not move the detail; narrower, only a
-  // pick opens a task. A task that has left the board gives way, as on
-  // the board.
-  const [picked, setPicked] = useState<string | null>(null);
+  // What the viewer picked: the Agents page, or a task and whether it was
+  // opened from that page, so its back row returns there. Wide, the
+  // detail otherwise shows the board's first pick, pinned once shown so
+  // that an action or a poll moving it down the list does not move the
+  // detail; narrower, only a pick opens a task. A task that has left the
+  // board gives way, as on the board.
+  const [pick, setPick] = useState<Pick>(null);
   const [pinned, setPinned] = useState<string | null>(null);
+  const agents = pick === "agents";
+  const picked = pick !== null && pick !== "agents" ? pick.task : null;
   const onBoard = (id: string | null): id is string =>
     id !== null &&
     viewer !== null &&
@@ -57,23 +62,18 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
   useEffect(() => {
     if (!pinnedOn && first !== null) setPinned(first);
   }, [pinnedOn, first]);
-  const selected = onBoard(picked)
-    ? picked
-    : mode === "wide"
-      ? pinnedOn
-        ? pinned
-        : first
-      : null;
-  // The Agents page, when the viewer picked it over a task, and whether the
-  // picked task was opened from it, so its back row returns there.
-  const [agents, setAgents] = useState(false);
-  const [fromAgents, setFromAgents] = useState(false);
-  const openTask = (id: string, viaAgents: boolean) => {
-    setPicked(id);
-    setAgents(false);
-    setFromAgents(viaAgents);
-  };
-  const task = agents ? null : selected;
+  const task = agents
+    ? null
+    : onBoard(picked)
+      ? picked
+      : mode === "wide"
+        ? pinnedOn
+          ? pinned
+          : first
+        : null;
+  const fromAgents = pick !== null && pick !== "agents" && pick.fromAgents;
+  const openTask = (id: string, viaAgents: boolean) =>
+    setPick({ task: id, fromAgents: viaAgents });
   const look = useMemo(() => ({ c, mode }), [c, mode]);
 
   const body = () => {
@@ -94,7 +94,7 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
         selected={task}
         onSelect={(id) => openTask(id, false)}
         agentsOn={agents}
-        onAgents={() => setAgents(true)}
+        onAgents={() => setPick("agents")}
         onNew={() => setSubmitting(true)}
         error={summary.error ? summary.error.message : null}
       />
@@ -104,7 +104,7 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
         host={host.id}
         viewer={viewer}
         onOpen={(id) => openTask(id, true)}
-        onBack={() => setAgents(false)}
+        onBack={() => setPick(null)}
       />
     ) : task ? (
       <TaskDetail
@@ -114,11 +114,7 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
         viewer={viewer}
         now={now}
         back={fromAgents ? "Agents" : "Tasks"}
-        onBack={() => {
-          setPicked(null);
-          setAgents(fromAgents);
-          setFromAgents(false);
-        }}
+        onBack={() => setPick(fromAgents ? "agents" : null)}
       />
     ) : (
       <View style={{ flex: 1, padding: 24 }}>
@@ -147,7 +143,7 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
             host={host.id}
             open={submitting}
             onOpenChange={setSubmitting}
-            agents={viewer.hosts.flatMap((h) => h.agents)}
+            agents={viewer.agents}
             requester={viewer.requester}
             onSubmitted={(id) => openTask(id, false)}
           />

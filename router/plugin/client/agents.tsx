@@ -2,12 +2,12 @@
 // or Release lever and a line per open task it holds; a line opens the
 // task.
 import { Pressable, View } from "react-native";
-import { HoldButton } from "./detail.tsx";
-import { agentCount, count, taskLine, type Viewer } from "./format.ts";
+import { HoldButton } from "./forms.tsx";
+import { count, readiness, taskLine, type Viewer } from "./format.ts";
 import {
+  AgentMark,
   BackRow,
   CardRow,
-  Glyph,
   Page,
   Parts,
   Section,
@@ -27,7 +27,6 @@ export function AgentsPage({
   onBack: () => void;
 }) {
   const { mode } = useLook();
-  const agents = viewer.hosts.flatMap((h) => h.agents);
   return (
     <Page>
       <View style={{ marginBottom: 24, gap: 8 }}>
@@ -36,7 +35,7 @@ export function AgentsPage({
           Agents
         </Txt>
         <Txt size="sm" muted>
-          {`${count(agents.length, "agent")} on ${count(viewer.hosts.length, "host")} · ${agentCount(viewer.hosts)}`}
+          {`${count(viewer.agents.length, "agent")} on ${count(viewer.hosts.length, "host")} · ${readiness(viewer.agents)}`}
         </Txt>
       </View>
       {viewer.hosts.map((h) => (
@@ -46,7 +45,10 @@ export function AgentsPage({
               <View
                 style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
               >
-                <Glyph state={a.state} words={a.words} />
+                <AgentMark
+                  state={a.state}
+                  label={`${a.participant} ${a.words}`}
+                />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Txt lines={1}>{a.participant}</Txt>
                 </View>
@@ -63,6 +65,7 @@ export function AgentsPage({
                     key={t.delivery.id}
                     accessibilityRole="button"
                     onPress={() => onOpen(t.head.id)}
+                    style={{ paddingVertical: 6 }}
                   >
                     <Parts
                       parts={taskLine(t, viewer.asksViewer(t.delivery.id))}
@@ -78,9 +81,11 @@ export function AgentsPage({
           ))}
         </Section>
       ))}
-      <Txt size="sm" muted style={{ marginLeft: 4 }}>
-        Hold makes new sends to an agent wait until you release it
-      </Txt>
+      {viewer.identified ? (
+        <Txt size="sm" muted style={{ marginLeft: 4 }}>
+          Hold makes new sends to an agent wait until you release it
+        </Txt>
+      ) : null}
     </Page>
   );
 }

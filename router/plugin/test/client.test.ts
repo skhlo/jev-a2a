@@ -28,7 +28,7 @@ import type { Entry } from "../../src/journal.ts";
 import type { FullTask, Summary } from "../shared/rpc.ts";
 import {
   age,
-  agentCount,
+  readiness,
   conversation,
   count,
   countdown,
@@ -323,7 +323,7 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
 
 test("client: the agents read by host and participant, with their state and open tasks", () => {
   const viewer = viewerOf(board(sampleJournal).summary);
-  assert.equal(agentCount(viewer.hosts), "0 of 4 ready · 1 held");
+  assert.equal(readiness(viewer.agents), "0 of 4 ready · 1 held");
   assert.deepEqual(
     viewer.hosts.flatMap((h) =>
       h.agents.map(
