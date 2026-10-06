@@ -1,12 +1,16 @@
 // The board's words for the app: the HTML board's rules (src/board-parts.ts,
 // src/board-context.ts and src/board-tasks.ts) over the shapes serve's board
 // API returns, as the plugin design lays them out (skhlo/designs PR #21,
-// jev-a2a v0.14). Pure, so the tests run them in Node. The app evaluates
-// this in Hermes, so it keeps to ES2020 built-ins: no replaceAll and no
-// Array.at (tsconfig.client.json checks).
+// jev-a2a v0.14). The Agents rules and a row's line 2 are the design's
+// own: the board has no Agents page, and its row has two lines. Pure, so
+// the tests run them in Node. The app evaluates this in Hermes, so it
+// keeps to ES2020 built-ins: no replaceAll and no Array.at
+// (tsconfig.client.json checks).
 import type { FullTask, Summary } from "../shared/rpc.ts";
 
 type TaskHead = Summary["open"][number];
+type HeadDelivery = TaskHead["deliveries"][number];
+type Placement = Summary["placements"][number];
 type NeedsYouItem = Summary["needsYou"][number]["items"][number];
 type Task = FullTask["task"];
 type Delivery = Task["deliveries"][number];
@@ -160,6 +164,10 @@ export type Viewer = {
   // The principal a request is sent as, the actor's first requester.
   requester: string | null;
   identified: boolean;
+  // The agents by host, for the Agents row and page, and in that order
+  // for New task.
+  hosts: AgentHost[];
+  agents: Agent[];
 };
 
 export function viewerOf(s: Summary): Viewer {
@@ -217,8 +225,69 @@ export function viewerOf(s: Summary): Viewer {
       s.placements.find((p) => p.key === placement)?.hold ?? null,
     requester: signer("requester") ?? null,
     identified: actor !== null,
+    ...agentsOf(s),
   };
 }
+
+// ---- The agents (the design's Agents section) ----
+
+// An agent's state: held wins over ready, since a held agent takes no send.
+export type AgentState = "ready" | "not_ready" | "held";
+export type Agent = Placement & {
+  state: AgentState;
+  // "ready", "not ready", or "held · " and either.
+  words: string;
+  // One per open task with a delivery to it not yet ended.
+  tasks: { head: TaskHead; delivery: HeadDelivery }[];
+};
+export type AgentHost = { host: string; agents: Agent[] };
+
+const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+// Hosts by name and agents by participant, so the order holds between
+// polls.
+function agentsOf(s: Summary): { hosts: AgentHost[]; agents: Agent[] } {
+  const hosts = new Map<string, Agent[]>();
+  const sorted = [...s.placements].sort(
+    (a, b) => byName(a.host, b.host) || byName(a.participant, b.participant),
+  );
+  for (const p of sorted) {
+    const ready = p.ready ? "ready" : "not ready";
+    const agent: Agent = {
+      ...p,
+      state: p.hold ? "held" : p.ready ? "ready" : "not_ready",
+      words: p.hold ? `held · ${ready}` : ready,
+      tasks: s.open.flatMap((head) =>
+        head.deliveries
+          .filter((d) => d.placement === p.key)
+          .map((delivery) => ({ head, delivery })),
+      ),
+    };
+    hosts.set(p.host, [...(hosts.get(p.host) ?? []), agent]);
+  }
+  return {
+    hosts: [...hosts].map(([host, agents]) => ({ host, agents })),
+    agents: [...hosts.values()].flat(),
+  };
+}
+
+// "<n> of <m> ready", then "<n> held" when any is held.
+export function readiness(all: Agent[]): string {
+  const held = all.filter((a) => a.state === "held").length;
+  const ready = all.filter((a) => a.state === "ready").length;
+  return `${ready} of ${all.length} ready${held ? ` · ${held} held` : ""}`;
+}
+
+// A task line on the Agents page: the id, the delivery's state in its
+// pill's word and tone, then the title.
+export const taskLine = (
+  { head, delivery }: Agent["tasks"][number],
+  asksViewer: boolean,
+): Part[] => [
+  { text: head.id },
+  headDeliveryState(delivery, asksViewer),
+  { text: head.title },
+];
 
 // What an open delivery is, in the order the row and the delivery pill
 // read it (src/board-tasks.ts readingOf): what it waits for, the send while
@@ -245,9 +314,9 @@ function readingOf<A, U>(
 
 // ---- The list row ----
 
-// Line 2's rule, the HTML board's row sub: what the task waits on or last
+// Line 3's rule, the HTML board's row sub: what the task waits on or last
 // said, then its countdown.
-export function rowSub(h: TaskHead, now: number): Part[] {
+function rowSub(h: TaskHead, now: number): Part[] {
   if (h.status === "needs_recipient" && h.reason) {
     const j = h.judgment;
     const p = j?.probability;
@@ -283,36 +352,48 @@ export const verdict = (f: NonNullable<TaskHead["final"]>): Part[] => [
   ...(f.by ? [{ text: `by ${f.by}` }] : []),
 ];
 
-// Line 2 of a row, its parts joined by " · ": the id, the status (as the
-// board's row starts), whom it waits on besides the viewer, the sender's
-// placement for an open task another agent sent, the recipient, the sub,
-// and "no reply <age>" when stale.
-export function rowLine(row: ListRow, now: number): Part[] {
-  const others = row.items
-    .filter((it) => !it.mine)
-    .map((it): Part => ({ text: `waits on ${it.principal}` }));
+// A row's lines under its title, each of parts joined by " · " (the
+// design's own rule): line 2 the id, who sent it to whom (from whom until
+// a recipient is chosen) and the status; line 3 whom it waits on besides
+// the viewer, the sub, and "no reply <age>" when stale. A row whose task
+// has left the board reads its resolve item on line 2 alone.
+export function rowLines(row: ListRow, now: number): Part[][] {
   const h = row.head;
   if (!h) {
     const it = row.items[0]?.item;
     return [
-      { text: row.id },
-      ...(it?.kind === "resolve"
-        ? [
-            { text: it.deliveryId },
-            { text: `send ${it.messageId}` },
-            { text: label(it.reason) },
-          ]
-        : []),
+      [
+        { text: row.id },
+        ...(it?.kind === "resolve"
+          ? [
+              { text: it.deliveryId },
+              { text: `send ${it.messageId}` },
+              { text: label(it.reason) },
+            ]
+          : []),
+      ],
     ];
   }
+  const from = sender(h.source);
   return [
-    { text: h.id },
-    { text: label(h.status) },
-    ...others,
-    ...(h.via !== null && !h.final ? [{ text: `from ${h.via}` }] : []),
-    { text: h.recipient ?? "no recipient" },
-    ...rowSub(h, now),
-    ...(h.stale ? [{ text: h.stale, tone: "warn" as const }] : []),
+    [
+      { text: h.id },
+      {
+        text:
+          h.recipient === null ? `from ${from}` : `${from} → ${h.recipient}`,
+      },
+      { text: label(h.status) },
+    ],
+    [
+      // Each principal once, as on the board.
+      ...[
+        ...new Set(
+          row.items.filter((it) => !it.mine).map((it) => it.principal),
+        ),
+      ].map((principal): Part => ({ text: `waits on ${principal}` })),
+      ...rowSub(h, now),
+      ...(h.stale ? [{ text: h.stale, tone: "warn" as const }] : []),
+    ],
   ];
 }
 
@@ -369,27 +450,48 @@ const answered = (d: Delivery): boolean =>
   !d.question &&
   d.sends.find((s) => s.messageId === d.send.messageId)?.kind === "answer";
 
-// A delivery row's state pill; a question is in the warning role while it
-// asks the viewer.
-export function deliveryState(d: Delivery, asksViewer: boolean): Part {
-  if (d.end) return { text: d.end.reason };
-  const r = readingOf(d.waits, d.send.outcome, answered(d) || null, d.latest);
+// An open delivery's state word; a question is in the warning role while
+// it asks the viewer (asksViewer holds only while one waits).
+function stateOf(
+  r: Reading<unknown, { kind: string }>,
+  placement: string,
+  send: string,
+  asksViewer: boolean,
+): Part {
   switch (r.kind) {
     case "waits":
-      return { text: waitWords(d.placement, r.waits) };
+      return { text: waitWords(placement, r.waits) };
     case "unaccepted":
-      return { text: `${d.send.kind} ${d.send.outcome}` };
+      return { text: send };
     case "answered":
       return { text: "answered" };
     case "updated":
-      return {
-        text: r.update.kind,
-        ...(d.question && asksViewer ? { tone: "warn" } : {}),
-      };
+      return { text: r.update.kind, ...(asksViewer ? { tone: "warn" } : {}) };
     case "delivered":
       return { text: "delivered" };
   }
 }
+
+// An open delivery's state from the summary alone, as deliveryState reads
+// the whole delivery.
+export const headDeliveryState = (d: HeadDelivery, asksViewer: boolean) =>
+  stateOf(
+    readingOf(d.waits, d.outcome, d.answered, d.update),
+    d.placement,
+    `${d.sendKind} ${d.outcome}`,
+    asksViewer,
+  );
+
+// A delivery row's state pill.
+export const deliveryState = (d: Delivery, asksViewer: boolean): Part =>
+  d.end
+    ? { text: d.end.reason }
+    : stateOf(
+        readingOf(d.waits, d.send.outcome, answered(d) || null, d.latest),
+        d.placement,
+        `${d.send.kind} ${d.send.outcome}`,
+        asksViewer,
+      );
 
 // A delivery row's second line.
 export function deliveryLine(d: Delivery, times: Record<string, string>) {

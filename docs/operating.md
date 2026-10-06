@@ -171,15 +171,18 @@ to serve's API on `serve.board` (below), so the app sees what the board
 page sees, and acts as the CLI on the router host does without `--as`:
 as the first principal of each role.
 
-In the app, the plugin adds Jev to the sidebar: the board's tasks in
-Needs you, In flight and Done, and the selected task with its record. A
-group's heading collapses or opens it; the app remembers which until it
-restarts.
-Your answer, choose and resolve items are forms there, an open delivery
-has Hold, any delivery on a held placement has Release, and New task
-and Cancel task open a dialog. The surface asks for the summary every 5
-seconds while it is shown, and fetches a task again only when it
-changed.
+In the app, the plugin adds Jev to the sidebar: an Agents row, the
+board's tasks in Needs you, In flight and Done, and the selected task
+with its record. A task's row reads its title, then who sent it to
+whom and its status, then what it waits on or last said. A group's
+heading collapses or opens it; the app remembers which until it
+restarts. The Agents row counts the agents
+ready and held and marks each by host; it opens the Agents page, with
+each agent's state, Hold or Release, and its open tasks. Your answer,
+choose and resolve items are forms in a task, an open delivery has Hold
+or Release, and New task and Cancel task open a dialog. The surface
+asks for the summary every 5 seconds while it is shown, and fetches a
+task again only when it changed.
 
 The plugin reads the configuration at the default path, or at the
 daemon's `$ROUTER_CONFIG`; a `--config` or `ROUTER_CONFIG` given only to

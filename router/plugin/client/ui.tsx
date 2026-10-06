@@ -1,9 +1,9 @@
 // The surface's small parts, drawn from the plugin theme's colours and
-// Paseo's scales only (the design's tokens): text, buttons, pills, dots,
-// radios and card rows. The layout mode rides along, since it sizes the
+// Paseo's scales only (the design's tokens): the page and its back row,
+// text, buttons, pills, dots, agent marks, radios and card rows. The layout mode rides along, since it sizes the
 // form buttons.
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { createContext, useContext, type ReactNode } from "react";
 import {
@@ -15,7 +15,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
-import type { Part, Tone } from "./format.ts";
+import type { Agent, Part, Tone } from "./format.ts";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 // wide: list and detail side by side; single: one pane at a time; compact:
@@ -224,6 +224,100 @@ export function Dot({ tone }: { tone: Tone }) {
         backgroundColor: toneColor(c, tone),
       }}
     />
+  );
+}
+
+// A page in the detail pane, or the whole surface when narrow: one column
+// at most 720 wide, centred.
+export function Page({ children }: { children: ReactNode }) {
+  const { mode } = useLook();
+  return (
+    <ScrollView style={{ flex: 1 }}>
+      <View
+        style={{
+          width: "100%",
+          maxWidth: 720,
+          alignSelf: "center",
+          paddingHorizontal: 16,
+          paddingTop: mode === "wide" ? 24 : 4,
+          paddingBottom: 32,
+        }}
+      >
+        {children}
+      </View>
+    </ScrollView>
+  );
+}
+
+// A narrow page's way back, named for where it goes.
+export function BackRow({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const { c } = useLook();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Back to ${label.toLowerCase()}`}
+      onPress={onPress}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        height: 44,
+        marginLeft: -4,
+      }}
+    >
+      <Icon name="ChevronLeft" size={20} color={c.foregroundMuted} />
+      <Txt muted>{label}</Txt>
+    </Pressable>
+  );
+}
+
+// An agent's mark, one Lucide Bot at 16 px so that one mark reads as one
+// agent, its shape carrying the state with its colour: ready the Bot with
+// Paseo's online dot on its lower right, ringed in the surface under it;
+// not ready a muted Bot; held a muted BotOff, since a held agent takes no
+// send.
+export function AgentMark({
+  agent: { participant, state, words },
+  behind,
+}: {
+  agent: Agent;
+  // The colour of the surface the mark sits on.
+  behind: string;
+}) {
+  const { c } = useLook();
+  return (
+    <View
+      accessible
+      accessibilityLabel={`${participant} ${words}`}
+      style={{ width: 16, height: 16 }}
+    >
+      <Icon
+        name={state === "held" ? "BotOff" : "Bot"}
+        size={16}
+        color={state === "ready" ? c.foreground : c.foregroundMuted}
+      />
+      {state === "ready" ? (
+        <View
+          style={{
+            position: "absolute",
+            right: -3,
+            bottom: -2,
+            width: 6,
+            height: 6,
+            borderRadius: 999,
+            borderWidth: 1.5,
+            borderColor: behind,
+            backgroundColor: c.statusSuccess,
+          }}
+        />
+      ) : null}
+    </View>
   );
 }
 

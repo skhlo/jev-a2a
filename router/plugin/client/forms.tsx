@@ -1,15 +1,23 @@
 // The viewer's forms: answer, choose and resolve for its own needs-you
-// items, and the New task and Cancel task modals. Each sends one RPC
-// through useAct (data.ts).
+// items, the New task and Cancel task modals, and Hold or Release. Each
+// sends one RPC through useAct (data.ts).
 import { useRpc } from "@getpaseo/plugin/client";
-import { Modal, TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
 import { View } from "react-native";
 import * as rpc from "../shared/rpc.ts";
-import type { Acted, FullTask, Summary } from "../shared/rpc.ts";
+import type { Acted, FullTask } from "../shared/rpc.ts";
 import { useAct, useMessageId } from "./data.ts";
-import { firstLine, label, resolveWhy, type Item } from "./format.ts";
 import {
+  firstLine,
+  label,
+  resolveWhy,
+  type Agent,
+  type Item,
+  type Viewer,
+} from "./format.ts";
+import {
+  AgentMark,
   Button,
   CardRow,
   FormFoot,
@@ -277,19 +285,19 @@ function Field({
 }
 
 // New task: the request, then whom to send it to: Jev's choice, or one
-// placement with its host and readiness.
+// agent with its host and state words, in the Agents order.
 export function SubmitModal({
   host,
   open,
   onOpenChange,
-  placements,
+  agents,
   requester,
   onSubmitted,
 }: {
   host: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  placements: Summary["placements"];
+  agents: Agent[];
   // Who the request is sent as; without one, nobody may submit.
   requester: string | null;
   onSubmitted: (taskId: string) => void;
@@ -310,9 +318,9 @@ export function SubmitModal({
     setTo(key);
     next();
   };
-  // A placement the roster no longer lists reads, and sends, as Jev's
+  // An agent the roster no longer lists reads, and sends, as Jev's
   // choice.
-  const placement = placements.find((p) => p.key === to);
+  const agent = agents.find((p) => p.key === to);
   return (
     <Modal title="New task" open={open} onOpenChange={onOpenChange}>
       <Modal.Content>
@@ -349,21 +357,23 @@ export function SubmitModal({
                 overflow: "hidden",
               }}
             >
-              <RadioRow first on={!placement} onPress={() => choose(null)}>
+              <RadioRow first on={!agent} onPress={() => choose(null)}>
+                <Icon name="Route" size={16} color={c.foregroundMuted} />
                 <Txt>Let Jev choose</Txt>
               </RadioRow>
-              {placements.map((p) => (
+              {agents.map((p) => (
                 <RadioRow
                   key={p.key}
-                  on={p === placement}
+                  on={p === agent}
                   onPress={() => choose(p.key)}
                 >
+                  <AgentMark agent={p} behind={c.surface1} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Txt lines={1}>
                       {p.participant} <Txt muted>{p.host}</Txt>
                     </Txt>
                   </View>
-                  <Txt muted={!p.ready}>{p.ready ? "ready" : "not ready"}</Txt>
+                  <Txt muted>{p.words}</Txt>
                 </RadioRow>
               ))}
             </View>
@@ -380,8 +390,8 @@ export function SubmitModal({
                   send.mutate({
                     text,
                     messageId,
-                    ...(placement
-                      ? { to: placement.participant, host: placement.host }
+                    ...(agent
+                      ? { to: agent.participant, host: agent.host }
                       : {}),
                   }),
               },
@@ -437,5 +447,31 @@ export function CancelModal({
         </LookProvider>
       </Modal.Content>
     </Modal>
+  );
+}
+
+// Hold or Release a placement, on an open delivery's row and on the Agents
+// page.
+export function HoldButton({
+  host,
+  placement,
+  viewer,
+}: {
+  host: string;
+  placement: string;
+  viewer: Viewer;
+}) {
+  const held = viewer.onHold(placement);
+  const hold = useAct(host, useRpc(rpc.taskHold));
+  const release = useAct(host, useRpc(rpc.taskRelease));
+  if (held === null) return null;
+  const act = held ? release : hold;
+  return (
+    <Button
+      variant="outline"
+      label={held ? "Release" : "Hold"}
+      busy={act.isPending}
+      onPress={() => act.mutate({ placement })}
+    />
   );
 }

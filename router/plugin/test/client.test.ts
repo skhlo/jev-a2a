@@ -28,23 +28,25 @@ import type { Entry } from "../../src/journal.ts";
 import type { FullTask, Summary } from "../shared/rpc.ts";
 import {
   age,
+  readiness,
   conversation,
   count,
   countdown,
   deliveryLine,
   deliveryState,
   firstLine,
+  headDeliveryState,
   itemWaits,
   judgmentLines,
   label,
   metaLine,
   resolveWhy,
   rowDot,
-  rowLine,
-  rowSub,
+  rowLines,
   shortSession,
   span,
   statusTone,
+  taskLine,
   time,
   verdict,
   viewerOf,
@@ -54,15 +56,19 @@ import {
 } from "../client/format.ts";
 
 // The board as serve's API gives it to the fixture's operator login, or
-// to a viewer serve cannot identify.
-function board(entries: Entry[], login: string | null = "me@example.com") {
+// to a viewer serve cannot identify, at the fixture's clock or later.
+function board(
+  entries: Entry[],
+  login: string | null = "me@example.com",
+  at = NOW,
+) {
   const actor = login
     ? identify({ "tailscale-user-login": login }, config.serve.identities)
     : null;
   const model = boardModel(
-    boardState(config, entries, NOW),
+    boardState(config, entries, at),
     config,
-    NOW,
+    at,
     messageTimes(entries),
     actor,
   );
@@ -88,23 +94,26 @@ const plain = (html: string): string =>
 
 const words = (parts: Part[]): string =>
   parts.map((p) => (p.tone ? `${p.text} [${p.tone}]` : p.text)).join(" · ");
+// A row's dot, then its lines 2 and 3 split by " / ".
 const lines = (rows: ListRow[]): string[] =>
-  rows.map((r) => `${rowDot(r) ?? "-"} ${words(rowLine(r, NOW))}`);
+  rows.map(
+    (r) => `${rowDot(r) ?? "-"} ${rowLines(r, NOW).map(words).join(" / ")}`,
+  );
 
 test("client: the list groups the viewer's tasks and each row reads as the board's", () => {
   const { summary } = board(sampleJournal);
   const viewer = viewerOf(summary);
   assert.deepEqual(lines(viewer.needs), [
-    "warn T2 · needs answer · orchestrator · Force push?",
-    "warn T6 · needs recipient · no recipient · low confidence · Jev environment 0.62",
+    "warn T2 · you → orchestrator · needs answer / Force push?",
+    "warn T6 · from you · needs recipient / low confidence · Jev environment 0.62",
   ]);
   assert.deepEqual(lines(viewer.flight), [
-    "- T4 · working · knowledge · Reading the notes · 55m left",
-    "- T1 · queued · orchestrator · waits for orchestrator@mbp to be ready · 17m left",
+    "- T4 · you → knowledge · working / Reading the notes · 55m left",
+    "- T1 · you → orchestrator · queued / waits for orchestrator@mbp to be ready · 17m left",
   ]);
   assert.deepEqual(lines(viewer.done), [
-    "- T5 · completed · incus · 1 of 1 delivery",
-    "- T3 · completed · orchestrator · 1 of 1 delivery",
+    "- T5 · orchestrator → incus · completed / 1 of 1 delivery",
+    "- T3 · you → orchestrator · completed / 1 of 1 delivery",
   ]);
   // The forms are the viewer's: it signs both items as their principal.
   assert.deepEqual(
@@ -141,28 +150,40 @@ test("client: each row's reading is the HTML board's row for the same record", (
           html.slice(at),
         );
       assert.ok(sub?.[1] !== undefined, `${row.id} has a sub line`);
-      const app = row.head
-        ? [
-            ...row.items
-              .filter((it) => !it.mine)
-              .map((it) => `waits on ${it.principal}`),
-            ...rowSub(row.head, NOW).map((p) => p.text),
-          ]
-        : rowLine(row, NOW)
-            .slice(1)
-            .map((p) => p.text);
+      const [line2 = [], line3 = []] = rowLines(row, NOW);
+      // The board keeps the stale warning off its sub line.
+      const sub3 = row.head?.stale ? line3.slice(0, -1) : line3;
+      const app = (row.head ? sub3 : line2.slice(1)).map((p) => p.text);
       assert.equal(app.join(" · "), plain(sub[1]), row.id);
       if (row.head) {
         const state =
           /<div class="line2"><span class="state"[^>]*>([^<]*)</.exec(
             html.slice(at),
           )?.[1];
-        assert.equal(rowLine(row, NOW)[1]?.text, state, `${row.id}'s status`);
+        assert.equal(line2[2]?.text, state, `${row.id}'s status`);
       }
       rows += 1;
     }
   }
   assert.ok(rows >= 25, `${rows} rows compared`);
+});
+
+test("client: a stale row ends line 3 with the board's stale words", () => {
+  const later = NOW + 40 * 60_000;
+  const { summary, page } = board(deliveredJournal, "me@example.com", later);
+  const html = page();
+  const viewer = viewerOf(summary);
+  const stale = [...viewer.needs, ...viewer.flight].filter(
+    (r) => r.head?.stale,
+  );
+  assert.ok(stale.length > 0, "a delivered task is stale 40 minutes on");
+  for (const row of stale) {
+    const at = html.indexOf(`data-task="${row.id}"`);
+    const words = /class="stale[^"]*"[^>]*>([^<]*)</.exec(html.slice(at))?.[1];
+    assert.deepEqual(rowLines(row, later)[1]?.slice(-1), [
+      { text: words, tone: "warn" },
+    ]);
+  }
 });
 
 test("client: the detail's delivery states, chosen-by words and resolve sentences are the HTML board's", () => {
@@ -276,7 +297,7 @@ test("client: an item the viewer may not act on reads as the board's, without a 
   assert.ok(compared >= 3, `${compared} items compared`);
 });
 
-test("client: an item of a principal the viewer lacks waits on it; one whose task left the board keeps a row", () => {
+test("client: items of a principal the viewer lacks wait on it, named once; one whose task left the board keeps a row", () => {
   const { summary } = board(replacedJournal);
   const [requester, operator] = summary.needsYou;
   assert.ok(requester && operator);
@@ -285,7 +306,17 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
   const other: Summary = {
     ...summary,
     needsYou: [
-      { ...requester, principal: "alice", items: requester.items },
+      // Two of alice's items on T2, as two deliveries' questions.
+      {
+        ...requester,
+        principal: "alice",
+        items: [
+          ...requester.items,
+          ...requester.items
+            .filter((it) => it.taskId === "T2")
+            .map((it) => ({ ...it, deliveryId: "D99" })),
+        ],
+      },
       {
         ...operator,
         items: [...operator.items, { ...resolve, taskId: "T99" }],
@@ -295,10 +326,10 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
   const viewer = viewerOf(other);
   const t2 = viewer.flight.find((r) => r.id === "T2");
   assert.ok(t2, "alice's question leaves T2 in flight");
-  assert.match(
-    words(rowLine(t2, NOW)),
-    /^T2 · needs answer · waits on alice · /,
-  );
+  assert.deepEqual(rowLines(t2, NOW).map(words), [
+    "T2 · you → orchestrator · needs answer",
+    "waits on alice · Force push?",
+  ]);
   assert.equal(rowDot(t2), null);
   // alice's question is no warning to the viewer, as on the board.
   const asked = requester.items.find((it) => it.kind === "answer");
@@ -312,10 +343,83 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
   const orphan = viewer.needs.find((r) => r.id === "T99");
   assert.ok(orphan);
   assert.equal(orphan.head, null);
-  assert.equal(
-    words(rowLine(orphan, NOW)),
+  assert.deepEqual(rowLines(orphan, NOW).map(words), [
     `T99 · ${resolve.deliveryId} · send ${resolve.messageId} · session replaced`,
+  ]);
+});
+
+test("client: the agents read by host and participant, with their state and open tasks", () => {
+  const viewer = viewerOf(board(sampleJournal).summary);
+  assert.equal(readiness(viewer.agents), "0 of 4 ready · 1 held");
+  assert.deepEqual(
+    viewer.hosts.flatMap((h) =>
+      h.agents.map(
+        (a) =>
+          `${h.host} ${a.participant} [${a.state}] ${a.words}: ${
+            a.tasks
+              .map((t) => words(taskLine(t, viewer.asksViewer(t.delivery.id))))
+              .join(" | ") || "no open task"
+          }`,
+      ),
+    ),
+    [
+      "mbp environment [held] held · ready: no open task",
+      "mbp orchestrator [not_ready] not ready: T2 · question [warn] · Ask me something | T1 · waits for orchestrator@mbp to be ready · Fix <b>the</b> build",
+      "mini environment [not_ready] not ready: no open task",
+      "mini knowledge [not_ready] not ready: T4 · working · Summarize the review pipeline notes",
+    ],
   );
+});
+
+test("client: hosts sort by name, whatever their agents are called", () => {
+  // incus@lab01 comes last in the summary and sorts after environment@mbp
+  // by participant, but its host sorts first.
+  const { summary } = board(sampleJournal);
+  const { hosts } = viewerOf({
+    ...summary,
+    placements: [
+      ...summary.placements,
+      {
+        key: "incus@lab01",
+        participant: "incus",
+        host: "lab01",
+        ready: true,
+        hold: false,
+      },
+    ],
+  });
+  assert.deepEqual(
+    hosts.map((h) => h.host),
+    ["lab01", "mbp", "mini"],
+  );
+});
+
+test("client: a task line's state is its delivery's pill, read from the summary alone", () => {
+  let lines = 0;
+  for (const entries of [
+    sampleJournal,
+    attemptingJournal,
+    replacedJournal,
+    answeredJournal,
+    deliveredJournal,
+    viaJournal,
+  ]) {
+    const { summary, task } = board(entries);
+    const viewer = viewerOf(summary);
+    for (const head of [...summary.open, ...summary.finished])
+      for (const d of head.deliveries) {
+        const full = task(head.id).task.deliveries.find((x) => x.id === d.id);
+        assert.ok(full && !full.end, `${d.id} is open`);
+        const asks = viewer.asksViewer(d.id);
+        assert.deepEqual(
+          headDeliveryState(d, asks),
+          deliveryState(full, asks),
+          d.id,
+        );
+        lines += 1;
+      }
+  }
+  assert.ok(lines >= 10, `${lines} deliveries compared`);
 });
 
 test("client: only the sender cancels, and only an open task", () => {

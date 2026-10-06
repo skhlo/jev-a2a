@@ -1,11 +1,13 @@
 // The Jev board surface. Its arrangement follows its own width, since the
 // app sidebar takes a share of the window: wide (720 px or more) shows the
-// list and the selected task side by side; narrower shows one at a time,
-// with phone controls when the app is compact. The selection lives here;
-// surfaces take no params, so a reload returns to the list.
+// list and the selected task or the Agents page side by side; narrower
+// shows one at a time, with phone controls when the app is compact. The
+// selection lives here; surfaces take no params, so a reload returns to the
+// list.
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
+import { AgentsPage } from "./agents.tsx";
 import { useSummary } from "./data.ts";
 import { TaskDetail } from "./detail.tsx";
 import { SubmitModal } from "./forms.tsx";
@@ -14,6 +16,8 @@ import { TaskList } from "./list.tsx";
 import { LookProvider, Txt, type Mode } from "./ui.tsx";
 
 const WIDE = 720;
+
+type Shown = "agents" | { task: string; fromAgents: boolean } | null;
 
 export function Board(props: PluginSurfaceProps) {
   // Another host is another board: start it afresh.
@@ -39,13 +43,16 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
   // Serve's clock, read at each poll.
   const now = (summary.dataUpdatedAt || Date.now()) + (s?.skew ?? 0);
   const [submitting, setSubmitting] = useState(false);
-  // The task the viewer picked. Wide, the detail otherwise shows the
-  // board's first pick, pinned once shown so that an action or a poll
-  // moving it down the list does not move the detail; narrower, only a
-  // pick opens a task. A task that has left the board gives way, as on
-  // the board.
-  const [picked, setPicked] = useState<string | null>(null);
+  // What the viewer picked: the Agents page, or a task and whether it was
+  // opened from that page, so its back row returns there. Wide, the
+  // detail otherwise shows the board's first pick, pinned once shown so
+  // that an action or a poll moving it down the list does not move the
+  // detail; narrower, only a pick opens a task. A task that has left the
+  // board gives way, as on the board.
+  const [pick, setPick] = useState<Shown>(null);
   const [pinned, setPinned] = useState<string | null>(null);
+  const agents = pick === "agents";
+  const picked = pick !== null && pick !== "agents" ? pick.task : null;
   const onBoard = (id: string | null): id is string =>
     id !== null &&
     viewer !== null &&
@@ -55,13 +62,18 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
   useEffect(() => {
     if (!pinnedOn && first !== null) setPinned(first);
   }, [pinnedOn, first]);
-  const selected = onBoard(picked)
-    ? picked
-    : mode === "wide"
-      ? pinnedOn
-        ? pinned
-        : first
-      : null;
+  const task = agents
+    ? null
+    : onBoard(picked)
+      ? picked
+      : mode === "wide"
+        ? pinnedOn
+          ? pinned
+          : first
+        : null;
+  const fromAgents = pick !== null && pick !== "agents" && pick.fromAgents;
+  const openTask = (id: string, viaAgents: boolean) =>
+    setPick({ task: id, fromAgents: viaAgents });
   const look = useMemo(() => ({ c, mode }), [c, mode]);
 
   const body = () => {
@@ -79,20 +91,30 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
       <TaskList
         viewer={viewer}
         now={now}
-        selected={selected}
-        onSelect={setPicked}
+        selected={task}
+        onSelect={(id) => openTask(id, false)}
+        agentsOn={agents}
+        onAgents={() => setPick("agents")}
         onNew={() => setSubmitting(true)}
         error={summary.error ? summary.error.message : null}
       />
     );
-    const detail = selected ? (
-      <TaskDetail
-        key={selected}
+    const detail = agents ? (
+      <AgentsPage
         host={host.id}
-        id={selected}
+        viewer={viewer}
+        onOpen={(id) => openTask(id, true)}
+        onBack={() => setPick(null)}
+      />
+    ) : task ? (
+      <TaskDetail
+        key={task}
+        host={host.id}
+        id={task}
         viewer={viewer}
         now={now}
-        onBack={() => setPicked(null)}
+        back={fromAgents ? "Agents" : "Tasks"}
+        onBack={() => setPick(fromAgents ? "agents" : null)}
       />
     ) : (
       <View style={{ flex: 1, padding: 24 }}>
@@ -106,7 +128,7 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
           {detail}
         </>
       );
-    return selected ? detail : list;
+    return agents || task ? detail : list;
   };
 
   return (
@@ -121,9 +143,9 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
             host={host.id}
             open={submitting}
             onOpenChange={setSubmitting}
-            placements={s.placements}
+            agents={viewer.agents}
             requester={viewer.requester}
-            onSubmitted={setPicked}
+            onSubmitted={(id) => openTask(id, false)}
           />
         ) : null}
       </View>

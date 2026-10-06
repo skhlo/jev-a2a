@@ -1,11 +1,20 @@
-// The task list: Needs you, In flight and Done (the last ten), each row the
-// title, its age and a dot, then line 2 (format.ts rowLine). A group's
-// heading collapses it to the heading and its count, as on the board.
+// The task list: the Agents row, then Needs you, In flight and Done (the
+// last ten), each row the title, its age and a dot, then lines 2 and 3
+// (format.ts rowLines). A group's heading collapses it to the heading and
+// its count, as on the board.
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
-import { age, rowDot, rowLine, type ListRow, type Viewer } from "./format.ts";
-import { Button, Dot, Parts, Txt, useLook } from "./ui.tsx";
+import {
+  age,
+  readiness,
+  rowDot,
+  rowLines,
+  type ListRow,
+  type Tone,
+  type Viewer,
+} from "./format.ts";
+import { AgentMark, Button, Dot, Parts, Txt, useLook } from "./ui.tsx";
 
 // The collapsed groups, kept while the app runs: the board keeps them on
 // the device, but the plugin SDK has no device storage.
@@ -16,6 +25,9 @@ type Props = {
   now: number;
   selected: string | null;
   onSelect: (id: string) => void;
+  // Whether the Agents page is shown, and showing it.
+  agentsOn: boolean;
+  onAgents: () => void;
   onNew: () => void;
   // Why the summary failed, while it does.
   error: string | null;
@@ -26,6 +38,8 @@ export function TaskList({
   now,
   selected,
   onSelect,
+  agentsOn,
+  onAgents,
   onNew,
   error,
 }: Props) {
@@ -130,6 +144,7 @@ export function TaskList({
           paddingBottom: compact ? 72 : 24,
         }}
       >
+        <AgentsRow viewer={viewer} on={agentsOn} onPress={onAgents} />
         {group("Needs you", String(viewer.needs.length), viewer.needs)}
         {group("In flight", String(viewer.flight.length), viewer.flight)}
         {group("Done", `last ${viewer.done.length}`, viewer.done)}
@@ -160,19 +175,24 @@ export function TaskList({
   );
 }
 
-function TaskRow({
-  row,
-  now,
+// A row of the list: line 1 a title, maybe its trailing words and a dot;
+// then its other lines. Selected, it takes the surface2 fill.
+function ListItem({
+  title,
+  trailing,
+  dot,
   on,
   onPress,
+  children,
 }: {
-  row: ListRow;
-  now: number;
+  title: string;
+  trailing?: string;
+  dot?: Tone | null;
   on: boolean;
   onPress: () => void;
+  children: ReactNode;
 }) {
   const { c } = useLook();
-  const dot = rowDot(row);
   return (
     <Pressable
       accessibilityRole="button"
@@ -189,16 +209,93 @@ function TaskRow({
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Txt lines={1}>
-            {row.head?.title ?? "Not among the last finished tasks"}
-          </Txt>
+          <Txt lines={1}>{title}</Txt>
         </View>
-        <Txt size="sm" muted>
-          {row.head ? age(row.head.sentAt, now) : ""}
-        </Txt>
+        {trailing ? (
+          <Txt size="sm" muted>
+            {trailing}
+          </Txt>
+        ) : null}
         {dot ? <Dot tone={dot} /> : null}
       </View>
-      <Parts parts={rowLine(row, now)} />
+      {children}
     </Pressable>
+  );
+}
+
+// The agents at a glance, in a task row's three lines: the title, how
+// many are ready and held, then each host and its agents' marks, wrapping
+// when the hosts do not fit.
+function AgentsRow({
+  viewer,
+  on,
+  onPress,
+}: {
+  viewer: Viewer;
+  on: boolean;
+  onPress: () => void;
+}) {
+  const { c } = useLook();
+  return (
+    <ListItem title="Agents" on={on} onPress={onPress}>
+      <Txt size="sm" muted lines={1}>
+        {readiness(viewer.agents)}
+      </Txt>
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          columnGap: 16,
+          rowGap: 2,
+        }}
+      >
+        {viewer.hosts.map((h) => (
+          <View
+            key={h.host}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          >
+            <Txt size="sm" muted>
+              {h.host}
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 4 }}>
+              {h.agents.map((a) => (
+                <AgentMark
+                  key={a.key}
+                  agent={a}
+                  behind={on ? c.surface2 : c.surface0}
+                />
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
+    </ListItem>
+  );
+}
+
+function TaskRow({
+  row,
+  now,
+  on,
+  onPress,
+}: {
+  row: ListRow;
+  now: number;
+  on: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <ListItem
+      title={row.head?.title ?? "Not among the last finished tasks"}
+      trailing={row.head ? age(row.head.sentAt, now) : ""}
+      dot={rowDot(row)}
+      on={on}
+      onPress={onPress}
+    >
+      {rowLines(row, now).map((parts, i) =>
+        parts.length ? <Parts key={i} parts={parts} /> : null,
+      )}
+    </ListItem>
   );
 }
