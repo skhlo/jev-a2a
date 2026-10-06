@@ -152,6 +152,7 @@ a user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)
 | `router run`                                     | Observe the sessions and deliver what is eligible, once                                                      |
 | `router serve`                                   | Accept events from other hosts; serve the board; keep looking                                                |
 | `router host setup <host>`                       | Install or update `router` on a host reached over ssh, with its token, and check it there                    |
+| `router roster repoint <participant@host> <id>`  | Point a placement at its new Paseo session, restart `serve` and see it bound                                 |
 
 Agents use `router reply`. `router observe <placement> --hold` keeps the
 router from sending to a session a person is typing in; `router resolve`

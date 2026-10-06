@@ -74,6 +74,18 @@ named by anything but its full id, or a terminal for a participant that is
 `idempotent: true`. When a terminal is sent to is in the contract's
 adapters section ([jev-router-spec.md](research/jev-router-spec.md)).
 
+A Paseo daemon restart closes terminals, and a reopened terminal or a
+cleared agent context gets a new id. `router roster repoint
+<participant@host> <session>` points the placement at it:
+
+- It refuses a session the host's Paseo does not know, or one the record
+  has seen, which the record would refuse to bind.
+- For a terminal it sets the participant `idempotent: false`; for an agent
+  it drops the placement's `terminals` entry.
+- It writes the file only once it loads, keeping the old one as
+  `config.json.bak-<time>`.
+- It restarts `jev-router` and waits for `serve` to bind the new session.
+
 ### `terminals`
 
 Placement key to the CLI its terminal runs, for a terminal placement that

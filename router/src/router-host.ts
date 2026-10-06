@@ -43,6 +43,7 @@ import { openShell, type ShellOptions } from "./shell.ts";
 import { writeTelemetry } from "./telemetry.ts";
 import { actingAs, runCommand } from "./commands.ts";
 import { overSsh, serveCheck, setupHost } from "./host-setup.ts";
+import { repoint } from "./roster.ts";
 import { invocation, UsageError } from "./request.ts";
 
 const inv = invocation(process.argv.slice(2), process.env);
@@ -89,6 +90,7 @@ try {
   else if (command === "eval") await evaluateSet(config);
   else if (command === "usage") await readUsage(config);
   else if (command === "host") process.exit(await hostSetup());
+  else if (command === "roster") process.exit(await roster());
   else
     process.exit(
       await runCommand(inv, config, () => openShell(config, shellOptions), {
@@ -116,6 +118,33 @@ async function hostSetup(): Promise<number> {
   });
 }
 
+// `router roster repoint <participant@host> <session>`, on this host's
+// configuration and record.
+async function roster(): Promise<number> {
+  const [verb, placement, session] = inv.rest;
+  if (verb !== "repoint" || !placement || !session)
+    fail("Use router roster repoint <participant@host> <session>.");
+  const record = recordReader(config);
+  return repoint(placement, session, {
+    configPath,
+    record: () => record().state,
+    known: async (host, id) => {
+      const endpoint = own(config.hosts, host)?.paseo;
+      if (!endpoint) return false;
+      const adapter = await createPaseoAdapter(endpoint, { sheet: false });
+      try {
+        return (await adapter.observe(id, new Date().toISOString())) !== null;
+      } finally {
+        await adapter.close();
+      }
+    },
+    restart: restartServe,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => new Date(),
+    log: (line) => console.log(line),
+  });
+}
+
 // Restarts the jev-router service and waits until serve answers again.
 async function restartServe(): Promise<void> {
   try {
@@ -124,7 +153,7 @@ async function restartServe(): Promise<void> {
     });
   } catch {
     fail(
-      "Could not restart jev-router: restart serve so it takes the token, then run this again.",
+      "Could not restart jev-router: restart serve so it reads the change, then run this again.",
     );
   }
   const health = `http://${config.serve.listen}/health`;

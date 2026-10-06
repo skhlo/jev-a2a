@@ -26,12 +26,16 @@ update it when workflows change.
   `src/router-host.ts`, the process around `src/commands.ts` (the commands
   on the record, which the tests run in-process); without one,
   `src/reply-host.ts` sends `reply`, `submit`, `answer` and `choose` to
-  `serve`, and `check` asks it whether the two work together. Both build events with `src/request.ts`. The reply host's path
-  loads no package, so it runs from a checkout without `pnpm install`;
+  `serve`, and `check` asks it whether the two work together. Both build
+  events with `src/request.ts`. The reply host's path loads no package, so
+  it runs from a checkout without `pnpm install`;
   `test/reply-host.test.ts` runs it once from a copy of `src/`.
   `router host setup` (`src/host-setup.ts`) installs that checkout on a
   host over ssh; `test/host-setup.test.ts` runs its script here, with a
   scratch `HOME`, cloning a scratch repository.
+- `router roster` (`src/roster.ts`) changes the configuration file the way
+  it was changed by hand: checked, kept as a dated copy, swapped in, and
+  `serve` restarted and watched.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.
