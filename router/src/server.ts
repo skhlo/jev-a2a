@@ -454,7 +454,14 @@ export function eventsListener(
       } catch {
         return reply(400, { ok: false, code: "bad_json" });
       }
-      if (!isRecord(event) || !EVENT_TYPES.includes(String(event.type)))
+      // A type that is not a string is refused, not coerced: String() would
+      // throw on some objects and turn ["submit"] into "submit".
+      const type = isRecord(event) ? event.type : undefined;
+      if (
+        !isRecord(event) ||
+        typeof type !== "string" ||
+        !EVENT_TYPES.includes(type)
+      )
         return reply(400, {
           ok: false,
           code: "bad_event",
@@ -485,7 +492,7 @@ export function eventsListener(
           "wrong_host",
           `This token is ${key.host}'s; ${by} is a session on ${session.host}.`,
         );
-      if (!session.current && NEEDS_CURRENT.includes(String(event.type)))
+      if (!session.current && NEEDS_CURRENT.includes(type))
         return refused(
           "unauthenticated",
           "A replaced session cannot submit or choose.",

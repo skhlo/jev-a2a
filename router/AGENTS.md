@@ -42,8 +42,9 @@ update it when workflows change.
   directory alone, so it imports nothing from `src/`: its RPCs fetch
   serve's board API (`src/board-api.ts`), and `plugin/shared/rpc.ts`
   declares their shapes. `plugin/test/plugin.test.ts` holds those shapes
-  to the router's types and the API's answers, and its reading of the
-  configuration (the path, `serve.board`, `agents`) to `src/config.ts`'s.
+  to the router's types and the API's answers, the app's message-id rule
+  to the core's, and its reading of the configuration (the path,
+  `serve.board`, `agents`) to `src/config.ts`'s.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

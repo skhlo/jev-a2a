@@ -349,24 +349,46 @@ test("plugin: a serve too slow for Paseo's limit fails saying the action may be 
     new RegExp(
       `^Error: The router's serve did not answer in 0\\.05 s\\.${advice.replaceAll(".", "\\.")}$`,
     );
-  // A call that named its message may be repeated as it was.
-  await assert.rejects(
-    app.call(rpc.taskSubmit, { text: "Tidy", messageId: "app-1" }),
-    late(" It may still be recorded; a retry with the same messageId is safe."),
-  );
-  // Without one, or for another action, the board says what happened.
+  // A request or an answer that named its message may be repeated as it
+  // was.
   for (const call of [
-    app.call(rpc.taskSubmit, { text: "Tidy" }),
-    app.call(rpc.taskCancel, { taskId: "T1" }),
+    () => app.call(rpc.taskSubmit, { text: "Tidy", messageId: "app-1" }),
+    () =>
+      app.call(rpc.taskAnswer, {
+        taskId: "T2",
+        deliveryId: "D1",
+        questionId: "Q2",
+        text: "no",
+        messageId: "app-2",
+      }),
+  ])
+    await assert.rejects(
+      call,
+      late(
+        " It may still be recorded; a retry with the same messageId is safe.",
+      ),
+    );
+  // Without one, or for another action (a resolve's messageId names the
+  // send it settles), the board says what happened.
+  for (const call of [
+    () => app.call(rpc.taskSubmit, { text: "Tidy" }),
+    () => app.call(rpc.taskCancel, { taskId: "T1" }),
+    () =>
+      app.call(rpc.taskResolve, {
+        deliveryId: "D3",
+        messageId: "M4",
+        outcome: "finished",
+      }),
   ])
     await assert.rejects(
       call,
       late(" It may still be recorded; refetch the board before trying again."),
     );
-  await assert.rejects(
-    app.call(rpc.taskHold, { placement: "environment@mbp" }),
-    late(" Repeating it is safe."),
-  );
+  for (const call of [
+    () => app.call(rpc.taskHold, { placement: "environment@mbp" }),
+    () => app.call(rpc.taskRelease, { placement: "environment@mbp" }),
+  ])
+    await assert.rejects(call, late(" Repeating it is safe."));
   await assert.rejects(
     app.call(rpc.boardSummary, {}),
     /^Error: The router's serve did not answer in 0\.05 s\.$/,

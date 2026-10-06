@@ -162,6 +162,13 @@ test("events: health is open, everything else needs the exact token", async () =
       ((await forbidden.json()) as { code: string }).code,
       "bad_event",
     );
+    // A type that is not a string, even one that cannot be made one, is
+    // refused the same way rather than thrown on.
+    for (const type of [{ toString: null }, ["submit"], 7]) {
+      const odd = await post(auth, JSON.stringify({ type }));
+      assert.equal(odd.status, 400, JSON.stringify(type));
+      await odd.text();
+    }
     assert.equal(handled.length, 0);
     const ok = await post(
       auth,
@@ -2026,8 +2033,10 @@ test("board: the plugin's API takes an action as the app's principals and return
       config: { ...fixture, home: record },
       handle: (event) => {
         events.push(event);
+        // A request: the task the router recorded it as.
+        const taskId = event.type === "submit" ? { taskId: "T2" } : {};
         return Promise.resolve({
-          outcome: { ok: true, message: `handled ${event.type}` },
+          outcome: { ok: true, message: `handled ${event.type}`, ...taskId },
           report: [],
         });
       },
@@ -2050,6 +2059,13 @@ test("board: the plugin's API takes an action as the app's principals and return
     assert.ok(isRecord(done.task) && isRecord(done.task.task));
     assert.equal(done.task.task.id, "T1");
     assert.deepEqual(events, [{ type: "cancel", by: "you", taskId: "T1" }]);
+    // A request returns the task the router's outcome names.
+    const submitted = await jsonObject(
+      await post(JSON.stringify({ action: "submit", text: "Tidy" })),
+    );
+    assert.ok(isRecord(submitted.task) && isRecord(submitted.task.task));
+    assert.equal(submitted.task.task.id, "T2");
+    events.pop();
     // Not JSON, or not an action the router takes: refused before the
     // record, with the reason.
     for (const [body, message] of [

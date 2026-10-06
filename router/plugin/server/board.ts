@@ -85,6 +85,7 @@ async function api(
   return json;
 }
 
+// The actions serve's API takes, as the plugin sends them.
 type Action =
   "answer" | "choose" | "resolve" | "cancel" | "hold" | "release" | "submit";
 
@@ -107,11 +108,14 @@ export function serveBoard(
       ask,
     );
   const act = async (action: Action, input: object) => {
-    // When serve takes too long: a call that named its message may be
-    // repeated as it was; a hold or a release always may; anything else
-    // may have been recorded, so look first.
+    // When serve takes too long: a request or an answer that named its
+    // message may be repeated as it was (a resolve's messageId names the
+    // send it settles, not a repeat); a hold or a release always may;
+    // anything else may have been recorded, so look first.
     const onTimeout =
-      "messageId" in input && input.messageId
+      (action === "submit" || action === "answer") &&
+      "messageId" in input &&
+      input.messageId
         ? " It may still be recorded; a retry with the same messageId is safe."
         : action === "hold" || action === "release"
           ? " Repeating it is safe."
