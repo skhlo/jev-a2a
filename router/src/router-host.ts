@@ -257,6 +257,7 @@ async function serve(config: RouterConfig): Promise<void> {
     log: (line: string) => console.log(line),
     usage: store && (() => ({ ...store.state(), every: usage.every })),
     commit: checkoutCommit(),
+    nudge: runner.nudge,
   };
   const events = createServer(eventsListener(deps, keys));
   const board = createServer(boardListener(deps));

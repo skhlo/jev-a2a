@@ -1,0 +1,5 @@
+{
+  "id": "jev-router",
+  "description": "Tells the Jev router when an agent's turn ends, so a waiting delivery goes out at once",
+  "requirements": { "paseo": ">=0.10.2" }
+}

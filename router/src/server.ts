@@ -48,6 +48,9 @@ export type ServerDeps = {
   // The commit serve runs, which every events reply carries so a reply host
   // can tell when its checkout differs; absent outside a checkout.
   commit?: string | null;
+  // A run now if work waits for a session (Runner.nudge); absent outside
+  // serve.
+  nudge?: () => boolean;
 };
 
 const EVENT_TYPES = ["submit", "choose", "update", "answer"];
@@ -134,6 +137,9 @@ export type RunnerDeps<H> = {
 };
 export type Runner = {
   handle(event: Event): Promise<Run>;
+  // A run as soon as the queue allows, for a session that may just have
+  // become ready; true when one is queued (see serveRunner).
+  nudge(): boolean;
   // The first run and the watcher; returns when both are in place.
   start(): void;
   stop(): void;
@@ -212,17 +218,26 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       armPoll();
     }
   };
-  const enqueue = (event: Event | null): Promise<Run> => {
-    const run = queue.then(() => runOnce(event));
+  const enqueue = (
+    event: Event | null,
+    starting?: () => void,
+  ): Promise<Run> => {
+    const run = queue.then(() => {
+      starting?.();
+      return runOnce(event);
+    });
     queue = run.catch(() => undefined);
     return run;
   };
   // A run nobody asked for: its failure is logged and tried again at the
   // interval rather than lost.
   const complained = new Set<string>();
-  const unattended = async (label: string): Promise<void> => {
+  const unattended = async (
+    label: string,
+    starting?: () => void,
+  ): Promise<void> => {
     try {
-      const { report } = await enqueue(null);
+      const { report } = await enqueue(null, starting);
       const complaints = report.filter(telemetryLine);
       for (const line of report) {
         if (!changed(line)) continue;
@@ -253,8 +268,33 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       }
     }, deps.settleMs ?? 500);
   };
+  // A session may just have become ready: the Paseo plugin's turn-end hook
+  // (router/plugin) says so. A run then, instead of at the next look, but
+  // only while the record has work waiting for a session; otherwise the
+  // poll is enough. A nudge while one is queued joins it, and one during a
+  // run queues the next, since that run may have looked before the turn
+  // ended.
+  let nudged = false;
+  const nudge = (): boolean => {
+    if (stopped) return false;
+    if (nudged) return true;
+    try {
+      if (!deps.waits()) return false;
+    } catch (error: unknown) {
+      deps.log(
+        `nudge: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+    nudged = true;
+    void unattended("nudge", () => {
+      nudged = false;
+    });
+    return true;
+  };
   return {
     handle: (event) => enqueue(event),
+    nudge,
     start() {
       watcher = deps.watch?.(onChange) ?? null;
       void unattended("start");
@@ -574,6 +614,15 @@ export function boardListener(
         );
       });
       return;
+    }
+    // The Paseo plugin's turn-end hook. It changes nothing in the record,
+    // so it needs no identity; a browser's cross-site request is refused
+    // as for actions.
+    if (req.method === "POST" && path.endsWith("/nudge")) {
+      if (!sameSite(req.headers))
+        return plain(403, "Nudges are not accepted from other sites.");
+      if (!deps.nudge) return plain(404, "No runner to nudge here.");
+      return plain(202, deps.nudge() ? "run queued" : "nothing waits");
     }
     if (req.method !== "GET") return plain(405, "GET or POST actions");
     if (path.endsWith("/whoami")) {
