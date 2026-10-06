@@ -30,6 +30,8 @@ export const USAGE = `router: a prompt with an envelope and a record
   router cancel <task> [--as <principal>]
   router host setup <host>                     install or update router on a host the router reaches over ssh, with its token, and check it
   router check                                 on a host without a configuration: the router answers, takes this host's token, runs this commit
+  router roster repoint <participant@host> <session>
+                                               point a placement at a new Paseo session (agent id or terminal:<id>), restart serve, see it bound
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
 A participant's reply is authenticated by its session (never --as):

@@ -198,7 +198,8 @@ links, forms and redirects use relative URLs.
 - `journalctl --user -u jev-router -f` follows `serve`; each `telemetry:`
   note appears once while its cause lasts.
 - A placement absent from the board has no entry in `agents`. One whose
-  agent id the daemon does not know shows `missing` in its health line;
+  agent id the daemon does not know shows `missing` in its health line
+  (`router roster repoint` points it at its new session);
   one whose host could not be reached shows `unreachable`, with the reason
   as a tooltip.
 - A terminal placement's line in the run report says why it is not ready:

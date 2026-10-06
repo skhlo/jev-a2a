@@ -526,6 +526,20 @@ test("a failed sheet read nulls its field and leaves a note; the rail and the re
   assert.equal(calls.filter((c) => c === "workspaces").length, 1);
 });
 
+test("an agent id the daemon does not know is missing; any other failed look still throws", async () => {
+  const { daemon } = scripted("idle");
+  const unknown: Daemon = {
+    ...daemon,
+    refresh: (id) => Promise.reject(new Error(`Agent not found: ${id}`)),
+  };
+  assert.equal(await adapterOver(unknown).observe("A9", SEEN), null);
+  const down: Daemon = {
+    ...daemon,
+    refresh: () => Promise.reject(new Error("socket hang up")),
+  };
+  await assert.rejects(adapterOver(down).observe("A9", SEEN), /socket hang up/);
+});
+
 test("with the sheet off, only the rail is read", async () => {
   const { daemon, calls } = scripted("running");
   const seen = await adapterOver(daemon, { sheet: false }).observe("A1", SEEN);
@@ -621,6 +635,24 @@ function terminalDaemon(
   return { daemon: terminals, inputs, reads };
 }
 const quick = { receiptMs: 1_000, sleep: () => Promise.resolve() };
+
+test("a session resolves as the daemon names it: an agent by its full id, from a prefix too; a terminal only by its own", async () => {
+  const { daemon } = scripted("idle");
+  const full = "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+  const adapter = adapterOver({
+    ...daemon,
+    refresh: (id) =>
+      full.startsWith(id)
+        ? daemon.refresh(full)
+        : Promise.reject(new Error(`Agent not found: ${id}`)),
+    terminals: () => Promise.resolve([term(finishedAt(0))]),
+  });
+  assert.equal(await adapter.resolve(full), full);
+  assert.equal(await adapter.resolve("a1b2c3d4"), full);
+  assert.equal(await adapter.resolve("b9"), null);
+  assert.equal(await adapter.resolve("terminal:T1"), "terminal:T1");
+  assert.equal(await adapter.resolve("terminal:T"), null);
+});
 
 test("a terminal's condition: working by its activity or spinner, waiting at the idle mark, away when the title is not Claude Code's", () => {
   const cases: [PaseoTerminal, string][] = [
