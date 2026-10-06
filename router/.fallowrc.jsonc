@@ -9,5 +9,5 @@
   "duplicates": { "threshold": 0.001 },
   // The health report scores the router's code; the tests' own helpers stay
   // out of it. The tests remain entry points for the dead-code check.
-  "health": { "ignore": ["test/**"] },
+  "health": { "ignore": ["test/**", "plugin/test/**"] },
 }
