@@ -172,7 +172,9 @@ page sees, and acts as the CLI on the router host does without `--as`:
 as the first principal of each role.
 
 In the app, the plugin adds Jev to the sidebar: the board's tasks in
-Needs you, In flight and Done, and the selected task with its record.
+Needs you, In flight and Done, and the selected task with its record. A
+group's heading collapses or opens it; the app remembers which until it
+restarts.
 Your answer, choose and resolve items are forms there, an open delivery
 has Hold, any delivery on a held placement has Release, and New task
 and Cancel task open a dialog. The surface asks for the summary every 5

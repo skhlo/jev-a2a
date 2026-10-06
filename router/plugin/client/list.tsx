@@ -1,9 +1,15 @@
 // The task list: Needs you, In flight and Done (the last ten), each row the
-// title, its age and a dot, then line 2 (format.ts rowLine).
+// title, its age and a dot, then line 2 (format.ts rowLine). A group's
+// heading collapses it to the heading and its count, as on the board.
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { age, rowDot, rowLine, type ListRow, type Viewer } from "./format.ts";
 import { Button, Dot, Parts, Txt, useLook } from "./ui.tsx";
+
+// The collapsed groups, kept while the app runs: the board keeps them on
+// the device, but the plugin SDK has no device storage.
+let collapsed: string[] = [];
 
 type Props = {
   viewer: Viewer;
@@ -25,46 +31,71 @@ export function TaskList({
 }: Props) {
   const { c, mode } = useLook();
   const compact = mode === "compact";
-  const group = (name: string, n: string, rows: ListRow[]) => (
-    <View key={name}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "baseline",
-          gap: 8,
-          paddingHorizontal: 12,
-          marginTop: 12,
-          marginBottom: 8,
-        }}
-      >
-        <Txt muted strong>
-          {name}
-        </Txt>
-        <Txt size="sm" muted>
-          {n}
-        </Txt>
-      </View>
-      {rows.length ? (
-        rows.map((row) => (
-          <TaskRow
-            key={row.id}
-            row={row}
-            now={now}
-            on={row.id === selected}
-            onPress={() => onSelect(row.id)}
-          />
-        ))
-      ) : (
-        <View
-          style={{ paddingHorizontal: 12, paddingBottom: 8, paddingTop: 4 }}
+  const [shut, setShut] = useState(collapsed);
+  const toggle = (name: string) => {
+    collapsed = collapsed.includes(name)
+      ? collapsed.filter((n) => n !== name)
+      : [...collapsed, name];
+    setShut(collapsed);
+  };
+  const group = (name: string, n: string, rows: ListRow[]) => {
+    const open = !shut.includes(name);
+    return (
+      <View key={name}>
+        {/* aria-expanded, not accessibilityState: React Native Web drops
+          the latter's expanded. The heading's own text is its label, so a
+          screen reader also reads the count. */}
+        <Pressable
+          accessibilityRole="button"
+          aria-expanded={open}
+          onPress={() => toggle(name)}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingHorizontal: 12,
+            paddingTop: 12,
+            paddingBottom: 8,
+          }}
         >
-          <Txt size="sm" muted>
-            None
-          </Txt>
-        </View>
-      )}
-    </View>
-  );
+          <View
+            style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}
+          >
+            <Txt muted strong>
+              {name}
+            </Txt>
+            <Txt size="sm" muted>
+              {n}
+            </Txt>
+          </View>
+          <Icon
+            name={open ? "ChevronDown" : "ChevronRight"}
+            size={14}
+            color={c.foregroundMuted}
+          />
+        </Pressable>
+        {!open ? null : rows.length ? (
+          rows.map((row) => (
+            <TaskRow
+              key={row.id}
+              row={row}
+              now={now}
+              on={row.id === selected}
+              onPress={() => onSelect(row.id)}
+            />
+          ))
+        ) : (
+          <View
+            style={{ paddingHorizontal: 12, paddingBottom: 8, paddingTop: 4 }}
+          >
+            <Txt size="sm" muted>
+              None
+            </Txt>
+          </View>
+        )}
+      </View>
+    );
+  };
   return (
     <View
       style={

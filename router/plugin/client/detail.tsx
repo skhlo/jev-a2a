@@ -233,6 +233,7 @@ function Record({
   viewer: Viewer;
 }) {
   const { task: t, times } = full;
+  const digits = String(Math.max(0, ...t.log.map((e) => e.n))).length;
   return (
     <>
       <Section title="Conversation">
@@ -327,8 +328,10 @@ function Record({
         <View style={{ padding: 16, gap: 6 }}>
           {t.log.map((e) => (
             <View key={e.n} style={{ flexDirection: "row", gap: 12 }}>
-              <Txt size="code" muted style={{ width: 24, textAlign: "right" }}>
-                {String(e.n)}
+              {/* The journal's line numbers, padded to the widest in the
+                  monospace face so they right-align at any length. */}
+              <Txt size="code" muted>
+                {String(e.n).padStart(digits)}
               </Txt>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Txt size="code">{`${e.actor}: ${e.text}`}</Txt>
