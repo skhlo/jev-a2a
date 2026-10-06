@@ -6,10 +6,15 @@
 // Events: replies, answers, requests and choices from other hosts, each
 // behind its host's bearer token.
 // Board: the page, its view model as JSON, and its actions, on loopback
-// behind Tailscale Serve, which stamps the viewer's login on each request.
+// behind Tailscale Serve, which stamps the viewer's login on each request;
+// and, for this host only, the Paseo plugin's nudge and API.
 // Serve strips its mount path, so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
-import type { IncomingMessage, RequestListener } from "node:http";
+import type {
+  IncomingMessage,
+  RequestListener,
+  ServerResponse,
+} from "node:http";
 import {
   actionEvent,
   asOf,
@@ -18,6 +23,13 @@ import {
   messageTimes,
   type Actor,
 } from "./board.ts";
+import {
+  actedOn,
+  apiEvent,
+  appActor,
+  fullTask,
+  summarize,
+} from "./board-api.ts";
 import { renderBoard } from "./board-page.ts";
 import type { UsageState, UsageStore } from "./usage.ts";
 import type { RouterConfig } from "./config.ts";
@@ -392,12 +404,14 @@ export const sessionReader =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-function body(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
+function body(req: IncomingMessage): Promise<string | null> {
+  return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
+    // The client went away before sending it all: nothing to apply, and
+    // no one to answer.
+    req.on("error", () => resolve(null));
   });
 }
 
@@ -433,13 +447,21 @@ export function eventsListener(
     if (req.method !== "POST" || req.url !== "/events")
       return reply(404, { ok: false, code: "not_found" });
     body(req).then((text) => {
+      if (text === null) return;
       let event: unknown;
       try {
         event = JSON.parse(text);
       } catch {
         return reply(400, { ok: false, code: "bad_json" });
       }
-      if (!isRecord(event) || !EVENT_TYPES.includes(String(event.type)))
+      // A type that is not a string is refused, not coerced: String() would
+      // throw on some objects and turn ["submit"] into "submit".
+      const type = isRecord(event) ? event.type : undefined;
+      if (
+        !isRecord(event) ||
+        typeof type !== "string" ||
+        !EVENT_TYPES.includes(type)
+      )
         return reply(400, {
           ok: false,
           code: "bad_event",
@@ -470,7 +492,7 @@ export function eventsListener(
           "wrong_host",
           `This token is ${key.host}'s; ${by} is a session on ${session.host}.`,
         );
-      if (!session.current && NEEDS_CURRENT.includes(String(event.type)))
+      if (!session.current && NEEDS_CURRENT.includes(type))
         return refused(
           "unauthenticated",
           "A replaced session cannot submit or choose.",
@@ -503,6 +525,33 @@ export function sameSite(
   } catch {
     return false;
   }
+}
+
+// Why a request to the board did not come from a process on this host, or
+// null when it did: a proxy such as Tailscale Serve adds forwarding or
+// tailscale-* headers, refused whatever their value; a browser marks a
+// request from another site; and a page whose name was pointed at loopback
+// sends that name as its Host.
+function notFromThisHost(
+  headers: Record<string, string | string[] | undefined>,
+): string | null {
+  if (
+    Object.keys(headers).some(
+      (name) =>
+        name === "forwarded" ||
+        name.startsWith("x-forwarded-") ||
+        name.startsWith("tailscale-"),
+    )
+  )
+    return "Accepted from this host only.";
+  if (!sameSite(headers)) return "Not accepted from other sites.";
+  const host = headers.host;
+  if (
+    typeof host !== "string" ||
+    !/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host)
+  )
+    return "Accepted at a loopback address only.";
+  return null;
 }
 
 // One cookie's value from a Cookie header, or null.
@@ -545,6 +594,26 @@ function wantsJson(accept: string | undefined): boolean {
   );
 }
 
+// The Paseo plugin's routes under api/ on the board's address.
+const API_ROUTES = ["summary", "task", "action"] as const;
+type ApiRoute = (typeof API_ROUTES)[number];
+
+// A board answer as text or as JSON.
+type Reply = {
+  plain(status: number, text: string): void;
+  json(status: number, value: unknown): void;
+};
+const replyTo = (res: ServerResponse): Reply => ({
+  plain(status, text) {
+    res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
+    res.end(text);
+  },
+  json(status, value) {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(value));
+  },
+});
+
 export function boardListener(
   deps: Omit<ServerDeps, "sessionOf"> & { record: RecordReader },
 ): RequestListener {
@@ -578,14 +647,90 @@ export function boardListener(
     if (heard.size === 0) telemetryErrors.clear();
     return telemetry;
   };
+  // The model as `who` sees it now, or null once the failure is answered:
+  // a record the code cannot replay is reported, not fatal, since the
+  // events listener in the same process must stay up.
+  const viewFor = (
+    who: Actor | null,
+    fail: (message: string) => void,
+  ): ReturnType<typeof model> | null => {
+    try {
+      return model(now(), who);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`board: cannot read the record: ${message}`);
+      fail(`The record cannot be read: ${message}`);
+      return null;
+    }
+  };
+  // The Paseo plugin's API (src/board-api.ts): the board's summary, a
+  // task, and the actions. Only a process on this host may call it, and
+  // it acts as the CLI here does without --as, so it adds no one who
+  // could not already act.
+  const answerApi = (
+    route: ApiRoute,
+    req: IncomingMessage,
+    url: URL,
+    json: Reply["json"],
+  ): void => {
+    // Every refusal is JSON with a message, which the plugin passes on.
+    const refuse = (status: number, message: string): void =>
+      json(status, { message });
+    const refused = notFromThisHost(req.headers);
+    if (refused) return refuse(403, refused);
+    const by = appActor(config);
+    const fail = (message: string): void => refuse(500, message);
+    if (route === "action") {
+      if (req.method !== "POST") return refuse(405, "POST an action.");
+      if (!by) return refuse(403, "No principals to act as.");
+      body(req).then((text) => {
+        if (text === null) return;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          return refuse(400, "The action is not JSON.");
+        }
+        const action = apiEvent(parsed, by, config.principals ?? {});
+        if (!action.ok) return refuse(400, action.message);
+        log(`board: paseo ${JSON.stringify(action.event)}`);
+        deps.handle(action.event).then(
+          ({ outcome }) => {
+            const view = viewFor(by, fail);
+            if (!view) return;
+            const id = actedOn(action.event, outcome, view);
+            json(200, {
+              outcome,
+              rev: summarize(view).rev,
+              task: id ? fullTask(view, id) : null,
+            });
+          },
+          (error: unknown) =>
+            fail(error instanceof Error ? error.message : String(error)),
+        );
+      });
+      return;
+    }
+    if (req.method !== "GET") return refuse(405, "GET the summary or a task.");
+    const view = viewFor(by, fail);
+    if (!view) return;
+    if (route === "task") {
+      const task = fullTask(view, url.searchParams.get("id") ?? "");
+      return task ? json(200, task) : refuse(404, "No such task on the board.");
+    }
+    const summary = summarize(view);
+    json(
+      200,
+      url.searchParams.get("sinceRev") === summary.rev
+        ? { unchanged: true, rev: summary.rev }
+        : summary,
+    );
+  };
   return (req, res) => {
     const url = new URL(req.url ?? "/", "http://board");
     const path = url.pathname;
     const actor = identify(req.headers, config.serve.identities);
-    const plain = (status: number, text: string): void => {
-      res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
-      res.end(text);
-    };
+    const { plain, json } = replyTo(res);
     const back = (notice: string): void => {
       res
         .writeHead(303, {
@@ -602,6 +747,7 @@ export function boardListener(
       if (!sameSite(req.headers))
         return plain(403, "Actions are accepted from the board page only.");
       body(req).then((text) => {
+        if (text === null) return;
         const form = new URLSearchParams(text);
         const action = actionEvent(form, actor, config.principals ?? {});
         if (!action.ok) return back(action.message);
@@ -616,34 +762,28 @@ export function boardListener(
     }
     // The Paseo plugin's turn-end hook, which posts to this address on
     // its own host. It changes nothing in the record, so it needs no
-    // identity; but a request that came through Tailscale Serve, from
-    // another device, is refused, so the tailnet cannot keep serve
-    // running, and so is a browser's cross-site request, as for actions.
+    // identity; but only a process on this host may send it, so the
+    // tailnet cannot keep serve running.
     if (req.method === "POST" && path.endsWith("/nudge")) {
-      if (req.headers["x-forwarded-for"] || req.headers["tailscale-user-login"])
-        return plain(403, "Nudges are accepted from this host only.");
-      if (!sameSite(req.headers))
-        return plain(403, "Nudges are not accepted from other sites.");
+      const refused = notFromThisHost(req.headers);
+      if (refused) return plain(403, refused);
       if (!deps.nudge) return plain(404, "No runner to nudge here.");
       return plain(202, deps.nudge() ? "run queued" : "nothing waits");
     }
+    const route = API_ROUTES.find((name) => path.endsWith(`/api/${name}`));
+    if (route) return answerApi(route, req, url, json);
     if (req.method !== "GET")
-      return plain(405, "GET, or POST actions or nudge");
-    if (path.endsWith("/whoami")) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(
-        JSON.stringify({
-          login: actor?.login ?? null,
-          principals: actor?.principals ?? [],
-          headers: Object.fromEntries(
-            Object.entries(req.headers).filter(([k]) =>
-              k.startsWith("tailscale-"),
-            ),
+      return plain(405, "GET, or POST actions, nudge or api/action");
+    if (path.endsWith("/whoami"))
+      return json(200, {
+        login: actor?.login ?? null,
+        principals: actor?.principals ?? [],
+        headers: Object.fromEntries(
+          Object.entries(req.headers).filter(([k]) =>
+            k.startsWith("tailscale-"),
           ),
-        }),
-      );
-      return;
-    }
+        ),
+      });
     if (path.endsWith("/favicon.ico")) {
       // The board has no icon. Said at once, without reading the record:
       // the redirect below would send the browser to a whole board.
@@ -673,20 +813,11 @@ export function boardListener(
         .end();
       return;
     }
-    // A record the code cannot replay is reported, not fatal: the events
-    // listener in the same process must stay up.
-    let view: ReturnType<typeof model>;
-    try {
-      view = model(now(), actor);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      log(`board: cannot read the record: ${message}`);
-      return plain(500, `The record cannot be read: ${message}`);
-    }
+    const view = viewFor(actor, (message) => plain(500, message));
+    if (!view) return;
     // One model, as JSON or as the page, under the same identity.
     if (path.endsWith("/board.json") || wantsJson(req.headers.accept)) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(view));
+      json(200, view);
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       // The selected task is in the URL so a reload and a shared link open

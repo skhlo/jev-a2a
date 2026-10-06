@@ -1,7 +1,7 @@
 // The board page's shared parts: the formats every panel writes with, the
 // generic parts any panel can take, and the readings of the model that
 // more than one panel shows.
-import type { PlacementView, TaskView } from "./board.ts";
+import type { DeliveryView, PlacementView, TaskView } from "./board.ts";
 import type { UpdateKind } from "./types.ts";
 
 // ---- Formats: the generator's helpers over the same fields ----
@@ -273,6 +273,27 @@ export const answeredQuestion = (d: {
   question: unknown;
   latest: { kind: UpdateKind } | null;
 }): boolean => d.latest?.kind === "question" && !d.question;
+
+// The answer a delivery's question got, when its current send is one and
+// no question is open: a question stays the latest update after its
+// answer, and a resolve clears the question too, so both are checked.
+export const answerOf = (
+  d: DeliveryView,
+): { k: number; send: DeliveryView["sends"][number] } | null => {
+  const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);
+  const send = d.sends[k];
+  return answeredQuestion(d) && send?.kind === "answer" ? { k, send } : null;
+};
+
+// A task's first line, for the detail title and the Paseo app's task rows
+// (board-api.ts): the design sized the title for the sample's short texts,
+// and a real request runs to pages. The full text is in the transcript,
+// and in the title attribute.
+export const headline = (text: string): string =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line) ?? text;
 
 // Stale work (v0.12): minutes past which a send without a reply, a turn and
 // a running tool read as stale, and the share of the context window from

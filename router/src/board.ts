@@ -439,7 +439,8 @@ export function actionEvent(
             type: "answer",
             by,
             taskId: field("task"),
-            messageId: newMessageId(),
+            // The Paseo app names its own, so a retry is a repeat.
+            messageId: field("message") || newMessageId(),
             questionId: field("question"),
             // The form names the delivery; an older page may not.
             deliveryId: field("delivery") || null,

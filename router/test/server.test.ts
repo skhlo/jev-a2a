@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request, type Server } from "node:http";
+import { connect } from "node:net";
 import {
   appendFileSync,
   existsSync,
@@ -100,6 +101,20 @@ async function serve(server: Server): Promise<string> {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+// A request with headers fetch will not set, such as Host.
+const raw = (
+  url: string,
+  options: { method?: string; headers?: Record<string, string> } = {},
+) =>
+  new Promise<number>((resolve, reject) => {
+    const req = request(url, options, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+
 // A JSON body as the object a consumer reads fields from.
 async function jsonObject(res: Response): Promise<Record<string, unknown>> {
   const body: unknown = await res.json();
@@ -147,6 +162,13 @@ test("events: health is open, everything else needs the exact token", async () =
       ((await forbidden.json()) as { code: string }).code,
       "bad_event",
     );
+    // A type that is not a string, even one that cannot be made one, is
+    // refused the same way rather than thrown on.
+    for (const type of [{ toString: null }, ["submit"], 7]) {
+      const odd = await post(auth, JSON.stringify({ type }));
+      assert.equal(odd.status, 400, JSON.stringify(type));
+      await odd.text();
+    }
     assert.equal(handled.length, 0);
     const ok = await post(
       auth,
@@ -1926,6 +1948,193 @@ test("board: the kept record folds only the lines appended since, and folds agai
   assert.ok(changed.state.tasks.some((task) => task.text === "Task 54"));
 });
 
+test("board: the plugin's API serves the summary, unchanged since a rev, and a task, to this host only", async (t) => {
+  const record = scratch(t, "server-api-");
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const server = createServer(
+    boardOf({ config: { ...fixture, home: record }, handle, now: () => NOW }),
+  );
+  const url = await serve(server);
+  try {
+    const summary = await jsonObject(await fetch(`${url}/api/summary`));
+    assert.deepEqual(summary.actor, {
+      login: "paseo",
+      principals: [
+        { principal: "you", role: "requester" },
+        { principal: "operator", role: "operator" },
+      ],
+    });
+    assert.ok(typeof summary.rev === "string");
+    assert.deepEqual(taskIds(summary.open), ["T4", "T2", "T1"]);
+    assert.deepEqual(
+      await jsonObject(
+        await fetch(`${url}/router/api/summary?sinceRev=${summary.rev}`),
+      ),
+      { unchanged: true, rev: summary.rev },
+    );
+    assert.deepEqual(
+      await jsonObject(await fetch(`${url}/api/summary?sinceRev=old`)),
+      summary,
+    );
+    const task = await jsonObject(await fetch(`${url}/api/task?id=T2`));
+    assert.ok(isRecord(task.task));
+    assert.equal(task.task.id, "T2");
+    const missing = await fetch(`${url}/api/task?id=T9`);
+    assert.equal(missing.status, 404);
+    await missing.text();
+    // Through a proxy such as Tailscale Serve, whatever its headers say,
+    // from another site, or by another name: refused, with the reason as
+    // JSON for the plugin, as is a write to a read.
+    for (const headers of [
+      { "x-forwarded-for": "100.64.0.9" },
+      { "x-forwarded-for": "" },
+      { "x-forwarded-proto": "https" },
+      { forwarded: "for=100.64.0.9" },
+      { "tailscale-user-login": "me@example.com" },
+      { "tailscale-funnel-request": "?1" },
+      { "sec-fetch-site": "cross-site" },
+    ]) {
+      const res = await fetch(`${url}/api/summary`, { headers });
+      assert.equal(res.status, 403, JSON.stringify(headers));
+      assert.ok(typeof (await jsonObject(res)).message === "string");
+    }
+    assert.equal(
+      await raw(`${url}/api/summary`, { headers: { host: "evil.example" } }),
+      403,
+    );
+    assert.equal(
+      await raw(`${url}/api/summary`, {
+        headers: { host: "localhost:7678" },
+      }),
+      200,
+    );
+    const put = await fetch(`${url}/api/summary`, { method: "POST" });
+    assert.equal(put.status, 405);
+    assert.deepEqual(await jsonObject(put), {
+      message: "GET the summary or a task.",
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("board: the plugin's API takes an action as the app's principals and returns the task it changed", async (t) => {
+  const record = scratch(t, "server-api-action-");
+  writeFileSync(
+    join(record, "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  );
+  const events: Event[] = [];
+  const server = createServer(
+    boardOf({
+      config: { ...fixture, home: record },
+      handle: (event) => {
+        events.push(event);
+        // A request: the task the router recorded it as.
+        const taskId = event.type === "submit" ? { taskId: "T2" } : {};
+        return Promise.resolve({
+          outcome: { ok: true, message: `handled ${event.type}`, ...taskId },
+          report: [],
+        });
+      },
+      now: () => NOW,
+    }),
+  );
+  const url = await serve(server);
+  const post = (body: string, headers: Record<string, string> = {}) =>
+    fetch(`${url}/api/action`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body,
+    });
+  try {
+    const res = await post(JSON.stringify({ action: "cancel", taskId: "T1" }));
+    assert.equal(res.status, 200);
+    const done = await jsonObject(res);
+    assert.deepEqual(done.outcome, { ok: true, message: "handled cancel" });
+    assert.ok(typeof done.rev === "string");
+    assert.ok(isRecord(done.task) && isRecord(done.task.task));
+    assert.equal(done.task.task.id, "T1");
+    assert.deepEqual(events, [{ type: "cancel", by: "you", taskId: "T1" }]);
+    // A request returns the task the router's outcome names.
+    const submitted = await jsonObject(
+      await post(JSON.stringify({ action: "submit", text: "Tidy" })),
+    );
+    assert.ok(isRecord(submitted.task) && isRecord(submitted.task.task));
+    assert.equal(submitted.task.task.id, "T2");
+    events.pop();
+    // Not JSON, or not an action the router takes: refused before the
+    // record, with the reason.
+    for (const [body, message] of [
+      ["cancel T1", "The action is not JSON."],
+      [JSON.stringify({ action: "cancel" }), "Missing task."],
+    ]) {
+      const refused = await post(body ?? "");
+      assert.equal(refused.status, 400);
+      assert.deepEqual(await jsonObject(refused), { message });
+    }
+    const crossSite = await post(
+      JSON.stringify({ action: "cancel", taskId: "T1" }),
+      { "sec-fetch-site": "cross-site" },
+    );
+    assert.equal(crossSite.status, 403);
+    await crossSite.text();
+    const read = await fetch(`${url}/api/action`);
+    assert.equal(read.status, 405);
+    await read.text();
+    assert.equal(events.length, 1, "a refused action is not handled");
+  } finally {
+    server.close();
+  }
+});
+
+test("a client that goes away mid-body leaves serve up, on every door that reads one", async () => {
+  const events = createServer(
+    eventsListener({ config, handle, sessionOf }, keys),
+  );
+  const board = createServer(boardOf({ config, handle }));
+  const eventsUrl = await serve(events);
+  const boardUrl = await serve(board);
+  // Headers and part of a body, then the connection drops.
+  const cut = (url: string, path: string, headers: string[]) =>
+    new Promise<void>((done) => {
+      const socket = connect(Number(new URL(url).port), "127.0.0.1", () => {
+        socket.write(
+          [
+            `POST ${path} HTTP/1.1`,
+            "Host: 127.0.0.1",
+            "Content-Length: 1000",
+            ...headers,
+            "",
+            '{"type":',
+          ].join("\r\n"),
+        );
+        setTimeout(() => {
+          socket.destroy();
+          done();
+        }, 50);
+      });
+    });
+  try {
+    await cut(eventsUrl, "/events", ["Authorization: Bearer secret"]);
+    await cut(boardUrl, "/actions", ["Tailscale-User-Login: me@example.com"]);
+    await cut(boardUrl, "/api/action", ["Content-Type: application/json"]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const health = await fetch(`${eventsUrl}/health`);
+    assert.equal(health.status, 200);
+    await health.text();
+    const whoami = await fetch(`${boardUrl}/whoami`);
+    assert.equal(whoami.status, 200);
+    await whoami.text();
+  } finally {
+    events.close();
+    board.close();
+  }
+});
+
 test("board: POST /nudge asks the runner for a run, needs no identity, and refuses one from another device or site", async () => {
   let answer = true;
   let nudges = 0;
@@ -1955,6 +2164,14 @@ test("board: POST /nudge asks the runner for a run, needs no identity, and refus
       assert.equal(res.status, 403);
       await res.text();
     }
+    // A page whose name was pointed at loopback: refused by its Host.
+    assert.equal(
+      await raw(`${url}/nudge`, {
+        method: "POST",
+        headers: { host: "evil.example:80" },
+      }),
+      403,
+    );
     assert.equal(nudges, 2, "a refused request does not nudge");
   } finally {
     server.close();

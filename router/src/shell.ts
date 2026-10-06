@@ -46,8 +46,9 @@ import type {
 export type Shell = {
   readonly state: State;
   // Applies an event; appends it to the journal when the core accepts it
-  // and it changed the record (a tick that ended nothing and an
-  // observation that changed nothing are applied, not appended).
+  // and it changed the record (a tick that ended nothing, an observation
+  // that changed nothing and a repeat the core recognised are applied, not
+  // appended).
   apply(event: Event): Outcome;
   // Performs every deliverable command for this host, returning what happened.
   deliver(): Promise<string[]>;
@@ -212,9 +213,13 @@ export async function openShell(
   // held back and appended only when a recorded event follows it in this
   // run, since a later submit's deadline is measured from it; an
   // observation is appended only when it changed the placement's
-  // readiness, session or hold. In memory the run sees every event.
+  // readiness, session or hold. A repeat the core recognised (a request,
+  // an answer or a reply under a message id it has) changes nothing, and
+  // a second line would move that message's recorded time. In memory the
+  // run sees every event.
   let heldTick: Event | null = null;
   const alreadyRecorded = (event: Event, next: State): boolean => {
+    if (next.last?.ok && next.last.duplicate) return true;
     if (event.type === "tick")
       return state.tasks.every(
         (task, i) => Boolean(task.final) === Boolean(next.tasks[i]?.final),

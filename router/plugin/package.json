@@ -1,0 +1,19 @@
+{
+  "name": "jev-router-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.8.0",
+  "description": "The router's Paseo plugin: wakes serve when an agent's turn ends, and serves the board to the Paseo app",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.10.2",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.5"
+  }
+}

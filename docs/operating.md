@@ -153,28 +153,39 @@ One instance per host: a second finds the port taken and says so.
 
 ## The Paseo plugin
 
-`router/plugin/` is a Paseo plugin with no UI. Installed into the router
-host's daemon, it posts `/nudge` to `serve.board` each time a placement's
-session ends a turn there. A delivery or notice waiting for that session
-then goes out at once instead of up to `serve.wake` seconds later. The
-looks stay, since Paseo's hooks are best effort, and they still find:
+`router/plugin/` is a Paseo plugin, with no UI yet. Installed into the
+router host's daemon, it posts `/nudge` to `serve.board` each time a
+placement's session ends a turn there. A delivery or notice waiting for
+that session then goes out at once instead of up to `serve.wake` seconds
+later. The looks stay, since Paseo's hooks are best effort, and they still
+find:
 
 - sessions on other hosts;
 - terminal placements, which are not Paseo agents and have no turns to
   hook.
 
+It also answers the board's RPCs for the Paseo app: `board.summary`,
+`board.task`, and the actions `task.answer`, `task.choose`,
+`task.resolve`, `task.cancel`, `task.hold`, `task.release` and
+`task.submit`, declared in `router/plugin/shared/rpc.ts`. Each forwards
+to serve's API on `serve.board` (below), so the app sees what the board
+page sees, and acts as the CLI on the router host does without `--as`:
+as the first principal of each role.
+
 The plugin reads the configuration at the default path, or at the
 daemon's `$ROUTER_CONFIG`; a `--config` or `ROUTER_CONFIG` given only to
 `serve` does not reach it.
 
-It needs `pluginsEnabled` on that daemon (Settings → Plugins). Install it
-once from the checkout `serve` runs, and reload it after updating the
-checkout:
+It needs `pluginsEnabled` on that daemon (Settings → Plugins). Paseo
+bundles the plugin's dependencies (the plugin SDK and zod) from its
+`node_modules`. Install it once from the checkout `serve` runs; after
+updating the checkout, install its dependencies again and reload it:
 
 ```sh
-paseo plugin install "$PWD/router/plugin"    # from the repository root
+pnpm --dir router/plugin install --frozen-lockfile   # from the repository root
+paseo plugin install "$PWD/router/plugin"
 paseo plugin reload router
-paseo plugin logs router                     # a failed nudge is logged once
+paseo plugin logs router    # a failed nudge is logged once
 ```
 
 ## Endpoints
@@ -212,9 +223,20 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
   does not match the host) is refused.
 - `POST /nudge`: what the Paseo plugin sends when a turn ends. `202` with
   `run queued` when something waits for a session, or `nothing waits`. It
-  changes nothing in the record, so it needs no identity. A request that
-  came through Tailscale Serve, from another device, is refused, and so
-  is a cross-site request, as for actions.
+  changes nothing in the record, so it needs no identity.
+- `GET /api/summary`, `GET /api/task?id=<task>` and `POST /api/action`
+  (JSON): the Paseo plugin's API (`router/src/board-api.ts`). The summary
+  heads each task with its own `rev`; with `?sinceRev=<rev>`, an unchanged
+  board answers `{"unchanged":true,"rev":"<rev>"}`. An action acts as the
+  first principal of each role and answers the router's `outcome`, the
+  board's new `rev`, and the task it changed. A request or an answer keeps
+  a `messageId` the app gives, so a retry after a timeout is recognised
+  as a repeat. A refusal is `{"message":…}`.
+
+`/nudge` and `/api/` answer only a process on this host: a request with a
+`Forwarded`, `X-Forwarded-*` or `Tailscale-*` header (Tailscale Serve
+adds them) is refused, and so is one a browser marks as cross-site, or
+one whose `Host` is not a loopback address.
 
 Routes match by suffix, so the board can be mounted under a path
 (`tailscale serve --bg --set-path /router http://127.0.0.1:7678`), and its

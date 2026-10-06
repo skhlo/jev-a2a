@@ -1,5 +1,5 @@
 {
   "id": "router",
-  "description": "Tells the Jev router when an agent's turn ends, so a waiting delivery goes out at once",
+  "description": "Tells the Jev router when an agent's turn ends, so a waiting delivery goes out at once, and serves its board to the Paseo app",
   "requirements": { "paseo": ">=0.10.2" }
 }
