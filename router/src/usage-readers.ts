@@ -71,11 +71,11 @@ async function apiKey(
   return credential.type === "api_key" ? usableKey(credential.key) : undefined;
 }
 
-// Credentials the Codex child has no use for: the router's tokens
-// (ROUTER_TOKEN and each ROUTER_TOKEN_<HOST>), Jev's key, an inherited
-// Claude Code token and the API keys the other readers send. childEnv drops
-// these and every name in `secrets`, the names the router's secrets file
-// sets (loadSecrets).
+// Credentials the Codex child has no use for: the tokens (each
+// ROUTER_TOKEN_<HOST>, and ROUTER_TOKEN, a reply host's), Jev's key, an
+// inherited Claude Code token and the API keys the other readers send.
+// childEnv drops these and every name in `secrets`, the names the router's
+// secrets file sets (loadSecrets).
 const ROUTER_TOKENS = /^ROUTER_TOKEN(_|$)/;
 const ROUTER_SECRETS = [
   "TYPESAFE_API_KEY",

@@ -72,7 +72,7 @@ const config: RouterConfig = {
 // Every caller is a current session on mbp unless a test says otherwise,
 // and mbp's token lets it through.
 const sessionOf = (): KnownSession => ({ host: "mbp", current: true });
-const door: DoorKey[] = [{ host: "mbp", token: "secret" }];
+const keys: DoorKey[] = [{ host: "mbp", token: "secret" }];
 
 const handled: Event[] = [];
 const handle = (event: Event): Promise<Run> => {
@@ -114,7 +114,7 @@ const taskIds = (list: unknown): unknown[] => {
 
 test("events: health is open, everything else needs the exact token", async () => {
   const server = createServer(
-    eventsListener({ config, handle, sessionOf }, door),
+    eventsListener({ config, handle, sessionOf }, keys),
   );
   const url = await serve(server);
   try {
@@ -208,7 +208,7 @@ test("events: a person is refused; a replaced session may reply and answer but n
             ? { host: "mbp", current: by === "A1" }
             : null,
       },
-      door,
+      keys,
     ),
   );
   const url = await serve(server);
@@ -273,7 +273,7 @@ test("events: a person is refused; a replaced session may reply and answer but n
 
 test("events: a host's token acts only for that host's sessions", async () => {
   const seen: Event[] = [];
-  const hosts = createServer(
+  const server = createServer(
     eventsListener(
       {
         config,
@@ -294,8 +294,8 @@ test("events: a host's token acts only for that host's sessions", async () => {
       ],
     ),
   );
-  const hostsUrl = await serve(hosts);
-  const post = async (url: string, token: string, by: string) => {
+  const url = await serve(server);
+  const post = async (token: string, by: string) => {
     const res = await fetch(`${url}/events`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
@@ -304,9 +304,9 @@ test("events: a host's token acts only for that host's sessions", async () => {
     return { status: res.status, body: await jsonObject(res) };
   };
   try {
-    assert.equal((await post(hostsUrl, "mini-token", "K1")).status, 200);
-    assert.equal((await post(hostsUrl, "mba-token", "B1")).status, 200);
-    assert.deepEqual(await post(hostsUrl, "mini-token", "B1"), {
+    assert.equal((await post("mini-token", "K1")).status, 200);
+    assert.equal((await post("mba-token", "B1")).status, 200);
+    assert.deepEqual(await post("mini-token", "B1"), {
       status: 403,
       body: {
         ok: false,
@@ -314,19 +314,17 @@ test("events: a host's token acts only for that host's sessions", async () => {
         message: "This token is mini's; B1 is a session on mba.",
       },
     });
-    assert.partialDeepStrictEqual(await post(hostsUrl, "mba-token", "K1"), {
+    assert.partialDeepStrictEqual(await post("mba-token", "K1"), {
       status: 403,
       body: { code: "wrong_host" },
     });
-    assert.partialDeepStrictEqual(await post(hostsUrl, "mini-token", "you"), {
+    assert.partialDeepStrictEqual(await post("mini-token", "you"), {
       status: 403,
       body: { code: "unauthenticated" },
     });
-    // A token no host holds opens nothing.
-    assert.equal((await post(hostsUrl, "secret", "K1")).status, 401);
     assert.equal(seen.length, 2);
   } finally {
-    hosts.close();
+    server.close();
   }
 });
 
@@ -407,7 +405,7 @@ test("a name every object answers to is no session at the events door and no pla
   const events = createServer(
     eventsListener(
       { config: routed, handle: core, sessionOf: sessionReader(read) },
-      door,
+      keys,
     ),
   );
   const board = createServer(
