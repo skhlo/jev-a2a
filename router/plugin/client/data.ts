@@ -11,7 +11,7 @@ import { boardSummary, boardTask } from "../shared/rpc.ts";
 import type { Acted, FullTask, Summary } from "../shared/rpc.ts";
 
 const NS = "jev-router";
-const POLL_MS = 5_000;
+const POLL_MS = 5000;
 
 const summaryKey = (host: string) => [NS, host, "summary"];
 const taskKey = (host: string, id: string, rev: string | null) => [

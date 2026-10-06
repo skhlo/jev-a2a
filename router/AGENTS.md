@@ -49,10 +49,11 @@ update it when workflows change.
   those shapes in `plugin/client/format.ts`. `plugin/test/client.test.ts`
   compares its rows, delivery states, chosen-by words and resolve
   sentences with the board page rendered for the same fixtures, and its
-  copied formats (`span`, `time`, `age`, `left`, `label`, `shortId`,
-  `waitWords`, `headline`) with `src/board-parts.ts`; the rest of the
-  detail is checked against fixed strings. `.fallowrc.jsonc` lists the
-  copied formats as reviewed clones, and their shared names as exempt.
+  copied formats (`span`, `time`, `age`, `left`, `label`, `count`,
+  `shortId`, `waitWords`, `headline`) with `src/board-parts.ts`; the rest
+  of the detail is checked against fixed strings. `.fallowrc.jsonc` lists
+  the copies fallow reports as clones (`time` with `span`, and `headline`)
+  as reviewed, and the names the copies share with the board as exempt.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

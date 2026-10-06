@@ -137,7 +137,7 @@ export function Button({
   const [fill, edge, ink] = {
     primary: [c.accent, c.accent, c.accentForeground] as const,
     secondary: [c.surface2, c.surface2, c.foreground] as const,
-    outline: ["transparent", c.border, c.foreground] as const,
+    outline: [undefined, c.border, c.foreground] as const,
     danger: [c.statusDanger, c.statusDanger, c.surface0] as const,
   }[variant];
   const off = !!(busy || disabled);

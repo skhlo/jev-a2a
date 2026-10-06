@@ -28,6 +28,7 @@ import type { FullTask, Summary } from "../shared/rpc.ts";
 import {
   age,
   conversation,
+  count,
   countdown,
   deliveryLine,
   deliveryState,
@@ -41,6 +42,7 @@ import {
   rowSub,
   shortSession,
   span,
+  statusTone,
   time,
   verdict,
   viewerOf,
@@ -171,7 +173,7 @@ test("client: the detail's delivery states, chosen-by words and resolve sentence
         ).exec(html);
         const cell = tr?.[1]?.split("<td")[4];
         assert.ok(cell, `${d.id} has a state cell`);
-        assert.equal(deliveryState(d).text, plain(`<td${cell}`), d.id);
+        assert.equal(deliveryState(d, false).text, plain(`<td${cell}`), d.id);
         states += 1;
       });
     }
@@ -212,6 +214,13 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
   assert.ok(t2, "alice's question leaves T2 in flight");
   assert.match(words(rowLine(t2, NOW)), /^T2 · waits on alice · /);
   assert.equal(rowDot(t2), null);
+  // alice's question is no warning to the viewer, as on the board.
+  const asked = requester.items.find((it) => it.kind === "answer");
+  assert.ok(asked && t2.head);
+  assert.equal(viewer.asksViewer(asked.deliveryId), false);
+  assert.equal(viewerOf(summary).asksViewer(asked.deliveryId), true);
+  assert.equal(statusTone(t2.head.status, false), "muted");
+  assert.equal(statusTone(t2.head.status, true), "warn");
   assert.ok(viewer.items.every((it) => it.mine === (it.principal !== "alice")));
   assert.ok(viewer.items.every((it) => it.act === it.mine));
   const orphan = viewer.needs.find((r) => r.id === "T99");
@@ -249,7 +258,7 @@ test("client: the detail's meta line, conversation, deliveries and Jev's lines",
   );
   const [d] = t4.task.deliveries;
   assert.ok(d);
-  assert.deepEqual(deliveryState(d), { text: "working" });
+  assert.deepEqual(deliveryState(d, false), { text: "working" });
   assert.equal(
     deliveryLine(d, t4.times),
     "D3 · request M4 · accepted · session K1 · last reply 09:44Z",
@@ -330,6 +339,13 @@ test("client: its copies of the board's formats read as the board's own", () => 
   ])
     assert.equal(shortSession(id), boardParts.shortId(id), id);
   assert.equal(label("needs_recipient"), boardParts.label("needs_recipient"));
+  for (const n of [0, 1, 2]) {
+    assert.equal(count(n, "line"), boardParts.count(n, "line"));
+    assert.equal(
+      count(n, "reply", "replies"),
+      boardParts.count(n, "reply", "replies"),
+    );
+  }
   for (const reason of [
     "queued_behind",
     "held",

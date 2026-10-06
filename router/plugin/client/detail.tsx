@@ -129,7 +129,13 @@ function Head({
           </Txt>
           <View style={{ flexDirection: "row" }}>
             <Pill
-              part={{ text: label(t.status), tone: statusTone(t.status) }}
+              part={{
+                text: label(t.status),
+                tone: statusTone(
+                  t.status,
+                  viewer.itemsFor(t.id).some((it) => it.mine),
+                ),
+              }}
             />
           </View>
         </View>
@@ -180,7 +186,7 @@ function Form({
       return (
         <AnswerForm
           host={host}
-          it={it}
+          principal={it.principal}
           item={item}
           placement={
             delivery(item.deliveryId)?.placement ?? t?.recipient ?? "the agent"
@@ -193,7 +199,7 @@ function Form({
       return (
         <ResolveForm
           host={host}
-          it={it}
+          principal={it.principal}
           item={item}
           outcome={delivery(item.deliveryId)?.send.outcome ?? null}
         />
@@ -243,7 +249,7 @@ function Record({
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Txt lines={1}>{d.placement}</Txt>
                 </View>
-                <Pill part={deliveryState(d)} />
+                <Pill part={deliveryState(d, viewer.asksViewer(d.id))} />
                 {viewer.identified && !d.end && !t.final ? (
                   <HoldButton
                     host={host}

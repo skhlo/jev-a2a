@@ -38,15 +38,30 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
   const viewer = useMemo(() => (s ? viewerOf(s) : null), [s]);
   // Serve's clock, read at each poll.
   const now = (summary.dataUpdatedAt || Date.now()) + (s?.skew ?? 0);
-  const [picked, setPicked] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // The wide detail shows the first pick until the viewer picks another,
-  // and keeps it when an action or a poll moves it down the list.
+  // The task the viewer picked. Wide, the detail otherwise shows the
+  // board's first pick, pinned once shown so that an action or a poll
+  // moving it down the list does not move the detail; narrower, only a
+  // pick opens a task. A task that has left the board gives way, as on
+  // the board.
+  const [picked, setPicked] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null);
+  const onBoard = (id: string | null): id is string =>
+    id !== null &&
+    viewer !== null &&
+    (viewer.head(id) !== null || viewer.itemsFor(id).length > 0);
   const first = mode === "wide" && viewer ? firstPick(viewer) : null;
+  const pinnedOn = onBoard(pinned);
   useEffect(() => {
-    if (picked === null && first !== null) setPicked(first);
-  }, [picked, first]);
-  const selected = picked ?? first;
+    if (!pinnedOn && first !== null) setPinned(first);
+  }, [pinnedOn, first]);
+  const selected = onBoard(picked)
+    ? picked
+    : mode === "wide"
+      ? pinnedOn
+        ? pinned
+        : first
+      : null;
   const look = useMemo(() => ({ c, mode }), [c, mode]);
 
   const body = () => {

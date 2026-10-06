@@ -68,12 +68,12 @@ function Input({
 
 export function AnswerForm({
   host,
-  it,
+  principal,
   item,
   placement,
 }: {
   host: string;
-  it: Item;
+  principal: string;
   item: Of<"answer">;
   placement: string;
 }) {
@@ -83,13 +83,13 @@ export function AnswerForm({
     setText("");
     next();
   });
-  const size = useFormButton();
+  const button = useFormButton();
   return (
     <Section title={`Question from ${placement}`}>
       <CardRow first>
         <Txt size="content">{item.text}</Txt>
         <Txt size="sm" muted>
-          {`${item.deliveryId} · ${item.questionId} · as ${it.principal}`}
+          {`${item.deliveryId} · ${item.questionId} · as ${principal}`}
         </Txt>
       </CardRow>
       <CardRow>
@@ -106,7 +106,7 @@ export function AnswerForm({
       </CardRow>
       <FormFoot hint="The task stays open until the agent replies completed">
         <Button
-          {...size}
+          {...button}
           variant="primary"
           label="Send answer"
           busy={send.isPending}
@@ -140,7 +140,7 @@ export function ChooseForm({
 }) {
   const [chosen, setChosen] = useState(item.suggestions[0] ?? "");
   const send = useAct(host, useRpc(rpc.taskChoose));
-  const size = useFormButton();
+  const button = useFormButton();
   const judged = task?.judgments[task.judgments.length - 1];
   const probabilities = judged?.probabilities ?? {};
   const named = chosen.trim();
@@ -183,7 +183,7 @@ export function ChooseForm({
         }
       >
         <Button
-          {...size}
+          {...button}
           variant="primary"
           label={named ? `Send to ${named}` : "Send"}
           busy={send.isPending}
@@ -199,17 +199,17 @@ export function ChooseForm({
 // both, and the router refuses the one it cannot take.
 export function ResolveForm({
   host,
-  it,
+  principal,
   item,
   outcome,
 }: {
   host: string;
-  it: Item;
+  principal: string;
   item: Of<"resolve">;
   outcome: string | null;
 }) {
   const send = useAct(host, useRpc(rpc.taskResolve));
-  const size = useFormButton();
+  const button = useFormButton();
   const mark = (to: "finished" | "not_sent") =>
     send.mutate({
       deliveryId: item.deliveryId,
@@ -222,13 +222,13 @@ export function ResolveForm({
       <CardRow first>
         <Txt size="content">{resolveWhy(item.reason, outcome)}</Txt>
         <Txt size="sm" muted>
-          {`send ${item.messageId} · ${outcome ?? "unknown"} · as ${it.principal}`}
+          {`send ${item.messageId} · ${outcome ?? "unknown"} · as ${principal}`}
         </Txt>
       </CardRow>
       <FormFoot hint="Only the outcomes the router accepts are offered">
         {outcome === "accepted" ? null : (
           <Button
-            {...size}
+            {...button}
             variant="outline"
             label="Mark not sent"
             busy={which === "not_sent"}
@@ -237,7 +237,7 @@ export function ResolveForm({
           />
         )}
         <Button
-          {...size}
+          {...button}
           variant="primary"
           label="Mark finished"
           busy={which === "finished"}

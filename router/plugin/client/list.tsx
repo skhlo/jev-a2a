@@ -153,7 +153,7 @@ function TaskRow({
         paddingHorizontal: 12,
         borderRadius: 8,
         marginBottom: 4,
-        backgroundColor: on ? c.surface2 : "transparent",
+        ...(on ? { backgroundColor: c.surface2 } : {}),
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

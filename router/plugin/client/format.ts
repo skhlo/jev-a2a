@@ -77,18 +77,28 @@ export const shortSession = (id: string): string => {
   return m ? `${m[1] ?? ""}${m[2]}` : id;
 };
 
-export const count = (n: number, one: string, many: string): string =>
+export const count = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`;
 
-const STATUS_TONE: Partial<Record<TaskHead["status"], Tone>> = {
-  needs_answer: "warn",
-  needs_recipient: "warn",
-  uncertain: "warn",
-  failed: "danger",
-  completed: "ok",
-};
-export const statusTone = (status: TaskHead["status"]): Tone =>
-  STATUS_TONE[status] ?? "muted";
+// A status pill's colour: the warning role only while the task waits on
+// the viewer, as the board marks its rows; another principal's question
+// waits like a queued task.
+const ASKING: TaskHead["status"][] = [
+  "needs_answer",
+  "needs_recipient",
+  "uncertain",
+];
+export const statusTone = (
+  status: TaskHead["status"],
+  needsViewer: boolean,
+): Tone =>
+  status === "failed"
+    ? "danger"
+    : status === "completed"
+      ? "ok"
+      : needsViewer && ASKING.includes(status)
+        ? "warn"
+        : "muted";
 
 const OUTCOME_TONE: Record<string, Tone> = {
   rejected: "danger",
@@ -152,6 +162,8 @@ export type Viewer = {
   done: ListRow[];
   head(id: string): TaskHead | null;
   itemsFor(id: string): Item[];
+  // Whether a delivery's open question is the viewer's to answer.
+  asksViewer(deliveryId: string): boolean;
   mayCancel(source: string, open: boolean): boolean;
   // Whether a placement is on hold; null for one the board does not list.
   onHold(placement: string): boolean | null;
@@ -201,6 +213,13 @@ export function viewerOf(s: Summary): Viewer {
     done: rest(s.finished).slice(0, 10),
     head,
     itemsFor,
+    asksViewer: (deliveryId) =>
+      items.some(
+        (it) =>
+          it.mine &&
+          it.item.kind === "answer" &&
+          it.item.deliveryId === deliveryId,
+      ),
     // Only the sender may cancel, and only while the task is open.
     mayCancel: (source, open) =>
       open && actor !== null && sender(source) === signer("requester"),
@@ -256,7 +275,7 @@ export const verdict = (f: NonNullable<TaskHead["final"]>): Part[] => [
 // besides the viewer, the sender's placement for an open task another agent
 // sent, the recipient, the sub, and "no reply <age>" when stale.
 export function rowLine(row: ListRow, now: number): Part[] {
-  const waits = row.items
+  const others = row.items
     .filter((it) => !it.mine)
     .map((it): Part => ({ text: `waits on ${it.principal}` }));
   const h = row.head;
@@ -275,7 +294,7 @@ export function rowLine(row: ListRow, now: number): Part[] {
   }
   return [
     { text: h.id },
-    ...waits,
+    ...others,
     ...(h.via !== null && !h.final ? [{ text: `from ${h.via}` }] : []),
     { text: h.recipient ?? "no recipient" },
     ...rowSub(h, now),
@@ -321,8 +340,9 @@ const answered = (d: Delivery): boolean =>
   !d.question &&
   d.sends.find((s) => s.messageId === d.send.messageId)?.kind === "answer";
 
-// A delivery row's state pill.
-export function deliveryState(d: Delivery): Part {
+// A delivery row's state pill; a question is in the warning role while it
+// asks the viewer.
+export function deliveryState(d: Delivery, asksViewer: boolean): Part {
   if (d.end) return { text: label(d.end.reason) };
   if (d.waits) return { text: waitWords(d.placement, d.waits) };
   if (d.send.outcome !== "accepted")
@@ -332,7 +352,10 @@ export function deliveryState(d: Delivery): Part {
     };
   if (answered(d)) return { text: "answered" };
   if (d.latest)
-    return { text: d.latest.kind, ...(d.question ? { tone: "warn" } : {}) };
+    return {
+      text: d.latest.kind,
+      ...(d.question && asksViewer ? { tone: "warn" } : {}),
+    };
   return { text: "delivered" };
 }
 

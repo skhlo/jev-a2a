@@ -185,8 +185,9 @@ daemon's `$ROUTER_CONFIG`; a `--config` or `ROUTER_CONFIG` given only to
 It needs `pluginsEnabled` on that daemon (Settings → Plugins). Paseo
 bundles the plugin's dependencies (the plugin SDK and zod) from its
 `node_modules`; the app provides React, React Native and React Query,
-whose copies there serve the typecheck. Install it once from the checkout `serve` runs; after
-updating the checkout, install its dependencies again and reload it:
+whose copies there serve the typecheck. Install it once from the
+checkout `serve` runs; after updating the checkout, install its
+dependencies again and reload it:
 
 ```sh
 pnpm --dir router/plugin install --frozen-lockfile   # from the repository root
