@@ -188,10 +188,13 @@ The plugin reads the configuration at the default path, or at the
 daemon's `$ROUTER_CONFIG`; a `--config` or `ROUTER_CONFIG` given only to
 `serve` does not reach it.
 
-It needs `pluginsEnabled` on that daemon (Settings → Plugins). Paseo
-bundles the plugin's dependencies (the plugin SDK and zod) from its
-`node_modules`; the app provides React, React Native and React Query,
-whose copies there serve the typecheck. Install it once from the
+It needs `pluginsEnabled` on that daemon (Settings → Plugins). The app
+on each device must also be Paseo 0.10.2 or newer
+(`router/plugin/paseo-plugin.json`); an older one, such as a phone that
+has not updated, lists the plugin as failed in Settings → Plugins and
+shows no Jev. Paseo bundles the plugin's dependencies (the plugin SDK
+and zod) from its `node_modules`; the app provides React, React Native
+and React Query, whose copies there serve the typecheck. Install it once from the
 checkout `serve` runs; after updating the checkout, install its
 dependencies again and reload it:
 
