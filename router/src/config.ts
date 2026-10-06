@@ -25,6 +25,16 @@ export type TerminalCli = (typeof TERMINAL_CLIS)[number];
 const isTerminalCli = (value: unknown): value is TerminalCli =>
   TERMINAL_CLIS.some((cli) => cli === value);
 
+// Where the configuration is: --config, $ROUTER_CONFIG, or the default. Its
+// folder holds secrets.env too.
+export const configPathOf = (
+  given: string | undefined,
+  env: Record<string, string | undefined>,
+): string =>
+  given ??
+  env.ROUTER_CONFIG ??
+  join(homedir(), ".config", "jev-router", "config.json");
+
 // The calling session as the record names it: a Paseo agent's id, or the
 // terminal the CLI runs in. Null outside a participant session.
 export const callerSession = (

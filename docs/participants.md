@@ -63,7 +63,7 @@ An agent's session may submit work too, with the same `submit`, `choose`
 and `answer` commands, as far as `permissions` lets its participant address
 others.
 
-- On a host that does not run the router, the client acts as the session
+- On a host that does not run the router, `router` acts as the session
   `$PASEO_AGENT_ID`, which Paseo sets in the agent's environment, or
   `terminal:$PASEO_TERMINAL_ID` for an agent CLI in a Paseo terminal.
 - On the router host the CLI acts as a person (the first requester, or
@@ -99,7 +99,7 @@ Limits:
   not deduplicate (`idempotent: false`), or when its session was replaced
   since; there is no operator form for it. On the router host the sender
   still finds the item with `router needs-you --as <participant>` and
-  `router status`; the client on another host has no query command, so a
+  `router status`; `router` on another host has no query command, so a
   person relays it.
 - When two deliveries of one request ask under the same message id, an
   answer must name its delivery (`--delivery`); the notices do.

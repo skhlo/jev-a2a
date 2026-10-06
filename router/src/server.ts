@@ -397,7 +397,7 @@ export function eventsListener(
 
 // A browser sends Sec-Fetch-Site on every request and Origin on every
 // cross-site POST; a form on another page fails both. Clients that send
-// neither (curl, the client script) are not browsers acting on a page.
+// neither (curl, `router` on a reply host) are not browsers acting on a page.
 export function sameSite(
   headers: Record<string, string | string[] | undefined>,
 ): boolean {

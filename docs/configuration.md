@@ -155,7 +155,7 @@ JSON file.
 | Key                | Where                                                                 |
 | ------------------ | --------------------------------------------------------------------- |
 | `TYPESAFE_API_KEY` | The router host, for Jev.                                             |
-| `ROUTER_TOKEN`     | The router host and every host with a client.                         |
+| `ROUTER_TOKEN`     | The router host and every host without a configuration.               |
 | `ROUTER_URL`       | Hosts that do not run the router: `serve.listen` as an `http://` URL. |
 
 With [`usage`](#usage) on, the router host may also hold, all optional,

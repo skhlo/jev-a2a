@@ -8,7 +8,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scratch } from "./test-scratch.ts";
-import { invocation, runCommand, UsageError } from "../src/commands.ts";
+import { runCommand } from "../src/commands.ts";
+import { invocation, UsageError } from "../src/request.ts";
 import { openShell, type ShellOptions } from "../src/shell.ts";
 import type { RouterConfig } from "../src/config.ts";
 import { config as fixture, telemetry } from "../src/board-fixture.ts";
@@ -121,6 +122,7 @@ test("a mistake in the options is refused before the journal opens", async (t) =
   const cases: [argv: string[], env: Record<string, string>, RegExp][] = [
     [["submit"], {}, /Give the request text after the options/],
     [["submit", "--text-file", "x", "words"], {}, /not both/],
+    [["submit", "--text", "x"], {}, /not --text/],
     [["submit", "--text-file", "/nonexistent"], {}, /--text-file: ENOENT/],
     [["choose", "--task", "T1"], {}, /^--to is required\.$/],
     [["reply", "--task", "T1"], {}, /Replies come from a participant session/],

@@ -9,13 +9,12 @@ update it when workflows change.
   work between coding agents in Paseo sessions on several machines and
   keeps one record of it. The contract is
   `../docs/research/jev-router-spec.md`.
-- Main entry points: `src/cli.ts` (the `router` command, `router serve`
-  included); `client/router.mjs` (the client for hosts that only reply);
-  the scripts in `src/` run by hand with node, each under
-  `import.meta.main`.
-- Important directories: `src/` the router; `test/` its tests; `client/`;
-  `eval/` the labeled request set; `design/` the board design's paths and
-  the README's pictures; `../docs/` the reference pages.
+- Main entry points: `src/cli.ts` (the `router` command on every host,
+  `router serve` included); the scripts in `src/` run by hand with node,
+  each under `import.meta.main`.
+- Important directories: `src/` the router; `test/` its tests; `eval/`
+  the labeled request set; `design/` the board design's paths and the
+  README's pictures; `../docs/` the reference pages.
 
 ## Architecture Notes
 
@@ -23,8 +22,13 @@ update it when workflows change.
   contract and performs no I/O. `src/shell.ts` and the adapters around it
   (`paseo.ts`, `jev.ts`, `journal.ts`, `server.ts`) perform the core's
   commands and feed results back as events.
-- `src/cli.ts` is the process around `src/commands.ts`, the commands on
-  the record; the tests run those in-process.
+- `src/cli.ts` picks the host: with a configuration it loads
+  `src/router-host.ts`, the process around `src/commands.ts` (the commands
+  on the record, which the tests run in-process); without one,
+  `src/reply-host.ts` sends `reply`, `submit`, `answer` and `choose` to
+  `serve`. Both build events with `src/request.ts`. The reply host's path
+  loads no package, so it runs from a checkout without `pnpm install`;
+  `test/reply-host.test.ts` runs it once from a copy of `src/`.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

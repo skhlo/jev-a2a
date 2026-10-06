@@ -1,10 +1,9 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
   // Fallow finds the CLI (package.json bin), the tests (the test script)
-  // and the scripts they import. These two it cannot reach: the client is
-  // installed as `router` on hosts that only reply, and board-check.ts is
-  // run by hand.
-  "entry": ["client/router.mjs", "src/board-check.ts"],
+  // and the scripts they import. board-check.ts it cannot reach: it is run
+  // by hand.
+  "entry": ["src/board-check.ts"],
   // Any duplicated block fails: the threshold is the duplicated share of
   // the code in percent, and 0 means no limit.
   "duplicates": { "threshold": 0.001 },
