@@ -173,8 +173,8 @@ checkout:
 
 ```sh
 paseo plugin install "$PWD/router/plugin"    # from the repository root
-paseo plugin reload jev-router
-paseo plugin logs jev-router                 # a failed nudge is logged once
+paseo plugin reload router
+paseo plugin logs router                     # a failed nudge is logged once
 ```
 
 ## Endpoints
