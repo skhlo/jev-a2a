@@ -17,7 +17,7 @@ import { LookProvider, Txt, type Mode } from "./ui.tsx";
 
 const WIDE = 720;
 
-type Pick = "agents" | { task: string; fromAgents: boolean } | null;
+type Shown = "agents" | { task: string; fromAgents: boolean } | null;
 
 export function Board(props: PluginSurfaceProps) {
   // Another host is another board: start it afresh.
@@ -49,7 +49,7 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
   // that an action or a poll moving it down the list does not move the
   // detail; narrower, only a pick opens a task. A task that has left the
   // board gives way, as on the board.
-  const [pick, setPick] = useState<Pick>(null);
+  const [pick, setPick] = useState<Shown>(null);
   const [pinned, setPinned] = useState<string | null>(null);
   const agents = pick === "agents";
   const picked = pick !== null && pick !== "agents" ? pick.task : null;

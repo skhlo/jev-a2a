@@ -297,7 +297,7 @@ test("client: an item the viewer may not act on reads as the board's, without a 
   assert.ok(compared >= 3, `${compared} items compared`);
 });
 
-test("client: an item of a principal the viewer lacks waits on it; one whose task left the board keeps a row", () => {
+test("client: items of a principal the viewer lacks wait on it, named once; one whose task left the board keeps a row", () => {
   const { summary } = board(replacedJournal);
   const [requester, operator] = summary.needsYou;
   assert.ok(requester && operator);
@@ -306,7 +306,17 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
   const other: Summary = {
     ...summary,
     needsYou: [
-      { ...requester, principal: "alice", items: requester.items },
+      // Two of alice's items on T2, as two deliveries' questions.
+      {
+        ...requester,
+        principal: "alice",
+        items: [
+          ...requester.items,
+          ...requester.items
+            .filter((it) => it.taskId === "T2")
+            .map((it) => ({ ...it, deliveryId: "D99" })),
+        ],
+      },
       {
         ...operator,
         items: [...operator.items, { ...resolve, taskId: "T99" }],

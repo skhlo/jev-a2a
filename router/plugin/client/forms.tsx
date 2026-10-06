@@ -1,6 +1,6 @@
 // The viewer's forms: answer, choose and resolve for its own needs-you
-// items, and the New task and Cancel task modals. Each sends one RPC
-// through useAct (data.ts).
+// items, the New task and Cancel task modals, and Hold or Release. Each
+// sends one RPC through useAct (data.ts).
 import { useRpc } from "@getpaseo/plugin/client";
 import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
@@ -318,9 +318,9 @@ export function SubmitModal({
     setTo(key);
     next();
   };
-  // A placement the roster no longer lists reads, and sends, as Jev's
+  // An agent the roster no longer lists reads, and sends, as Jev's
   // choice.
-  const placement = agents.find((p) => p.key === to);
+  const agent = agents.find((p) => p.key === to);
   return (
     <Modal title="New task" open={open} onOpenChange={onOpenChange}>
       <Modal.Content>
@@ -357,21 +357,17 @@ export function SubmitModal({
                 overflow: "hidden",
               }}
             >
-              <RadioRow first on={!placement} onPress={() => choose(null)}>
+              <RadioRow first on={!agent} onPress={() => choose(null)}>
                 <Icon name="Route" size={16} color={c.foregroundMuted} />
                 <Txt>Let Jev choose</Txt>
               </RadioRow>
               {agents.map((p) => (
                 <RadioRow
                   key={p.key}
-                  on={p === placement}
+                  on={p === agent}
                   onPress={() => choose(p.key)}
                 >
-                  <AgentMark
-                    state={p.state}
-                    label={`${p.participant} ${p.words}`}
-                    behind={c.surface1}
-                  />
+                  <AgentMark agent={p} behind={c.surface1} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Txt lines={1}>
                       {p.participant} <Txt muted>{p.host}</Txt>
@@ -394,8 +390,8 @@ export function SubmitModal({
                   send.mutate({
                     text,
                     messageId,
-                    ...(placement
-                      ? { to: placement.participant, host: placement.host }
+                    ...(agent
+                      ? { to: agent.participant, host: agent.host }
                       : {}),
                   }),
               },

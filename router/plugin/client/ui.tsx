@@ -1,6 +1,6 @@
 // The surface's small parts, drawn from the plugin theme's colours and
-// Paseo's scales only (the design's tokens): text, buttons, pills, dots,
-// radios and card rows. The layout mode rides along, since it sizes the
+// Paseo's scales only (the design's tokens): the page and its back row,
+// text, buttons, pills, dots, agent marks, radios and card rows. The layout mode rides along, since it sizes the
 // form buttons.
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
@@ -15,7 +15,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
-import type { AgentState, Part, Tone } from "./format.ts";
+import type { Agent, Part, Tone } from "./format.ts";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 // wide: list and detail side by side; single: one pane at a time; compact:
@@ -283,13 +283,10 @@ export function BackRow({
 // not ready a muted Bot; held a muted BotOff, since a held agent takes no
 // send.
 export function AgentMark({
-  state,
-  label,
+  agent: { participant, state, words },
   behind,
 }: {
-  state: AgentState;
-  // The agent's name and state words.
-  label: string;
+  agent: Agent;
   // The colour of the surface the mark sits on.
   behind: string;
 }) {
@@ -297,7 +294,7 @@ export function AgentMark({
   return (
     <View
       accessible
-      accessibilityLabel={label}
+      accessibilityLabel={`${participant} ${words}`}
       style={{ width: 16, height: 16 }}
     >
       <Icon

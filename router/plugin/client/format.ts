@@ -2,8 +2,9 @@
 // src/board-context.ts and src/board-tasks.ts) over the shapes serve's board
 // API returns, as the plugin design lays them out (skhlo/designs PR #21,
 // jev-a2a v0.14). The Agents rules and a row's line 2 are the design's
-// own: the board has no Agents page, and its row has two lines. Pure, so the tests run them in Node. The app evaluates this
-// in Hermes, so it keeps to ES2020 built-ins: no replaceAll and no Array.at
+// own: the board has no Agents page, and its row has two lines. Pure, so
+// the tests run them in Node. The app evaluates this in Hermes, so it
+// keeps to ES2020 built-ins: no replaceAll and no Array.at
 // (tsconfig.client.json checks).
 import type { FullTask, Summary } from "../shared/rpc.ts";
 
@@ -384,9 +385,12 @@ export function rowLines(row: ListRow, now: number): Part[][] {
       { text: label(h.status) },
     ],
     [
-      ...row.items
-        .filter((it) => !it.mine)
-        .map((it): Part => ({ text: `waits on ${it.principal}` })),
+      // Each principal once, as on the board.
+      ...[
+        ...new Set(
+          row.items.filter((it) => !it.mine).map((it) => it.principal),
+        ),
+      ].map((principal): Part => ({ text: `waits on ${principal}` })),
       ...rowSub(h, now),
       ...(h.stale ? [{ text: h.stale, tone: "warn" as const }] : []),
     ],

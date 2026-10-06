@@ -49,11 +49,7 @@ export function AgentsPage({
               <View
                 style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
               >
-                <AgentMark
-                  state={a.state}
-                  label={`${a.participant} ${a.words}`}
-                  behind={c.surface1}
-                />
+                <AgentMark agent={a} behind={c.surface1} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Txt lines={1}>{a.participant}</Txt>
                 </View>

@@ -1,7 +1,7 @@
 // The task list: the Agents row, then Needs you, In flight and Done (the
 // last ten), each row the title, its age and a dot, then lines 2 and 3
-// (format.ts rowLines). A group's heading collapses it to the heading and its count, as
-// on the board.
+// (format.ts rowLines). A group's heading collapses it to the heading and
+// its count, as on the board.
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
@@ -262,8 +262,7 @@ function AgentsRow({
               {h.agents.map((a) => (
                 <AgentMark
                   key={a.key}
-                  state={a.state}
-                  label={`${a.participant} ${a.words}`}
+                  agent={a}
                   behind={on ? c.surface2 : c.surface0}
                 />
               ))}
