@@ -314,6 +314,15 @@ test("plugin: an action goes to serve as the app's principals; a refusal fails w
     events.slice(4).map((e) => (e.type === "submit" ? e.messageId : e.type)),
     ["app-1", "app-1"],
   );
+  // A placement row narrows the request to its host.
+  await app.call(rpc.taskSubmit, {
+    text: "Tidy",
+    to: "knowledge",
+    host: "mini",
+  });
+  const placed = events.at(-1);
+  assert.ok(placed?.type === "submit");
+  assert.deepEqual([placed.to, placed.hosts], ["knowledge", ["mini"]]);
   outcome = { ok: false, code: "closed", message: "T1 is already closed." };
   await assert.rejects(
     app.call(rpc.taskCancel, { taskId: "T1" }),
@@ -329,7 +338,7 @@ test("plugin: an action goes to serve as the app's principals; a refusal fails w
     app.call(rpc.taskSubmit, { text: "  " }),
     /^Error: Missing text\.$/,
   );
-  assert.equal(events.length, 7);
+  assert.equal(events.length, 8);
 });
 
 test("plugin: a serve too slow for Paseo's limit fails saying the action may be recorded", async (t) => {

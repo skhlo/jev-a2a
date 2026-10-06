@@ -154,11 +154,10 @@ One instance per host: a second finds the port taken and says so.
 ## The Paseo plugin
 
 `router/plugin/` is a Paseo plugin. Installed into the router host's
-daemon, it posts `/nudge` to `serve.board` each time a
-placement's session ends a turn there. A delivery or notice waiting for
-that session then goes out at once instead of up to `serve.wake` seconds
-later. The looks stay, since Paseo's hooks are best effort, and they still
-find:
+daemon, it posts `/nudge` to `serve.board` each time a placement's
+session ends a turn there. A delivery or notice waiting for that session
+then goes out at once instead of up to `serve.wake` seconds later. The
+looks stay, since Paseo's hooks are best effort, and they still find:
 
 - sessions on other hosts;
 - terminal placements, which are not Paseo agents and have no turns to

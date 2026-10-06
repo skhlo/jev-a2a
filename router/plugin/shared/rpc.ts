@@ -69,6 +69,21 @@ const final = z.object({
   by: z.string().nullable(),
 });
 
+// Why an open delivery's send waits; for `queued_behind`, the delivery
+// at the head of the queue.
+const waits = z
+  .object({
+    reason: z.enum([
+      "session_replaced",
+      "in_flight",
+      "held",
+      "not_ready",
+      "queued_behind",
+    ]),
+    behind: z.string().nullable(),
+  })
+  .nullable();
+
 // One task as its row shows it; `rev` changes whenever the task does.
 // `question` is the waiting question's text (its needs-you item carries
 // the ids an answer names); `answered` is the answer the latest delivery's
@@ -92,8 +107,10 @@ const taskHead = z.object({
   latest: z
     .object({
       id: z.string(),
+      placement: z.string(),
       sendKind: z.string(),
       outcome: z.string(),
+      waits,
       update: z.object({ kind: updateKind, text: z.string() }).nullable(),
       answered: z
         .object({ text: z.string(), at: z.string().nullable() })
@@ -164,18 +181,7 @@ const delivery = z.object({
       by: z.string().exactOptional(),
     })
     .nullable(),
-  waits: z
-    .object({
-      reason: z.enum([
-        "session_replaced",
-        "in_flight",
-        "held",
-        "not_ready",
-        "queued_behind",
-      ]),
-      behind: z.string().nullable(),
-    })
-    .nullable(),
+  waits,
 });
 
 const task = z.object({

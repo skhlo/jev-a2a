@@ -75,7 +75,6 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
         key={selected}
         host={host.id}
         id={selected}
-        summary={s}
         viewer={viewer}
         now={now}
         onBack={() => setPicked(null)}
@@ -102,12 +101,13 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
         onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       >
         {body()}
-        {s ? (
+        {s && viewer ? (
           <SubmitModal
             host={host.id}
             open={submitting}
             onOpenChange={setSubmitting}
-            summary={s}
+            placements={s.placements}
+            requester={viewer.requester}
             onSubmitted={setPicked}
           />
         ) : null}

@@ -24,7 +24,7 @@
   "ignoreExports": [
     {
       "file": "plugin/client/format.ts",
-      "exports": ["Row", "age", "count", "label", "span", "time"],
+      "exports": ["age", "count", "label", "span", "time", "waitWords"],
     },
   ],
   // The health report scores the router's code; the tests' own helpers stay

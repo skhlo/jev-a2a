@@ -46,9 +46,13 @@ update it when workflows change.
   to the core's, and its reading of the configuration (the path,
   `serve.board`, `agents`) to `src/config.ts`'s. The app half
   (`index.client.tsx`, `plugin/client/`) repeats the board's rules over
-  those shapes in `plugin/client/format.ts`; `plugin/test/client.test.ts`
-  holds them to the board's, and `.fallowrc.jsonc` lists the copied
-  formats as reviewed clones.
+  those shapes in `plugin/client/format.ts`. `plugin/test/client.test.ts`
+  compares its rows, delivery states, chosen-by words and resolve
+  sentences with the board page rendered for the same fixtures, and its
+  copied formats (`span`, `time`, `age`, `left`, `label`, `shortId`,
+  `waitWords`, `headline`) with `src/board-parts.ts`; the rest of the
+  detail is checked against fixed strings. `.fallowrc.jsonc` lists the
+  copied formats as reviewed clones, and their shared names as exempt.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

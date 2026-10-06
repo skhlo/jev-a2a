@@ -14,10 +14,12 @@ import {
   CardRow,
   FormFoot,
   LookProvider,
+  ModalFoot,
   RadioRow,
   Section,
   SIZE,
   Txt,
+  useFormButton,
   useLook,
 } from "./ui.tsx";
 
@@ -30,12 +32,14 @@ function Input({
   placeholder,
   minHeight,
   label: name,
+  multiline = true,
 }: {
   value: string;
   onChange: (text: string) => void;
   placeholder: string;
   minHeight: number;
   label: string;
+  multiline?: boolean;
 }) {
   const { c } = useLook();
   return (
@@ -45,7 +49,8 @@ function Input({
       onChangeText={onChange}
       placeholder={placeholder}
       placeholderTextColor={c.foregroundMuted}
-      multiline
+      multiline={multiline}
+      autoCapitalize={multiline ? "sentences" : "none"}
       textAlignVertical="top"
       style={{
         minHeight,
@@ -59,14 +64,6 @@ function Input({
       }}
     />
   );
-}
-
-// A form's button: md at full width on a phone.
-function useFormButton() {
-  const { mode } = useLook();
-  return mode === "compact"
-    ? ({ size: "md", full: true } as const)
-    : ({ size: "sm" } as const);
 }
 
 export function AnswerForm({
@@ -129,53 +126,69 @@ export function AnswerForm({
   );
 }
 
-// Jev's suggestions in its order, the first chosen; with none, every
-// participant.
+// Jev's suggestions in its order, the first chosen. Without any (Jev's
+// answer was unusable or Jev was not reached), the sender names the
+// participant, as on the board.
 export function ChooseForm({
   host,
   item,
   task,
-  participants,
 }: {
   host: string;
   item: Of<"choose">;
   task: Task | null;
-  participants: string[];
 }) {
-  const options = item.suggestions.length ? item.suggestions : participants;
-  const [chosen, setChosen] = useState(options[0] ?? "");
+  const [chosen, setChosen] = useState(item.suggestions[0] ?? "");
   const send = useAct(host, useRpc(rpc.taskChoose));
   const size = useFormButton();
   const judged = task?.judgments[task.judgments.length - 1];
   const probabilities = judged?.probabilities ?? {};
+  const named = chosen.trim();
   return (
     <Section title={`Choose a recipient · ${label(item.reason)}`}>
-      {options.map((name, i) => {
-        const p = probabilities[name];
-        return (
-          <RadioRow
-            key={name}
-            first={i === 0}
-            on={name === chosen}
-            onPress={() => setChosen(name)}
-          >
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Txt lines={1}>{name}</Txt>
-            </View>
-            {p === undefined ? null : <Txt muted>{p.toFixed(2)}</Txt>}
-          </RadioRow>
-        );
-      })}
-      <FormFoot hint="Jev's order with its probabilities; the first is its choice">
+      {item.suggestions.length ? (
+        item.suggestions.map((name, i) => {
+          const p = probabilities[name];
+          return (
+            <RadioRow
+              key={name}
+              first={i === 0}
+              on={name === chosen}
+              onPress={() => setChosen(name)}
+            >
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Txt lines={1}>{name}</Txt>
+              </View>
+              {p === undefined ? null : <Txt muted>{p.toFixed(2)}</Txt>}
+            </RadioRow>
+          );
+        })
+      ) : (
+        <CardRow first>
+          <Input
+            label={`Recipient for ${item.taskId}`}
+            value={chosen}
+            onChange={setChosen}
+            placeholder="Participant id"
+            minHeight={44}
+            multiline={false}
+          />
+        </CardRow>
+      )}
+      <FormFoot
+        hint={
+          item.suggestions.length
+            ? "Jev's order with its probabilities; the first is its choice"
+            : "Jev suggested no one; name the participant"
+        }
+      >
         <Button
           {...size}
           variant="primary"
-          label={`Send to ${chosen}`}
+          label={named ? `Send to ${named}` : "Send"}
           busy={send.isPending}
-          disabled={!chosen}
-          onPress={() =>
-            send.mutate({ taskId: item.taskId, recipient: chosen })
-          }
+          disabled={!named}
+          onPress={() => send.mutate({ taskId: item.taskId, recipient: named })}
         />
       </FormFoot>
     </Section>
@@ -236,21 +249,6 @@ export function ResolveForm({
   );
 }
 
-// A modal's buttons, right-aligned; on a phone they share the width.
-function ModalFoot({ children }: { children: ReactNode }) {
-  const { mode } = useLook();
-  return (
-    <View
-      style={[
-        { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
-        mode === "compact" && { justifyContent: "space-between" },
-      ]}
-    >
-      {children}
-    </View>
-  );
-}
-
 function Field({
   name,
   hint,
@@ -277,17 +275,20 @@ export function SubmitModal({
   host,
   open,
   onOpenChange,
-  summary,
+  placements,
+  requester,
   onSubmitted,
 }: {
   host: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  summary: Summary;
+  placements: Summary["placements"];
+  // Who the request is sent as; without one, nobody may submit.
+  requester: string | null;
   onSubmitted: (taskId: string) => void;
 }) {
   const look = useLook();
-  const { c, mode } = look;
+  const { c } = look;
   const [text, setText] = useState("");
   const [to, setTo] = useState<string | null>(null);
   const [messageId, next] = useMessageId();
@@ -302,11 +303,7 @@ export function SubmitModal({
     setTo(key);
     next();
   };
-  const placement = summary.placements.find((p) => p.key === to);
-  const requester = summary.actor?.principals.find(
-    (p) => p.role === "requester",
-  )?.principal;
-  const grow = mode === "compact" ? { flex: 1 } : undefined;
+  const placement = placements.find((p) => p.key === to);
   return (
     <Modal title="New task" open={open} onOpenChange={onOpenChange}>
       <Modal.Content>
@@ -346,7 +343,7 @@ export function SubmitModal({
               <RadioRow first on={to === null} onPress={() => choose(null)}>
                 <Txt>Let Jev choose</Txt>
               </RadioRow>
-              {summary.placements.map((p) => (
+              {placements.map((p) => (
                 <RadioRow
                   key={p.key}
                   on={to === p.key}
@@ -362,35 +359,25 @@ export function SubmitModal({
               ))}
             </View>
           </Field>
-          <ModalFoot>
-            <View style={grow}>
-              <Button
-                size="md"
-                full={!!grow}
-                label="Cancel"
-                onPress={() => onOpenChange(false)}
-              />
-            </View>
-            <View style={grow}>
-              <Button
-                size="md"
-                full={!!grow}
-                variant="primary"
-                label="Submit"
-                busy={send.isPending}
-                disabled={!text.trim() || !requester}
-                onPress={() =>
+          <ModalFoot
+            buttons={[
+              { label: "Cancel", onPress: () => onOpenChange(false) },
+              {
+                label: "Submit",
+                variant: "primary",
+                busy: send.isPending,
+                disabled: !text.trim() || !requester,
+                onPress: () =>
                   send.mutate({
                     text,
                     messageId,
                     ...(placement
                       ? { to: placement.participant, host: placement.host }
                       : {}),
-                  })
-                }
-              />
-            </View>
-          </ModalFoot>
+                  }),
+              },
+            ]}
+          />
         </LookProvider>
       </Modal.Content>
     </Modal>
@@ -411,7 +398,6 @@ export function CancelModal({
   const look = useLook();
   const send = useAct(host, useRpc(rpc.taskCancel), () => onOpenChange(false));
   const live = task.deliveries.filter((d) => !d.end);
-  const grow = look.mode === "compact" ? { flex: 1 } : undefined;
   return (
     <Modal title={`Cancel ${task.id}?`} open={open} onOpenChange={onOpenChange}>
       <Modal.Content>
@@ -427,26 +413,17 @@ export function CancelModal({
               ))}
             </View>
           ) : null}
-          <ModalFoot>
-            <View style={grow}>
-              <Button
-                size="md"
-                full={!!grow}
-                label="Keep task"
-                onPress={() => onOpenChange(false)}
-              />
-            </View>
-            <View style={grow}>
-              <Button
-                size="md"
-                full={!!grow}
-                variant="danger"
-                label="Cancel task"
-                busy={send.isPending}
-                onPress={() => send.mutate({ taskId: task.id })}
-              />
-            </View>
-          </ModalFoot>
+          <ModalFoot
+            buttons={[
+              { label: "Keep task", onPress: () => onOpenChange(false) },
+              {
+                label: "Cancel task",
+                variant: "danger",
+                busy: send.isPending,
+                onPress: () => send.mutate({ taskId: task.id }),
+              },
+            ]}
+          />
         </LookProvider>
       </Modal.Content>
     </Modal>

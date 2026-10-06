@@ -21,6 +21,7 @@ import {
   extend,
   journal,
   NOW,
+  sampleJournal,
 } from "../src/board-fixture.ts";
 import type { Entry } from "../src/journal.ts";
 import type { Outcome } from "../src/types.ts";
@@ -89,11 +90,21 @@ test("the summary heads each task with what its row shows", () => {
   assert.equal(head("T2")?.sentAt, "2026-09-30T09:10:00.000Z");
   assert.deepEqual(head("T2")?.latest, {
     id: "D1",
+    placement: "orchestrator@mbp",
     sendKind: "answer",
     outcome: "accepted",
+    waits: null,
     update: { kind: "question", text: "Force push?" },
     answered: null,
   });
+  // A delivery that waits says why, as its row on the page does.
+  const waiting = summarize(modelOf(sampleJournal)).open.find(
+    (t) => t.id === "T1",
+  );
+  assert.deepEqual(
+    [waiting?.latest?.placement, waiting?.latest?.waits],
+    ["orchestrator@mbp", { reason: "not_ready", behind: null }],
+  );
   // Before the session replied to the first answer, the answer shows.
   const answered = summarize(
     modelOf(answeredJournal, Date.parse("2026-09-30T09:16:00Z")),

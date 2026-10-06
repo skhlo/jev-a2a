@@ -96,6 +96,25 @@ const OUTCOME_TONE: Record<string, Tone> = {
 };
 const outcomeTone = (outcome: string): Tone => OUTCOME_TONE[outcome] ?? "muted";
 
+type Waits = NonNullable<Delivery["waits"]>;
+
+// What a waiting delivery waits for, in words (src/board-parts.ts
+// waitWords).
+export const waitWords = (placement: string, waits: Waits): string => {
+  switch (waits.reason) {
+    case "queued_behind":
+      return `queued behind ${waits.behind ?? DASH}`;
+    case "held":
+      return `held on ${placement}`;
+    case "not_ready":
+      return `waits for ${placement} to be ready`;
+    case "in_flight":
+      return `behind an unconfirmed send on ${placement}`;
+    case "session_replaced":
+      return `its session on ${placement} was replaced`;
+  }
+};
+
 // The principal that sent a task: its source without the message id.
 const sender = (source: string): string =>
   source.slice(0, source.lastIndexOf("/"));
@@ -124,31 +143,35 @@ export const itemKey = (item: NeedsYouItem): string =>
 
 // One row of the list. A needs-you item whose task is older than the
 // finished tasks the board keeps (only a resolve can be) has no head.
-export type Row = { id: string; head: TaskHead | null; items: Item[] };
+export type ListRow = { id: string; head: TaskHead | null; items: Item[] };
 
 export type Viewer = {
   items: Item[];
-  needs: Row[];
-  flight: Row[];
-  done: Row[];
+  needs: ListRow[];
+  flight: ListRow[];
+  done: ListRow[];
   head(id: string): TaskHead | null;
   itemsFor(id: string): Item[];
   mayCancel(source: string, open: boolean): boolean;
-  // Whether a placement is held; null for one the board does not list.
-  held(placement: string): boolean | null;
+  // Whether a placement is on hold; null for one the board does not list.
+  onHold(placement: string): boolean | null;
+  // The principal a request is sent as, the actor's first requester.
+  requester: string | null;
   identified: boolean;
 };
 
 export function viewerOf(s: Summary): Viewer {
   const actor = s.actor;
-  const held = new Set(actor ? actor.principals.map((p) => p.principal) : []);
+  const principals = new Set(
+    actor ? actor.principals.map((p) => p.principal) : [],
+  );
   const signer = (role: string): string | undefined =>
     actor?.principals.find((p) => p.role === role)?.principal;
   const items: Item[] = s.needsYou.flatMap((entry) =>
     entry.items.map((item) => ({
       principal: entry.principal,
       item,
-      mine: actor === null || held.has(entry.principal),
+      mine: actor === null || principals.has(entry.principal),
       act:
         actor !== null &&
         entry.principal ===
@@ -164,12 +187,12 @@ export function viewerOf(s: Summary): Viewer {
   for (const it of items)
     if (it.mine && !needIds.includes(it.item.taskId))
       needIds.push(it.item.taskId);
-  const row = (id: string): Row => ({
+  const row = (id: string): ListRow => ({
     id,
     head: head(id),
     items: itemsFor(id),
   });
-  const rest = (list: TaskHead[]): Row[] =>
+  const rest = (list: TaskHead[]): ListRow[] =>
     list.filter((h) => !needIds.includes(h.id)).map((h) => row(h.id));
   return {
     items,
@@ -181,8 +204,9 @@ export function viewerOf(s: Summary): Viewer {
     // Only the sender may cancel, and only while the task is open.
     mayCancel: (source, open) =>
       open && actor !== null && sender(source) === signer("requester"),
-    held: (placement) =>
+    onHold: (placement) =>
       s.placements.find((p) => p.key === placement)?.hold ?? null,
+    requester: signer("requester") ?? null,
     identified: actor !== null,
   };
 }
@@ -191,7 +215,7 @@ export function viewerOf(s: Summary): Viewer {
 
 // Line 2's rule, the HTML board's row sub: what the task waits on or last
 // said, then its countdown.
-function sub(h: TaskHead, now: number): Part[] {
+export function rowSub(h: TaskHead, now: number): Part[] {
   if (h.status === "needs_recipient" && h.reason) {
     const j = h.judgment;
     const p = j?.probability;
@@ -205,6 +229,7 @@ function sub(h: TaskHead, now: number): Part[] {
   const left = countdown(h.deadline, now);
   const d = h.latest;
   if (!d) return [left];
+  if (d.waits) return [{ text: waitWords(d.placement, d.waits) }, left];
   if (d.outcome !== "accepted")
     return [
       { text: `${d.sendKind} ${d.outcome}`, tone: outcomeTone(d.outcome) },
@@ -230,7 +255,7 @@ export const verdict = (f: NonNullable<TaskHead["final"]>): Part[] => [
 // Line 2 of a row, its parts joined by " · ": the id, whom it waits on
 // besides the viewer, the sender's placement for an open task another agent
 // sent, the recipient, the sub, and "no reply <age>" when stale.
-export function rowLine(row: Row, now: number): Part[] {
+export function rowLine(row: ListRow, now: number): Part[] {
   const waits = row.items
     .filter((it) => !it.mine)
     .map((it): Part => ({ text: `waits on ${it.principal}` }));
@@ -240,7 +265,11 @@ export function rowLine(row: Row, now: number): Part[] {
     return [
       { text: row.id },
       ...(it?.kind === "resolve"
-        ? [{ text: `${it.deliveryId} · send ${it.messageId}` }]
+        ? [
+            { text: it.deliveryId },
+            { text: `send ${it.messageId}` },
+            { text: label(it.reason) },
+          ]
         : []),
     ];
   }
@@ -249,13 +278,13 @@ export function rowLine(row: Row, now: number): Part[] {
     ...waits,
     ...(h.via !== null && !h.final ? [{ text: `from ${h.via}` }] : []),
     { text: h.recipient ?? "no recipient" },
-    ...sub(h, now),
+    ...rowSub(h, now),
     ...(h.stale ? [{ text: h.stale, tone: "warn" as const }] : []),
   ];
 }
 
 // A row's dot: the viewer is needed, or the task failed.
-export const rowDot = (row: Row): Tone | null =>
+export const rowDot = (row: ListRow): Tone | null =>
   row.items.some((it) => it.mine)
     ? "warn"
     : row.head?.status === "failed"
@@ -295,6 +324,7 @@ const answered = (d: Delivery): boolean =>
 // A delivery row's state pill.
 export function deliveryState(d: Delivery): Part {
   if (d.end) return { text: label(d.end.reason) };
+  if (d.waits) return { text: waitWords(d.placement, d.waits) };
   if (d.send.outcome !== "accepted")
     return {
       text: `${d.send.kind} ${d.send.outcome}`,
@@ -318,8 +348,9 @@ export function deliveryLine(d: Delivery, times: Record<string, string>) {
 // router wrote (`who` null).
 export type Said = { key: string; who: string | null; text: string };
 
-// The conversation in time order: each send and update, a delivery's end,
-// the routing state, and the request itself while nothing was delivered.
+// The conversation in time order: each send with its outcome, each
+// update, a delivery's end and who ended it, the routing state, and the
+// request itself while nothing was delivered.
 export function conversation({ task: t, times }: FullTask): Said[] {
   const from = sender(t.source);
   const lines: { at: string; order: number; said: Said }[] = [];
@@ -331,7 +362,7 @@ export function conversation({ task: t, times }: FullTask): Said[] {
         order: 0,
         said: {
           key: `${d.id}/${s.messageId}`,
-          who: `${from} · ${s.kind} · ${time(times[s.messageId])}`,
+          who: `${from} · ${s.kind} · ${time(times[s.messageId])} · ${s.outcome}`,
           text: s.text,
         },
       });
@@ -353,7 +384,7 @@ export function conversation({ task: t, times }: FullTask): Said[] {
         said: {
           key: `${d.id}/end`,
           who: null,
-          text: `${d.id} ended · ${label(d.end.reason)}${ended ? ` · ${time(ended)}` : ""}`,
+          text: `${d.id} ended · ${label(d.end.reason)}${d.end.by ? ` · by ${shortSession(d.end.by)}` : ""}${ended ? ` · ${time(ended)}` : ""}`,
         },
       });
     }
@@ -401,7 +432,7 @@ export function judgmentLines(j: Task["judgments"][number]): {
       ? `${j.choice}, judgment invalid`
       : p >= j.threshold
         ? `Picked ${j.choice} at ${p.toFixed(2)}`
-        : `${j.choice} at ${p.toFixed(2)} is under the threshold ${j.threshold.toFixed(2)}`;
+        : `${j.choice} at ${p.toFixed(2)} is under the threshold ${j.threshold}`;
   const table = Object.entries(probabilities)
     .filter(([, v]) => v.toFixed(2) !== "0.00")
     .sort(([, a], [, b]) => b - a)
@@ -422,6 +453,6 @@ export function resolveWhy(
     unknown_send: "The router has no record of this send reaching the session.",
   }[reason];
   return outcome === "accepted"
-    ? `${why} The adapter reported it accepted, so it counts as sent; resolving finishes the delivery.`
+    ? `${why} The adapter reported it accepted, so it counts as sent and cannot be marked not sent; resolving finishes the delivery.`
     : why;
 }

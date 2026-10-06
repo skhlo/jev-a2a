@@ -24,19 +24,19 @@ const taskKey = (host: string, id: string, rev: string | null) => [
 
 // The summary, with how far serve's clock is ahead of this device's: ages
 // and countdowns run on serve's clock, as its "no reply" texts do.
-type Held = Summary & { skew: number };
+type Polled = Summary & { skew: number };
 
 export function useSummary(host: string) {
   const call = useRpc(boardSummary);
   const client = useQueryClient();
   return useQuery({
     queryKey: summaryKey(host),
-    queryFn: async (): Promise<Held> => {
-      const held = client.getQueryData<Held>(summaryKey(host));
-      const got = await call(held ? { sinceRev: held.rev } : {});
+    queryFn: async (): Promise<Polled> => {
+      const last = client.getQueryData<Polled>(summaryKey(host));
+      const got = await call(last ? { sinceRev: last.rev } : {});
       if (!("unchanged" in got))
         return { ...got, skew: Date.parse(got.at) - Date.now() };
-      if (held) return held;
+      if (last) return last;
       throw new Error("Serve answered unchanged to a first poll.");
     },
     refetchInterval: POLL_MS,
@@ -50,6 +50,9 @@ export function useTask(host: string, id: string, rev: string | null) {
   return useQuery({
     queryKey: taskKey(host, id, rev),
     queryFn: () => call({ id }),
+    // A rev's task never changes, so what an action returns or an earlier
+    // fetch got stands until the rev moves.
+    staleTime: Infinity,
     // Keep showing the task while its new rev loads, but never another one.
     placeholderData: (prev: FullTask | null | undefined) =>
       prev?.task.id === id ? prev : undefined,

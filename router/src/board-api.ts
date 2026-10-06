@@ -11,6 +11,7 @@ import {
   type ActionResult,
   type Actor,
   type BoardModel,
+  type DeliveryView,
   type TaskView,
   type UpdateView,
 } from "./board.ts";
@@ -66,8 +67,10 @@ export type TaskHead = {
   question: string | null;
   latest: {
     id: string;
+    placement: string;
     sendKind: string;
     outcome: string;
+    waits: DeliveryView["waits"];
     update: Pick<UpdateView, "kind" | "text"> | null;
     answered: { text: string; at: string | null } | null;
   } | null;
@@ -106,8 +109,10 @@ function headOf(
     latest: last
       ? {
           id: last.id,
+          placement: last.placement,
           sendKind: last.send.kind,
           outcome: last.send.outcome,
+          waits: last.waits,
           update: last.latest
             ? { kind: last.latest.kind, text: last.latest.text }
             : null,

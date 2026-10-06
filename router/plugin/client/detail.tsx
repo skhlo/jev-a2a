@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc.ts";
-import type { FullTask, Summary } from "../shared/rpc.ts";
+import type { FullTask } from "../shared/rpc.ts";
 import { useAct, useTask } from "./data.ts";
 import {
   conversation,
@@ -24,18 +24,26 @@ import {
   type Viewer,
 } from "./format.ts";
 import { AnswerForm, CancelModal, ChooseForm, ResolveForm } from "./forms.tsx";
-import { Button, CardRow, Parts, Pill, Section, Txt, useLook } from "./ui.tsx";
+import {
+  Button,
+  CardRow,
+  Parts,
+  Pill,
+  Section,
+  Txt,
+  useFormButton,
+  useLook,
+} from "./ui.tsx";
 
 type Props = {
   host: string;
   id: string;
-  summary: Summary;
   viewer: Viewer;
   now: number;
   onBack: () => void;
 };
 
-export function TaskDetail({ host, id, summary, viewer, now, onBack }: Props) {
+export function TaskDetail({ host, id, viewer, now, onBack }: Props) {
   const { c, mode } = useLook();
   const head = viewer.head(id);
   const query = useTask(host, id, head?.rev ?? null);
@@ -85,13 +93,7 @@ export function TaskDetail({ host, id, summary, viewer, now, onBack }: Props) {
           )}
         </View>
         {items.map((it) => (
-          <Form
-            key={itemKey(it.item)}
-            host={host}
-            it={it}
-            full={full}
-            summary={summary}
-          />
+          <Form key={itemKey(it.item)} host={host} it={it} full={full} />
         ))}
         {full ? <Record host={host} full={full} viewer={viewer} /> : null}
         {full && mode === "compact" && mayCancel(viewer, full) ? (
@@ -140,17 +142,16 @@ function Head({
   );
 }
 
+// In the head, or at full width after the Log on a phone.
 function CancelButton({ host, full }: { host: string; full: FullTask }) {
-  const { mode } = useLook();
   const [open, setOpen] = useState(false);
-  const compact = mode === "compact";
   return (
     <>
       <Button
+        {...useFormButton()}
         variant="outline"
         label="Cancel task"
         onPress={() => setOpen(true)}
-        {...(compact ? { size: "md", full: true } : {})}
       />
       <CancelModal
         host={host}
@@ -166,12 +167,10 @@ function Form({
   host,
   it,
   full,
-  summary,
 }: {
   host: string;
   it: Item;
   full: FullTask | null;
-  summary: Summary;
 }) {
   const t = full?.task ?? null;
   const item = it.item;
@@ -189,16 +188,7 @@ function Form({
         />
       );
     case "choose":
-      return (
-        <ChooseForm
-          host={host}
-          item={item}
-          task={t}
-          participants={[
-            ...new Set(summary.placements.map((p) => p.participant)),
-          ]}
-        />
-      );
+      return <ChooseForm host={host} item={item} task={t} />;
     case "resolve":
       return (
         <ResolveForm
@@ -340,7 +330,7 @@ function HoldButton({
   placement: string;
   viewer: Viewer;
 }) {
-  const held = viewer.held(placement);
+  const held = viewer.onHold(placement);
   const hold = useAct(host, useRpc(rpc.taskHold));
   const release = useAct(host, useRpc(rpc.taskRelease));
   if (held === null) return null;

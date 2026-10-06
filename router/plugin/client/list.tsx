@@ -2,7 +2,7 @@
 // title, its age and a dot, then line 2 (format.ts rowLine).
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { Pressable, View } from "react-native";
-import { age, rowDot, rowLine, type Row, type Viewer } from "./format.ts";
+import { age, rowDot, rowLine, type ListRow, type Viewer } from "./format.ts";
 import { Button, Dot, Parts, Txt, useLook } from "./ui.tsx";
 
 type Props = {
@@ -25,7 +25,7 @@ export function TaskList({
 }: Props) {
   const { c, mode } = useLook();
   const compact = mode === "compact";
-  const group = (name: string, n: string, rows: Row[]) => (
+  const group = (name: string, n: string, rows: ListRow[]) => (
     <View key={name}>
       <View
         style={{
@@ -87,7 +87,7 @@ export function TaskList({
       )}
       {error ? (
         <View style={{ paddingHorizontal: 24, paddingTop: 8 }}>
-          <Txt size="sm" tone="danger">
+          <Txt size="sm" muted>
             {error}
           </Txt>
         </View>
@@ -135,7 +135,7 @@ function TaskRow({
   on,
   onPress,
 }: {
-  row: Row;
+  row: ListRow;
   now: number;
   on: boolean;
   onPress: () => void;

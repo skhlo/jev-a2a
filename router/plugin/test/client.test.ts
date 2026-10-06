@@ -1,9 +1,11 @@
 // The app's words for the board (client/format.ts): the list's groups and
 // rows, the detail's lines, and what the viewer may do, read from what
-// serve's board API returns for the router's own fixtures.
+// serve's board API returns for the router's own fixtures, and held to the
+// HTML board's page and formats for the same records.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fullTask, summarize } from "../../src/board-api.ts";
+import { renderBoard } from "../../src/board-page.ts";
 import * as boardParts from "../../src/board-parts.ts";
 import {
   boardModel,
@@ -12,29 +14,39 @@ import {
   messageTimes,
 } from "../../src/board.ts";
 import {
+  answeredJournal,
+  attemptingJournal,
   config,
+  deliveredJournal,
   NOW,
   replacedJournal,
   sampleJournal,
+  viaJournal,
 } from "../../src/board-fixture.ts";
 import type { Entry } from "../../src/journal.ts";
 import type { FullTask, Summary } from "../shared/rpc.ts";
 import {
+  age,
   conversation,
   countdown,
-  firstLine,
   deliveryLine,
   deliveryState,
+  firstLine,
   judgmentLines,
+  label,
   metaLine,
+  resolveWhy,
   rowDot,
   rowLine,
+  rowSub,
+  shortSession,
   span,
   time,
   verdict,
   viewerOf,
+  waitWords,
+  type ListRow,
   type Part,
-  type Row,
 } from "../client/format.ts";
 
 // The board as serve's API gives it to the fixture's operator login.
@@ -51,17 +63,28 @@ function board(entries: Entry[]) {
     actor,
   );
   const summary: Summary = summarize(model);
+  const page = (task: string | null = null): string =>
+    renderBoard(model, { task });
   const task = (id: string): FullTask => {
     const full = fullTask(model, id);
     assert.ok(full, `${id} is on the board`);
     return full;
   };
-  return { summary, task };
+  return { summary, task, page };
 }
+
+// Text as the page shows it: tags dropped, entities read.
+const plain = (html: string): string =>
+  html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
 
 const words = (parts: Part[]): string =>
   parts.map((p) => (p.tone ? `${p.text} [${p.tone}]` : p.text)).join(" · ");
-const lines = (rows: Row[]): string[] =>
+const lines = (rows: ListRow[]): string[] =>
   rows.map((r) => `${rowDot(r) ?? "-"} ${words(rowLine(r, NOW))}`);
 
 test("client: the list groups the viewer's tasks and each row reads as the board's", () => {
@@ -73,7 +96,7 @@ test("client: the list groups the viewer's tasks and each row reads as the board
   ]);
   assert.deepEqual(lines(viewer.flight), [
     "- T4 · knowledge · Reading the notes · 55m left",
-    "- T1 · orchestrator · request pending [muted] · 17m left",
+    "- T1 · orchestrator · waits for orchestrator@mbp to be ready · 17m left",
   ]);
   assert.deepEqual(lines(viewer.done), [
     "- T5 · incus · 1 of 1 delivery",
@@ -87,8 +110,85 @@ test("client: the list groups the viewer's tasks and each row reads as the board
       ["choose", true, true],
     ],
   );
-  assert.equal(viewer.held("orchestrator@mbp"), false);
-  assert.equal(viewer.held("nobody@mbp"), null);
+  assert.equal(viewer.onHold("orchestrator@mbp"), false);
+  assert.equal(viewer.onHold("environment@mbp"), true);
+  assert.equal(viewer.onHold("nobody@mbp"), null);
+  assert.equal(viewer.requester, "you");
+});
+
+test("client: each row's reading is the HTML board's row for the same record", () => {
+  let rows = 0;
+  for (const entries of [
+    sampleJournal,
+    answeredJournal,
+    deliveredJournal,
+    attemptingJournal,
+    replacedJournal,
+    viaJournal,
+  ]) {
+    const { summary, page } = board(entries);
+    const html = page();
+    const viewer = viewerOf(summary);
+    for (const row of [...viewer.needs, ...viewer.flight, ...viewer.done]) {
+      const at = html.indexOf(`data-task="${row.id}"`);
+      assert.ok(at >= 0, `${row.id} is a row on the board`);
+      const sub =
+        /<span class="sub">([\s\S]*?)<\/span><(?:span class="route"|\/div>)/.exec(
+          html.slice(at),
+        );
+      assert.ok(sub?.[1] !== undefined, `${row.id} has a sub line`);
+      const app = row.head
+        ? [
+            ...row.items
+              .filter((it) => !it.mine)
+              .map((it) => `waits on ${it.principal}`),
+            ...rowSub(row.head, NOW).map((p) => p.text),
+          ]
+        : rowLine(row, NOW)
+            .slice(1)
+            .map((p) => p.text);
+      assert.equal(app.join(" · "), plain(sub[1]), row.id);
+      rows += 1;
+    }
+  }
+  assert.ok(rows >= 25, `${rows} rows compared`);
+});
+
+test("client: the detail's delivery states, chosen-by words and resolve sentences are the HTML board's", () => {
+  let states = 0;
+  for (const entries of [sampleJournal, attemptingJournal, replacedJournal]) {
+    const { summary, task, page } = board(entries);
+    for (const head of [...summary.open, ...summary.finished]) {
+      const full = task(head.id);
+      const html = page(head.id);
+      const text = plain(html);
+      if (full.task.chosenBy)
+        assert.ok(text.includes(metaLine(full, NOW)[2]?.text ?? "?"), head.id);
+      full.task.deliveries.forEach((d, di) => {
+        if (d.end) return;
+        const tr = new RegExp(
+          `<tr data-path="[^"]*\\.deliveries\\[${di}\\]">([\\s\\S]*?)</tr>`,
+        ).exec(html);
+        const cell = tr?.[1]?.split("<td")[4];
+        assert.ok(cell, `${d.id} has a state cell`);
+        assert.equal(deliveryState(d).text, plain(`<td${cell}`), d.id);
+        states += 1;
+      });
+    }
+    const viewer = viewerOf(summary);
+    for (const it of viewer.items) {
+      if (it.item.kind !== "resolve") continue;
+      const { deliveryId, reason, taskId } = it.item;
+      const d = task(taskId).task.deliveries.find((x) => x.id === deliveryId);
+      assert.ok(
+        plain(page(taskId)).includes(
+          resolveWhy(reason, d?.send.outcome ?? null),
+        ),
+        `${deliveryId}'s resolve sentence`,
+      );
+    }
+  }
+  assert.ok(states >= 4, `${states} delivery states compared`);
 });
 
 test("client: an item of a principal the viewer lacks waits on it; one whose task left the board keeps a row", () => {
@@ -119,7 +219,7 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
   assert.equal(orphan.head, null);
   assert.equal(
     words(rowLine(orphan, NOW)),
-    `T99 · ${resolve.deliveryId} · send ${resolve.messageId}`,
+    `T99 · ${resolve.deliveryId} · send ${resolve.messageId} · session replaced`,
   );
 });
 
@@ -143,7 +243,7 @@ test("client: the detail's meta line, conversation, deliveries and Jev's lines",
   assert.deepEqual(
     conversation(t4).map((s) => `${s.who ?? "router"}: ${s.text}`),
     [
-      "you · request · 09:40Z: Summarize the review pipeline notes",
+      "you · request · 09:40Z · accepted: Summarize the review pipeline notes",
       "knowledge@mini · working · 09:44Z: Reading the notes",
     ],
   );
@@ -162,7 +262,7 @@ test("client: the detail's meta line, conversation, deliveries and Jev's lines",
   const [j] = t6.task.judgments;
   assert.ok(j);
   assert.deepEqual(judgmentLines(j), {
-    verdict: "environment at 0.62 is under the threshold 0.90",
+    verdict: "environment at 0.62 is under the threshold 0.9",
     table:
       "environment 0.62, orchestrator 0.33, knowledge 0.02, none 0.02, incus 0.01 · jev-1.13.0",
   });
@@ -213,6 +313,36 @@ test("client: its copies of the board's formats read as the board's own", () => 
     assert.equal(span(ms), boardParts.span(ms), `span(${ms})`);
   for (const iso of ["2026-09-30T09:05:00Z", null, undefined, "not a time"])
     assert.equal(time(iso), boardParts.time(iso), `time(${iso})`);
+  for (const iso of ["2026-09-30T09:05:00Z", "2026-09-28T09:45:00Z", null])
+    assert.equal(
+      age(iso, NOW),
+      boardParts.age(iso, new Date(NOW).toISOString()),
+    );
+  for (const deadline of ["2026-09-30T10:45:00Z", "2026-09-30T09:00:00Z"])
+    assert.equal(
+      countdown(deadline, NOW).text,
+      boardParts.left(deadline, new Date(NOW).toISOString()),
+    );
+  for (const id of [
+    "7e2c5f10-4b8a-4d3e-9f21-0a6c8e1b2d41",
+    "terminal:7e2c5f10-4b8a-4d3e-9f21-0a6c8e1b2d41",
+    "K1",
+  ])
+    assert.equal(shortSession(id), boardParts.shortId(id), id);
+  assert.equal(label("needs_recipient"), boardParts.label("needs_recipient"));
+  for (const reason of [
+    "queued_behind",
+    "held",
+    "not_ready",
+    "in_flight",
+    "session_replaced",
+  ] as const)
+    for (const behind of ["D2", null])
+      assert.equal(
+        waitWords("knowledge@mini", { reason, behind }),
+        boardParts.waitWords("knowledge@mini", { reason, behind }),
+        reason,
+      );
   for (const text of ["One line", "\n  First\r\nSecond", "   ", ""])
     assert.equal(
       firstLine(text),

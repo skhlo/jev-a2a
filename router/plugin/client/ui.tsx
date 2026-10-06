@@ -7,6 +7,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { createContext, useContext, type ReactNode } from "react";
 import {
+  Platform,
   Pressable,
   Text,
   View,
@@ -40,7 +41,12 @@ const toneColor = (c: Colors, tone: Tone | undefined): string =>
         : c.foregroundMuted;
 
 export const SIZE = { sm: 12, base: 14, lg: 16, content: 15, code: 12 };
-const MONO = "Menlo, Consolas, monospace";
+// A native font family is one name; the web takes a fallback list.
+const MONO = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "Menlo, Consolas, monospace",
+});
 
 type TxtProps = {
   children: ReactNode;
@@ -104,7 +110,7 @@ export function Parts({ parts, wrap }: { parts: Part[]; wrap?: boolean }) {
 
 type Variant = "primary" | "secondary" | "outline" | "danger";
 
-type ButtonProps = {
+export type ButtonProps = {
   label: string;
   onPress: () => void;
   variant?: Variant;
@@ -161,6 +167,27 @@ export function Button({
         {busy ? "Sending..." : label}
       </Text>
     </Pressable>
+  );
+}
+
+// A form's button size: md at full width on a phone, else sm.
+export function useFormButton(): Pick<ButtonProps, "size" | "full"> {
+  const { mode } = useLook();
+  return mode === "compact" ? { size: "md", full: true } : { size: "sm" };
+}
+
+// A modal's buttons, md and right-aligned; on a phone they share the width.
+export function ModalFoot({ buttons }: { buttons: ButtonProps[] }) {
+  const { mode } = useLook();
+  const compact = mode === "compact";
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+      {buttons.map((b) => (
+        <View key={b.label} style={compact ? { flex: 1 } : undefined}>
+          <Button {...b} size="md" full={compact} />
+        </View>
+      ))}
+    </View>
   );
 }
 
