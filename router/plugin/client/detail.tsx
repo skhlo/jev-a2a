@@ -1,9 +1,8 @@
 // The selected task: its head (title, status, meta line and Cancel task),
 // the viewer's forms first, then Conversation, Deliveries, Notices, Jev and
 // Log.
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { useRpc } from "@getpaseo/plugin/client";
 import * as rpc from "../shared/rpc.ts";
 import type { FullTask } from "../shared/rpc.ts";
@@ -26,10 +25,12 @@ import {
 } from "./format.ts";
 import { AnswerForm, CancelModal, ChooseForm, ResolveForm } from "./forms.tsx";
 import {
+  BackRow,
   Button,
   CardRow,
   Parts,
   Pill,
+  Page,
   Section,
   Txt,
   useFormButton,
@@ -41,79 +42,54 @@ type Props = {
   id: string;
   viewer: Viewer;
   now: number;
+  // Where the back row returns: the list, or the Agents page.
+  back: string;
   onBack: () => void;
 };
 
-export function TaskDetail({ host, id, viewer, now, onBack }: Props) {
-  const { c, mode } = useLook();
+export function TaskDetail({ host, id, viewer, now, back, onBack }: Props) {
+  const { mode } = useLook();
   const head = viewer.head(id);
   const query = useTask(host, id, head?.rev ?? null);
   const full = query.data ?? null;
   const items = viewer.itemsFor(id);
   const waiting = items.filter((it) => !it.act);
   return (
-    <ScrollView style={{ flex: 1 }}>
-      <View
-        style={{
-          width: "100%",
-          maxWidth: 720,
-          alignSelf: "center",
-          paddingHorizontal: 16,
-          paddingTop: mode === "wide" ? 24 : 4,
-          paddingBottom: 32,
-        }}
-      >
-        {/* Each settings section keeps its own space below it. */}
-        <View style={{ marginBottom: 24 }}>
-          {mode === "wide" ? null : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Back to tasks"
-              onPress={onBack}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 4,
-                height: 44,
-                marginLeft: -4,
-              }}
-            >
-              <Icon name="ChevronLeft" size={20} color={c.foregroundMuted} />
-              <Txt muted>Tasks</Txt>
-            </Pressable>
-          )}
-          {full ? (
-            <Head host={host} full={full} viewer={viewer} now={now} />
-          ) : (
-            <Txt muted>
-              {query.isPending
-                ? "Loading..."
-                : query.error
-                  ? query.error.message
-                  : `${id} is not among the last finished tasks`}
-            </Txt>
-          )}
-        </View>
-        {items
-          .filter((it) => it.act)
-          .map((it) => (
-            <Form key={itemKey(it.item)} host={host} it={it} full={full} />
-          ))}
-        {waiting.length ? (
-          <View style={{ gap: 8, marginBottom: 24, marginLeft: 4 }}>
-            {waiting.map((it) => (
-              <Txt key={itemKey(it.item)} size="sm" muted>
-                {itemWaits(it, full?.task ?? null)}
-              </Txt>
-            ))}
-          </View>
-        ) : null}
-        {full ? <Record host={host} full={full} viewer={viewer} /> : null}
-        {full && mode === "compact" && mayCancel(viewer, full) ? (
-          <CancelButton host={host} full={full} />
-        ) : null}
+    <Page>
+      {/* Each settings section keeps its own space below it. */}
+      <View style={{ marginBottom: 24 }}>
+        {mode === "wide" ? null : <BackRow label={back} onPress={onBack} />}
+        {full ? (
+          <Head host={host} full={full} viewer={viewer} now={now} />
+        ) : (
+          <Txt muted>
+            {query.isPending
+              ? "Loading..."
+              : query.error
+                ? query.error.message
+                : `${id} is not among the last finished tasks`}
+          </Txt>
+        )}
       </View>
-    </ScrollView>
+      {items
+        .filter((it) => it.act)
+        .map((it) => (
+          <Form key={itemKey(it.item)} host={host} it={it} full={full} />
+        ))}
+      {waiting.length ? (
+        <View style={{ gap: 8, marginBottom: 24, marginLeft: 4 }}>
+          {waiting.map((it) => (
+            <Txt key={itemKey(it.item)} size="sm" muted>
+              {itemWaits(it, full?.task ?? null)}
+            </Txt>
+          ))}
+        </View>
+      ) : null}
+      {full ? <Record host={host} full={full} viewer={viewer} /> : null}
+      {full && mode === "compact" && mayCancel(viewer, full) ? (
+        <CancelButton host={host} full={full} />
+      ) : null}
+    </Page>
   );
 }
 
@@ -265,11 +241,10 @@ function Record({
                   <Txt lines={1}>{d.placement}</Txt>
                 </View>
                 <Pill part={deliveryState(d, viewer.asksViewer(d.id))} />
-                {viewer.identified ? (
+                {viewer.identified && !d.end && !t.final ? (
                   <HoldButton
                     host={host}
                     placement={d.placement}
-                    open={!d.end && !t.final}
                     viewer={viewer}
                   />
                 ) : null}
@@ -344,23 +319,21 @@ function Record({
   );
 }
 
-// Hold the placement an open delivery runs on, or Release a held one from
-// any delivery on it, so a hold outlives the task it was set from.
-function HoldButton({
+// Hold or Release a placement, on an open delivery's row and on the Agents
+// page.
+export function HoldButton({
   host,
   placement,
-  open,
   viewer,
 }: {
   host: string;
   placement: string;
-  open: boolean;
   viewer: Viewer;
 }) {
   const held = viewer.onHold(placement);
   const hold = useAct(host, useRpc(rpc.taskHold));
   const release = useAct(host, useRpc(rpc.taskRelease));
-  if (held === null || (!held && !open)) return null;
+  if (held === null) return null;
   const act = held ? release : hold;
   return (
     <Button

@@ -3,7 +3,7 @@
 // radios and card rows. The layout mode rides along, since it sizes the
 // form buttons.
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { createContext, useContext, type ReactNode } from "react";
 import {
@@ -15,7 +15,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
-import type { Part, Tone } from "./format.ts";
+import type { AgentState, Part, Tone } from "./format.ts";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 // wide: list and detail side by side; single: one pane at a time; compact:
@@ -224,6 +224,86 @@ export function Dot({ tone }: { tone: Tone }) {
         backgroundColor: toneColor(c, tone),
       }}
     />
+  );
+}
+
+// A page in the detail pane, or the whole surface when narrow: one column
+// at most 720 wide, centred.
+export function Page({ children }: { children: ReactNode }) {
+  const { mode } = useLook();
+  return (
+    <ScrollView style={{ flex: 1 }}>
+      <View
+        style={{
+          width: "100%",
+          maxWidth: 720,
+          alignSelf: "center",
+          paddingHorizontal: 16,
+          paddingTop: mode === "wide" ? 24 : 4,
+          paddingBottom: 32,
+        }}
+      >
+        {children}
+      </View>
+    </ScrollView>
+  );
+}
+
+// A narrow page's way back, named for where it goes.
+export function BackRow({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const { c } = useLook();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Back to ${label.toLowerCase()}`}
+      onPress={onPress}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        height: 44,
+        marginLeft: -4,
+      }}
+    >
+      <Icon name="ChevronLeft" size={20} color={c.foregroundMuted} />
+      <Txt muted>{label}</Txt>
+    </Pressable>
+  );
+}
+
+// An agent's mark, 8 px like Paseo's host dot, its shape carrying the state
+// with its colour: ready a filled success dot, not ready a muted ring, held
+// a muted pause mark. Its label is the state words.
+export function Glyph({ state, words }: { state: AgentState; words: string }) {
+  const { c } = useLook();
+  const box = { width: 8, height: 8 } as const;
+  return (
+    <View accessible accessibilityLabel={words} style={box}>
+      {state === "held" ? (
+        <View
+          style={{ ...box, flexDirection: "row", gap: 2, paddingHorizontal: 1 }}
+        >
+          <View style={{ flex: 1, backgroundColor: c.foregroundMuted }} />
+          <View style={{ flex: 1, backgroundColor: c.foregroundMuted }} />
+        </View>
+      ) : (
+        <View
+          style={{
+            ...box,
+            borderRadius: 999,
+            ...(state === "ready"
+              ? { backgroundColor: c.statusSuccess }
+              : { borderWidth: 1.5, borderColor: c.foregroundMuted }),
+          }}
+        />
+      )}
+    </View>
   );
 }
 

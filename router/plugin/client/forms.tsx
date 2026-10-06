@@ -6,9 +6,15 @@ import { Modal, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
 import { View } from "react-native";
 import * as rpc from "../shared/rpc.ts";
-import type { Acted, FullTask, Summary } from "../shared/rpc.ts";
+import type { Acted, FullTask } from "../shared/rpc.ts";
 import { useAct, useMessageId } from "./data.ts";
-import { firstLine, label, resolveWhy, type Item } from "./format.ts";
+import {
+  firstLine,
+  label,
+  resolveWhy,
+  type Agent,
+  type Item,
+} from "./format.ts";
 import {
   Button,
   CardRow,
@@ -277,19 +283,19 @@ function Field({
 }
 
 // New task: the request, then whom to send it to: Jev's choice, or one
-// placement with its host and readiness.
+// agent with its host and state words, in the Agents order.
 export function SubmitModal({
   host,
   open,
   onOpenChange,
-  placements,
+  agents,
   requester,
   onSubmitted,
 }: {
   host: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  placements: Summary["placements"];
+  agents: Agent[];
   // Who the request is sent as; without one, nobody may submit.
   requester: string | null;
   onSubmitted: (taskId: string) => void;
@@ -312,7 +318,7 @@ export function SubmitModal({
   };
   // A placement the roster no longer lists reads, and sends, as Jev's
   // choice.
-  const placement = placements.find((p) => p.key === to);
+  const placement = agents.find((p) => p.key === to);
   return (
     <Modal title="New task" open={open} onOpenChange={onOpenChange}>
       <Modal.Content>
@@ -352,7 +358,7 @@ export function SubmitModal({
               <RadioRow first on={!placement} onPress={() => choose(null)}>
                 <Txt>Let Jev choose</Txt>
               </RadioRow>
-              {placements.map((p) => (
+              {agents.map((p) => (
                 <RadioRow
                   key={p.key}
                   on={p === placement}
@@ -363,7 +369,7 @@ export function SubmitModal({
                       {p.participant} <Txt muted>{p.host}</Txt>
                     </Txt>
                   </View>
-                  <Txt muted={!p.ready}>{p.ready ? "ready" : "not ready"}</Txt>
+                  <Txt muted={p.state !== "ready"}>{p.words}</Txt>
                 </RadioRow>
               ))}
             </View>

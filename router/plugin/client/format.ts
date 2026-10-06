@@ -7,6 +7,8 @@
 import type { FullTask, Summary } from "../shared/rpc.ts";
 
 type TaskHead = Summary["open"][number];
+type HeadDelivery = TaskHead["deliveries"][number];
+type Placement = Summary["placements"][number];
 type NeedsYouItem = Summary["needsYou"][number]["items"][number];
 type Task = FullTask["task"];
 type Delivery = Task["deliveries"][number];
@@ -160,6 +162,8 @@ export type Viewer = {
   // The principal a request is sent as, the actor's first requester.
   requester: string | null;
   identified: boolean;
+  // The agents by host, for the Agents row and page and New task.
+  hosts: AgentHost[];
 };
 
 export function viewerOf(s: Summary): Viewer {
@@ -217,8 +221,67 @@ export function viewerOf(s: Summary): Viewer {
       s.placements.find((p) => p.key === placement)?.hold ?? null,
     requester: signer("requester") ?? null,
     identified: actor !== null,
+    hosts: hostsOf(s),
   };
 }
+
+// ---- The agents ----
+
+// An agent's state: held wins over ready, since a held agent takes no send.
+export type AgentState = "ready" | "not_ready" | "held";
+export type Agent = Placement & {
+  state: AgentState;
+  // "ready", "not ready", or "held · " and either.
+  words: string;
+  // One per open task with a delivery to it not yet ended.
+  tasks: { head: TaskHead; delivery: HeadDelivery }[];
+};
+export type AgentHost = { host: string; agents: Agent[] };
+
+const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+// Hosts by name and agents by participant, so the order holds between
+// polls.
+function hostsOf(s: Summary): AgentHost[] {
+  const hosts = new Map<string, Agent[]>();
+  const sorted = [...s.placements].sort(
+    (a, b) => byName(a.host, b.host) || byName(a.participant, b.participant),
+  );
+  for (const p of sorted) {
+    const ready = p.ready ? "ready" : "not ready";
+    const agent: Agent = {
+      ...p,
+      state: p.hold ? "held" : p.ready ? "ready" : "not_ready",
+      words: p.hold ? `held · ${ready}` : ready,
+      tasks: s.open.flatMap((head) =>
+        head.deliveries
+          .filter((d) => d.placement === p.key)
+          .map((delivery) => ({ head, delivery })),
+      ),
+    };
+    hosts.set(p.host, [...(hosts.get(p.host) ?? []), agent]);
+  }
+  return [...hosts].map(([host, agents]) => ({ host, agents }));
+}
+
+// "<n> of <m> ready", then "<n> held" when any is held.
+export function agentCount(hosts: AgentHost[]): string {
+  const all = hosts.flatMap((h) => h.agents);
+  const held = all.filter((a) => a.state === "held").length;
+  const ready = all.filter((a) => a.state === "ready").length;
+  return `${ready} of ${all.length} ready${held ? ` · ${held} held` : ""}`;
+}
+
+// A task line on the Agents page: the id, the delivery's state in its
+// pill's word and tone, then the title.
+export const taskLine = (
+  { head, delivery }: Agent["tasks"][number],
+  asksViewer: boolean,
+): Part[] => [
+  { text: head.id },
+  headDeliveryState(delivery, asksViewer),
+  { text: head.title },
+];
 
 // What an open delivery is, in the order the row and the delivery pill
 // read it (src/board-tasks.ts readingOf): what it waits for, the send while
@@ -368,6 +431,27 @@ const answered = (d: Delivery): boolean =>
   d.latest?.kind === "question" &&
   !d.question &&
   d.sends.find((s) => s.messageId === d.send.messageId)?.kind === "answer";
+
+// An open delivery's state from the summary alone, as deliveryState reads
+// the whole delivery.
+export function headDeliveryState(d: HeadDelivery, asksViewer: boolean): Part {
+  const r = readingOf(d.waits, d.outcome, d.answered, d.update);
+  switch (r.kind) {
+    case "waits":
+      return { text: waitWords(d.placement, r.waits) };
+    case "unaccepted":
+      return { text: `${d.sendKind} ${d.outcome}` };
+    case "answered":
+      return { text: "answered" };
+    case "updated":
+      return {
+        text: r.update.kind,
+        ...(asksViewer ? { tone: "warn" } : {}),
+      };
+    case "delivered":
+      return { text: "delivered" };
+  }
+}
 
 // A delivery row's state pill; a question is in the warning role while it
 // asks the viewer.

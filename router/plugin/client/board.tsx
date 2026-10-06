@@ -1,11 +1,13 @@
 // The Jev board surface. Its arrangement follows its own width, since the
 // app sidebar takes a share of the window: wide (720 px or more) shows the
-// list and the selected task side by side; narrower shows one at a time,
-// with phone controls when the app is compact. The selection lives here;
-// surfaces take no params, so a reload returns to the list.
+// list and the selected task or the Agents page side by side; narrower
+// shows one at a time, with phone controls when the app is compact. The
+// selection lives here; surfaces take no params, so a reload returns to the
+// list.
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
+import { AgentsPage } from "./agents.tsx";
 import { useSummary } from "./data.ts";
 import { TaskDetail } from "./detail.tsx";
 import { SubmitModal } from "./forms.tsx";
@@ -62,6 +64,16 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
         ? pinned
         : first
       : null;
+  // The Agents page, when the viewer picked it over a task, and whether the
+  // picked task was opened from it, so its back row returns there.
+  const [agents, setAgents] = useState(false);
+  const [fromAgents, setFromAgents] = useState(false);
+  const openTask = (id: string, viaAgents: boolean) => {
+    setPicked(id);
+    setAgents(false);
+    setFromAgents(viaAgents);
+  };
+  const task = agents ? null : selected;
   const look = useMemo(() => ({ c, mode }), [c, mode]);
 
   const body = () => {
@@ -79,20 +91,34 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
       <TaskList
         viewer={viewer}
         now={now}
-        selected={selected}
-        onSelect={setPicked}
+        selected={task}
+        onSelect={(id) => openTask(id, false)}
+        agentsOn={agents}
+        onAgents={() => setAgents(true)}
         onNew={() => setSubmitting(true)}
         error={summary.error ? summary.error.message : null}
       />
     );
-    const detail = selected ? (
-      <TaskDetail
-        key={selected}
+    const detail = agents ? (
+      <AgentsPage
         host={host.id}
-        id={selected}
+        viewer={viewer}
+        onOpen={(id) => openTask(id, true)}
+        onBack={() => setAgents(false)}
+      />
+    ) : task ? (
+      <TaskDetail
+        key={task}
+        host={host.id}
+        id={task}
         viewer={viewer}
         now={now}
-        onBack={() => setPicked(null)}
+        back={fromAgents ? "Agents" : "Tasks"}
+        onBack={() => {
+          setPicked(null);
+          setAgents(fromAgents);
+          setFromAgents(false);
+        }}
       />
     ) : (
       <View style={{ flex: 1, padding: 24 }}>
@@ -106,7 +132,7 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
           {detail}
         </>
       );
-    return selected ? detail : list;
+    return agents || task ? detail : list;
   };
 
   return (
@@ -121,9 +147,9 @@ function Surface({ theme, host, layout }: PluginSurfaceProps) {
             host={host.id}
             open={submitting}
             onOpenChange={setSubmitting}
-            placements={s.placements}
+            agents={viewer.hosts.flatMap((h) => h.agents)}
             requester={viewer.requester}
-            onSubmitted={setPicked}
+            onSubmitted={(id) => openTask(id, false)}
           />
         ) : null}
       </View>

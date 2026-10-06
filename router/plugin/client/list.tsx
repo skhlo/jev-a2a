@@ -1,11 +1,19 @@
-// The task list: Needs you, In flight and Done (the last ten), each row the
-// title, its age and a dot, then line 2 (format.ts rowLine). A group's
-// heading collapses it to the heading and its count, as on the board.
+// The task list: the Agents row, then Needs you, In flight and Done (the
+// last ten), each row the title, its age and a dot, then line 2 (format.ts
+// rowLine). A group's heading collapses it to the heading and its count, as
+// on the board.
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
-import { age, rowDot, rowLine, type ListRow, type Viewer } from "./format.ts";
-import { Button, Dot, Parts, Txt, useLook } from "./ui.tsx";
+import {
+  age,
+  agentCount,
+  rowDot,
+  rowLine,
+  type ListRow,
+  type Viewer,
+} from "./format.ts";
+import { Button, Dot, Glyph, Parts, Txt, useLook } from "./ui.tsx";
 
 // The collapsed groups, kept while the app runs: the board keeps them on
 // the device, but the plugin SDK has no device storage.
@@ -16,6 +24,9 @@ type Props = {
   now: number;
   selected: string | null;
   onSelect: (id: string) => void;
+  // Whether the Agents page is shown, and showing it.
+  agentsOn: boolean;
+  onAgents: () => void;
   onNew: () => void;
   // Why the summary failed, while it does.
   error: string | null;
@@ -26,6 +37,8 @@ export function TaskList({
   now,
   selected,
   onSelect,
+  agentsOn,
+  onAgents,
   onNew,
   error,
 }: Props) {
@@ -130,6 +143,7 @@ export function TaskList({
           paddingBottom: compact ? 72 : 24,
         }}
       >
+        <AgentsRow viewer={viewer} on={agentsOn} onPress={onAgents} />
         {group("Needs you", String(viewer.needs.length), viewer.needs)}
         {group("In flight", String(viewer.flight.length), viewer.flight)}
         {group("Done", `last ${viewer.done.length}`, viewer.done)}
@@ -157,6 +171,73 @@ export function TaskList({
         </Pressable>
       ) : null}
     </View>
+  );
+}
+
+// The agents at a glance: the count, then each host and its agents' marks;
+// line 2 wraps when the hosts do not fit.
+function AgentsRow({
+  viewer,
+  on,
+  onPress,
+}: {
+  viewer: Viewer;
+  on: boolean;
+  onPress: () => void;
+}) {
+  const { c } = useLook();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: on }}
+      onPress={onPress}
+      style={{
+        gap: 4,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        marginBottom: 4,
+        ...(on ? { backgroundColor: c.surface2 } : {}),
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Txt lines={1}>Agents</Txt>
+        </View>
+        <Txt size="sm" muted>
+          {agentCount(viewer.hosts)}
+        </Txt>
+      </View>
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          columnGap: 12,
+          rowGap: 4,
+        }}
+      >
+        {viewer.hosts.map((h) => (
+          <View
+            key={h.host}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          >
+            <Txt size="sm" muted>
+              {h.host}
+            </Txt>
+            <View style={{ flexDirection: "row", gap: 3 }}>
+              {h.agents.map((a) => (
+                <Glyph
+                  key={a.key}
+                  state={a.state}
+                  words={`${a.participant} ${a.words}`}
+                />
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
+    </Pressable>
   );
 }
 

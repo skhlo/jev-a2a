@@ -28,12 +28,14 @@ import type { Entry } from "../../src/journal.ts";
 import type { FullTask, Summary } from "../shared/rpc.ts";
 import {
   age,
+  agentCount,
   conversation,
   count,
   countdown,
   deliveryLine,
   deliveryState,
   firstLine,
+  headDeliveryState,
   itemWaits,
   judgmentLines,
   label,
@@ -45,6 +47,7 @@ import {
   shortSession,
   span,
   statusTone,
+  taskLine,
   time,
   verdict,
   viewerOf,
@@ -316,6 +319,80 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
     words(rowLine(orphan, NOW)),
     `T99 · ${resolve.deliveryId} · send ${resolve.messageId} · session replaced`,
   );
+});
+
+test("client: the agents read by host and participant, with their state and open tasks", () => {
+  const viewer = viewerOf(board(sampleJournal).summary);
+  assert.equal(agentCount(viewer.hosts), "0 of 4 ready · 1 held");
+  assert.deepEqual(
+    viewer.hosts.flatMap((h) =>
+      h.agents.map(
+        (a) =>
+          `${h.host} ${a.participant} [${a.state}] ${a.words}: ${
+            a.tasks
+              .map((t) => words(taskLine(t, viewer.asksViewer(t.delivery.id))))
+              .join(" | ") || "no open task"
+          }`,
+      ),
+    ),
+    [
+      "mbp environment [held] held · ready: no open task",
+      "mbp orchestrator [not_ready] not ready: T2 · question [warn] · Ask me something | T1 · waits for orchestrator@mbp to be ready · Fix <b>the</b> build",
+      "mini environment [not_ready] not ready: no open task",
+      "mini knowledge [not_ready] not ready: T4 · working · Summarize the review pipeline notes",
+    ],
+  );
+});
+
+test("client: hosts sort by name, whatever their agents are called", () => {
+  // incus@lab01 comes last in the summary and sorts after environment@mbp
+  // by participant, but its host sorts first.
+  const { summary } = board(sampleJournal);
+  const { hosts } = viewerOf({
+    ...summary,
+    placements: [
+      ...summary.placements,
+      {
+        key: "incus@lab01",
+        participant: "incus",
+        host: "lab01",
+        ready: true,
+        hold: false,
+      },
+    ],
+  });
+  assert.deepEqual(
+    hosts.map((h) => h.host),
+    ["lab01", "mbp", "mini"],
+  );
+});
+
+test("client: a task line's state is its delivery's pill, read from the summary alone", () => {
+  let lines = 0;
+  for (const entries of [
+    sampleJournal,
+    attemptingJournal,
+    replacedJournal,
+    answeredJournal,
+    deliveredJournal,
+    viaJournal,
+  ]) {
+    const { summary, task } = board(entries);
+    const viewer = viewerOf(summary);
+    for (const head of [...summary.open, ...summary.finished])
+      for (const d of head.deliveries) {
+        const full = task(head.id).task.deliveries.find((x) => x.id === d.id);
+        assert.ok(full && !full.end, `${d.id} is open`);
+        const asks = viewer.asksViewer(d.id);
+        assert.deepEqual(
+          headDeliveryState(d, asks),
+          deliveryState(full, asks),
+          d.id,
+        );
+        lines += 1;
+      }
+  }
+  assert.ok(lines >= 10, `${lines} deliveries compared`);
 });
 
 test("client: only the sender cancels, and only an open task", () => {
