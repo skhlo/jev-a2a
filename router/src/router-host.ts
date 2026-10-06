@@ -21,6 +21,7 @@ import {
   bind,
   BindError,
   boardListener,
+  doorKeys,
   eventsListener,
   keepReading,
 } from "./server.ts";
@@ -99,8 +100,19 @@ try {
 // event is one shell run, and runs are handled one at a time so the journal
 // lock is never contended from inside the server.
 async function serve(config: RouterConfig): Promise<void> {
-  const token = process.env.ROUTER_TOKEN;
-  if (!token) fail("ROUTER_TOKEN is not set; add it to secrets.env.");
+  // Each host that sends events has its own token; one token for two hosts
+  // would make the host it acts for ambiguous.
+  const keys = doorKeys(config, process.env);
+  if (!keys.length)
+    fail(
+      "No host has a token: add ROUTER_TOKEN_<HOST> to secrets.env for each host that sends events.",
+    );
+  if (new Set(keys.map((key) => key.token)).size < keys.length)
+    fail("Two tokens in secrets.env are the same; each host needs its own.");
+  if (keys.some((key) => key.host === null))
+    console.log(
+      "ROUTER_TOKEN, the shared token, is still set: any host holding it acts for every session. Remove it once each host has its own.",
+    );
   // Runs are serialized by the runner; while anything waits only for a
   // session, it looks again every serve.wake seconds, and with serve.poll
   // set it runs that long after the end of any run regardless. The CLI on this host
@@ -143,7 +155,7 @@ async function serve(config: RouterConfig): Promise<void> {
     log: (line: string) => console.log(line),
     usage: store && (() => ({ ...store.state(), every: usage.every })),
   };
-  const events = createServer(eventsListener(deps, token));
+  const events = createServer(eventsListener(deps, keys));
   const board = createServer(boardListener(deps));
   // A permanent failure exits 2 and the service unit does not restart it; an
   // address that has not appeared yet exits 75 (EX_TEMPFAIL) and it does.

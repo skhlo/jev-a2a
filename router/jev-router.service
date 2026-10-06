@@ -11,7 +11,7 @@ Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:/usr/bin
 Restart=on-failure
 RestartSec=5
 # Exit 2 is a reason that a restart cannot change: the port is taken, the
-# configuration is invalid or ROUTER_TOKEN is not set. It stays down with
+# configuration is invalid or no host has a token. It stays down with
 # the message in `systemctl --user status`. Exit 75 (address not up yet)
 # restarts.
 RestartPreventExitStatus=2

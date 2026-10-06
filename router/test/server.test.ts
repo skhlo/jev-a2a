@@ -20,12 +20,14 @@ import {
   recordReader,
   sameSite,
   serveRunner,
+  doorKeys,
   sessionReader,
   waitsReader,
   type Bindable,
   type BindOptions,
+  type DoorKey,
   type Run,
-  type SessionStatus,
+  type Session,
 } from "../src/server.ts";
 import { BOARD_VERSION, messageTimes } from "../src/board.ts";
 import { coreConfig, fold } from "../src/shell.ts";
@@ -67,8 +69,10 @@ const config: RouterConfig = {
   usage: null,
 };
 
-// Every caller is a current session unless a test says otherwise.
-const sessionOf = (): SessionStatus => "current";
+// Every caller is a current session unless a test says otherwise, and
+// the shared token lets it through from any host.
+const sessionOf = (): Session => ({ host: "mbp", current: true });
+const shared: DoorKey[] = [{ host: null, token: "secret" }];
 
 const handled: Event[] = [];
 const handle = (event: Event): Promise<Run> => {
@@ -110,7 +114,7 @@ const taskIds = (list: unknown): unknown[] => {
 
 test("events: health is open, everything else needs the exact token", async () => {
   const server = createServer(
-    eventsListener({ config, handle, sessionOf }, "secret"),
+    eventsListener({ config, handle, sessionOf }, shared),
   );
   const url = await serve(server);
   try {
@@ -200,9 +204,11 @@ test("events: a person is refused; a replaced session may reply and answer but n
           return handle(event);
         },
         sessionOf: (by) =>
-          by === "A1" ? "current" : by === "A0" ? "replaced" : null,
+          by === "A1" || by === "A0"
+            ? { host: "mbp", current: by === "A1" }
+            : null,
       },
-      "secret",
+      shared,
     ),
   );
   const url = await serve(server);
@@ -214,7 +220,7 @@ test("events: a person is refused; a replaced session may reply and answer but n
     });
   try {
     const refused = [
-      // The shared token acting as the person, or as nobody.
+      // A token acting as the person, or as nobody.
       { type: "submit", by: "you", messageId: "m", text: "x" },
       {
         type: "answer",
@@ -265,6 +271,101 @@ test("events: a person is refused; a replaced session may reply and answer but n
   }
 });
 
+test("events: a host's token acts only for that host's sessions; the shared one for any", async () => {
+  const seen: Event[] = [];
+  const keys: DoorKey[] = [
+    { host: "mini", token: "mini-token" },
+    { host: "mba", token: "mba-token" },
+  ];
+  const listening = (keys: DoorKey[]) =>
+    createServer(
+      eventsListener(
+        {
+          config,
+          handle: (event) => {
+            seen.push(event);
+            return handle(event);
+          },
+          sessionOf: (by) =>
+            by === "K1"
+              ? { host: "mini", current: true }
+              : by === "B1"
+                ? { host: "mba", current: true }
+                : null,
+        },
+        keys,
+      ),
+    );
+  const hosts = listening(keys);
+  const transition = listening([...keys, ...shared]);
+  const hostsUrl = await serve(hosts);
+  const transitionUrl = await serve(transition);
+  const post = async (url: string, token: string, by: string) => {
+    const res = await fetch(`${url}/events`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: "submit", by, messageId: "m", text: "x" }),
+    });
+    return { status: res.status, body: await jsonObject(res) };
+  };
+  try {
+    assert.equal((await post(hostsUrl, "mini-token", "K1")).status, 200);
+    assert.equal((await post(hostsUrl, "mba-token", "B1")).status, 200);
+    assert.deepEqual(await post(hostsUrl, "mini-token", "B1"), {
+      status: 403,
+      body: {
+        ok: false,
+        code: "wrong_host",
+        message: "This token is mini's; B1 is a session on mba.",
+      },
+    });
+    assert.partialDeepStrictEqual(await post(hostsUrl, "mba-token", "K1"), {
+      status: 403,
+      body: { code: "wrong_host" },
+    });
+    assert.partialDeepStrictEqual(await post(hostsUrl, "mini-token", "you"), {
+      status: 403,
+      body: { code: "unauthenticated" },
+    });
+    // Without the shared token configured, it opens nothing.
+    assert.equal((await post(hostsUrl, "secret", "K1")).status, 401);
+    // While it is still set, it acts for a session on any host, and a
+    // host's own token still only for its own.
+    assert.equal((await post(transitionUrl, "secret", "K1")).status, 200);
+    assert.equal((await post(transitionUrl, "secret", "B1")).status, 200);
+    assert.equal((await post(transitionUrl, "mini-token", "B1")).status, 403);
+    assert.equal(seen.length, 4);
+  } finally {
+    hosts.close();
+    transition.close();
+  }
+});
+
+test("doorKeys: each configured host's ROUTER_TOKEN_<HOST>, and the shared ROUTER_TOKEN while set", () => {
+  const hosts = {
+    mbp: { paseo: "ws://x", replyCommand: "router" },
+    mini: { paseo: "ws://x", replyCommand: "router" },
+    "mba-2": { paseo: "ws://x", replyCommand: "router" },
+  };
+  const keysOf = (env: Record<string, string>) =>
+    doorKeys({ ...config, hosts }, env);
+  assert.deepEqual(
+    keysOf({
+      ROUTER_TOKEN_MINI: "m",
+      ROUTER_TOKEN_MBA_2: "b",
+      ROUTER_TOKEN_MBP: "",
+      ROUTER_TOKEN_ELSEWHERE: "e",
+      ROUTER_TOKEN: "s",
+    }),
+    [
+      { host: "mini", token: "m" },
+      { host: "mba-2", token: "b" },
+      { host: null, token: "s" },
+    ],
+  );
+  assert.deepEqual(keysOf({}), []);
+});
+
 test("sessionReader: reads the record without the journal lock and tells a current session from a replaced one", (t) => {
   const record = scratch(t, "server-sessions-");
   writeFileSync(
@@ -272,9 +373,9 @@ test("sessionReader: reads the record without the journal lock and tells a curre
     replacedJournal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
   );
   const sessionOf = sessionReader(recordReader({ ...fixture, home: record }));
-  assert.equal(sessionOf("A1"), "current");
-  assert.equal(sessionOf("K2"), "current");
-  assert.equal(sessionOf("K1"), "replaced");
+  assert.deepEqual(sessionOf("A1"), { host: "mbp", current: true });
+  assert.deepEqual(sessionOf("K2"), { host: "mini", current: true });
+  assert.deepEqual(sessionOf("K1"), { host: "mini", current: false });
   assert.equal(sessionOf("you"), null);
   assert.equal(sessionOf(""), null);
   // Nothing was written: the record is as long as the fixture.
@@ -305,7 +406,7 @@ test("a name every object answers to is no session at the events door and no pla
   const events = createServer(
     eventsListener(
       { config: routed, handle: core, sessionOf: sessionReader(read) },
-      "secret",
+      shared,
     ),
   );
   const board = createServer(
