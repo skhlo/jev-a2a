@@ -1,6 +1,6 @@
 // The task list: the Agents row, then Needs you, In flight and Done (the
-// last ten), each row the title, its age and a dot, then line 2 (format.ts
-// rowLine). A group's heading collapses it to the heading and its count, as
+// last ten), each row the title, its age and a dot, then lines 2 and 3
+// (format.ts rowLines). A group's heading collapses it to the heading and its count, as
 // on the board.
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useState, type ReactNode } from "react";
@@ -9,7 +9,7 @@ import {
   age,
   readiness,
   rowDot,
-  rowLine,
+  rowLines,
   type ListRow,
   type Tone,
   type Viewer,
@@ -175,8 +175,8 @@ export function TaskList({
   );
 }
 
-// A row of the list: line 1 a title, its trailing words and maybe a dot;
-// then line 2. Selected, it takes the surface2 fill.
+// A row of the list: line 1 a title, maybe its trailing words and a dot;
+// then its other lines. Selected, it takes the surface2 fill.
 function ListItem({
   title,
   trailing,
@@ -186,7 +186,7 @@ function ListItem({
   children,
 }: {
   title: string;
-  trailing: string;
+  trailing?: string;
   dot?: Tone | null;
   on: boolean;
   onPress: () => void;
@@ -211,9 +211,11 @@ function ListItem({
         <View style={{ flex: 1, minWidth: 0 }}>
           <Txt lines={1}>{title}</Txt>
         </View>
-        <Txt size="sm" muted>
-          {trailing}
-        </Txt>
+        {trailing ? (
+          <Txt size="sm" muted>
+            {trailing}
+          </Txt>
+        ) : null}
         {dot ? <Dot tone={dot} /> : null}
       </View>
       {children}
@@ -221,8 +223,9 @@ function ListItem({
   );
 }
 
-// The agents at a glance: how many are ready and held, then each host and
-// its agents' marks; line 2 wraps when the hosts do not fit.
+// The agents at a glance, in a task row's three lines: the title, how
+// many are ready and held, then each host and its agents' marks, wrapping
+// when the hosts do not fit.
 function AgentsRow({
   viewer,
   on,
@@ -233,12 +236,10 @@ function AgentsRow({
   onPress: () => void;
 }) {
   return (
-    <ListItem
-      title="Agents"
-      trailing={readiness(viewer.agents)}
-      on={on}
-      onPress={onPress}
-    >
+    <ListItem title="Agents" on={on} onPress={onPress}>
+      <Txt size="sm" muted lines={1}>
+        {readiness(viewer.agents)}
+      </Txt>
       <View
         style={{
           flexDirection: "row",
@@ -251,7 +252,7 @@ function AgentsRow({
         {viewer.hosts.map((h) => (
           <View
             key={h.host}
-            style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
           >
             <Txt size="sm" muted>
               {h.host}
@@ -291,7 +292,9 @@ function TaskRow({
       on={on}
       onPress={onPress}
     >
-      <Parts parts={rowLine(row, now)} />
+      {rowLines(row, now).map((parts, i) =>
+        parts.length ? <Parts key={i} parts={parts} /> : null,
+      )}
     </ListItem>
   );
 }

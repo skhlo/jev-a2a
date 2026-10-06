@@ -1,8 +1,8 @@
 // The board's words for the app: the HTML board's rules (src/board-parts.ts,
 // src/board-context.ts and src/board-tasks.ts) over the shapes serve's board
 // API returns, as the plugin design lays them out (skhlo/designs PR #21,
-// jev-a2a v0.14). The Agents rules are the design's own: the board has no
-// Agents page. Pure, so the tests run them in Node. The app evaluates this
+// jev-a2a v0.14). The Agents rules and a row's line 2 are the design's
+// own: the board has no Agents page, and its row has two lines. Pure, so the tests run them in Node. The app evaluates this
 // in Hermes, so it keeps to ES2020 built-ins: no replaceAll and no Array.at
 // (tsconfig.client.json checks).
 import type { FullTask, Summary } from "../shared/rpc.ts";
@@ -313,9 +313,9 @@ function readingOf<A, U>(
 
 // ---- The list row ----
 
-// Line 2's rule, the HTML board's row sub: what the task waits on or last
+// Line 3's rule, the HTML board's row sub: what the task waits on or last
 // said, then its countdown.
-export function rowSub(h: TaskHead, now: number): Part[] {
+function rowSub(h: TaskHead, now: number): Part[] {
   if (h.status === "needs_recipient" && h.reason) {
     const j = h.judgment;
     const p = j?.probability;
@@ -351,36 +351,45 @@ export const verdict = (f: NonNullable<TaskHead["final"]>): Part[] => [
   ...(f.by ? [{ text: `by ${f.by}` }] : []),
 ];
 
-// Line 2 of a row, its parts joined by " · ": the id, the status (as the
-// board's row starts), whom it waits on besides the viewer, the sender's
-// placement for an open task another agent sent, the recipient, the sub,
-// and "no reply <age>" when stale.
-export function rowLine(row: ListRow, now: number): Part[] {
-  const others = row.items
-    .filter((it) => !it.mine)
-    .map((it): Part => ({ text: `waits on ${it.principal}` }));
+// A row's lines under its title, each of parts joined by " · " (the
+// design's own rule): line 2 the id, who sent it to whom (from whom until
+// a recipient is chosen) and the status; line 3 whom it waits on besides
+// the viewer, the sub, and "no reply <age>" when stale. A row whose task
+// has left the board reads its resolve item on line 2 alone.
+export function rowLines(row: ListRow, now: number): Part[][] {
   const h = row.head;
   if (!h) {
     const it = row.items[0]?.item;
     return [
-      { text: row.id },
-      ...(it?.kind === "resolve"
-        ? [
-            { text: it.deliveryId },
-            { text: `send ${it.messageId}` },
-            { text: label(it.reason) },
-          ]
-        : []),
+      [
+        { text: row.id },
+        ...(it?.kind === "resolve"
+          ? [
+              { text: it.deliveryId },
+              { text: `send ${it.messageId}` },
+              { text: label(it.reason) },
+            ]
+          : []),
+      ],
     ];
   }
+  const from = sender(h.source);
   return [
-    { text: h.id },
-    { text: label(h.status) },
-    ...others,
-    ...(h.via !== null && !h.final ? [{ text: `from ${h.via}` }] : []),
-    { text: h.recipient ?? "no recipient" },
-    ...rowSub(h, now),
-    ...(h.stale ? [{ text: h.stale, tone: "warn" as const }] : []),
+    [
+      { text: h.id },
+      {
+        text:
+          h.recipient === null ? `from ${from}` : `${from} → ${h.recipient}`,
+      },
+      { text: label(h.status) },
+    ],
+    [
+      ...row.items
+        .filter((it) => !it.mine)
+        .map((it): Part => ({ text: `waits on ${it.principal}` })),
+      ...rowSub(h, now),
+      ...(h.stale ? [{ text: h.stale, tone: "warn" as const }] : []),
+    ],
   ];
 }
 

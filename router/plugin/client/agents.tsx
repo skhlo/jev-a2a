@@ -1,6 +1,6 @@
 // The Agents page: the placements by host, each with its state, its Hold
-// or Release lever and a line per open task it holds; a line opens the
-// task.
+// or Release lever and a line per open task it holds, spaced as a list
+// row's lines; a line opens the task.
 import { Pressable, View } from "react-native";
 import { HoldButton } from "./forms.tsx";
 import { count, readiness, taskLine, type Viewer } from "./format.ts";
@@ -41,7 +41,11 @@ export function AgentsPage({
       {viewer.hosts.map((h) => (
         <Section key={h.host} title={h.host}>
           {h.agents.map((a, i) => (
-            <CardRow key={a.key} first={i === 0}>
+            <CardRow
+              key={a.key}
+              first={i === 0}
+              style={{ paddingVertical: 12 }}
+            >
               <View
                 style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
               >
@@ -60,23 +64,20 @@ export function AgentsPage({
                 ) : null}
               </View>
               {a.tasks.length ? (
-                a.tasks.map((t) => (
-                  <Pressable
-                    key={t.delivery.id}
-                    accessibilityRole="button"
-                    onPress={() => onOpen(t.head.id)}
-                    style={{ paddingVertical: 6 }}
-                  >
-                    <Parts
-                      parts={taskLine(t, viewer.asksViewer(t.delivery.id))}
-                    />
-                  </Pressable>
-                ))
-              ) : (
-                <Txt size="sm" muted>
-                  no open task
-                </Txt>
-              )}
+                <View style={{ gap: 2 }}>
+                  {a.tasks.map((t) => (
+                    <Pressable
+                      key={t.delivery.id}
+                      accessibilityRole="button"
+                      onPress={() => onOpen(t.head.id)}
+                    >
+                      <Parts
+                        parts={taskLine(t, viewer.asksViewer(t.delivery.id))}
+                      />
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
             </CardRow>
           ))}
         </Section>

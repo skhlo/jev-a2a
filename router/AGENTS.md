@@ -47,11 +47,12 @@ update it when workflows change.
   `serve.board`, `agents`) to `src/config.ts`'s. The app half
   (`index.client.tsx`, `plugin/client/`) repeats the board's rules over
   those shapes in `plugin/client/format.ts`, and follows the plugin
-  design's own rules for the Agents page, which the board lacks.
+  design's own rules for the Agents page, which the board lacks, and for
+  a row's line 2 (sender → recipient).
   `plugin/test/client.test.ts` compares the board's rules with the board
   page rendered for the same fixtures, and its copies of the board's
-  formats with `src/board-parts.ts`; the Agents rules and the rest of the
-  detail are checked against fixed strings. `.fallowrc.jsonc` marks
+  formats with `src/board-parts.ts`; the Agents rules, line 2 and the
+  rest of the detail are checked against fixed strings. `.fallowrc.jsonc` marks
   the copies fallow reports as reviewed clones and exempts the names they
   share with the board. The app runs in Hermes, so `pnpm typecheck` in
   `plugin/` checks it again against ES2020 alone
