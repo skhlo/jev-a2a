@@ -24,7 +24,10 @@ import {
 } from "./ui.tsx";
 
 type Task = FullTask["task"];
-type Of<K extends Item["item"]["kind"]> = Extract<Item["item"], { kind: K }>;
+type ItemOf<K extends Item["item"]["kind"]> = Extract<
+  Item["item"],
+  { kind: K }
+>;
 
 function Input({
   value,
@@ -74,7 +77,7 @@ export function AnswerForm({
 }: {
   host: string;
   principal: string;
-  item: Of<"answer">;
+  item: ItemOf<"answer">;
   placement: string;
 }) {
   const [text, setText] = useState("");
@@ -136,7 +139,7 @@ export function ChooseForm({
   task,
 }: {
   host: string;
-  item: Of<"choose">;
+  item: ItemOf<"choose">;
   task: Task | null;
 }) {
   const [choice, setChoice] = useState(item.suggestions[0] ?? "");
@@ -209,7 +212,7 @@ export function ResolveForm({
 }: {
   host: string;
   principal: string;
-  item: Of<"resolve">;
+  item: ItemOf<"resolve">;
   outcome: string | null;
 }) {
   const send = useAct(host, useRpc(rpc.taskResolve));
@@ -408,8 +411,9 @@ export function CancelModal({
     <Modal title={`Cancel ${task.id}?`} open={open} onOpenChange={onOpenChange}>
       <Modal.Content>
         <LookProvider value={look}>
+          <Txt>{firstLine(task.text)}</Txt>
           <Txt muted>
-            {`The router ends ${task.id} as canceled: ${firstLine(task.text)}`}
+            Work already sent keeps running; the router stops tracking it.
           </Txt>
           {live.length ? (
             <View>

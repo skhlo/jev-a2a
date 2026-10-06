@@ -18,6 +18,7 @@ import {
   attemptingJournal,
   config,
   deliveredJournal,
+  extend,
   NOW,
   replacedJournal,
   sampleJournal,
@@ -94,16 +95,16 @@ test("client: the list groups the viewer's tasks and each row reads as the board
   const { summary } = board(sampleJournal);
   const viewer = viewerOf(summary);
   assert.deepEqual(lines(viewer.needs), [
-    "warn T2 · orchestrator · Force push?",
-    "warn T6 · no recipient · low confidence · Jev environment 0.62",
+    "warn T2 · needs answer · orchestrator · Force push?",
+    "warn T6 · needs recipient · no recipient · low confidence · Jev environment 0.62",
   ]);
   assert.deepEqual(lines(viewer.flight), [
-    "- T4 · knowledge · Reading the notes · 55m left",
-    "- T1 · orchestrator · waits for orchestrator@mbp to be ready · 17m left",
+    "- T4 · working · knowledge · Reading the notes · 55m left",
+    "- T1 · queued · orchestrator · waits for orchestrator@mbp to be ready · 17m left",
   ]);
   assert.deepEqual(lines(viewer.done), [
-    "- T5 · incus · 1 of 1 delivery",
-    "- T3 · orchestrator · 1 of 1 delivery",
+    "- T5 · completed · incus · 1 of 1 delivery",
+    "- T3 · completed · orchestrator · 1 of 1 delivery",
   ]);
   // The forms are the viewer's: it signs both items as their principal.
   assert.deepEqual(
@@ -151,6 +152,13 @@ test("client: each row's reading is the HTML board's row for the same record", (
             .slice(1)
             .map((p) => p.text);
       assert.equal(app.join(" · "), plain(sub[1]), row.id);
+      if (row.head) {
+        const state =
+          /<div class="line2"><span class="state"[^>]*>([^<]*)</.exec(
+            html.slice(at),
+          )?.[1];
+        assert.equal(rowLine(row, NOW)[1]?.text, state, `${row.id}'s status`);
+      }
       rows += 1;
     }
   }
@@ -166,6 +174,18 @@ test("client: the detail's delivery states, chosen-by words and resolve sentence
     replacedJournal,
     answeredJournal,
     deliveredJournal,
+    // The operator resolves the send the replaced session took.
+    extend(
+      { type: "observe", placement: "knowledge@mini", session: "K2" },
+      {
+        type: "resolve",
+        by: "operator",
+        deliveryId: "D3",
+        messageId: "M4",
+        outcome: "finished",
+        evidence: "The session's transcript shows the request.",
+      },
+    ),
   ]) {
     const { summary, task, page } = board(entries);
     const viewer = viewerOf(summary);
@@ -176,7 +196,6 @@ test("client: the detail's delivery states, chosen-by words and resolve sentence
       if (full.task.chosenBy)
         assert.ok(text.includes(metaLine(full, NOW)[2]?.text ?? "?"), head.id);
       full.task.deliveries.forEach((d, di) => {
-        if (d.end) return;
         const tr = new RegExp(
           `<tr data-path="[^"]*\\.deliveries\\[${di}\\]">([\\s\\S]*?)</tr>`,
         ).exec(html);
@@ -202,7 +221,12 @@ test("client: the detail's delivery states, chosen-by words and resolve sentence
     }
   }
   assert.ok(states >= 6, `${states} delivery states compared`);
-  for (const state of ["answered", "delivered", "question"])
+  for (const state of [
+    "answered",
+    "delivered",
+    "question",
+    "resolved_finished",
+  ])
     assert.ok(seen.has(state), `a delivery reads ${state}`);
 });
 
@@ -271,7 +295,10 @@ test("client: an item of a principal the viewer lacks waits on it; one whose tas
   const viewer = viewerOf(other);
   const t2 = viewer.flight.find((r) => r.id === "T2");
   assert.ok(t2, "alice's question leaves T2 in flight");
-  assert.match(words(rowLine(t2, NOW)), /^T2 · waits on alice · /);
+  assert.match(
+    words(rowLine(t2, NOW)),
+    /^T2 · needs answer · waits on alice · /,
+  );
   assert.equal(rowDot(t2), null);
   // alice's question is no warning to the viewer, as on the board.
   const asked = requester.items.find((it) => it.kind === "answer");

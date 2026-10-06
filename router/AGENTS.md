@@ -47,14 +47,13 @@ update it when workflows change.
   `serve.board`, `agents`) to `src/config.ts`'s. The app half
   (`index.client.tsx`, `plugin/client/`) repeats the board's rules over
   those shapes in `plugin/client/format.ts`. `plugin/test/client.test.ts`
-  compares its rows, delivery states, read-only items, chosen-by words
-  and resolve sentences with the board page rendered for the same fixtures, and its
-  copied formats (`span`, `time`, `age`, `label`, `count`, `waitWords`,
-  and `countdown`, `shortSession` and `firstLine` for the board's `left`,
-  `shortId` and `headline`) with `src/board-parts.ts`; the rest of the
-  detail is checked against fixed strings. `.fallowrc.jsonc` lists
-  the copies fallow reports as clones (`time` with `span`, and `firstLine`)
-  as reviewed, and the names the copies share with the board as exempt.
+  compares them with the board page rendered for the same fixtures, and
+  its copies of the board's formats with `src/board-parts.ts`; the rest
+  of the detail is checked against fixed strings. `.fallowrc.jsonc` marks
+  the copies fallow reports as reviewed clones and exempts the names they
+  share with the board. The app runs in Hermes, so `pnpm typecheck` in
+  `plugin/` checks it again against ES2020 alone
+  (`plugin/tsconfig.client.json`).
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

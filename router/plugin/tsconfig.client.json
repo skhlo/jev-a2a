@@ -1,0 +1,10 @@
+{
+  // The app half runs in Hermes, which lacks ES2021+ built-ins (replaceAll,
+  // Array.at) and Node: its files typecheck again against ES2020 alone.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2020"],
+    "types": []
+  },
+  "include": ["index.client.tsx", "client", "shared"]
+}

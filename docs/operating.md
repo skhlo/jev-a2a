@@ -174,9 +174,10 @@ as the first principal of each role.
 In the app, the plugin adds Jev to the sidebar: the board's tasks in
 Needs you, In flight and Done, and the selected task with its record.
 Your answer, choose and resolve items are forms there, an open delivery
-has Hold or Release, and New task and Cancel task open a dialog. The
-surface asks for the summary every 5 seconds while it is shown, and
-fetches a task again only when it changed.
+has Hold, any delivery on a held placement has Release, and New task
+and Cancel task open a dialog. The surface asks for the summary every 5
+seconds while it is shown, and fetches a task again only when it
+changed.
 
 The plugin reads the configuration at the default path, or at the
 daemon's `$ROUTER_CONFIG`; a `--config` or `ROUTER_CONFIG` given only to

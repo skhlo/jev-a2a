@@ -1,8 +1,9 @@
 // The board's words for the app: the HTML board's rules (src/board-parts.ts,
 // src/board-context.ts and src/board-tasks.ts) over the shapes serve's board
-// API returns, as the plugin design (v0.14) lays them out. Pure, so the tests
-// run them in Node. The app evaluates this in Hermes, so it keeps to ES2020
-// built-ins: no replaceAll and no Array.at.
+// API returns, as the plugin design lays them out (skhlo/designs PR #21,
+// jev-a2a v0.14). Pure, so the tests run them in Node. The app evaluates
+// this in Hermes, so it keeps to ES2020 built-ins: no replaceAll and no
+// Array.at (tsconfig.client.json checks).
 import type { FullTask, Summary } from "../shared/rpc.ts";
 
 type TaskHead = Summary["open"][number];
@@ -282,9 +283,10 @@ export const verdict = (f: NonNullable<TaskHead["final"]>): Part[] => [
   ...(f.by ? [{ text: `by ${f.by}` }] : []),
 ];
 
-// Line 2 of a row, its parts joined by " · ": the id, whom it waits on
-// besides the viewer, the sender's placement for an open task another agent
-// sent, the recipient, the sub, and "no reply <age>" when stale.
+// Line 2 of a row, its parts joined by " · ": the id, the status (as the
+// board's row starts), whom it waits on besides the viewer, the sender's
+// placement for an open task another agent sent, the recipient, the sub,
+// and "no reply <age>" when stale.
 export function rowLine(row: ListRow, now: number): Part[] {
   const others = row.items
     .filter((it) => !it.mine)
@@ -305,6 +307,7 @@ export function rowLine(row: ListRow, now: number): Part[] {
   }
   return [
     { text: h.id },
+    { text: label(h.status) },
     ...others,
     ...(h.via !== null && !h.final ? [{ text: `from ${h.via}` }] : []),
     { text: h.recipient ?? "no recipient" },
@@ -369,7 +372,7 @@ const answered = (d: Delivery): boolean =>
 // A delivery row's state pill; a question is in the warning role while it
 // asks the viewer.
 export function deliveryState(d: Delivery, asksViewer: boolean): Part {
-  if (d.end) return { text: label(d.end.reason) };
+  if (d.end) return { text: d.end.reason };
   const r = readingOf(d.waits, d.send.outcome, answered(d) || null, d.latest);
   switch (r.kind) {
     case "waits":
@@ -439,7 +442,7 @@ export function conversation({ task: t, times }: FullTask): Said[] {
         said: {
           key: `${d.id}/end`,
           who: null,
-          text: `${d.id} ended · ${label(d.end.reason)}${d.end.by ? ` · by ${shortSession(d.end.by)}` : ""}${ended ? ` · ${time(ended)}` : ""}`,
+          text: `${d.id} ended · ${d.end.reason}${d.end.by ? ` · by ${shortSession(d.end.by)}` : ""}${ended ? ` · ${time(ended)}` : ""}`,
         },
       });
     }
