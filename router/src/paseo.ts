@@ -802,6 +802,10 @@ export async function createPaseoAdapter(
     url: tunnel ? `ws://127.0.0.1:${tunnel.port}/ws` : endpoint,
     clientId: `jev-router-${randomUUID()}`,
     clientType: "cli",
+    // One connection for one run, and the next run is the retry. A client
+    // that reconnects never settles connect() while the host is gone, and
+    // the ssh tunnel takes one connection, so it would never come back.
+    reconnect: { enabled: false },
   });
   try {
     await daemonClient.connect();
@@ -978,6 +982,9 @@ function openSshTunnel(endpoint: string): Promise<Tunnel> {
         accepted.destroy(failure ? new Error(failure) : undefined);
       });
       accepted.on("error", () => undefined);
+      // ssh may exit before the client's first bytes reach it; its exit
+      // says why, and an unheard EPIPE here would end the process.
+      ssh.stdin.on("error", () => undefined);
       accepted.on("close", () => {
         if (child && !child.killed) child.kill();
       });
