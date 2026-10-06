@@ -80,11 +80,11 @@ export function invocation(argv: string[], env: Invocation["env"]): Invocation {
   return { command, values, rest, env };
 }
 
-// A mistake in what the caller asked: an option, or a task the record does
-// not hold. The command prints it and exits 2.
 // Where a command's lines go: what it reports to `out`, trouble to `err`.
 export type Io = { out: (line: string) => void; err: (line: string) => void };
 
+// A mistake in what the caller asked: an option, or a task the record does
+// not hold. The command prints it and exits 2.
 export class UsageError extends Error {
   override name = "UsageError";
 }
