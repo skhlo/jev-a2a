@@ -28,6 +28,8 @@ export const USAGE = `router: a prompt with an envelope and a record
   router observe <participant@host> --hold | --release
   router resolve --delivery <D> --message <M> --outcome finished|not_sent --evidence ... [--as <operator>]
   router cancel <task> [--as <principal>]
+  router host setup <host>                     install or update router on a host the router reaches over ssh, with its token, and check it
+  router check                                 on a host without a configuration: the router answers, takes this host's token, runs this commit
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
 A participant's reply is authenticated by its session (never --as):

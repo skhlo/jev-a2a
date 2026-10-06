@@ -45,6 +45,9 @@ export type ServerDeps = {
   // The usage store as it stands, for the board model; absent or null
   // when usage is off.
   usage?: (() => UsageState) | null;
+  // The commit serve runs, which every events reply carries so a reply host
+  // can tell when its checkout differs; absent outside a checkout.
+  commit?: string | null;
 };
 
 const EVENT_TYPES = ["submit", "choose", "update", "answer"];
@@ -58,7 +61,7 @@ export type KnownSession = { host: string; current: boolean };
 export type DoorKey = { host: string; token: string };
 
 // Where a host's token is kept in the router's secrets.env.
-const tokenName = (host: string): string =>
+export const tokenName = (host: string): string =>
   `ROUTER_TOKEN_${host.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 
 // The door's keys: each configured host's token. A token two hosts hold
@@ -373,14 +376,21 @@ export function eventsListener(
     );
   };
   return (req, res) => {
-    const reply = (status: number, payload: unknown): void => {
+    const reply = (status: number, payload: Record<string, unknown>): void => {
       res.writeHead(status, { "content-type": "application/json" });
-      res.end(JSON.stringify(payload));
+      res.end(
+        JSON.stringify(
+          deps.commit ? { ...payload, commit: deps.commit } : payload,
+        ),
+      );
     };
     if (req.method === "GET" && req.url === "/health")
       return reply(200, { ok: true });
     const key = keyFor(req.headers.authorization);
     if (!key) return reply(401, { ok: false, code: "unauthorized" });
+    // `router check` on a reply host: whose token it presents.
+    if (req.method === "GET" && req.url === "/check")
+      return reply(200, { ok: true, host: key.host });
     if (req.method !== "POST" || req.url !== "/events")
       return reply(404, { ok: false, code: "not_found" });
     body(req).then((text) => {

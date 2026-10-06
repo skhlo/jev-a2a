@@ -3,7 +3,9 @@
 // usage, the commands on the record, and exit codes.
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, watch } from "node:fs";
+import { checkoutCommit, checkoutOrigin } from "./checkout.ts";
 import {
   configPathOf,
   loadConfig,
@@ -40,6 +42,7 @@ import {
 import { openShell, type ShellOptions } from "./shell.ts";
 import { writeTelemetry } from "./telemetry.ts";
 import { actingAs, runCommand } from "./commands.ts";
+import { overSsh, setupHost } from "./host-setup.ts";
 import { invocation, UsageError } from "./request.ts";
 
 const inv = invocation(process.argv.slice(2), process.env);
@@ -84,6 +87,7 @@ try {
   if (command === "serve") await serve(config);
   else if (command === "eval") await evaluateSet(config);
   else if (command === "usage") await readUsage(config);
+  else if (command === "host") process.exit(await hostSetup());
   else
     process.exit(
       await runCommand(inv, config, () => openShell(config, shellOptions), {
@@ -94,6 +98,44 @@ try {
 } catch (error: unknown) {
   if (error instanceof UsageError) fail(error.message);
   throw error;
+}
+
+// `router host setup <host>`, from this checkout and this host's secrets.
+async function hostSetup(): Promise<number> {
+  const [verb, host] = inv.rest;
+  if (verb !== "setup" || !host) fail("Use router host setup <host>.");
+  return setupHost(host, config, {
+    commit: checkoutCommit(),
+    origin: checkoutOrigin(),
+    env: process.env,
+    secrets: join(configPath, "..", "secrets.env"),
+    remote: overSsh,
+    restart: restartServe,
+    log: (line) => console.log(line),
+  });
+}
+
+// Restarts the jev-router service and waits until serve answers again.
+async function restartServe(): Promise<void> {
+  try {
+    execFileSync("systemctl", ["--user", "restart", "jev-router"], {
+      stdio: "inherit",
+    });
+  } catch {
+    fail(
+      "Could not restart jev-router: restart serve so it takes the new token, then run this again.",
+    );
+  }
+  const health = `http://${config.serve.listen}/health`;
+  for (let tries = 0; tries < 60; tries++) {
+    const up = await fetch(health).then(
+      (response) => response.ok,
+      () => false,
+    );
+    if (up) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  fail(`serve does not answer at ${health} after the restart.`);
 }
 
 // `router serve`: events from participants on other hosts, and the board. Each
@@ -149,6 +191,7 @@ async function serve(config: RouterConfig): Promise<void> {
     sessionOf: sessionReader(record),
     log: (line: string) => console.log(line),
     usage: store && (() => ({ ...store.state(), every: usage.every })),
+    commit: checkoutCommit(),
   };
   const events = createServer(eventsListener(deps, keys));
   const board = createServer(boardListener(deps));

@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sharedScratch } from "./test-scratch.ts";
+import { checkoutCommit } from "../src/checkout.ts";
 import { runReplyHost } from "../src/reply-host.ts";
 import { invocation, UsageError } from "../src/request.ts";
 
@@ -19,8 +20,10 @@ const body =
 writeFileSync(file, `${body}\n`);
 
 // A router's events endpoint that records what it is sent and accepts it,
-// except anything about T404, which it refuses as the core would.
-async function router(t: test.TestContext) {
+// except anything about T404, which it refuses as the core would. With a
+// commit, every answer carries it, as serve's do; /check takes the token t
+// as mini's.
+async function router(t: test.TestContext, commit?: string) {
   const posted: Record<string, unknown>[] = [];
   const tokens: (string | undefined)[] = [];
   const read = (request: IncomingMessage): Promise<string> =>
@@ -30,17 +33,24 @@ async function router(t: test.TestContext) {
       request.on("end", () => resolve(raw));
     });
   const server = createServer((request, response) => {
+    const answer = (status: number, payload: Record<string, unknown>) => {
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(JSON.stringify(commit ? { ...payload, commit } : payload));
+    };
+    if (request.url === "/health") return answer(200, { ok: true });
+    if (request.url === "/check")
+      return request.headers.authorization === "Bearer t"
+        ? answer(200, { ok: true, host: "mini" })
+        : answer(401, { ok: false, code: "unauthorized" });
     void read(request).then((raw) => {
       const event = JSON.parse(raw) as Record<string, unknown>;
       posted.push(event);
       tokens.push(request.headers.authorization);
-      response.setHeader("content-type", "application/json");
-      response.end(
-        JSON.stringify(
-          event.taskId === "T404"
-            ? { ok: false, code: "not_found", message: "No such request." }
-            : { ok: true, message: "recorded", report: ["delivered D1"] },
-        ),
+      answer(
+        200,
+        event.taskId === "T404"
+          ? { ok: false, code: "not_found", message: "No such request." }
+          : { ok: true, message: "recorded", report: ["delivered D1"] },
       );
     });
   });
@@ -56,10 +66,11 @@ async function router(t: test.TestContext) {
     argv: string[],
     env: Record<string, string> = { PASEO_AGENT_ID: "A1" },
     to = url,
+    token = "t",
   ) => {
     const out: string[] = [];
     const err: string[] = [];
-    const code = await runReplyHost(invocation(argv, env), to, "t", {
+    const code = await runReplyHost(invocation(argv, env), to, token, {
       out: (line) => out.push(line),
       err: (line) => err.push(line),
     });
@@ -214,6 +225,45 @@ test("reply host: other commands run on the router host; a refusal or an unreach
   assert.match(
     unreachable.err[0] ?? "",
     /^Cannot reach the router at http:\/\/127\.0\.0\.1:9: /,
+  );
+});
+
+test("reply host: check says the router answers, takes this host's token and runs this commit", async (t) => {
+  const ours = checkoutCommit();
+  assert.ok(ours, "the tests run from a checkout");
+  const same = await router(t, ours);
+  assert.deepEqual(await same.run(["check"], {}), {
+    code: 0,
+    out: [
+      `router: ${same.url} answers`,
+      "token: accepted for mini",
+      `commit: ${ours.slice(0, 7)} on both`,
+    ],
+    err: [],
+  });
+  const refused = await same.run(["check"], {}, same.url, "wrong");
+  assert.equal(refused.code, 1);
+  assert.equal(refused.out[1], "token: refused");
+  const behind = await router(t, "0123456789abcdef");
+  const differs = await behind.run(["check"], {});
+  assert.equal(differs.code, 1);
+  assert.equal(
+    differs.out[2],
+    `commit: the router runs 0123456, this host ${ours.slice(0, 7)}`,
+  );
+  const lost = await same.run(["check"], {}, "http://127.0.0.1:9");
+  assert.equal(lost.code, 1);
+  assert.match(lost.err[0] ?? "", /^Cannot reach the router at /);
+});
+
+test("reply host: an event still goes when the router runs another commit, and the host is told", async (t) => {
+  const { run } = await router(t, "0123456789abcdef");
+  const sent = await run([...reply, "working"]);
+  assert.equal(sent.code, 0);
+  assert.deepEqual(sent.out, ["recorded", "delivered D1"]);
+  assert.match(
+    sent.err[0] ?? "",
+    /^This host's router is at [0-9a-f]{7}, the router's at 0123456: run router host setup for this host on the router host\.$/,
   );
 });
 

@@ -114,23 +114,28 @@ router serve             # events on 127.0.0.1:7677, board on http://127.0.0.1:7
 
 Other machines join through `hosts` entries of the form `ssh://<host>`,
 with `serve.listen` on an address they can reach. Their agents run the
-same `router`, from a checkout that needs no `pnpm install`:
+same `router`, from a checkout that needs no `pnpm install`. On the router
+host, one command installs it there over that ssh; the host needs Node 26
+and git:
 
 ```sh
-# On each other host; needs Node 26 and git. The compile cache keeps each
-# call fast, since node strips the TypeScript every time otherwise.
-git clone https://github.com/skhlo/jev-a2a ~/.local/share/jev-router/repo
-printf '#!/bin/sh\nexport NODE_COMPILE_CACHE="$HOME/.cache/jev-router"\nexec node --no-warnings %s/router/src/cli.ts "$@"\n' \
-  ~/.local/share/jev-router/repo > ~/.local/bin/router && chmod +x ~/.local/bin/router
+router host setup mini
 ```
+
+It clones this repository to `~/.local/share/jev-router/repo` on that host
+at the router's commit, writes the `router` wrapper, and writes the host's
+`~/.config/jev-router/secrets.env`: `ROUTER_URL`, and as `ROUTER_TOKEN`
+the host's own token, which it first adds to the router's `secrets.env` as
+`ROUTER_TOKEN_<HOST>` if it is missing. It ends with `router check` there.
+Run it again to bring the host to the router's commit; to change a token,
+delete its line from the router's `secrets.env` first.
 
 With no configuration on that host (keep no `config.json` there),
 `router` sends `reply`, `submit`, `answer` and `choose` to the router as
-the agent's session, with `ROUTER_URL` and `ROUTER_TOKEN` from that
-host's `~/.config/jev-router/secrets.env`; the token is that host's own,
-the router's `ROUTER_TOKEN_<HOST>` for it. `git pull --ff-only` in
-the checkout updates it. To keep `serve` running, install it as a
-user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
+the agent's session. `router check` there says whether the router answers,
+takes the token and runs the same commit; a reply also warns when the
+commits differ. To keep `serve` running on the router host, install it as
+a user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 
 ## Commands
 
@@ -144,6 +149,7 @@ user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 | `router cancel <task>`                           | Cancel a task whose work has not reached anyone yet                                                          |
 | `router run`                                     | Observe the sessions and deliver what is eligible, once                                                      |
 | `router serve`                                   | Accept events from other hosts; serve the board; keep looking                                                |
+| `router host setup <host>`                       | Install or update `router` on a host reached over ssh, with its token, and check it there                    |
 
 Agents use `router reply`. `router observe <placement> --hold` keeps the
 router from sending to a session a person is typing in; `router resolve`
