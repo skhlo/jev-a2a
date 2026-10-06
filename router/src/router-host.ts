@@ -43,7 +43,14 @@ import { openShell, type ShellOptions } from "./shell.ts";
 import { writeTelemetry } from "./telemetry.ts";
 import { actingAs, runCommand } from "./commands.ts";
 import { overSsh, serveCheck, setupHost } from "./host-setup.ts";
-import { repoint } from "./roster.ts";
+import {
+  add,
+  readOver,
+  refresh,
+  remove,
+  repoint,
+  type RosterDeps,
+} from "./roster.ts";
 import { invocation, UsageError } from "./request.ts";
 
 const inv = invocation(process.argv.slice(2), process.env);
@@ -69,6 +76,8 @@ function fail(message: string): never {
 }
 
 const crash = process.env.ROUTER_CRASH;
+// The labeled set `router eval` and `router roster` judge by default.
+const BUNDLED_SET = join(import.meta.dirname, "..", "eval", "requests.jsonl");
 const apiKey = process.env.TYPESAFE_API_KEY;
 const shellOptions: ShellOptions = {
   adapter: (endpoint) =>
@@ -118,14 +127,12 @@ async function hostSetup(): Promise<number> {
   });
 }
 
-// `router roster repoint <participant@host> <session>`, on this host's
-// configuration and record.
+// `router roster repoint|add|remove|refresh ...`, on this host's
+// configuration, record and labeled requests.
 async function roster(): Promise<number> {
-  const [verb, placement, session] = inv.rest;
-  if (verb !== "repoint" || !placement || !session)
-    fail("Use router roster repoint <participant@host> <session>.");
+  const [verb, first, second, ...more] = inv.rest;
   const record = recordReader(config);
-  return repoint(placement, session, {
+  const deps: RosterDeps = {
     configPath,
     record: () => record().state,
     resolve: async (host, id) => {
@@ -138,22 +145,50 @@ async function roster(): Promise<number> {
         await adapter.close();
       }
     },
-    restart: restartServe,
+    read: (host, path) => readOver(own(config.hosts, host)?.paseo ?? "", path),
+    judge: (question) =>
+      apiKey
+        ? judge(question, { ...config.jev, apiKey })
+        : fail("TYPESAFE_API_KEY is not set; add it to secrets.env."),
+    requester: () => actingAs(inv, config, "requester"),
+    setPath: values.set ?? BUNDLED_SET,
+    // Run again, add and remove would refuse what they did already.
+    restart: () =>
+      restartServe(
+        verb === "repoint" ? "then run this again" : "then see router status",
+      ),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: () => new Date(),
     log: (line) => console.log(line),
-  });
+  };
+  switch (verb) {
+    case "repoint":
+      if (first && second && !more.length) return repoint(first, second, deps);
+      break;
+    case "add":
+      if (first && second && more.length) return add(first, second, more, deps);
+      break;
+    case "remove":
+      if (first && !second) return remove(first, deps);
+      break;
+    case "refresh":
+      if (first && !more.length) return refresh(first, second, deps);
+  }
+  return fail(
+    "Use router roster repoint, add, remove or refresh; router --help lists their arguments.",
+  );
 }
 
-// Restarts the jev-router service and waits until serve answers again.
-async function restartServe(): Promise<void> {
+// Restarts the jev-router service and waits until serve answers again;
+// `next` is what to do when it cannot.
+async function restartServe(next = "then run this again"): Promise<void> {
   try {
     execFileSync("systemctl", ["--user", "restart", "jev-router"], {
       stdio: "inherit",
     });
   } catch {
     fail(
-      "Could not restart jev-router: restart serve so it reads the change, then run this again.",
+      `Could not restart jev-router: restart serve so it reads the change, ${next}.`,
     );
   }
   const health = `http://${config.serve.listen}/health`;
@@ -274,8 +309,7 @@ async function evaluateSet(config: RouterConfig): Promise<void> {
   const permitted = own(config.permissions ?? {}, sender) ?? [];
   if (!permitted.length) fail(`${sender} may address nobody.`);
   const responsibilities = responsibilityTexts(config.participants, permitted);
-  const path =
-    values.set ?? join(import.meta.dirname, "..", "eval", "requests.jsonl");
+  const path = values.set ?? BUNDLED_SET;
   let set: Labeled[];
   try {
     set = readSet(path, [...permitted, "none"]);

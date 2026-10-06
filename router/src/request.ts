@@ -32,6 +32,13 @@ export const USAGE = `router: a prompt with an envelope and a record
   router check                                 on a host without a configuration: the router answers, takes this host's token, runs this commit
   router roster repoint <participant@host> <session>
                                                point a placement at a new Paseo session (agent id or terminal:<id>), restart serve, see it bound
+  router roster add <participant> <host>:<path> <host>=<session>...
+                                               add a participant, its text from the file's ## <participant> section on its repository's
+                                               main branch, a placement per host, grants all to all; eval, restart serve, see them bound
+  router roster remove <participant>           drop a participant, its grants and placements; its labeled requests expect none; eval, restart
+  router roster refresh <participant> [<host>:<path>]
+                                               read its text again from where it came from, or the file named; a new text: eval, restart serve
+                                               (add, remove and refresh take --set <file> for a labeled set other than the bundled one)
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
 A participant's reply is authenticated by its session (never --as):

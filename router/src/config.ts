@@ -109,7 +109,11 @@ const isAccountId = (value: unknown): value is AccountId =>
   ACCOUNT_IDS.some((id) => id === value);
 
 export function loadConfig(path: string): RouterConfig {
-  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+  return configOf(JSON.parse(readFileSync(path, "utf8")), path);
+}
+
+// A configuration as loadConfig reads it from `path`, which a refusal names.
+export function configOf(raw: unknown, path: string): RouterConfig {
   const config = validateConfig(raw);
   const extra = raw as Record<string, unknown>;
   try {
