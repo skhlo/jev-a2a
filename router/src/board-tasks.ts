@@ -90,7 +90,7 @@ const CHOSEN_BY: Record<NonNullable<TaskView["chosenBy"]>, string> = {
 // The answer a delivery's question got, when its current send is one and
 // no question is open: a question stays the latest update after its
 // answer, and a resolve clears the question too, so both are checked.
-const answerOf = (
+export const answerOf = (
   d: DeliveryView,
 ): { k: number; send: DeliveryView["sends"][number] } | null => {
   const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);

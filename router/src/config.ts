@@ -103,6 +103,15 @@ export const terminalClis = (
 // Seconds between usage reads when the usage section names none.
 export const USAGE_EVERY = 120;
 
+// Who acts in a role when no one is named: the first configured principal
+// in it, as the CLI acts without --as and the Paseo app always does.
+export const firstPrincipal = (
+  config: RouterConfig,
+  role: Role,
+): string | null =>
+  Object.entries(config.principals ?? {}).find(([, r]) => r === role)?.[0] ??
+  null;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const isAccountId = (value: unknown): value is AccountId =>

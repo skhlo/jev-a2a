@@ -289,7 +289,6 @@ test("plugin: an action goes to serve as the app's principals; a refusal fails w
   await app.call(rpc.taskHold, { placement: "environment@mini" });
   await app.call(rpc.taskRelease, { placement: "environment@mbp" });
   await app.call(rpc.taskResolve, {
-    taskId: "T4",
     deliveryId: "D3",
     messageId: "M4",
     outcome: "not_sent",
@@ -306,6 +305,14 @@ test("plugin: an action goes to serve as the app's principals; a refusal fails w
       evidence: "Marked not sent in the Paseo app.",
     },
   ]);
+  // A retried request carries the app's message id each time, so the core
+  // recognises the repeat.
+  for (let i = 0; i < 2; i += 1)
+    await app.call(rpc.taskSubmit, { text: "Tidy", messageId: "app-1" });
+  assert.deepEqual(
+    events.slice(4).map((e) => (e.type === "submit" ? e.messageId : e.type)),
+    ["app-1", "app-1"],
+  );
   outcome = { ok: false, code: "closed", message: "T1 is already closed." };
   await assert.rejects(
     app.call(rpc.taskCancel, { taskId: "T1" }),
@@ -316,7 +323,26 @@ test("plugin: an action goes to serve as the app's principals; a refusal fails w
     app.call(rpc.taskSubmit, { text: "  " }),
     /^Error: Missing text\.$/,
   );
-  assert.equal(events.length, 5);
+  assert.equal(events.length, 7);
+});
+
+test("plugin: a serve too slow for Paseo's limit fails saying the action may be recorded", async (t) => {
+  const silent = createServer(() => undefined);
+  await new Promise<void>((done) => silent.listen(0, "127.0.0.1", done));
+  t.after(() => {
+    silent.closeAllConnections();
+    silent.close();
+  });
+  const { port } = silent.address() as AddressInfo;
+  const app = rpcs();
+  serveBoard(app, {
+    env: { ROUTER_CONFIG: configAt(t, `127.0.0.1:${port}`) },
+    timeoutMs: 50,
+  });
+  await assert.rejects(
+    app.call(rpc.taskCancel, { taskId: "T1" }),
+    /^Error: The router's serve did not answer in 0\.05 s\. An action may still be recorded; a retry with the same messageId is safe\.$/,
+  );
 });
 
 test("plugin: with serve down, an RPC fails naming where it looked and why", async (t) => {

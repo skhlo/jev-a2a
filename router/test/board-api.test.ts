@@ -15,7 +15,13 @@ import {
   fullTask,
   summarize,
 } from "../src/board-api.ts";
-import { config, extend, journal, NOW } from "../src/board-fixture.ts";
+import {
+  answeredJournal,
+  config,
+  extend,
+  journal,
+  NOW,
+} from "../src/board-fixture.ts";
 import type { Entry } from "../src/journal.ts";
 
 const actor = appActor(config);
@@ -76,7 +82,8 @@ test("the summary heads each task with what its row shows", () => {
     probability: 0.6,
   });
   assert.equal(head("T1")?.latest, null);
-  // Asked a question: its text, and the answer the latest delivery took.
+  // Asked a second question after its first answer: the open question,
+  // and no answer, as the page shows it.
   assert.equal(head("T2")?.question, "Force push?");
   assert.equal(head("T2")?.sentAt, "2026-09-30T09:10:00.000Z");
   assert.deepEqual(head("T2")?.latest, {
@@ -84,7 +91,16 @@ test("the summary heads each task with what its row shows", () => {
     sendKind: "answer",
     outcome: "accepted",
     update: { kind: "question", text: "Force push?" },
-    answered: { text: "main", at: "2026-09-30T09:16:00.000Z" },
+    answered: null,
+  });
+  // Before the session replied to the first answer, the answer shows.
+  const answered = summarize(
+    modelOf(answeredJournal, Date.parse("2026-09-30T09:16:00Z")),
+  ).open.find((t) => t.id === "T2");
+  assert.equal(answered?.question, null);
+  assert.deepEqual(answered?.latest?.answered, {
+    text: "main",
+    at: "2026-09-30T09:16:00.000Z",
   });
   assert.equal(head("T3")?.final?.status, "completed");
   assert.equal(head("T4")?.stale, null);
@@ -196,13 +212,28 @@ test("an action is the event the page's form makes, with the app's principals", 
   const routed = apiEvent({ action: "submit", text: "Tidy" }, actor, roles);
   assert.ok(routed.ok && routed.event.type === "submit");
   assert.equal(routed.event.to, null);
+  // The app's own message id, kept, so a retry is a repeat.
+  for (const action of [
+    { action: "submit", text: "Tidy", messageId: "app-1" },
+    {
+      action: "answer",
+      taskId: "T2",
+      deliveryId: "D1",
+      questionId: "Q2",
+      text: "no",
+      messageId: "app-1",
+    },
+  ]) {
+    const kept = apiEvent(action, actor, roles);
+    assert.ok(kept.ok && "messageId" in kept.event);
+    assert.equal(kept.event.messageId, "app-1");
+  }
   // A resolve as the operator, with evidence that says where it came from
   // when the app gives none.
   assert.deepEqual(
     apiEvent(
       {
         action: "resolve",
-        taskId: "T4",
         deliveryId: "D3",
         messageId: "M4",
         outcome: "finished",

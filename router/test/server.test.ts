@@ -1977,16 +1977,21 @@ test("board: the plugin's API serves the summary, unchanged since a rev, and a t
     const missing = await fetch(`${url}/api/task?id=T9`);
     assert.equal(missing.status, 404);
     await missing.text();
-    // Through Tailscale Serve, from another site, or by another name:
-    // refused, as is a write to a read.
+    // Through a proxy such as Tailscale Serve, whatever its headers say,
+    // from another site, or by another name: refused, with the reason as
+    // JSON for the plugin, as is a write to a read.
     for (const headers of [
       { "x-forwarded-for": "100.64.0.9" },
+      { "x-forwarded-for": "" },
+      { "x-forwarded-proto": "https" },
+      { forwarded: "for=100.64.0.9" },
       { "tailscale-user-login": "me@example.com" },
+      { "tailscale-funnel-request": "?1" },
       { "sec-fetch-site": "cross-site" },
     ]) {
       const res = await fetch(`${url}/api/summary`, { headers });
-      assert.equal(res.status, 403);
-      await res.text();
+      assert.equal(res.status, 403, JSON.stringify(headers));
+      assert.ok(typeof (await jsonObject(res)).message === "string");
     }
     assert.equal(
       await raw(`${url}/api/summary`, { headers: { host: "evil.example" } }),
@@ -2000,7 +2005,9 @@ test("board: the plugin's API serves the summary, unchanged since a rev, and a t
     );
     const put = await fetch(`${url}/api/summary`, { method: "POST" });
     assert.equal(put.status, 405);
-    await put.text();
+    assert.deepEqual(await jsonObject(put), {
+      message: "GET the summary or a task.",
+    });
   } finally {
     server.close();
   }

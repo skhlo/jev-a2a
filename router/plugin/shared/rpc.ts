@@ -70,6 +70,9 @@ const final = z.object({
 });
 
 // One task as its row shows it; `rev` changes whenever the task does.
+// `question` is the waiting question's text (its needs-you item carries
+// the ids an answer names); `answered` is the answer the latest delivery's
+// open turn took, null once the agent has replied to it.
 const taskHead = z.object({
   id: z.string(),
   title: z.string(),
@@ -258,6 +261,13 @@ export const boardTask = defineRpc({
   output: fullTask.nullable(),
 });
 
+// An action can outlast the 30 s RPC limit while serve finishes a run, and
+// still be recorded. A request or an answer therefore takes the app's own
+// messageId: mint one per submit or answer and send the same one on a
+// retry, so the router recognises the repeat instead of making a second.
+const messageId = z.string().min(1).optional();
+
+// The question's ids are in its needs-you item.
 export const taskAnswer = defineRpc({
   name: "task.answer",
   input: z.object({
@@ -265,6 +275,7 @@ export const taskAnswer = defineRpc({
     deliveryId: z.string(),
     questionId: z.string(),
     text: z.string(),
+    messageId,
   }),
   output: acted,
 });
@@ -281,7 +292,6 @@ export const taskChoose = defineRpc({
 export const taskResolve = defineRpc({
   name: "task.resolve",
   input: z.object({
-    taskId: z.string(),
     deliveryId: z.string(),
     messageId: z.string(),
     outcome: z.enum(["finished", "not_sent"]),
@@ -311,6 +321,6 @@ export const taskRelease = defineRpc({
 // `to` names the recipient; without it Jev routes the request.
 export const taskSubmit = defineRpc({
   name: "task.submit",
-  input: z.object({ text: z.string(), to: z.string().optional() }),
+  input: z.object({ text: z.string(), to: z.string().optional(), messageId }),
   output: acted,
 });

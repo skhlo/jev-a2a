@@ -155,9 +155,10 @@ One instance per host: a second finds the port taken and says so.
 
 `router/plugin/` is a Paseo plugin, with no UI yet. Installed into the
 router host's daemon, it posts `/nudge` to `serve.board` each time a
-placement's session ends a turn there. A delivery or notice waiting for that session
-then goes out at once instead of up to `serve.wake` seconds later. The
-looks stay, since Paseo's hooks are best effort, and they still find:
+placement's session ends a turn there. A delivery or notice waiting for
+that session then goes out at once instead of up to `serve.wake` seconds
+later. The looks stay, since Paseo's hooks are best effort, and they still
+find:
 
 - sessions on other hosts;
 - terminal placements, which are not Paseo agents and have no turns to
@@ -228,12 +229,14 @@ On `serve.board` (loopback; expose it through Tailscale Serve):
   heads each task with its own `rev`; with `?sinceRev=<rev>`, an unchanged
   board answers `{"unchanged":true,"rev":"<rev>"}`. An action acts as the
   first principal of each role and answers the router's `outcome`, the
-  board's new `rev`, and the task it changed.
+  board's new `rev`, and the task it changed. A request or an answer keeps
+  a `messageId` the app gives, so a retry after a timeout is recognised
+  as a repeat. A refusal is `{"message":…}`.
 
-`/nudge` and `/api/` answer only a process on this host: a request that
-came through Tailscale Serve, from another device, is refused, and so is
-one a browser marks as cross-site, or one whose `Host` is not a loopback
-address.
+`/nudge` and `/api/` answer only a process on this host: a request with a
+`Forwarded`, `X-Forwarded-*` or `Tailscale-*` header (Tailscale Serve
+adds them) is refused, and so is one a browser marks as cross-site, or
+one whose `Host` is not a loopback address.
 
 Routes match by suffix, so the board can be mounted under a path
 (`tailscale serve --bg --set-path /router http://127.0.0.1:7678`), and its

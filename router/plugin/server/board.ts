@@ -15,7 +15,12 @@ export type Handles = {
   ): void;
 };
 
-export type BoardDeps = { env: Record<string, string | undefined> };
+// How long a request to serve may take: inside Paseo's 30 s limit, so a
+// slow run says what it means.
+export type BoardDeps = {
+  env: Record<string, string | undefined>;
+  timeoutMs?: number;
+};
 
 // What serve answers an action with; the plugin returns the task and rev,
 // or fails with the router's reason.
@@ -26,26 +31,33 @@ const served = z.object({
 });
 
 // One request to serve's API, with a JSON body for an action: the JSON it
-// answers, null for a task it does not have, or an error with its reason.
+// answers, null for a 404 when `orNull` says absence is an answer, or an
+// error with its reason.
 async function api(
-  env: Record<string, string | undefined>,
+  { env, timeoutMs = 25_000 }: BoardDeps,
   path: string,
-  body?: unknown,
+  { body, orNull = false }: { body?: unknown; orNull?: boolean } = {},
 ): Promise<unknown> {
   const { board } = routerConfig(env);
   let response: Response;
   try {
+    const signal = AbortSignal.timeout(timeoutMs);
     response = await fetch(
       `http://${board}/api/${path}`,
       body === undefined
-        ? {}
+        ? { signal }
         : {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
+            signal,
           },
     );
   } catch (error: unknown) {
+    if (error instanceof Error && error.name === "TimeoutError")
+      throw new Error(
+        `The router's serve did not answer in ${timeoutMs / 1000} s. An action may still be recorded; a retry with the same messageId is safe.`,
+      );
     throw new Error(
       `The router's serve does not answer at ${board}: ${reason(error)}`,
     );
@@ -59,7 +71,7 @@ async function api(
       `The router's serve at ${board} answered ${response.status} without JSON; it may be older than the plugin.`,
     );
   }
-  if (response.status === 404 && path.startsWith("task?")) return null;
+  if (response.status === 404 && orNull) return null;
   if (!response.ok)
     throw new Error(
       isRecord(json) && typeof json.message === "string"
@@ -73,18 +85,23 @@ export function serveBoard(
   server: Handles,
   deps: BoardDeps = { env: process.env },
 ): void {
-  const query = (path: string, params: Record<string, string | undefined>) =>
+  const query = (
+    path: string,
+    params: Record<string, string | undefined>,
+    orNull = false,
+  ) =>
     api(
-      deps.env,
+      deps,
       `${path}?${new URLSearchParams(
         Object.entries(params).flatMap(([k, v]): [string, string][] =>
           v === undefined ? [] : [[k, v]],
         ),
       )}`,
+      { orNull },
     );
   const act = async (action: string, input: object) => {
     const done = served.parse(
-      await api(deps.env, "action", { action, ...input }),
+      await api(deps, "action", { body: { action, ...input } }),
     );
     if (!done.outcome.ok) throw new Error(done.outcome.message);
     return rpc.acted.parse({
@@ -97,7 +114,7 @@ export function serveBoard(
     rpc.boardSummary.output.parse(await query("summary", { sinceRev })),
   );
   server.handle(rpc.boardTask, async ({ id }) =>
-    rpc.boardTask.output.parse(await query("task", { id })),
+    rpc.boardTask.output.parse(await query("task", { id }, true)),
   );
   server.handle(rpc.taskAnswer, (input) => act("answer", input));
   server.handle(rpc.taskChoose, (input) => act("choose", input));

@@ -1,7 +1,7 @@
 // The router host's commands on the record: what reads it, and the
 // recording commands applied through one shell, closed on every path. A
 // mistake in the options is refused before the journal opens.
-import type { RouterConfig } from "./config.ts";
+import { firstPrincipal, type RouterConfig } from "./config.ts";
 import {
   A2A_STATE,
   currentSend,
@@ -33,11 +33,8 @@ export function actingAs(
 ): string {
   const chosen = inv.values.as ?? inv.env.ROUTER_AS;
   if (chosen) return chosen;
-  const first = Object.entries(config.principals ?? {}).find(
-    ([, r]) => r === role,
-  );
   return (
-    first?.[0] ??
+    firstPrincipal(config, role) ??
     refuse(`No ${role} principal in the configuration; pass --as.`)
   );
 }

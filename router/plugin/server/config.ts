@@ -1,6 +1,7 @@
-// What the plugin reads of the router's configuration. A plugin cannot
+// What the plugin's server modules share: what they read of the router's
+// configuration, and the reason a request to serve failed. A plugin cannot
 // import the router's modules (Paseo compiles only its own directory), so
-// a test holds these to the router's own answers.
+// a test holds the configuration reading to the router's own.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

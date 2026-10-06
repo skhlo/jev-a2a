@@ -2,9 +2,10 @@
 // summary the app polls, with a rev that changes only when what it shows
 // changes; one task in full; and the actions, as the page's forms post
 // them. Built from the same model as the page, so the two agree. The
-// field list is the plugin design's (skhlo/designs, jev-a2a v0.14).
+// field list is the plugin design's (skhlo/designs PR #21, jev-a2a v0.14,
+// commit f7f4efb).
 import { createHash } from "node:crypto";
-import type { RouterConfig } from "./config.ts";
+import { firstPrincipal, type RouterConfig } from "./config.ts";
 import {
   actionEvent,
   type ActionResult,
@@ -14,7 +15,7 @@ import {
   type UpdateView,
 } from "./board.ts";
 import { staleTask } from "./board-parts.ts";
-import { headline } from "./board-tasks.ts";
+import { answerOf, headline } from "./board-tasks.ts";
 import { newMessageId } from "./request.ts";
 import type { Event, Role } from "./types.ts";
 
@@ -43,8 +44,14 @@ function timesOf(
   );
 }
 
-// One task as its list row needs it. `rev` changes whenever the task does,
-// so the app refetches the selected task's detail only then.
+// A task's rev: it changes whenever the task or its messages' times do, so
+// the app refetches the selected task's detail only then.
+const taskRev = (t: TaskView, own: Record<string, string>): string =>
+  digest({ t, own });
+
+// One task as its list row needs it. `question` is the waiting question's
+// text; the needs-you item carries what an answer names. `answered` is the
+// answer the latest delivery's open turn took, as the page shows it.
 export type TaskHead = {
   id: string;
   title: string;
@@ -77,7 +84,7 @@ function headOf(
 ): TaskHead {
   const judged = t.judgments.at(-1);
   const last = t.deliveries.at(-1);
-  const answer = last?.sends.findLast((s) => s.kind === "answer");
+  const answer = last ? answerOf(last)?.send : undefined;
   const own = timesOf(t, times);
   return {
     id: t.id,
@@ -112,7 +119,7 @@ function headOf(
         }
       : null,
     stale: staleTask(t, at, own),
-    rev: digest({ t, own }),
+    rev: taskRev(t, own),
   };
 }
 
@@ -165,7 +172,7 @@ export function fullTask(model: BoardModel, id: string): BoardTask | null {
   const t = [...model.open, ...model.finished].find((task) => task.id === id);
   if (!t) return null;
   const times = timesOf(t, model.times);
-  return { rev: digest({ t, own: times }), task: t, times };
+  return { rev: taskRev(t, times), task: t, times };
 }
 
 // Who the Paseo app acts as: the person the CLI on the router host acts as
@@ -174,10 +181,8 @@ export function fullTask(model: BoardModel, id: string): BoardTask | null {
 export function appActor(config: RouterConfig): Actor | null {
   const roles: Role[] = ["requester", "operator"];
   const principals = roles.flatMap((role) => {
-    const first = Object.entries(config.principals ?? {}).find(
-      ([, r]) => r === role,
-    );
-    return first ? [first[0]] : [];
+    const first = firstPrincipal(config, role);
+    return first ? [first] : [];
   });
   return principals.length ? { login: "paseo", principals } : null;
 }
@@ -185,9 +190,12 @@ export function appActor(config: RouterConfig): Actor | null {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-// An action the app posts, as the event it stands for: the page's forms
-// for the actions they share, and a request for `submit`. A resolve
-// without evidence says it came from the app.
+// An action the app posts, as the event it stands for: a request for
+// `submit`, and for the rest the fields of the page's forms, which
+// actionEvent (board.ts) reads. A request or an answer keeps a messageId
+// the app gives, so a retry after a timeout is a repeat the core
+// recognises, not a second one. A resolve without evidence says it came
+// from the app.
 export function apiEvent(
   body: unknown,
   actor: Actor,
@@ -209,7 +217,7 @@ export function apiEvent(
     const event: Event = {
       type: "submit",
       by,
-      messageId: newMessageId(),
+      messageId: text("messageId").trim() || newMessageId(),
       text: text("text").trim(),
       to: text("to").trim() || null,
       hosts: null,

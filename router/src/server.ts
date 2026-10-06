@@ -10,7 +10,11 @@
 // and, for this host only, the Paseo plugin's nudge and API.
 // Serve strips its mount path, so board routes match by suffix.
 import { timingSafeEqual } from "node:crypto";
-import type { IncomingMessage, RequestListener } from "node:http";
+import type {
+  IncomingMessage,
+  RequestListener,
+  ServerResponse,
+} from "node:http";
 import {
   actionEvent,
   asOf,
@@ -514,13 +518,21 @@ export function sameSite(
 }
 
 // Why a request to the board did not come from a process on this host, or
-// null when it did: Tailscale Serve adds the caller's address and login; a
-// browser marks a request from another site; and a page whose name was
-// pointed at loopback sends that name as its Host.
+// null when it did: a proxy such as Tailscale Serve adds forwarding or
+// tailscale-* headers, refused whatever their value; a browser marks a
+// request from another site; and a page whose name was pointed at loopback
+// sends that name as its Host.
 function notFromThisHost(
   headers: Record<string, string | string[] | undefined>,
 ): string | null {
-  if (headers["x-forwarded-for"] || headers["tailscale-user-login"])
+  if (
+    Object.keys(headers).some(
+      (name) =>
+        name === "forwarded" ||
+        name.startsWith("x-forwarded-") ||
+        name.startsWith("tailscale-"),
+    )
+  )
     return "Accepted from this host only.";
   if (!sameSite(headers)) return "Not accepted from other sites.";
   const host = headers.host;
@@ -572,6 +584,22 @@ function wantsJson(accept: string | undefined): boolean {
   );
 }
 
+// A board answer as text or as JSON.
+type Reply = {
+  plain(status: number, text: string): void;
+  json(status: number, value: unknown): void;
+};
+const replyTo = (res: ServerResponse): Reply => ({
+  plain(status, text) {
+    res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
+    res.end(text);
+  },
+  json(status, value) {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(value));
+  },
+});
+
 export function boardListener(
   deps: Omit<ServerDeps, "sessionOf"> & { record: RecordReader },
 ): RequestListener {
@@ -605,14 +633,89 @@ export function boardListener(
     if (heard.size === 0) telemetryErrors.clear();
     return telemetry;
   };
+  // The model as `who` sees it now, or null once the failure is answered:
+  // a record the code cannot replay is reported, not fatal, since the
+  // events listener in the same process must stay up.
+  const viewFor = (
+    who: Actor | null,
+    fail: (message: string) => void,
+  ): ReturnType<typeof model> | null => {
+    try {
+      return model(now(), who);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`board: cannot read the record: ${message}`);
+      fail(`The record cannot be read: ${message}`);
+      return null;
+    }
+  };
+  // The Paseo plugin's API (src/board-api.ts): the board's summary, a
+  // task, and the actions. Only a process on this host may call it, and
+  // it acts as the CLI here does without --as, so it adds no one who
+  // could not already act.
+  const answerApi = (
+    route: string,
+    req: IncomingMessage,
+    url: URL,
+    { json }: Reply,
+  ): void => {
+    // Every answer is JSON with a message, which the plugin passes on.
+    const refuse = (status: number, message: string): void =>
+      json(status, { message });
+    const refused = notFromThisHost(req.headers);
+    if (refused) return refuse(403, refused);
+    const by = appActor(config);
+    const fail = (message: string): void => refuse(500, message);
+    if (route === "action") {
+      if (req.method !== "POST") return refuse(405, "POST an action.");
+      if (!by) return refuse(403, "No principals to act as.");
+      body(req).then((text) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          return refuse(400, "The action is not JSON.");
+        }
+        const action = apiEvent(parsed, by, config.principals ?? {});
+        if (!action.ok) return refuse(400, action.message);
+        log(`board: paseo ${JSON.stringify(action.event)}`);
+        deps.handle(action.event).then(
+          ({ outcome }) => {
+            const view = viewFor(by, fail);
+            if (!view) return;
+            const id = actedOn(action.event, view);
+            json(200, {
+              outcome,
+              rev: summarize(view).rev,
+              task: id ? fullTask(view, id) : null,
+            });
+          },
+          (error: unknown) =>
+            fail(error instanceof Error ? error.message : String(error)),
+        );
+      });
+      return;
+    }
+    if (req.method !== "GET") return refuse(405, "GET the summary or a task.");
+    const view = viewFor(by, fail);
+    if (!view) return;
+    if (route === "task") {
+      const task = fullTask(view, url.searchParams.get("id") ?? "");
+      return task ? json(200, task) : refuse(404, "No such task on the board.");
+    }
+    const summary = summarize(view);
+    json(
+      200,
+      url.searchParams.get("sinceRev") === summary.rev
+        ? { unchanged: true, rev: summary.rev }
+        : summary,
+    );
+  };
   return (req, res) => {
     const url = new URL(req.url ?? "/", "http://board");
     const path = url.pathname;
     const actor = identify(req.headers, config.serve.identities);
-    const plain = (status: number, text: string): void => {
-      res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
-      res.end(text);
-    };
+    const { plain, json } = replyTo(res);
     const back = (notice: string): void => {
       res
         .writeHead(303, {
@@ -651,96 +754,20 @@ export function boardListener(
       if (!deps.nudge) return plain(404, "No runner to nudge here.");
       return plain(202, deps.nudge() ? "run queued" : "nothing waits");
     }
-    // The Paseo plugin's API (src/board-api.ts): the board's summary, a
-    // task, and the actions. Only a process on this host may call it, and
-    // it acts as the CLI here does without --as, so it adds no one who
-    // could not already act.
-    const api = /\/api\/(summary|task|action)$/.exec(path)?.[1];
-    if (api) {
-      const refused = notFromThisHost(req.headers);
-      if (refused) return plain(403, refused);
-      const json = (status: number, value: unknown): void => {
-        res.writeHead(status, { "content-type": "application/json" });
-        res.end(JSON.stringify(value));
-      };
-      const by = appActor(config);
-      const read = (): ReturnType<typeof model> | null => {
-        try {
-          return model(now(), by);
-        } catch (error: unknown) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          log(`board: cannot read the record: ${message}`);
-          json(500, { message: `The record cannot be read: ${message}` });
-          return null;
-        }
-      };
-      if (api === "action") {
-        if (req.method !== "POST") return plain(405, "POST an action");
-        if (!by) return json(403, { message: "No principals to act as." });
-        body(req).then((text) => {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(text);
-          } catch {
-            return json(400, { message: "The action is not JSON." });
-          }
-          const action = apiEvent(parsed, by, config.principals ?? {});
-          if (!action.ok) return json(400, { message: action.message });
-          log(`board: paseo ${JSON.stringify(action.event)}`);
-          deps.handle(action.event).then(
-            ({ outcome }) => {
-              const view = read();
-              if (!view) return;
-              const id = actedOn(action.event, view);
-              json(200, {
-                outcome,
-                rev: summarize(view).rev,
-                task: id ? fullTask(view, id) : null,
-              });
-            },
-            (error: unknown) =>
-              json(500, {
-                message: error instanceof Error ? error.message : String(error),
-              }),
-          );
-        });
-        return;
-      }
-      if (req.method !== "GET") return plain(405, "GET the summary or a task");
-      const view = read();
-      if (!view) return;
-      if (api === "task") {
-        const task = fullTask(view, url.searchParams.get("id") ?? "");
-        return task
-          ? json(200, task)
-          : json(404, { message: "No such task on the board." });
-      }
-      const summary = summarize(view);
-      return json(
-        200,
-        url.searchParams.get("sinceRev") === summary.rev
-          ? { unchanged: true, rev: summary.rev }
-          : summary,
-      );
-    }
+    const route = /\/api\/(summary|task|action)$/.exec(path)?.[1];
+    if (route) return answerApi(route, req, url, { plain, json });
     if (req.method !== "GET")
       return plain(405, "GET, or POST actions, nudge or api/action");
-    if (path.endsWith("/whoami")) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(
-        JSON.stringify({
-          login: actor?.login ?? null,
-          principals: actor?.principals ?? [],
-          headers: Object.fromEntries(
-            Object.entries(req.headers).filter(([k]) =>
-              k.startsWith("tailscale-"),
-            ),
+    if (path.endsWith("/whoami"))
+      return json(200, {
+        login: actor?.login ?? null,
+        principals: actor?.principals ?? [],
+        headers: Object.fromEntries(
+          Object.entries(req.headers).filter(([k]) =>
+            k.startsWith("tailscale-"),
           ),
-        }),
-      );
-      return;
-    }
+        ),
+      });
     if (path.endsWith("/favicon.ico")) {
       // The board has no icon. Said at once, without reading the record:
       // the redirect below would send the browser to a whole board.
@@ -770,20 +797,11 @@ export function boardListener(
         .end();
       return;
     }
-    // A record the code cannot replay is reported, not fatal: the events
-    // listener in the same process must stay up.
-    let view: ReturnType<typeof model>;
-    try {
-      view = model(now(), actor);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      log(`board: cannot read the record: ${message}`);
-      return plain(500, `The record cannot be read: ${message}`);
-    }
+    const view = viewFor(actor, (message) => plain(500, message));
+    if (!view) return;
     // One model, as JSON or as the page, under the same identity.
     if (path.endsWith("/board.json") || wantsJson(req.headers.accept)) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(view));
+      json(200, view);
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       // The selected task is in the URL so a reload and a shared link open
