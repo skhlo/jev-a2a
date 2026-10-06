@@ -112,15 +112,21 @@ router serve             # events on 127.0.0.1:7677, board on http://127.0.0.1:7
 ```
 
 Other machines join through `hosts` entries of the form `ssh://<host>`,
-with `serve.listen` on an address they can reach. Their agents reply
-through the client:
+with `serve.listen` on an address they can reach. Their agents run the
+same `router`, from a checkout that needs no `pnpm install`:
 
 ```sh
-install -m 755 router/client/router.mjs ~/.local/bin/router   # on each other host; needs only Node
+# On each other host; needs Node 26 and git.
+git clone https://github.com/skhlo/jev-a2a ~/.local/share/jev-router/repo
+printf '#!/bin/sh\nexec node --no-warnings %s/router/src/cli.ts "$@"\n' ~/.local/share/jev-router/repo \
+  > ~/.local/bin/router && chmod +x ~/.local/bin/router
 ```
 
-It reads `ROUTER_URL` and the same `ROUTER_TOKEN` from that host's
-`~/.config/jev-router/secrets.env`. To keep `serve` running, install it as a
+With no configuration on that host, `router` sends `reply`, `submit`,
+`answer` and `choose` to the router as the agent's session, with
+`ROUTER_URL` and the same `ROUTER_TOKEN` from that host's
+`~/.config/jev-router/secrets.env`. `git pull --ff-only` in the checkout
+updates it. To keep `serve` running, install it as a
 user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 
 ## Commands
@@ -238,7 +244,6 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 | `router/src/`                | The router: a pure core (`core.ts`) and the shell around it           |
 | `router/test/`               | The router's tests; fixtures the scripts also read stay in `src/`     |
 | `router/config.example.json` | A one-host configuration that loads as it is; a test keeps it valid   |
-| `router/client/`             | The client for hosts that do not run the router                       |
 | `router/eval/`               | The maintainer's labeled request set                                  |
 | `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
 | `router/jev-router.service`  | The systemd user unit for `router serve`                              |

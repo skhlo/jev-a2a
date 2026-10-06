@@ -349,9 +349,9 @@ export async function openShell(
     return `${head} (use --kind question to ask the sender something, --kind working for progress, --kind failed if you cannot do it).${sandboxNote(`${delivery.participant}@${delivery.host}`)}\n\n${send.text}`;
   }
 
-  // What a participant sender is told, with the client command that answers
-  // it: `--as` names the session, which the CLI on the router host needs
-  // and the client ignores (it is always the caller's own). A final notice
+  // What a participant sender is told, with the command that answers it:
+  // `--as` names the session, which `router` on the router host needs and
+  // ignores on a reply host (it is always the caller's own). A final notice
   // carries each delivery's last word.
   function noticeText(task: Task, due: NoticeDue): string {
     const { key } = due;

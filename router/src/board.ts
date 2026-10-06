@@ -2,7 +2,6 @@
 // the record. `boardModel` is pure and is what the board returns as JSON;
 // board-page.ts renders it as the page, and `actionEvent` turns the page's
 // forms into events. Nothing here writes.
-import { randomBytes } from "node:crypto";
 import {
   A2A_STATE,
   blockedReason,
@@ -14,6 +13,7 @@ import {
   reduce,
 } from "./core.ts";
 import { fold } from "./shell.ts";
+import { newMessageId } from "./request.ts";
 import type { RouterConfig } from "./config.ts";
 import type { AgentSnapshot, Telemetry } from "./telemetry.ts";
 import { usageView, type UsageState, type UsageView } from "./usage.ts";
@@ -392,10 +392,6 @@ export function identify(
   const principals = own(identities, login);
   return principals?.length ? { login, principals } : null;
 }
-
-// Message ids the router mints for answers: time-ordered, unique enough.
-export const newMessageId = (): string =>
-  `m-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 
 export type ActionResult =
   { ok: true; event: Event } | { ok: false; message: string };

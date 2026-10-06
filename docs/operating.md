@@ -152,7 +152,7 @@ One instance per host: a second finds the port taken and says so.
 
 On `serve.listen`:
 
-- `POST /events` with `Authorization: Bearer $ROUTER_TOKEN`: what the client
+- `POST /events` with `Authorization: Bearer $ROUTER_TOKEN`: what `router`
   on another host sends (`reply`, `submit`, `answer`, `choose`).
 - `GET /health`: `{"ok":true}`, no token.
 
