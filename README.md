@@ -116,17 +116,18 @@ with `serve.listen` on an address they can reach. Their agents run the
 same `router`, from a checkout that needs no `pnpm install`:
 
 ```sh
-# On each other host; needs Node 26 and git.
+# On each other host; needs Node 26 and git. The compile cache keeps each
+# call fast, since node strips the TypeScript every time otherwise.
 git clone https://github.com/skhlo/jev-a2a ~/.local/share/jev-router/repo
-printf '#!/bin/sh\nexec node --no-warnings %s/router/src/cli.ts "$@"\n' ~/.local/share/jev-router/repo \
-  > ~/.local/bin/router && chmod +x ~/.local/bin/router
+printf '#!/bin/sh\nexport NODE_COMPILE_CACHE="$HOME/.cache/jev-router"\nexec node --no-warnings %s/router/src/cli.ts "$@"\n' \
+  ~/.local/share/jev-router/repo > ~/.local/bin/router && chmod +x ~/.local/bin/router
 ```
 
-With no configuration on that host, `router` sends `reply`, `submit`,
-`answer` and `choose` to the router as the agent's session, with
-`ROUTER_URL` and the same `ROUTER_TOKEN` from that host's
-`~/.config/jev-router/secrets.env`. `git pull --ff-only` in the checkout
-updates it. To keep `serve` running, install it as a
+With no configuration on that host (keep no `config.json` there),
+`router` sends `reply`, `submit`, `answer` and `choose` to the router as
+the agent's session, with `ROUTER_URL` and the same `ROUTER_TOKEN` from
+that host's `~/.config/jev-router/secrets.env`. `git pull --ff-only` in
+the checkout updates it. To keep `serve` running, install it as a
 user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 
 ## Commands

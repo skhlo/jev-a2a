@@ -122,6 +122,7 @@ test("a mistake in the options is refused before the journal opens", async (t) =
   const cases: [argv: string[], env: Record<string, string>, RegExp][] = [
     [["submit"], {}, /Give the request text after the options/],
     [["submit", "--text-file", "x", "words"], {}, /not both/],
+    [["submit", "--text", "x"], {}, /not --text/],
     [["submit", "--text-file", "/nonexistent"], {}, /--text-file: ENOENT/],
     [["choose", "--task", "T1"], {}, /^--to is required\.$/],
     [["reply", "--task", "T1"], {}, /Replies come from a participant session/],

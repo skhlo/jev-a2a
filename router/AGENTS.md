@@ -12,8 +12,9 @@ update it when workflows change.
 - Main entry points: `src/cli.ts` (the `router` command on every host,
   `router serve` included); the scripts in `src/` run by hand with node,
   each under `import.meta.main`.
-- Important directories: `src/` the router; `test/` its tests; `eval/` the labeled request set; `design/` the board design's paths and
-  the README's pictures; `../docs/` the reference pages.
+- Important directories: `src/` the router; `test/` its tests; `eval/`
+  the labeled request set; `design/` the board design's paths and the
+  README's pictures; `../docs/` the reference pages.
 
 ## Architecture Notes
 
@@ -24,10 +25,10 @@ update it when workflows change.
 - `src/cli.ts` picks the host: with a configuration it loads
   `src/router-host.ts`, the process around `src/commands.ts` (the commands
   on the record, which the tests run in-process); without one,
-  `src/remote.ts` sends `reply`, `submit`, `answer` and `choose` to
+  `src/reply-host.ts` sends `reply`, `submit`, `answer` and `choose` to
   `serve`. Both build events with `src/request.ts`. The reply host's path
   loads no package, so it runs from a checkout without `pnpm install`;
-  `test/remote.test.ts` runs it from a copy of `src/`.
+  `test/reply-host.test.ts` runs it once from a copy of `src/`.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

@@ -82,6 +82,9 @@ export function invocation(argv: string[], env: Invocation["env"]): Invocation {
 
 // A mistake in what the caller asked: an option, or a task the record does
 // not hold. The command prints it and exits 2.
+// Where a command's lines go: what it reports to `out`, trouble to `err`.
+export type Io = { out: (line: string) => void; err: (line: string) => void };
+
 export class UsageError extends Error {
   override name = "UsageError";
 }
@@ -118,7 +121,11 @@ export type Args = ReturnType<typeof argsOf>;
 // The event each recording command stands for.
 export const EVENTS: Record<string, (o: Args) => Event> = {
   submit: (o) => {
-    // The text is the remaining words or a file, not both.
+    // The text is the remaining words or a file, not both, and never --text.
+    if (o.values.text !== undefined)
+      refuse(
+        "A request takes its text as words or with --text-file, not --text.",
+      );
     if (o.values["text-file"] !== undefined && o.rest.length)
       refuse("Pass the text as words or with --text-file, not both.");
     const text = (

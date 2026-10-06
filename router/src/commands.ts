@@ -18,6 +18,7 @@ import {
   USAGE,
   type Args,
   type Invocation,
+  type Io,
 } from "./request.ts";
 import type { Shell } from "./shell.ts";
 import { agentLine, readTelemetry } from "./telemetry.ts";
@@ -40,10 +41,6 @@ export function actingAs(
     refuse(`No ${role} principal in the configuration; pass --as.`)
   );
 }
-
-// Where a command's lines go: the record to `out`, trouble reading the
-// telemetry to `err`.
-type Io = { out: (line: string) => void; err: (line: string) => void };
 
 // A command once its options are checked: its work on the record, and the
 // exit code.

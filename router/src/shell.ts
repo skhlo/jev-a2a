@@ -350,8 +350,8 @@ export async function openShell(
   }
 
   // What a participant sender is told, with the command that answers it:
-  // `--as` names the session, which `router` on the router host needs and
-  // ignores on a reply host (it is always the caller's own). A final notice
+  // `--as` names the session, which `router` on the router host needs; on a
+  // reply host the caller is always its own session. A final notice
   // carries each delivery's last word.
   function noticeText(task: Task, due: NoticeDue): string {
     const { key } = due;
