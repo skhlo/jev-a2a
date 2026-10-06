@@ -28,6 +28,8 @@ export const USAGE = `router: a prompt with an envelope and a record
   router observe <participant@host> --hold | --release
   router resolve --delivery <D> --message <M> --outcome finished|not_sent --evidence ... [--as <operator>]
   router cancel <task> [--as <principal>]
+  router host setup <host>                     install or update router on a host the router reaches over ssh, with its token, and check it
+  router check                                 on a host without a configuration: the router answers, takes this host's token, runs this commit
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
 A participant's reply is authenticated by its session (never --as):
@@ -35,8 +37,8 @@ $PASEO_AGENT_ID, or terminal:$PASEO_TERMINAL_ID in a Paseo terminal. A
 participant session on the router host submits, chooses and answers with
 --as <its session id>. On a host without a configuration, reply, submit,
 answer and choose go to the router at $ROUTER_URL as the session itself,
-with $ROUTER_TOKEN; both are read from secrets.env beside the
-configuration's path.`;
+with $ROUTER_TOKEN, and check checks them; both are read from secrets.env
+beside the configuration's path.`;
 
 const parse = (args: string[]) =>
   parseArgs({

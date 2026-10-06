@@ -328,6 +328,69 @@ test("events: a host's token acts only for that host's sessions", async () => {
   }
 });
 
+test("events: every answer carries serve's commit; /check names the host whose token it is", async () => {
+  const server = createServer(
+    eventsListener(
+      {
+        config,
+        handle: () =>
+          Promise.resolve({
+            outcome: { ok: true, message: "recorded" },
+            report: [],
+          }),
+        sessionOf,
+        commit: "abc1234def",
+      },
+      [...keys, { host: "mini", token: "mini-token" }],
+    ),
+  );
+  const url = await serve(server);
+  const check = (token?: string) =>
+    fetch(
+      `${url}/check`,
+      token ? { headers: { authorization: `Bearer ${token}` } } : {},
+    );
+  try {
+    assert.deepEqual(await jsonObject(await fetch(`${url}/health`)), {
+      ok: true,
+      commit: "abc1234def",
+    });
+    assert.deepEqual(await jsonObject(await check("mini-token")), {
+      ok: true,
+      host: "mini",
+      commit: "abc1234def",
+    });
+    assert.partialDeepStrictEqual(await jsonObject(await check("secret")), {
+      host: "mbp",
+    });
+    const refused = await check();
+    assert.equal(refused.status, 401);
+    assert.deepEqual(await jsonObject(refused), {
+      ok: false,
+      code: "unauthorized",
+      commit: "abc1234def",
+    });
+    const sent = await fetch(`${url}/events`, {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+      body: JSON.stringify({
+        type: "submit",
+        by: "A1",
+        messageId: "m",
+        text: "x",
+      }),
+    });
+    assert.deepEqual(await jsonObject(sent), {
+      ok: true,
+      message: "recorded",
+      report: [],
+      commit: "abc1234def",
+    });
+  } finally {
+    server.close();
+  }
+});
+
 test("doorKeys: each configured host's ROUTER_TOKEN_<HOST>, and no other", () => {
   const hosts = {
     mbp: { paseo: "ws://x", replyCommand: "router" },

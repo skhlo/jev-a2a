@@ -878,10 +878,10 @@ async function screenOf(
 
 type Tunnel = { port: number; close(): void; failure(): string | null };
 
-// The Paseo CLI's tunnel, in miniature: a local listener that, on its first
-// connection, spawns `ssh -W 127.0.0.1:<daemonPort> <host>` and pipes the
-// socket through it. One connection per tunnel, which is all one run needs.
-function openSshTunnel(endpoint: string): Promise<Tunnel> {
+// ssh's options for an ssh://[user@]host[:port] endpoint, and where it
+// goes: no prompts, a bounded connect, the port if one is named.
+export type SshArgs = { options: string[]; destination: string };
+export function sshArgs(endpoint: string): SshArgs {
   const url = new URL(endpoint);
   if (
     url.password ||
@@ -895,20 +895,33 @@ function openSshTunnel(endpoint: string): Promise<Tunnel> {
   const host = url.username
     ? `${decodeURIComponent(url.username)}@${url.hostname}`
     : url.hostname;
+  return {
+    options: [
+      "-T",
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "ConnectTimeout=10",
+      ...(url.port ? ["-p", url.port] : []),
+    ],
+    destination: host,
+  };
+}
+
+// The Paseo CLI's tunnel, in miniature: a local listener that, on its first
+// connection, spawns `ssh -W 127.0.0.1:<daemonPort> <host>` and pipes the
+// socket through it. One connection per tunnel, which is all one run needs.
+function openSshTunnel(endpoint: string): Promise<Tunnel> {
+  const { options, destination } = sshArgs(endpoint);
   const args = [
-    "-T",
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "ConnectTimeout=10",
+    ...options,
     "-o",
     "ClearAllForwardings=yes",
     "-o",
     "ExitOnForwardFailure=yes",
-    ...(url.port ? ["-p", url.port] : []),
     "-W",
     "127.0.0.1:6767",
-    host,
+    destination,
   ];
   let server: Server | null = null;
   let socket: Socket | null = null;

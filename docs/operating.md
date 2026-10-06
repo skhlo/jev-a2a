@@ -157,7 +157,12 @@ On `serve.listen`:
   A token acts only for sessions on its own host; an event as a session on
   another host is refused with `wrong_host`. `serve` names the hosts that
   have a token when it starts; with none, it refuses every event.
+- `GET /check` with a host's token: `{"ok":true,"host":"<host>"}`, what
+  `router check` on that host asks.
 - `GET /health`: `{"ok":true}`, no token.
+
+Every answer on this address carries `commit`, the commit `serve` runs, so
+a reply host can tell when its checkout differs.
 
 On `serve.board` (loopback; expose it through Tailscale Serve):
 
