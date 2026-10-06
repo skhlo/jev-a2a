@@ -11,6 +11,7 @@ import {
   type ActionResult,
   type Actor,
   type BoardModel,
+  type DeliveryView,
   type TaskView,
   type UpdateView,
 } from "./board.ts";
@@ -66,8 +67,10 @@ export type TaskHead = {
   question: string | null;
   latest: {
     id: string;
+    placement: string;
     sendKind: string;
     outcome: string;
+    waits: DeliveryView["waits"];
     update: Pick<UpdateView, "kind" | "text"> | null;
     answered: { text: string; at: string | null } | null;
   } | null;
@@ -106,8 +109,10 @@ function headOf(
     latest: last
       ? {
           id: last.id,
+          placement: last.placement,
           sendKind: last.send.kind,
           outcome: last.send.outcome,
+          waits: last.waits,
           update: last.latest
             ? { kind: last.latest.kind, text: last.latest.text }
             : null,
@@ -212,13 +217,14 @@ export function apiEvent(
         message: `${actor.login} has no requester principal.`,
       };
     if (!text("text").trim()) return { ok: false, message: "Missing text." };
+    const host = text("host").trim();
     const event: Event = {
       type: "submit",
       by,
       messageId: text("messageId").trim() || newMessageId(),
       text: text("text").trim(),
       to: text("to").trim() || null,
-      hosts: null,
+      hosts: host ? [host] : null,
     };
     return { ok: true, event };
   }

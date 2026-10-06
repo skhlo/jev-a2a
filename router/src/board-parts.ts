@@ -274,6 +274,26 @@ export const answeredQuestion = (d: {
   latest: { kind: UpdateKind } | null;
 }): boolean => d.latest?.kind === "question" && !d.question;
 
+// What a waiting delivery waits for, in words: the board's delivery state
+// and row, and the Paseo app's (router/plugin/client/format.ts).
+export const waitWords = (
+  placement: string,
+  waits: NonNullable<DeliveryView["waits"]>,
+): string => {
+  switch (waits.reason) {
+    case "queued_behind":
+      return `queued behind ${waits.behind ?? DASH}`;
+    case "held":
+      return `held on ${placement}`;
+    case "not_ready":
+      return `waits for ${placement} to be ready`;
+    case "in_flight":
+      return `behind an unconfirmed send on ${placement}`;
+    case "session_replaced":
+      return `its session on ${placement} was replaced`;
+  }
+};
+
 // The answer a delivery's question got, when its current send is one and
 // no question is open: a question stays the latest update after its
 // answer, and a resolve clears the question too, so both are checked.

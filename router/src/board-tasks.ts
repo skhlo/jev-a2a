@@ -20,6 +20,7 @@ import {
   shortId,
   slot,
   staleTask,
+  waitWords,
   when,
 } from "./board-parts.ts";
 import type { Judgment, StuckReason } from "./types.ts";
@@ -30,25 +31,6 @@ const shortSlot = (path: string, id: string): string =>
   id.length > 12
     ? slot(path, esc(id.slice(0, 8)), "", "span", ` title="${esc(id)}"`)
     : slot(path, esc(id));
-
-// What a waiting delivery waits for, in words.
-const waitText = (
-  placement: string,
-  waits: NonNullable<DeliveryView["waits"]>,
-): string => {
-  switch (waits.reason) {
-    case "queued_behind":
-      return `queued behind ${esc(waits.behind ?? DASH)}`;
-    case "held":
-      return `held on ${esc(placement)}`;
-    case "not_ready":
-      return `waits for ${esc(placement)} to be ready`;
-    case "in_flight":
-      return `behind an unconfirmed send on ${esc(placement)}`;
-    case "session_replaced":
-      return `its session on ${esc(placement)} was replaced`;
-  }
-};
 
 // Jev's judgment as one line. An invalid judgment has no probabilities, so
 // it shows the choice alone; the generator formatted a missing probability
@@ -146,7 +128,7 @@ const sub = ({ at, times }: PageContext, path: string, t: TaskView): string => {
   const r = readingOf(d);
   const words =
     r.kind === "waits"
-      ? slot(`${dp}.waits`, waitText(d.placement, r.waits))
+      ? slot(`${dp}.waits`, esc(waitWords(d.placement, r.waits)))
       : r.kind === "unaccepted"
         ? sendSlot(dp, d)
         : r.kind === "answered"
@@ -513,7 +495,7 @@ ${forms}
     const state = d.end
       ? slot(`${dp}.end.reason`, esc(d.end.reason))
       : r?.kind === "waits"
-        ? slot(`${dp}.waits`, waitText(d.placement, r.waits))
+        ? slot(`${dp}.waits`, esc(waitWords(d.placement, r.waits)))
         : r?.kind === "unaccepted"
           ? sendSlot(dp, d)
           : r?.kind === "answered"

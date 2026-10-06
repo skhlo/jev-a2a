@@ -2,11 +2,31 @@
   "$schema": "./node_modules/fallow/schema.json",
   // Fallow finds the CLI (package.json bin), the tests (the test script)
   // and the scripts they import. board-check.ts it cannot reach: it is run
-  // by hand. The plugin's entry is loaded by Paseo.
-  "entry": ["src/board-check.ts", "plugin/index.server.ts"],
+  // by hand. The plugin's entries are loaded by Paseo.
+  "entry": [
+    "src/board-check.ts",
+    "plugin/index.server.ts",
+    "plugin/index.client.tsx",
+  ],
   // Any duplicated block fails: the threshold is the duplicated share of
-  // the code in percent, and 0 means no limit.
-  "duplicates": { "threshold": 0.001 },
+  // the code in percent, and 0 means no limit. The reviewed clones are the
+  // plugin's copies of the board's time() and span(), and of headline():
+  // Paseo builds the plugin from plugin/ alone, so it cannot import src/,
+  // and plugin/test/client.test.ts holds the copies to the originals. A
+  // change to either copy reports them again.
+  "duplicates": {
+    "threshold": 0.001,
+    "ignoredClones": ["dup:6f87acd9:2", "dup:848c5d5b:2"],
+  },
+  // These app format helpers keep the board's names for the board's rules
+  // (plugin/client/format.ts). The two are separate packages, so the names
+  // cannot meet in one import.
+  "ignoreExports": [
+    {
+      "file": "plugin/client/format.ts",
+      "exports": ["age", "count", "label", "span", "time", "waitWords"],
+    },
+  ],
   // The health report scores the router's code; the tests' own helpers stay
   // out of it. The tests remain entry points for the dead-code check.
   "health": { "ignore": ["test/**", "plugin/test/**"] },

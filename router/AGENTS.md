@@ -44,7 +44,16 @@ update it when workflows change.
   declares their shapes. `plugin/test/plugin.test.ts` holds those shapes
   to the router's types and the API's answers, the app's message-id rule
   to the core's, and its reading of the configuration (the path,
-  `serve.board`, `agents`) to `src/config.ts`'s.
+  `serve.board`, `agents`) to `src/config.ts`'s. The app half
+  (`index.client.tsx`, `plugin/client/`) repeats the board's rules over
+  those shapes in `plugin/client/format.ts`. `plugin/test/client.test.ts`
+  compares them with the board page rendered for the same fixtures, and
+  its copies of the board's formats with `src/board-parts.ts`; the rest
+  of the detail is checked against fixed strings. `.fallowrc.jsonc` marks
+  the copies fallow reports as reviewed clones and exempts the names they
+  share with the board. The app runs in Hermes, so `pnpm typecheck` in
+  `plugin/` checks it again against ES2020 alone
+  (`plugin/tsconfig.client.json`).
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.
