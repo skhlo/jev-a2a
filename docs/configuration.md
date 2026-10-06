@@ -78,13 +78,20 @@ A Paseo daemon restart closes terminals, and a reopened terminal or a
 cleared agent context gets a new id. `router roster repoint
 <participant@host> <session>` points the placement at it:
 
-- It refuses a session the host's Paseo does not know, or one the record
-  has seen, which the record would refuse to bind.
+- It refuses a session the host's Paseo does not know, or knows by another
+  id: an agent named by a prefix or a title needs its full id. It also
+  refuses a session another placement names, and one the record has seen,
+  which the record would refuse to bind.
 - For a terminal it sets the participant `idempotent: false`; for an agent
-  it drops the placement's `terminals` entry.
+  it drops the placement's `terminals` entry. A terminal that runs Codex
+  needs its `terminals` entry added by hand afterwards, then a restart.
 - It writes the file only once it loads, keeping the old one as
-  `config.json.bak-<time>`.
-- It restarts `jev-router` and waits for `serve` to bind the new session.
+  `config.json.bak-<time>`. The copy restores the file, not the record:
+  once `serve` binds the new session, the placement cannot go back to the
+  old one.
+- It restarts `jev-router` and waits up to 90 seconds for `serve` to bind
+  the new session. If it has not, running it again restarts `serve`
+  without writing the file twice.
 
 ### `terminals`
 

@@ -79,6 +79,10 @@ export type Adapter = {
   // null: the daemon does not know this agent. `seen` is the time the
   // snapshot is recorded as taken.
   observe(agentId: string, seen: string): Promise<Observation | null>;
+  // The session as the daemon names it: an agent by its full id, which the
+  // daemon also finds by a unique prefix or a title; a terminal by its
+  // exact id. null when the daemon does not know it.
+  resolve(session: string): Promise<string | null>;
   send(agentId: string, key: string, text: string): Promise<AdapterOutcome>;
   close(): Promise<void>;
 };
@@ -605,6 +609,13 @@ export function adapterOver(
     ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
   const terminal = async (id: string): Promise<PaseoTerminal | null> =>
     (await daemon.terminals()).find((t) => t.id === id) ?? null;
+  // The daemon refuses an agent id it does not know rather than answering
+  // null: the session is missing, not the host unreachable.
+  const refreshed = (agentId: string) =>
+    daemon.refresh(agentId).catch((error: unknown) => {
+      if (unknownAgent(error)) return null;
+      throw error;
+    });
   const cliOf = (session: string): TerminalCli =>
     options.clis?.[session] ?? "claude";
   // One list per adapter, and one note when it failed: the first observe
@@ -720,15 +731,15 @@ export function adapterOver(
     return "unknown";
   };
   return {
+    async resolve(session) {
+      const id = terminalOf(session);
+      if (id) return (await terminal(id)) ? session : null;
+      return (await refreshed(session))?.agent.id ?? null;
+    },
     async observe(agentId, seen) {
       const id = terminalOf(agentId);
       if (id) return observeTerminal(id, cliOf(agentId), seen);
-      // The daemon refuses an id it does not know rather than answering
-      // null: the session is missing, not the host unreachable.
-      const result = await daemon.refresh(agentId).catch((error: unknown) => {
-        if (unknownAgent(error)) return null;
-        throw error;
-      });
+      const result = await refreshed(agentId);
       if (!result) return null;
       const { status, pendingPermissions } = result.agent;
       const snapshot = snapshotOf(result.agent, seen);

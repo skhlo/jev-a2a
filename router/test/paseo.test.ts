@@ -636,6 +636,24 @@ function terminalDaemon(
 }
 const quick = { receiptMs: 1_000, sleep: () => Promise.resolve() };
 
+test("a session resolves as the daemon names it: an agent by its full id, from a prefix too; a terminal only by its own", async () => {
+  const { daemon } = scripted("idle");
+  const full = "a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+  const adapter = adapterOver({
+    ...daemon,
+    refresh: (id) =>
+      full.startsWith(id)
+        ? daemon.refresh(full)
+        : Promise.reject(new Error(`Agent not found: ${id}`)),
+    terminals: () => Promise.resolve([term(finishedAt(0))]),
+  });
+  assert.equal(await adapter.resolve(full), full);
+  assert.equal(await adapter.resolve("a1b2c3d4"), full);
+  assert.equal(await adapter.resolve("b9"), null);
+  assert.equal(await adapter.resolve("terminal:T1"), "terminal:T1");
+  assert.equal(await adapter.resolve("terminal:T"), null);
+});
+
 test("a terminal's condition: working by its activity or spinner, waiting at the idle mark, away when the title is not Claude Code's", () => {
   const cases: [PaseoTerminal, string][] = [
     [term(finishedAt(5)), "waiting"],

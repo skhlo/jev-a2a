@@ -5,9 +5,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   appendFileSync,
+  chmodSync,
+  existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -34,9 +39,9 @@ function setup(t: test.TestContext, edit = (file: File): File => file) {
   const file = edit(
     JSON.parse(JSON.stringify({ ...fixture, home: dir })) as File,
   );
-  writeFileSync(configPath, `${JSON.stringify(file, null, 2)}\n`, {
-    mode: 0o640,
-  });
+  writeFileSync(configPath, `${JSON.stringify(file, null, 2)}\n`);
+  // Group-writable, which the usual umask would strip from a new file.
+  chmodSync(configPath, 0o664);
   const journalPath = join(dir, "journal.jsonl");
   writeFileSync(
     journalPath,
@@ -52,7 +57,11 @@ function setup(t: test.TestContext, edit = (file: File): File => file) {
   const deps: RosterDeps = {
     configPath,
     record: () => read().state,
-    known: (_host, session) => Promise.resolve(session !== "unknown"),
+    // The daemon also finds K2 by the prefix "K".
+    resolve: (_host, session) =>
+      Promise.resolve(
+        session === "unknown" ? null : session === "K" ? "K2" : session,
+      ),
     restart: () => {
       counts.restarts++;
       const now = (JSON.parse(readFileSync(configPath, "utf8")) as File).agents;
@@ -107,14 +116,45 @@ test("roster repoint: refuses, touching neither the configuration nor serve, wha
     /record knows A1 already, as orchestrator@mbp's/,
   );
   await refused("knowledge@mini", "unknown", /^Paseo on mini does not know/);
+  await refused(
+    "knowledge@mini",
+    "K",
+    /^Paseo on mini knows K as K2; name it by that id\.$/,
+  );
   await refused("knowledge@mini", "K9", /^Cannot reach Paseo on mini: down/, {
     ...deps,
-    known: () => Promise.reject(new Error("down")),
+    resolve: () => Promise.reject(new Error("down")),
   });
-  // What the configuration refuses: a terminal named by a short id.
-  await refused("knowledge@mini", "terminal:0b6a4c2e", /full id/);
+  // What the configuration refuses, named as the file it would replace: a
+  // terminal named by a short id.
+  await refused(
+    "knowledge@mini",
+    "terminal:0b6a4c2e",
+    new RegExp(`^Invalid router configuration \\(${configPath}\\): .*full id`),
+  );
   assert.equal(readFileSync(configPath, "utf8"), before);
   assert.deepEqual(readdirSync(dir).sort(), ["config.json", "journal.jsonl"]);
+  assert.equal(counts.restarts, 0);
+});
+
+test("roster repoint: refuses a session another placement is configured with, seen by the record or not", async (t) => {
+  const { configPath, deps, counts } = setup(t, (file) => ({
+    ...file,
+    agents: { ...file.agents, "environment@mini": "E9" },
+  }));
+  await assert.rejects(
+    repoint("knowledge@mini", "E9", deps),
+    /^UsageError: environment@mini is at E9 already\.$/,
+  );
+  // A file that names A1 twice already: repoint does not restart serve
+  // into a binding the core refuses.
+  const file = JSON.parse(readFileSync(configPath, "utf8")) as File;
+  file.agents["knowledge@mini"] = "A1";
+  writeFileSync(configPath, JSON.stringify(file));
+  await assert.rejects(
+    repoint("knowledge@mini", "A1", deps),
+    /record knows A1 already, as orchestrator@mbp's/,
+  );
   assert.equal(counts.restarts, 0);
 });
 
@@ -136,7 +176,7 @@ test("roster repoint: an agent placement moved to a terminal, its participant no
   );
   // Indent and mode kept; the old file beside it, as it was.
   assert.match(readFileSync(configPath, "utf8"), /^\{\n {2}"policy"/);
-  assert.equal(statSync(configPath).mode & 0o777, 0o640);
+  assert.equal(statSync(configPath).mode & 0o777, 0o664);
   assert.equal(
     readFileSync(`${configPath}.bak-20261006T130501Z`, "utf8"),
     before,
@@ -145,7 +185,7 @@ test("roster repoint: an agent placement moved to a terminal, its participant no
   assert.deepEqual(log, [
     "knowledge is idempotent: false now, for a terminal.",
     `knowledge@mini: K1 -> ${TERMINAL}; the old configuration is ${configPath}.bak-20261006T130501Z.`,
-    "1 open deliveries went to the old session K1; router needs-you lists what they need.",
+    "1 open delivery went to the old session K1; router needs-you lists what they need.",
     `knowledge@mini: serve binds ${TERMINAL}, ready.`,
   ]);
   // Asked again: bound already, nothing to do.
@@ -153,6 +193,24 @@ test("roster repoint: an agent placement moved to a terminal, its participant no
   assert.equal(await repoint("knowledge@mini", TERMINAL, deps), 0);
   assert.deepEqual(log, [`knowledge@mini is at ${TERMINAL} already.`]);
   assert.equal(counts.restarts, 1);
+  // The old session is the record's now: the placement does not go back.
+  await assert.rejects(
+    repoint("knowledge@mini", "K1", deps),
+    /record knows K1 already, as knowledge@mini's/,
+  );
+});
+
+test("roster repoint: through a symlink, the file it names is replaced, its tabs kept", async (t) => {
+  const { dir, configPath, deps, fileNow } = setup(t);
+  const real = join(dir, "real.json");
+  writeFileSync(real, `${JSON.stringify(fileNow(), null, "\t")}\n`);
+  rmSync(configPath);
+  symlinkSync(real, configPath);
+  assert.equal(await repoint("knowledge@mini", "K2", deps), 0);
+  assert.ok(lstatSync(configPath).isSymbolicLink());
+  assert.match(readFileSync(real, "utf8"), /^\{\n\t"policy"/);
+  assert.equal(fileNow().agents["knowledge@mini"], "K2");
+  assert.ok(existsSync(`${real}.bak-20261006T130501Z`));
 });
 
 test("roster repoint: a terminal placement moved to an agent drops its terminal's CLI", async (t) => {
@@ -183,7 +241,7 @@ test("roster repoint: a restart that bound nothing is repaired by asking again; 
   assert.equal(fileNow().agents["knowledge@mini"], "K2");
   assert.equal(
     log.at(-1),
-    "knowledge@mini: serve has not bound K2 after 30 seconds; see router status and serve's log.",
+    "knowledge@mini: serve has not bound K2 in 90 seconds; its first run may still be going. router status shows when it does; if it never does, see serve's log and run this again.",
   );
   // The configuration names K2 already: asked again, serve restarts and
   // binds it, and the file is not written twice.
@@ -192,7 +250,7 @@ test("roster repoint: a restart that bound nothing is repaired by asking again; 
   assert.equal(await repoint("knowledge@mini", "K2", deps), 0);
   assert.equal(counts.restarts, 2);
   assert.deepEqual(log, [
-    "1 open deliveries went to the old session K1; router needs-you lists what they need.",
+    "1 open delivery went to the old session K1; router needs-you lists what they need.",
     "knowledge@mini: serve binds K2, ready.",
   ]);
   assert.equal(

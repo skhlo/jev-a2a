@@ -128,12 +128,12 @@ async function roster(): Promise<number> {
   return repoint(placement, session, {
     configPath,
     record: () => record().state,
-    known: async (host, id) => {
+    resolve: async (host, id) => {
       const endpoint = own(config.hosts, host)?.paseo;
-      if (!endpoint) return false;
+      if (!endpoint) return null;
       const adapter = await createPaseoAdapter(endpoint, { sheet: false });
       try {
-        return (await adapter.observe(id, new Date().toISOString())) !== null;
+        return await adapter.resolve(id);
       } finally {
         await adapter.close();
       }

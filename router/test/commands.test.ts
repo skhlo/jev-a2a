@@ -27,6 +27,7 @@ const idlePaseo: ShellOptions = {
           pendingPermissions: 0,
           snapshot,
         }),
+      resolve: (session) => Promise.resolve(session),
       send: () => Promise.resolve("accepted" as const),
       close: () => Promise.resolve(),
     }),
