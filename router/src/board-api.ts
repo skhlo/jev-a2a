@@ -14,8 +14,7 @@ import {
   type TaskView,
   type UpdateView,
 } from "./board.ts";
-import { staleTask } from "./board-parts.ts";
-import { answerOf, headline } from "./board-tasks.ts";
+import { answerOf, headline, staleTask } from "./board-parts.ts";
 import { newMessageId } from "./request.ts";
 import type { Event, Role } from "./types.ts";
 
@@ -49,9 +48,8 @@ function timesOf(
 const taskRev = (t: TaskView, own: Record<string, string>): string =>
   digest({ t, own });
 
-// One task as its list row needs it. `question` is the waiting question's
-// text; the needs-you item carries what an answer names. `answered` is the
-// answer the latest delivery's open turn took, as the page shows it.
+// One task as its list row needs it; router/plugin/shared/rpc.ts says what
+// each field means to the app.
 export type TaskHead = {
   id: string;
   title: string;
@@ -139,8 +137,9 @@ export type BoardSummary = {
   finished: TaskHead[];
 };
 
-// The summary; `rev` covers everything but the clock, so an unchanged
-// board answers a poll with `unchanged`.
+// The summary; `rev` covers all of it but `at`, so an unchanged board
+// answers a poll with `unchanged`. A stale task's age is in it, so while one
+// is stale the rev changes at most once a minute.
 export function summarize(model: BoardModel): BoardSummary {
   const body = {
     actor: model.actor,
@@ -192,10 +191,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 // An action the app posts, as the event it stands for: a request for
 // `submit`, and for the rest the fields of the page's forms, which
-// actionEvent (board.ts) reads. A request or an answer keeps a messageId
-// the app gives, so a retry after a timeout is a repeat the core
-// recognises, not a second one. A resolve without evidence says it came
-// from the app.
+// actionEvent (board.ts) reads. A request or an answer keeps the app's
+// messageId (why: router/plugin/shared/rpc.ts). A resolve without evidence
+// says it came from the app.
 export function apiEvent(
   body: unknown,
   actor: Actor,

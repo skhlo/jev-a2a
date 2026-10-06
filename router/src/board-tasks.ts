@@ -5,7 +5,7 @@ import type { DeliveryView, TaskView } from "./board.ts";
 import type { NeedsItem, PageContext } from "./board-context.ts";
 import {
   age,
-  answeredQuestion,
+  answerOf,
   clock,
   count,
   DASH,
@@ -13,6 +13,7 @@ import {
   esc,
   form,
   fullId,
+  headline,
   href,
   label,
   left,
@@ -22,15 +23,6 @@ import {
   when,
 } from "./board-parts.ts";
 import type { Judgment, StuckReason } from "./types.ts";
-
-// A task's first line, for the detail title: the design sized the title for
-// the sample's short texts, and a real request runs to pages. The full text
-// is in the transcript, and in the title attribute.
-export const headline = (text: string): string =>
-  text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line) ?? text;
 
 // short(id) as the design applies it to a send's message id (v0.13): an id
 // over twelve characters shows its first eight, the whole id as its title.
@@ -85,17 +77,6 @@ const CHOSEN_BY: Record<NonNullable<TaskView["chosenBy"]>, string> = {
   judgment: "chosen by Jev",
   address: "named on the request",
   sender: "chosen by the sender",
-};
-
-// The answer a delivery's question got, when its current send is one and
-// no question is open: a question stays the latest update after its
-// answer, and a resolve clears the question too, so both are checked.
-export const answerOf = (
-  d: DeliveryView,
-): { k: number; send: DeliveryView["sends"][number] } | null => {
-  const k = d.sends.findIndex((s) => s.messageId === d.send.messageId);
-  const send = d.sends[k];
-  return answeredQuestion(d) && send?.kind === "answer" ? { k, send } : null;
 };
 
 // Why a delivery needs an operator, as the resolve form says it.

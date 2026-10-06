@@ -654,12 +654,12 @@ export function boardListener(
   // it acts as the CLI here does without --as, so it adds no one who
   // could not already act.
   const answerApi = (
-    route: string,
+    route: "summary" | "task" | "action",
     req: IncomingMessage,
     url: URL,
-    { json }: Reply,
+    json: Reply["json"],
   ): void => {
-    // Every answer is JSON with a message, which the plugin passes on.
+    // Every refusal is JSON with a message, which the plugin passes on.
     const refuse = (status: number, message: string): void =>
       json(status, { message });
     const refused = notFromThisHost(req.headers);
@@ -755,7 +755,8 @@ export function boardListener(
       return plain(202, deps.nudge() ? "run queued" : "nothing waits");
     }
     const route = /\/api\/(summary|task|action)$/.exec(path)?.[1];
-    if (route) return answerApi(route, req, url, { plain, json });
+    if (route === "summary" || route === "task" || route === "action")
+      return answerApi(route, req, url, json);
     if (req.method !== "GET")
       return plain(405, "GET, or POST actions, nudge or api/action");
     if (path.endsWith("/whoami"))

@@ -265,7 +265,11 @@ export const boardTask = defineRpc({
 // still be recorded. A request or an answer therefore takes the app's own
 // messageId: mint one per submit or answer and send the same one on a
 // retry, so the router recognises the repeat instead of making a second.
-const messageId = z.string().min(1).optional();
+// The router's rule for a message id.
+const messageId = z
+  .string()
+  .regex(/^[A-Za-z0-9._:-]{1,64}$/, "1-64 letters, digits or . _ : -")
+  .optional();
 
 // The question's ids are in its needs-you item.
 export const taskAnswer = defineRpc({

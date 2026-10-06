@@ -15,10 +15,10 @@ export type Handles = {
   ): void;
 };
 
-// How long a request to serve may take: inside Paseo's 30 s limit, so a
-// slow run says what it means.
 export type BoardDeps = {
   env: Record<string, string | undefined>;
+  // How long a request to serve may take: inside Paseo's 30 s limit, so a
+  // slow run says what it means.
   timeoutMs?: number;
 };
 
@@ -30,13 +30,18 @@ const served = z.object({
   task: z.unknown(),
 });
 
+// What a request to serve may say past serve's own answer: `orNull` when a
+// 404 is an answer (no such task), `slow` what to add when serve takes too
+// long (whether an action may have been recorded, and what to do).
+type Ask = { body?: unknown; orNull?: boolean; slow?: string };
+
 // One request to serve's API, with a JSON body for an action: the JSON it
-// answers, null for a 404 when `orNull` says absence is an answer, or an
-// error with its reason.
+// answers, null for a 404 when `orNull` says so, or an error with its
+// reason.
 async function api(
   { env, timeoutMs = 25_000 }: BoardDeps,
   path: string,
-  { body, orNull = false }: { body?: unknown; orNull?: boolean } = {},
+  { body, orNull = false, slow = "" }: Ask = {},
 ): Promise<unknown> {
   const { board } = routerConfig(env);
   let response: Response;
@@ -56,7 +61,7 @@ async function api(
   } catch (error: unknown) {
     if (error instanceof Error && error.name === "TimeoutError")
       throw new Error(
-        `The router's serve did not answer in ${timeoutMs / 1000} s. An action may still be recorded; a retry with the same messageId is safe.`,
+        `The router's serve did not answer in ${timeoutMs / 1000} s.${slow}`,
       );
     throw new Error(
       `The router's serve does not answer at ${board}: ${reason(error)}`,
@@ -88,7 +93,7 @@ export function serveBoard(
   const query = (
     path: string,
     params: Record<string, string | undefined>,
-    orNull = false,
+    ask: Ask = {},
   ) =>
     api(
       deps,
@@ -97,11 +102,15 @@ export function serveBoard(
           v === undefined ? [] : [[k, v]],
         ),
       )}`,
-      { orNull },
+      ask,
     );
   const act = async (action: string, input: object) => {
+    const slow =
+      action === "submit" || action === "answer"
+        ? " It may still be recorded; a retry with the same messageId is safe."
+        : " It may still be recorded; refetch the task before trying again.";
     const done = served.parse(
-      await api(deps, "action", { body: { action, ...input } }),
+      await api(deps, "action", { body: { action, ...input }, slow }),
     );
     if (!done.outcome.ok) throw new Error(done.outcome.message);
     return rpc.acted.parse({
@@ -114,7 +123,7 @@ export function serveBoard(
     rpc.boardSummary.output.parse(await query("summary", { sinceRev })),
   );
   server.handle(rpc.boardTask, async ({ id }) =>
-    rpc.boardTask.output.parse(await query("task", { id }, true)),
+    rpc.boardTask.output.parse(await query("task", { id }, { orNull: true })),
   );
   server.handle(rpc.taskAnswer, (input) => act("answer", input));
   server.handle(rpc.taskChoose, (input) => act("choose", input));

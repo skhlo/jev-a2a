@@ -318,6 +318,11 @@ test("plugin: an action goes to serve as the app's principals; a refusal fails w
     app.call(rpc.taskCancel, { taskId: "T1" }),
     /^Error: T1 is already closed\.$/,
   );
+  // A message id the router would refuse never leaves the app.
+  await assert.rejects(
+    app.call(rpc.taskSubmit, { text: "Tidy", messageId: "app 1" }),
+    /1-64 letters, digits or \. _ : -/,
+  );
   // One serve refuses before the record: its reason, too.
   await assert.rejects(
     app.call(rpc.taskSubmit, { text: "  " }),
@@ -341,7 +346,15 @@ test("plugin: a serve too slow for Paseo's limit fails saying the action may be 
   });
   await assert.rejects(
     app.call(rpc.taskCancel, { taskId: "T1" }),
-    /^Error: The router's serve did not answer in 0\.05 s\. An action may still be recorded; a retry with the same messageId is safe\.$/,
+    /^Error: The router's serve did not answer in 0\.05 s\. It may still be recorded; refetch the task before trying again\.$/,
+  );
+  await assert.rejects(
+    app.call(rpc.taskSubmit, { text: "Tidy", messageId: "app-1" }),
+    /^Error: The router's serve did not answer in 0\.05 s\. It may still be recorded; a retry with the same messageId is safe\.$/,
+  );
+  await assert.rejects(
+    app.call(rpc.boardSummary, {}),
+    /^Error: The router's serve did not answer in 0\.05 s\.$/,
   );
 });
 

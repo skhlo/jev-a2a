@@ -268,6 +268,28 @@ test("a quiet run records nothing: the tick is held until an event follows it, a
   assert.deepEqual(types().slice(sofar + 1), ["tick", "observe"]);
 });
 
+test("a repeat the core recognises is not recorded again, so its message keeps its time", async (t) => {
+  const home = scratch(t, "shell-");
+  const config = configFor(home);
+  const submit: Event = {
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "Fix it",
+  };
+  let shell = await openShell(config, scripted({}));
+  assert.equal(shell.apply(submit).ok, true);
+  await shell.close();
+  const recorded = readJournal(home);
+  // A retry after a timeout, in a later run: the same task, nothing
+  // appended, so the request's time stays the first one.
+  shell = await openShell(config, scripted({}));
+  const again = shell.apply(submit);
+  assert.ok(again.ok && again.duplicate);
+  await shell.close();
+  assert.deepEqual(readJournal(home), recorded);
+});
+
 test("a run handed serve's kept fold starts from it, records the configuration once, sees what another writer appended, and leaves the record a full fold reads", async (t) => {
   const home = scratch(t, "shell-");
   const config = configFor(home);
