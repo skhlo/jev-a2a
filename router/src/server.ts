@@ -55,34 +55,27 @@ const NEEDS_CURRENT = ["submit", "choose"];
 export type KnownSession = { host: string; current: boolean };
 
 // A token the events door takes, and the host whose sessions it acts for.
-// The shared ROUTER_TOKEN, from before each host had its own, acts for a
-// session on any host (host null) while it is still set.
-export type DoorKey = { host: string | null; token: string };
+export type DoorKey = { host: string; token: string };
 
 // Where a host's token is kept in the router's secrets.env.
 const tokenName = (host: string): string =>
   `ROUTER_TOKEN_${host.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 
-// The door's keys: each configured host's token, and the shared one. A
-// token two keys hold would act for whichever came first, so it is
-// refused, naming both: two host names may also read one variable.
+// The door's keys: each configured host's token. A token two hosts hold
+// would act for whichever came first, so it is refused, naming both: two
+// host names may also read one variable.
 export function doorKeys(
   config: RouterConfig,
   env: Record<string, string | undefined>,
 ): DoorKey[] {
-  const keys = [
-    ...Object.keys(config.hosts).map((host) => ({
-      host,
-      token: env[tokenName(host)],
-    })),
-    { host: null, token: env.ROUTER_TOKEN },
-  ].filter((key): key is DoorKey => Boolean(key.token));
-  const name = (key: DoorKey): string => key.host ?? "the shared ROUTER_TOKEN";
+  const keys = Object.keys(config.hosts)
+    .map((host) => ({ host, token: env[tokenName(host)] }))
+    .filter((key): key is DoorKey => Boolean(key.token));
   for (const key of keys) {
     const first = keys.find((other) => other.token === key.token);
     if (first && first !== key)
       refuse(
-        `${name(first)} and ${name(key)} have the same token; each host needs its own.`,
+        `${first.host} and ${key.host} have the same token; each host needs its own.`,
       );
   }
   return keys;
@@ -423,7 +416,7 @@ export function eventsListener(
           "unauthenticated",
           "serve takes events from a participant session.",
         );
-      if (key.host !== null && session.host !== key.host)
+      if (session.host !== key.host)
         return refused(
           "wrong_host",
           `This token is ${key.host}'s; ${by} is a session on ${session.host}.`,

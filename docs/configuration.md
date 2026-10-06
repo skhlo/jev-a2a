@@ -159,10 +159,6 @@ JSON file.
 | `ROUTER_TOKEN`        | A host without a configuration: its own token, the router's `ROUTER_TOKEN_<HOST>` for it.                                                                   |
 | `ROUTER_URL`          | Hosts that do not run the router: `serve.listen` as an `http://` URL.                                                                                       |
 
-A `ROUTER_TOKEN` on the router host is the shared token from before each
-host had its own: it acts for a session on any host, and `serve` says so
-when it starts. Remove it once every host has its own token.
-
 With [`usage`](#usage) on, the router host may also hold, all optional,
 `OPENROUTER_MANAGEMENT_KEY`, `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`;
 what each reads, and where an account reads without one, is in
