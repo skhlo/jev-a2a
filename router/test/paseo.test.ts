@@ -3,7 +3,12 @@
 // for live sessions, and a failed read costing one field.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { createServer, type AddressInfo } from "node:net";
+import { join } from "node:path";
 import type { PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
+import { scratch } from "./test-scratch.ts";
 import {
   activityOf,
   adapterOver,
@@ -524,6 +529,79 @@ test("a failed sheet read nulls its field and leaves a note; the rail and the re
   assert.equal(next?.snapshot.checkout, null);
   assert.deepEqual(next?.notes, ["activity of A2 not read: timeline gone"]);
   assert.equal(calls.filter((c) => c === "workspaces").length, 1);
+});
+
+// What creating an adapter for `endpoint` comes to, with `bin` first on
+// PATH when given, in a process of its own, so an adapter that never
+// settles (whose client keeps the process alive) or one that crashes fails
+// this test rather than hanging it.
+function adapterOutcome(endpoint: string, bin?: string): Promise<string> {
+  const script = `const [paseo, endpoint] = process.argv.slice(1);
+const { createPaseoAdapter } = await import(paseo);
+try {
+  await (await createPaseoAdapter(endpoint)).close();
+  console.log("connected");
+} catch (error) {
+  console.log(\`rejected: \${error.message}\`);
+}
+process.exit(0);`;
+  const paseo = new URL("../src/paseo.ts", import.meta.url).href;
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      ["--no-warnings", "--input-type=module", "-e", script, paseo, endpoint],
+      {
+        timeout: 10_000,
+        env: {
+          PATH: bin ? `${bin}:${process.env.PATH ?? ""}` : process.env.PATH,
+        },
+      },
+      (error, stdout, stderr) => {
+        if (error?.killed)
+          reject(new Error(`${endpoint}: still pending after 10 s`));
+        else if (error)
+          reject(new Error(`${endpoint}: ${stderr.trim() || error.message}`));
+        else resolve(stdout.trim());
+      },
+    );
+  });
+}
+
+test("a daemon the run cannot reach fails the adapter at once, rather than being waited for", async (t) => {
+  // A port nothing listens on, as a daemon that is down.
+  const server = createServer();
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address() as AddressInfo;
+  await new Promise<void>((done) => server.close(() => done()));
+  assert.match(
+    await adapterOutcome(`ws://127.0.0.1:${port}/ws`),
+    /^rejected: /,
+  );
+  // Over ssh, an ssh that fails as it does for a host that has dropped off
+  // the network, and at once, before the client's first bytes reach it: a
+  // stand-in on PATH.
+  const bin = scratch(t, "ssh-");
+  writeFileSync(
+    join(bin, "ssh"),
+    '#!/bin/sh\necho "ssh: connect to host mba port 22: Operation timed out" >&2\nexit 255\n',
+    { mode: 0o755 },
+  );
+  assert.equal(
+    await adapterOutcome("ssh://mba", bin),
+    "rejected: SSH to ssh://mba failed: ssh: connect to host mba port 22: Operation timed out",
+  );
+  // Still ssh's own reason when its output ends before it exits and its
+  // message comes after: the order the three arrive in varies.
+  const late = scratch(t, "ssh-");
+  writeFileSync(
+    join(late, "ssh"),
+    '#!/bin/sh\nexec 1>&-\n(sleep 0.2; echo "ssh: connect to host mba port 22: Operation timed out" >&2) &\nexit 255\n',
+    { mode: 0o755 },
+  );
+  assert.equal(
+    await adapterOutcome("ssh://mba", late),
+    "rejected: SSH to ssh://mba failed: ssh: connect to host mba port 22: Operation timed out",
+  );
 });
 
 test("an agent id the daemon does not know is missing; any other failed look still throws", async () => {

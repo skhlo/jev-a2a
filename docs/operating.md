@@ -201,7 +201,8 @@ links, forms and redirects use relative URLs.
   agent id the daemon does not know shows `missing` in its health line
   (`router roster repoint` points it at its new session);
   one whose host could not be reached shows `unreachable`, with the reason
-  as a tooltip.
+  as a tooltip, and the next run tries again: a host that drops off the
+  network costs that run, not the ones after it.
 - A terminal placement's line in the run report says why it is not ready:
   `working`, `at its prompt with text in it or a dialog open`, or `Claude
 Code is not running in the terminal` when the title is not Claude Code's

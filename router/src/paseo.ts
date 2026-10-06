@@ -802,6 +802,10 @@ export async function createPaseoAdapter(
     url: tunnel ? `ws://127.0.0.1:${tunnel.port}/ws` : endpoint,
     clientId: `jev-router-${randomUUID()}`,
     clientType: "cli",
+    // One connection for one run, and the next run is the retry. A client
+    // that reconnects never settles connect() while the host is gone, and
+    // the ssh tunnel takes one connection, so a retry finds no listener.
+    reconnect: { enabled: false },
   });
   try {
     await daemonClient.connect();
@@ -972,17 +976,22 @@ function openSshTunnel(endpoint: string): Promise<Tunnel> {
         failure = error.message;
         accepted.destroy(error);
       });
-      ssh.on("exit", (code, signal) => {
+      // After ssh has exited and its output is read, so the client's
+      // connection ends only once the failure says why.
+      ssh.on("close", (code, signal) => {
         if (code !== 0 || signal)
-          failure = stderr.trim() || `ssh exited with ${signal ?? code}`;
+          failure ??= stderr.trim() || `ssh exited with ${signal ?? code}`;
         accepted.destroy(failure ? new Error(failure) : undefined);
       });
       accepted.on("error", () => undefined);
+      // ssh may exit before the client's first bytes reach it; its exit
+      // says why, and an unheard EPIPE here would end the process.
+      ssh.stdin.on("error", () => undefined);
       accepted.on("close", () => {
         if (child && !child.killed) child.kill();
       });
       accepted.pipe(ssh.stdin);
-      ssh.stdout.pipe(accepted);
+      ssh.stdout.pipe(accepted, { end: false });
     });
     server.once("error", (error) => {
       close();
