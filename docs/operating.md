@@ -153,8 +153,8 @@ One instance per host: a second finds the port taken and says so.
 
 ## The Paseo plugin
 
-`router/plugin/` is a Paseo plugin, with no UI yet. Installed into the
-router host's daemon, it posts `/nudge` to `serve.board` each time a
+`router/plugin/` is a Paseo plugin. Installed into the router host's
+daemon, it posts `/nudge` to `serve.board` each time a
 placement's session ends a turn there. A delivery or notice waiting for
 that session then goes out at once instead of up to `serve.wake` seconds
 later. The looks stay, since Paseo's hooks are best effort, and they still
@@ -172,13 +172,21 @@ to serve's API on `serve.board` (below), so the app sees what the board
 page sees, and acts as the CLI on the router host does without `--as`:
 as the first principal of each role.
 
+In the app, the plugin adds Jev to the sidebar: the board's tasks in
+Needs you, In flight and Done, and the selected task with its record.
+Your answer, choose and resolve items are forms there, an open delivery
+has Hold or Release, and New task and Cancel task open a dialog. The
+surface asks for the summary every 5 seconds while it is shown, and
+fetches a task again only when it changed.
+
 The plugin reads the configuration at the default path, or at the
 daemon's `$ROUTER_CONFIG`; a `--config` or `ROUTER_CONFIG` given only to
 `serve` does not reach it.
 
 It needs `pluginsEnabled` on that daemon (Settings → Plugins). Paseo
 bundles the plugin's dependencies (the plugin SDK and zod) from its
-`node_modules`. Install it once from the checkout `serve` runs; after
+`node_modules`; the app provides React, React Native and React Query,
+whose copies there serve the typecheck. Install it once from the checkout `serve` runs; after
 updating the checkout, install its dependencies again and reload it:
 
 ```sh

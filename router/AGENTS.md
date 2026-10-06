@@ -44,7 +44,11 @@ update it when workflows change.
   declares their shapes. `plugin/test/plugin.test.ts` holds those shapes
   to the router's types and the API's answers, the app's message-id rule
   to the core's, and its reading of the configuration (the path,
-  `serve.board`, `agents`) to `src/config.ts`'s.
+  `serve.board`, `agents`) to `src/config.ts`'s. The app half
+  (`index.client.tsx`, `plugin/client/`) repeats the board's rules over
+  those shapes in `plugin/client/format.ts`; `plugin/test/client.test.ts`
+  holds them to the board's, and `.fallowrc.jsonc` lists the copied
+  formats as reviewed clones.
 - Generated or vendored code: `src/board.sample.json` and
   `design/screenshots/`, each written by a script in `src/` (the README's
   development section says when to run them); `pnpm-lock.yaml`, by pnpm.

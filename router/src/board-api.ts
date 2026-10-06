@@ -218,7 +218,7 @@ export function apiEvent(
       messageId: text("messageId").trim() || newMessageId(),
       text: text("text").trim(),
       to: text("to").trim() || null,
-      hosts: null,
+      hosts: text("host").trim() ? [text("host").trim()] : null,
     };
     return { ok: true, event };
   }

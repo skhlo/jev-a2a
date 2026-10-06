@@ -322,9 +322,20 @@ export const taskRelease = defineRpc({
   output: acted,
 });
 
-// `to` names the recipient; without it Jev routes the request.
+// `to` names the recipient; without it Jev routes the request. `host`
+// narrows `to` to its placement on that host.
 export const taskSubmit = defineRpc({
   name: "task.submit",
-  input: z.object({ text: z.string(), to: z.string().optional(), messageId }),
+  input: z.object({
+    text: z.string(),
+    to: z.string().optional(),
+    host: z.string().optional(),
+    messageId,
+  }),
   output: acted,
 });
+
+// The shapes the app reads.
+export type Summary = z.output<typeof summary>;
+export type FullTask = z.output<typeof fullTask>;
+export type Acted = z.output<typeof acted>;

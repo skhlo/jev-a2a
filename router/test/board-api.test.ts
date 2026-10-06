@@ -210,6 +210,14 @@ test("an action is the event the page's form makes, with the app's principals", 
       hosts: null,
     },
   );
+  // A placement row names its host as well.
+  const placed = apiEvent(
+    { action: "submit", text: "Tidy", to: "knowledge", host: "mini" },
+    actor,
+    roles,
+  );
+  assert.ok(placed.ok && placed.event.type === "submit");
+  assert.deepEqual(placed.event.hosts, ["mini"]);
   const routed = apiEvent({ action: "submit", text: "Tidy" }, actor, roles);
   assert.ok(routed.ok && routed.event.type === "submit");
   assert.equal(routed.event.to, null);

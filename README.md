@@ -263,7 +263,7 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 | `router/eval/`               | The maintainer's labeled request set                                  |
 | `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
 | `router/jev-router.service`  | The systemd user unit for `router serve`                              |
-| `router/plugin/`             | The router's Paseo plugin: wakes `serve`, answers the board's RPCs    |
+| `router/plugin/`             | The router's Paseo plugin: wakes `serve`, shows the board in the app  |
 | `router/AGENTS.md`           | Context for coding agents, with Fallow's commands                     |
 | `docs/`                      | Reference pages                                                       |
 | `docs/research/`             | The spec, the executable model it was verified on, and background     |
