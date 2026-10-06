@@ -88,13 +88,13 @@ terminal, and a value other than `claude` or `codex`.
 
 ### `serve`
 
-| Key          | Meaning                                                                                                                                                                               | Default          |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `listen`     | Where `router serve` accepts events from other hosts (`POST /events`, bearer `ROUTER_TOKEN`; `GET /health` needs no token). Set a tailnet address when other hosts take part.         | `127.0.0.1:7677` |
-| `board`      | Where the board is served. **Must be loopback** (`127.0.0.1`, `localhost` or `[::1]`); the board trusts the login header Tailscale Serve sets, so nothing else may reach it.          | `127.0.0.1:7678` |
-| `identities` | Tailnet login to the list of principals it acts as on the board. Each must be a configured principal. `GET /whoami` on the board shows the `tailscale-user-login` header Serve sends. | `{}`             |
-| `wake`       | Seconds between looks while work waits only for a session to be seen idle; `0` looks on events alone. 0 to 3600.                                                                      | `20`             |
-| `poll`       | Seconds after the end of any run before `serve` runs again regardless, so the board's telemetry is at most this plus one run old; `0` polls nothing. 0 to 3600.                       | `0`              |
+| Key          | Meaning                                                                                                                                                                                 | Default          |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `listen`     | Where `router serve` accepts events from other hosts (`POST /events`, bearer the sending host's token; `GET /health` needs no token). Set a tailnet address when other hosts take part. | `127.0.0.1:7677` |
+| `board`      | Where the board is served. **Must be loopback** (`127.0.0.1`, `localhost` or `[::1]`); the board trusts the login header Tailscale Serve sets, so nothing else may reach it.            | `127.0.0.1:7678` |
+| `identities` | Tailnet login to the list of principals it acts as on the board. Each must be a configured principal. `GET /whoami` on the board shows the `tailscale-user-login` header Serve sends.   | `{}`             |
+| `wake`       | Seconds between looks while work waits only for a session to be seen idle; `0` looks on events alone. 0 to 3600.                                                                        | `20`             |
+| `poll`       | Seconds after the end of any run before `serve` runs again regardless, so the board's telemetry is at most this plus one run old; `0` polls nothing. 0 to 3600.                         | `0`              |
 
 ### `jev`
 
@@ -152,11 +152,16 @@ file in use, so `router eval --config candidate.json` looks for
 environment wins. Keep the file at mode 600; nothing secret belongs in the
 JSON file.
 
-| Key                | Where                                                                 |
-| ------------------ | --------------------------------------------------------------------- |
-| `TYPESAFE_API_KEY` | The router host, for Jev.                                             |
-| `ROUTER_TOKEN`     | The router host and every host without a configuration.               |
-| `ROUTER_URL`       | Hosts that do not run the router: `serve.listen` as an `http://` URL. |
+| Key                   | Where                                                                                                                                                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TYPESAFE_API_KEY`    | The router host, for Jev.                                                                                                                                   |
+| `ROUTER_TOKEN_<HOST>` | The router host: a token for each host that sends events, named for the host upper-cased, other characters as `_` (`ROUTER_TOKEN_MINI`). Each is different. |
+| `ROUTER_TOKEN`        | A host without a configuration: its own token, the router's `ROUTER_TOKEN_<HOST>` for it.                                                                   |
+| `ROUTER_URL`          | Hosts that do not run the router: `serve.listen` as an `http://` URL.                                                                                       |
+
+A `ROUTER_TOKEN` on the router host is the shared token from before each
+host had its own: it acts for a session on any host, and `serve` says so
+when it starts. Remove it once every host has its own token.
 
 With [`usage`](#usage) on, the router host may also hold, all optional,
 `OPENROUTER_MANAGEMENT_KEY`, `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`;

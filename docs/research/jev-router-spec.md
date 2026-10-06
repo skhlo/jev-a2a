@@ -492,15 +492,19 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
    wrong ones, at the top of a plateau and with a margin of about 0.2 over
    the worst wrong choice seen. Re-run when the roster or a text changes,
    and before moving the pin.
-2. Authentication of participant events: a local reply is trusted on
-   `PASEO_AGENT_ID`, or on `PASEO_TERMINAL_ID` as `terminal:<id>` for an
-   agent CLI in a Paseo terminal; over HTTP, a reply, answer, request or choice is
-   trusted on the shared `ROUTER_TOKEN`, so any holder of the token can act
-   as any participant session. `serve` refuses a `by` that is not a session
-   the record knows, and a replaced session's request or choice; a replaced
-   session's reply still reaches the core, which knows whether it holds the
-   delivery. Board actions are authenticated by Tailscale identity and are
-   not affected.
+2. Authentication of participant events: decided 2026-10-06, a token per
+   host (ticket 022). A local reply is trusted on `PASEO_AGENT_ID`, or on
+   `PASEO_TERMINAL_ID` as `terminal:<id>` for an agent CLI in a Paseo
+   terminal. Over HTTP, a reply, answer, request or choice is trusted on
+   the sending host's own token (`ROUTER_TOKEN_<HOST>` on the router host),
+   and `serve` refuses a `by` whose session the record places on another
+   host (`wrong_host`). Agents on one host run as one user and read one
+   secrets file, so a token per participant would separate nothing: a
+   host's agents can still act as one another. `serve` also refuses a `by`
+   that is not a session the record knows, and a replaced session's
+   request or choice; a replaced session's reply still reaches the core,
+   which knows whether it holds the delivery. Board actions are
+   authenticated by Tailscale identity and are not affected.
 3. Raising a hold from where the person is typing: today a hold is set by
    hand, from the CLI or the board. Detecting that the person has taken
    over a session is not built.

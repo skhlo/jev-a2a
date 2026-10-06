@@ -88,6 +88,7 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
     childEnv({
       ...process.env,
       ROUTER_TOKEN: "x",
+      ROUTER_TOKEN_MINI: "z",
       OPENROUTER_API_KEY: "y",
       USAGE_TEST_MARKER: "1",
     }),
@@ -107,6 +108,7 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
   assert.equal(result.cwd, tmpdir());
   assert.ok(result.env.includes("USAGE_TEST_MARKER"));
   assert.ok(!result.env.includes("ROUTER_TOKEN"));
+  assert.ok(!result.env.includes("ROUTER_TOKEN_MINI"));
   assert.ok(!result.env.includes("OPENROUTER_API_KEY"));
   const limits = await readUsageRpc(
     process.execPath,
@@ -143,6 +145,7 @@ test("the Codex child gets the router's environment without its secrets: the fix
   });
   const fixed = [
     "ROUTER_TOKEN",
+    "ROUTER_TOKEN_MINI",
     "TYPESAFE_API_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "OPENROUTER_API_KEY",

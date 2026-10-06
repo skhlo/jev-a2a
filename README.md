@@ -86,8 +86,9 @@ Edit it to match yours:
 - `agents`: the Paseo agent id of each `participant@host`, from
   `paseo agent ls -g --json`, or `terminal:<id>` for Claude Code (or,
   named in `terminals`, Codex) in a Paseo terminal;
-- `secrets.env`: a `ROUTER_TOKEN` you choose, and `TYPESAFE_API_KEY` if
-  you have one.
+- `secrets.env`: `TYPESAFE_API_KEY` if you have one, and a token for each
+  other host that takes part, named for the host (`ROUTER_TOKEN_MINI` for
+  `mini`). With no other host, leave the tokens out.
 
 Every key, its default and what is refused is in
 [docs/configuration.md](docs/configuration.md); `policy.deadline` is in
@@ -125,8 +126,9 @@ printf '#!/bin/sh\nexport NODE_COMPILE_CACHE="$HOME/.cache/jev-router"\nexec nod
 
 With no configuration on that host (keep no `config.json` there),
 `router` sends `reply`, `submit`, `answer` and `choose` to the router as
-the agent's session, with `ROUTER_URL` and the same `ROUTER_TOKEN` from
-that host's `~/.config/jev-router/secrets.env`. `git pull --ff-only` in
+the agent's session, with `ROUTER_URL` and `ROUTER_TOKEN` from that
+host's `~/.config/jev-router/secrets.env`; the token is that host's own,
+the router's `ROUTER_TOKEN_<HOST>` for it. `git pull --ff-only` in
 the checkout updates it. To keep `serve` running, install it as a
 user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)).
 
@@ -206,9 +208,10 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 
 ## Limits
 
-- Events from other hosts are authenticated by one shared token, so any
-  host that holds it can reply, submit, answer or choose as any participant
-  session the record knows (not as a person).
+- Events from other hosts are authenticated by each host's token, so a
+  host can reply, submit, answer or choose only as a session on that host
+  (not as a person). Agents on one host share its user and its token, so
+  each can act as another session on the same host.
 - A session is sent to only when the router has just seen it idle or closed
   (not archived; the prompt resumes it), with no pending permission, or, in
   a terminal, at the CLI's empty prompt. A turn a person starts in

@@ -3,8 +3,8 @@
 // and looks again while work waits for a session, and `bind`, which puts a
 // listener on its address or says why it cannot.
 //
-// Events: replies, answers, requests and choices from other hosts, behind
-// the bearer token.
+// Events: replies, answers, requests and choices from other hosts, each
+// behind its host's bearer token.
 // Board: the page, its view model as JSON, and its actions, on loopback
 // behind Tailscale Serve, which stamps the viewer's login on each request.
 // Serve strips its mount path, so board routes match by suffix.
@@ -24,6 +24,7 @@ import type { RouterConfig } from "./config.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
 import { journalFolder, servedBy } from "./shell.ts";
 import { own, waitsOnSessions } from "./core.ts";
+import { refuse } from "./request.ts";
 import type { Event, Outcome, State } from "./types.ts";
 
 export type Run = { outcome: Outcome; report: string[] };
@@ -33,11 +34,11 @@ export type ServerDeps = {
   // Applies one event as one shell run; callers serialize.
   handle(event: Event): Promise<Run>;
   // The events endpoint is the agents' door: `by` must be a participant
-  // session, so the shared token cannot act as a person, and for a request
-  // or a choice the session a placement binds now. A reply or an answer
-  // from a replaced session still reaches the core, which knows whether
-  // that session holds the delivery.
-  sessionOf(by: string): SessionStatus;
+  // session, so a token cannot act as a person; a session on the token's
+  // host; and for a request or a choice the session a placement binds now.
+  // A reply or an answer from a replaced session still reaches the core,
+  // which knows whether that session holds the delivery.
+  sessionOf(by: string): KnownSession | null;
   log?: (line: string) => void;
   // The board's clock; a test fixes it to read a fixture's record.
   now?: () => number;
@@ -49,7 +50,43 @@ export type ServerDeps = {
 const EVENT_TYPES = ["submit", "choose", "update", "answer"];
 const NEEDS_CURRENT = ["submit", "choose"];
 
-export type SessionStatus = "current" | "replaced" | null;
+// A session the record knows: the host it runs on, and whether a
+// placement binds it now.
+export type KnownSession = { host: string; current: boolean };
+
+// A token the events door takes, and the host whose sessions it acts for.
+// The shared ROUTER_TOKEN, from before each host had its own, acts for a
+// session on any host (host null) while it is still set.
+export type DoorKey = { host: string | null; token: string };
+
+// Where a host's token is kept in the router's secrets.env.
+const tokenName = (host: string): string =>
+  `ROUTER_TOKEN_${host.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+
+// The door's keys: each configured host's token, and the shared one. A
+// token two keys hold would act for whichever came first, so it is
+// refused, naming both: two host names may also read one variable.
+export function doorKeys(
+  config: RouterConfig,
+  env: Record<string, string | undefined>,
+): DoorKey[] {
+  const keys = [
+    ...Object.keys(config.hosts).map((host) => ({
+      host,
+      token: env[tokenName(host)],
+    })),
+    { host: null, token: env.ROUTER_TOKEN },
+  ].filter((key): key is DoorKey => Boolean(key.token));
+  const name = (key: DoorKey): string => key.host ?? "the shared ROUTER_TOKEN";
+  for (const key of keys) {
+    const first = keys.find((other) => other.token === key.token);
+    if (first && first !== key)
+      refuse(
+        `${name(first)} and ${name(key)} have the same token; each host needs its own.`,
+      );
+  }
+  return keys;
+}
 
 // Whether the record has work waiting only for a session this router
 // serves, read without the lock, as the board reads it. Serve asks after
@@ -302,17 +339,19 @@ export function recordReader(config: RouterConfig): RecordReader {
   };
 }
 
-// Whether `by` is a session the record knows, read without the journal
-// lock, as the board reads it: the events endpoint must not contend with
-// the run it is about to queue.
+// The session `by` names, if the record knows it, read without the
+// journal lock, as the board reads it: the events endpoint must not contend
+// with the run it is about to queue.
 export const sessionReader =
   (record: RecordReader) =>
-  (by: string): SessionStatus => {
+  (by: string): KnownSession | null => {
     const { state } = record();
-    if (!own(state.sessions, by)) return null;
-    return Object.values(state.placements).some((p) => p.session === by)
-      ? "current"
-      : "replaced";
+    const session = own(state.sessions, by);
+    if (!session) return null;
+    return {
+      host: session.host,
+      current: Object.values(state.placements).some((p) => p.session === by),
+    };
   };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -329,12 +368,16 @@ function body(req: IncomingMessage): Promise<string> {
 
 export function eventsListener(
   deps: ServerDeps,
-  token: string,
+  keys: DoorKey[],
 ): RequestListener {
-  const wanted = Buffer.from(token);
-  const authorized = (header: string | undefined): boolean => {
+  const wanted = keys.map((key) => ({ ...key, token: Buffer.from(key.token) }));
+  // The key whose token the request presents, if any.
+  const keyFor = (header: string | undefined) => {
     const given = Buffer.from(header?.replace(/^Bearer\s+/i, "") ?? "");
-    return given.length === wanted.length && timingSafeEqual(given, wanted);
+    return wanted.find(
+      ({ token }) =>
+        given.length === token.length && timingSafeEqual(given, token),
+    );
   };
   return (req, res) => {
     const reply = (status: number, payload: unknown): void => {
@@ -343,8 +386,8 @@ export function eventsListener(
     };
     if (req.method === "GET" && req.url === "/health")
       return reply(200, { ok: true });
-    if (!authorized(req.headers.authorization))
-      return reply(401, { ok: false, code: "unauthorized" });
+    const key = keyFor(req.headers.authorization);
+    if (!key) return reply(401, { ok: false, code: "unauthorized" });
     if (req.method !== "POST" || req.url !== "/events")
       return reply(404, { ok: false, code: "not_found" });
     body(req).then((text) => {
@@ -366,24 +409,30 @@ export function eventsListener(
           code: "error",
           message: error instanceof Error ? error.message : String(error),
         });
-      let session: SessionStatus;
+      const by = typeof event.by === "string" ? event.by : "";
+      let session: KnownSession | null;
       try {
-        session = deps.sessionOf(typeof event.by === "string" ? event.by : "");
+        session = deps.sessionOf(by);
       } catch (error: unknown) {
         return failed(error);
       }
-      if (
-        session === null ||
-        (session === "replaced" && NEEDS_CURRENT.includes(String(event.type)))
-      )
-        return reply(403, {
-          ok: false,
-          code: "unauthenticated",
-          message:
-            session === null
-              ? "serve takes events from a participant session."
-              : "A replaced session cannot submit or choose.",
-        });
+      const refused = (code: string, message: string): void =>
+        reply(403, { ok: false, code, message });
+      if (session === null)
+        return refused(
+          "unauthenticated",
+          "serve takes events from a participant session.",
+        );
+      if (key.host !== null && session.host !== key.host)
+        return refused(
+          "wrong_host",
+          `This token is ${key.host}'s; ${by} is a session on ${session.host}.`,
+        );
+      if (!session.current && NEEDS_CURRENT.includes(String(event.type)))
+        return refused(
+          "unauthenticated",
+          "A replaced session cannot submit or choose.",
+        );
       // The core validates everything else and rejects what it does not know.
       deps
         .handle(event as Event)
