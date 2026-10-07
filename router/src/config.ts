@@ -335,6 +335,15 @@ function usageOf(value: unknown): RouterConfig["usage"] {
   };
 }
 
+// Where a host's secrets are kept in secrets.env: its token, and its Paseo
+// daemon's password when it has one.
+const hostSecretName =
+  (prefix: string) =>
+  (host: string): string =>
+    `${prefix}_${host.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+export const tokenName = hostSecretName("ROUTER_TOKEN");
+export const paseoPasswordName = hostSecretName("ROUTER_PASEO_PASSWORD");
+
 // KEY=VALUE lines from a secrets file next to the configuration, applied to
 // the environment where the environment does not already set them. Secrets
 // never live in the JSON configuration. Returns the names the file sets,

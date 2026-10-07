@@ -32,7 +32,7 @@ import {
 } from "./board-api.ts";
 import { renderBoard } from "./board-page.ts";
 import type { UsageState, UsageStore } from "./usage.ts";
-import type { RouterConfig } from "./config.ts";
+import { tokenName, type RouterConfig } from "./config.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
 import { journalFolder, servedBy } from "./shell.ts";
 import { own, waitsOnSessions } from "./core.ts";
@@ -74,10 +74,6 @@ export type KnownSession = { host: string; current: boolean };
 
 // A token the events door takes, and the host whose sessions it acts for.
 export type DoorKey = { host: string; token: string };
-
-// Where a host's token is kept in the router's secrets.env.
-export const tokenName = (host: string): string =>
-  `ROUTER_TOKEN_${host.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 
 // The door's keys: each configured host's token. A token two hosts hold
 // would act for whichever came first, so it is refused, naming both: two

@@ -55,10 +55,10 @@ an unknown principal or participant on either side.
 
 Machines named in `participants[].hosts`; at least one.
 
-| Key            | Meaning                                                                                                                                                                                                                                                                                                                      | Default  |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| `paseo`        | The host's Paseo daemon: a websocket URL such as `ws://127.0.0.1:6767/ws`, or `ssh://[user@]host[:port]` to reach a daemon on `127.0.0.1:6767` of that machine through an SSH tunnel, as the Paseo CLI does. The port is SSH's; the connection runs with `BatchMode=yes`, so it needs key authentication that never prompts. | required |
-| `replyCommand` | What a participant on this host runs to reply; it goes into every envelope.                                                                                                                                                                                                                                                  | `router` |
+| Key            | Meaning                                                                                                                                                                                                                                                                                                                                                                                                         | Default  |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `paseo`        | The host's Paseo daemon: a websocket URL such as `ws://127.0.0.1:6767/ws`, or `ssh://[user@]host[:port]` to reach a daemon on `127.0.0.1:6767` of that machine through an SSH tunnel, as the Paseo CLI does. The port is SSH's; the connection runs with `BatchMode=yes`, so it needs key authentication that never prompts. A daemon with a password takes it from [`ROUTER_PASEO_PASSWORD_<HOST>`](#secrets). | required |
+| `replyCommand` | What a participant on this host runs to reply; it goes into every envelope.                                                                                                                                                                                                                                                                                                                                     | `router` |
 
 ### `agents`
 
@@ -172,12 +172,13 @@ file in use, so `router eval --config candidate.json` looks for
 environment wins. Keep the file at mode 600; nothing secret belongs in the
 JSON file.
 
-| Key                   | Where                                                                                                                                                                                               |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TYPESAFE_API_KEY`    | The router host, for Jev.                                                                                                                                                                           |
-| `ROUTER_TOKEN_<HOST>` | The router host: a token for each host that sends events, named for the host upper-cased, other characters as `_` (`ROUTER_TOKEN_MINI`). Each is different; `router host setup` adds a missing one. |
-| `ROUTER_TOKEN`        | A host without a configuration: its own token, the router's `ROUTER_TOKEN_<HOST>` for it. `router host setup` writes it.                                                                            |
-| `ROUTER_URL`          | Hosts that do not run the router: `serve.listen` as an `http://` URL.                                                                                                                               |
+| Key                            | Where                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TYPESAFE_API_KEY`             | The router host, for Jev.                                                                                                                                                                              |
+| `ROUTER_TOKEN_<HOST>`          | The router host: a token for each host that sends events, named for the host upper-cased, other characters as `_` (`ROUTER_TOKEN_MINI`). Each is different; `router host setup` adds a missing one.    |
+| `ROUTER_PASEO_PASSWORD_<HOST>` | The router host, for a host whose Paseo daemon has a password: that password, named as the token is (`ROUTER_PASEO_PASSWORD_VPS`). Paseo asks every client for it, one through an SSH tunnel included. |
+| `ROUTER_TOKEN`                 | A host without a configuration: its own token, the router's `ROUTER_TOKEN_<HOST>` for it. `router host setup` writes it.                                                                               |
+| `ROUTER_URL`                   | Hosts that do not run the router: `serve.listen` as an `http://` URL.                                                                                                                                  |
 
 With [`usage`](#usage) on, the router host may also hold, all optional,
 `OPENROUTER_MANAGEMENT_KEY`, `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`;

@@ -60,7 +60,7 @@ export type Shell = {
 
 export type ShellOptions = {
   // One adapter per host, created on first use.
-  adapter: (endpoint: string) => Promise<Adapter>;
+  adapter: (endpoint: string, host: string) => Promise<Adapter>;
   // Asks Jev; null when Jev is not configured, so unaddressed requests wait.
   judge: ((question: JudgmentQuestion) => Promise<JudgeResult>) | null;
   now?: () => number;
@@ -194,7 +194,7 @@ export async function openShell(
     if (!entry) throw new Error(`No endpoint configured for host ${host}`);
     let adapter = adapters.get(host);
     if (!adapter) {
-      adapter = options.adapter(entry.paseo);
+      adapter = options.adapter(entry.paseo, host);
       adapters.set(host, adapter);
     }
     return adapter;
