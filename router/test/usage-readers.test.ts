@@ -89,6 +89,7 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
       ...process.env,
       ROUTER_TOKEN: "x",
       ROUTER_TOKEN_MINI: "z",
+      ROUTER_PASEO_PASSWORD_VPS: "w",
       OPENROUTER_API_KEY: "y",
       USAGE_TEST_MARKER: "1",
     }),
@@ -109,6 +110,7 @@ test("the Codex RPC sends initialization and the one read, and settles only afte
   assert.ok(result.env.includes("USAGE_TEST_MARKER"));
   assert.ok(!result.env.includes("ROUTER_TOKEN"));
   assert.ok(!result.env.includes("ROUTER_TOKEN_MINI"));
+  assert.ok(!result.env.includes("ROUTER_PASEO_PASSWORD_VPS"));
   assert.ok(!result.env.includes("OPENROUTER_API_KEY"));
   const limits = await readUsageRpc(
     process.execPath,

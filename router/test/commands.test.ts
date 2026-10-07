@@ -4,8 +4,10 @@
 // the journal opens.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { scratch } from "./test-scratch.ts";
 import { runCommand } from "../src/commands.ts";
@@ -196,6 +198,64 @@ test("the router command: a mistake exits 2 with its message, and status reads a
   const inherited = router("eval", "--as", "constructor");
   assert.equal(inherited.status, 2, inherited.stderr);
   assert.equal(inherited.stderr, "constructor may address nobody.\n");
+});
+
+test("the router command sends a host's Paseo password from secrets.env to that host's daemon, and none to a host without one", async (t) => {
+  const home = scratch(t, "commands-cli-");
+  // Two daemons on one port, told apart by path, that take the upgrade and
+  // close it, as one refusing it would: what matters is what was sent.
+  const sent = new Map<string, string | undefined>();
+  const server = createServer();
+  t.after(() => server.close());
+  server.on("upgrade", (request, socket) => {
+    sent.set(request.url ?? "", request.headers["sec-websocket-protocol"]);
+    socket.destroy();
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address() as AddressInfo;
+  const path = join(home, "config.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      ...base,
+      home,
+      hosts: {
+        mbp: { paseo: `ws://127.0.0.1:${port}/mbp` },
+        mini: { paseo: `ws://127.0.0.1:${port}/mini` },
+      },
+      agents: { "orchestrator@mbp": "A1", "knowledge@mini": "K1" },
+    }),
+  );
+  writeFileSync(
+    join(home, "secrets.env"),
+    "ROUTER_PASEO_PASSWORD_MBP=s3cret-pw\n",
+  );
+  // Not spawnSync: the daemons answer from this process.
+  const router = (...args: string[]) =>
+    new Promise<void>((done) =>
+      execFile(
+        process.execPath,
+        [
+          join(import.meta.dirname, "..", "src", "cli.ts"),
+          "--config",
+          path,
+          ...args,
+        ],
+        { env: { PATH: process.env.PATH }, timeout: 20_000 },
+        () => done(),
+      ),
+    );
+  // A run looks at every placement; roster looks a session up.
+  await router("run");
+  assert.deepEqual(Object.fromEntries(sent), {
+    "/mbp": "paseo.bearer.s3cret-pw",
+    "/mini": undefined,
+  });
+  sent.clear();
+  await router("roster", "repoint", "orchestrator@mbp", "A2");
+  assert.deepEqual(Object.fromEntries(sent), {
+    "/mbp": "paseo.bearer.s3cret-pw",
+  });
 });
 
 test("a placement every object answers to is refused, and holds no other", async (t) => {

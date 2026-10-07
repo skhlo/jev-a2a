@@ -5,13 +5,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import {
-  createServer as createHttpServer,
-  type IncomingHttpHeaders,
-  type IncomingMessage,
-} from "node:http";
+import { createServer as createHttpServer } from "node:http";
 import { createServer, type AddressInfo } from "node:net";
-import type { Duplex } from "node:stream";
 import { join } from "node:path";
 import type { PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import { scratch } from "./test-scratch.ts";
@@ -626,12 +621,11 @@ test("a daemon's password goes with the connection to it", async (t) => {
   // password would: what matters is what the client sent.
   const server = createHttpServer();
   t.after(() => server.close());
-  const sent = new Promise<IncomingHttpHeaders>((done) =>
-    server.on("upgrade", (request: IncomingMessage, socket: Duplex) => {
-      done(request.headers);
-      socket.destroy();
-    }),
-  );
+  let protocol: string | undefined;
+  server.on("upgrade", (request, socket) => {
+    protocol = request.headers["sec-websocket-protocol"];
+    socket.destroy();
+  });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const { port } = server.address() as AddressInfo;
   assert.match(
@@ -640,10 +634,7 @@ test("a daemon's password goes with the connection to it", async (t) => {
     }),
     /^rejected: /,
   );
-  assert.equal(
-    (await sent)["sec-websocket-protocol"],
-    "paseo.bearer.s3cret-pw",
-  );
+  assert.equal(protocol, "paseo.bearer.s3cret-pw");
 });
 
 test("an agent id the daemon does not know is missing; any other failed look still throws", async () => {

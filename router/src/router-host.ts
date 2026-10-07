@@ -10,6 +10,7 @@ import {
   configPathOf,
   loadConfig,
   loadSecrets,
+  paseoPasswordName,
   terminalClis,
   USAGE_EVERY,
   type RouterConfig,
@@ -25,12 +26,15 @@ import {
   boardListener,
   doorKeys,
   eventsListener,
-  paseoPasswordName,
   keepReading,
 } from "./server.ts";
 import { ACCOUNT_IDS, usageView } from "./usage.ts";
 import { usageStore } from "./usage-readers.ts";
-import { createPaseoAdapter } from "./paseo.ts";
+import {
+  createPaseoAdapter,
+  type Adapter,
+  type AdapterOptions,
+} from "./paseo.ts";
 import { judge } from "./jev.ts";
 import {
   curve,
@@ -80,12 +84,21 @@ const crash = process.env.ROUTER_CRASH;
 // The labeled set `router eval` and `router roster` judge by default.
 const BUNDLED_SET = join(import.meta.dirname, "..", "eval", "requests.jsonl");
 const apiKey = process.env.TYPESAFE_API_KEY;
+// A host's Paseo, with its daemon's password when secrets.env holds one.
+const paseoOn = (
+  host: string,
+  endpoint: string,
+  options: AdapterOptions,
+): Promise<Adapter> =>
+  createPaseoAdapter(endpoint, {
+    ...options,
+    password: process.env[paseoPasswordName(host)],
+  });
 const shellOptions: ShellOptions = {
   adapter: (endpoint, host) =>
-    createPaseoAdapter(endpoint, {
+    paseoOn(host, endpoint, {
       sheet: config.telemetry.sheet,
       clis: terminalClis(config),
-      password: process.env[paseoPasswordName(host)],
     }),
   judge: apiKey
     ? (question) => judge(question, { ...config.jev, apiKey })
@@ -140,10 +153,7 @@ async function roster(): Promise<number> {
     resolve: async (host, id) => {
       const endpoint = own(config.hosts, host)?.paseo;
       if (!endpoint) return null;
-      const adapter = await createPaseoAdapter(endpoint, {
-        sheet: false,
-        password: process.env[paseoPasswordName(host)],
-      });
+      const adapter = await paseoOn(host, endpoint, { sheet: false });
       try {
         return await adapter.resolve(id);
       } finally {

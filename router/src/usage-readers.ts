@@ -72,11 +72,12 @@ async function apiKey(
 }
 
 // Credentials the Codex child has no use for: the tokens (each
-// ROUTER_TOKEN_<HOST>, and ROUTER_TOKEN, a reply host's), Jev's key, an
+// ROUTER_TOKEN_<HOST>, and ROUTER_TOKEN, a reply host's), the daemon
+// passwords (ROUTER_PASEO_PASSWORD_<HOST>), Jev's key, an
 // inherited Claude Code token and the API keys the other readers send.
 // childEnv drops these and every name in `secrets`, the names the router's
 // secrets file sets (loadSecrets).
-const ROUTER_TOKENS = /^ROUTER_TOKEN(_|$)/;
+const ROUTER_HOST_SECRETS = /^ROUTER_(TOKEN|PASEO_PASSWORD)(_|$)/;
 const ROUTER_SECRETS = [
   "TYPESAFE_API_KEY",
   "CLAUDE_CODE_OAUTH_TOKEN",
@@ -91,7 +92,7 @@ export const childEnv = (
   Object.fromEntries(
     Object.entries(env).filter(
       ([key]) =>
-        !ROUTER_TOKENS.test(key) &&
+        !ROUTER_HOST_SECRETS.test(key) &&
         !ROUTER_SECRETS.includes(key) &&
         !secrets.includes(key),
     ),

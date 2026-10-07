@@ -88,7 +88,8 @@ Edit it to match yours:
   named in `terminals`, Codex) in a Paseo terminal;
 - `secrets.env`: `TYPESAFE_API_KEY` if you have one. Each other host's
   token (`ROUTER_TOKEN_MINI` for `mini`) is added by `router host setup`,
-  below.
+  below. A host whose Paseo daemon has a password needs it here, as
+  `ROUTER_PASEO_PASSWORD_<HOST>`.
 
 Every key, its default and what is refused is in
 [docs/configuration.md](docs/configuration.md); `policy.deadline` is in

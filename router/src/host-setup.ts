@@ -8,11 +8,10 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
-import type { RouterConfig } from "./config.ts";
+import { tokenName, type RouterConfig } from "./config.ts";
 import { own } from "./core.ts";
 import { sshArgs, type SshArgs } from "./paseo.ts";
 import { refuse } from "./request.ts";
-import { tokenName } from "./server.ts";
 
 // serve's answer to GET /check with a token.
 export type ServeCheck = {
