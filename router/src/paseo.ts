@@ -101,6 +101,9 @@ export type AdapterOptions = {
   // The CLI in each terminal session (`terminal:<id>`) that does not run
   // Claude Code.
   clis?: Record<string, TerminalCli>;
+  // The daemon's password, when it has one: Paseo asks every client for
+  // it, one through an ssh tunnel included.
+  password?: string | undefined;
 };
 
 export type ProviderSubagent = ProviderSubagentListPayload["subagents"][number];
@@ -806,6 +809,7 @@ export async function createPaseoAdapter(
     // that reconnects never settles connect() while the host is gone, and
     // the ssh tunnel takes one connection, so a retry finds no listener.
     reconnect: { enabled: false },
+    ...(options.password ? { password: options.password } : {}),
   });
   try {
     await daemonClient.connect();

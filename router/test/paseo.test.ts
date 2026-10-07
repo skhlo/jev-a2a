@@ -5,7 +5,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import {
+  createServer as createHttpServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+} from "node:http";
 import { createServer, type AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import { join } from "node:path";
 import type { PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import { scratch } from "./test-scratch.ts";
@@ -532,14 +538,17 @@ test("a failed sheet read nulls its field and leaves a note; the rail and the re
 });
 
 // What creating an adapter for `endpoint` comes to, with `bin` first on
-// PATH when given, in a process of its own, so an adapter that never
-// settles (whose client keeps the process alive) or one that crashes fails
-// this test rather than hanging it.
-function adapterOutcome(endpoint: string, bin?: string): Promise<string> {
-  const script = `const [paseo, endpoint] = process.argv.slice(1);
+// PATH and the daemon's `password` when given, in a process of its own, so
+// an adapter that never settles (whose client keeps the process alive) or
+// one that crashes fails this test rather than hanging it.
+function adapterOutcome(
+  endpoint: string,
+  { bin, password = "" }: { bin?: string; password?: string } = {},
+): Promise<string> {
+  const script = `const [paseo, endpoint, password] = process.argv.slice(1);
 const { createPaseoAdapter } = await import(paseo);
 try {
-  await (await createPaseoAdapter(endpoint)).close();
+  await (await createPaseoAdapter(endpoint, { password })).close();
   console.log("connected");
 } catch (error) {
   console.log(\`rejected: \${error.message}\`);
@@ -549,7 +558,15 @@ process.exit(0);`;
   return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
-      ["--no-warnings", "--input-type=module", "-e", script, paseo, endpoint],
+      [
+        "--no-warnings",
+        "--input-type=module",
+        "-e",
+        script,
+        paseo,
+        endpoint,
+        password,
+      ],
       {
         timeout: 10_000,
         env: {
@@ -587,7 +604,7 @@ test("a daemon the run cannot reach fails the adapter at once, rather than being
     { mode: 0o755 },
   );
   assert.equal(
-    await adapterOutcome("ssh://mba", bin),
+    await adapterOutcome("ssh://mba", { bin }),
     "rejected: SSH to ssh://mba failed: ssh: connect to host mba port 22: Operation timed out",
   );
   // Still ssh's own reason when its output ends before it exits and its
@@ -599,8 +616,33 @@ test("a daemon the run cannot reach fails the adapter at once, rather than being
     { mode: 0o755 },
   );
   assert.equal(
-    await adapterOutcome("ssh://mba", late),
+    await adapterOutcome("ssh://mba", { bin: late }),
     "rejected: SSH to ssh://mba failed: ssh: connect to host mba port 22: Operation timed out",
+  );
+});
+
+test("a daemon's password goes with the connection to it", async (t) => {
+  // A daemon that takes the upgrade and closes it, as one refusing the
+  // password would: what matters is what the client sent.
+  const server = createHttpServer();
+  t.after(() => server.close());
+  const sent = new Promise<IncomingHttpHeaders>((done) =>
+    server.on("upgrade", (request: IncomingMessage, socket: Duplex) => {
+      done(request.headers);
+      socket.destroy();
+    }),
+  );
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address() as AddressInfo;
+  assert.match(
+    await adapterOutcome(`ws://127.0.0.1:${port}/ws`, {
+      password: "s3cret-pw",
+    }),
+    /^rejected: /,
+  );
+  assert.equal(
+    (await sent)["sec-websocket-protocol"],
+    "paseo.bearer.s3cret-pw",
   );
 });
 

@@ -25,6 +25,7 @@ import {
   boardListener,
   doorKeys,
   eventsListener,
+  paseoPasswordName,
   keepReading,
 } from "./server.ts";
 import { ACCOUNT_IDS, usageView } from "./usage.ts";
@@ -80,10 +81,11 @@ const crash = process.env.ROUTER_CRASH;
 const BUNDLED_SET = join(import.meta.dirname, "..", "eval", "requests.jsonl");
 const apiKey = process.env.TYPESAFE_API_KEY;
 const shellOptions: ShellOptions = {
-  adapter: (endpoint) =>
+  adapter: (endpoint, host) =>
     createPaseoAdapter(endpoint, {
       sheet: config.telemetry.sheet,
       clis: terminalClis(config),
+      password: process.env[paseoPasswordName(host)],
     }),
   judge: apiKey
     ? (question) => judge(question, { ...config.jev, apiKey })
@@ -138,7 +140,10 @@ async function roster(): Promise<number> {
     resolve: async (host, id) => {
       const endpoint = own(config.hosts, host)?.paseo;
       if (!endpoint) return null;
-      const adapter = await createPaseoAdapter(endpoint, { sheet: false });
+      const adapter = await createPaseoAdapter(endpoint, {
+        sheet: false,
+        password: process.env[paseoPasswordName(host)],
+      });
       try {
         return await adapter.resolve(id);
       } finally {

@@ -164,13 +164,14 @@ test("a host the run cannot reach is tried once in the run, and the next run tri
   const tried: string[] = [];
   const options: ShellOptions = {
     ...scripted({}),
-    adapter: (endpoint) => {
+    adapter: (endpoint, host) => {
+      assert.equal(endpoint, config.hosts[host]?.paseo);
       tried.push(endpoint);
       return endpoint === "fake://mini"
         ? Promise.reject(
             new Error("ssh: connect to host mini port 22: timed out"),
           )
-        : scripted({}).adapter(endpoint);
+        : scripted({}).adapter(endpoint, host);
     },
   };
   for (const run of [1, 2]) {
