@@ -268,6 +268,7 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 | `router/AGENTS.md`           | Context for coding agents, with Fallow's commands                     |
 | `docs/`                      | Reference pages                                                       |
 | `docs/research/`             | The spec, the executable model it was verified on, and background     |
+| `assets/icon.svg`            | Paseo's project icon, found by name and folder: Lucide's Route (ISC)  |
 
 ```sh
 cd router
