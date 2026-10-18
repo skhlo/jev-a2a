@@ -370,9 +370,25 @@ no message key, no receipt. Therefore:
   a shell left by an exited CLI; the activity rules out a turn or a
   permission dialog; the empty box rules out a dialog the activity cannot
   show and a half-typed line the paste would join; the cursor rules out a
-  box a killed CLI left above the shell's prompt. The screen is one grid
-  snapshot (`observeTerminal`), since the capture call returns plain text
-  and Claude Code's placeholder in an empty box is drawn dim.
+  box a killed CLI left above the shell's prompt. The screen is read
+  through one subscription (`observeTerminal`), since the capture call
+  returns plain text and Claude Code's placeholder in an empty box is drawn
+  dim.
+- The screen is the rows the terminal shows and no more: the subscription
+  asks for the visible snapshot with no scrollback. The default snapshot
+  carries the whole scrollback as JSON cells; for a Codex session with a
+  long transcript that is about 16 MB, longer through ssh than the router's
+  5 s wait (found 2026-10-17, ticket 026). The visible rows come as
+  terminal text. The router takes no soft-wrap flags, so each row comes as
+  it stands rather than a wrapped line as one run, and it reads only colour
+  and dim, the cursor's position and style, and private modes in them: a
+  screen holding any other sequence is not read. Verified on the 0.11.1
+  daemon with Claude Code, Codex and a shell, a wide character and a
+  wrapped line among them: the same lines (less each row's trailing
+  blanks, which the restore leaves off), dim cells and cursor as the full
+  snapshot.
+- A screen that cannot be read leaves the placement not ready, and its
+  not-ready line says `screen not read` and why.
 - Outcome mapping: a terminal that is gone or not ready when looked at
   again before the paste, or a paste that could not be written → `not_sent`;
   an activity change to a started or finished turn within the receipt
