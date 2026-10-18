@@ -384,7 +384,8 @@ no message key, no receipt. Therefore:
   and dim, the cursor's position and style, and private modes in them: a
   screen holding any other sequence is not read. Verified on the 0.11.1
   daemon with Claude Code, Codex and a shell, a wide character and a
-  wrapped line among them: the same lines, dim cells and cursor as the full
+  wrapped line among them: the same lines (less each row's trailing
+  blanks, which the restore leaves off), dim cells and cursor as the full
   snapshot.
 - A screen that cannot be read leaves the placement not ready, and its
   not-ready line says `screen not read` and why.

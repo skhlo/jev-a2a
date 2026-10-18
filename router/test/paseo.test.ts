@@ -1276,7 +1276,8 @@ const asCodex = { clis: { "terminal:T1": "codex" as const } };
 // The same rows as the daemon restores them to a client without soft-wrap
 // flags (shape as probed on Paseo 0.11.1, ticket 026): autowrap off, each
 // row with its dim runs in SGR 2, a line break between rows, then the
-// cursor's style, its 1-based position, and autowrap back on.
+// cursor's style, its 1-based position, and autowrap back on. The daemon
+// leaves off each row's trailing blanks; these rows have none.
 const restoreOf = (rows: Run[][], row: number, col: number): Uint8Array =>
   new TextEncoder().encode(
     "\x1b[?7l" +
@@ -1340,6 +1341,8 @@ test("a restored screen's dim follows SGR 2 and 22, colours are not dim, and its
     cursorCol: 8,
   });
   assert.deepEqual(restored("\x1b[?7lhome\x1b[H"), screen(["home"], 0, 0));
+  // A combining mark shares its letter's cell, so the two dim blank one column.
+  assert.deepEqual(restored("\x1b[?7l\x1b[2me\u0301\x1b[0mz").lines, [" z"]);
   assert.deepEqual(restored("\x1b[?7l"), screen([""], null, null));
 });
 
@@ -1348,6 +1351,8 @@ test("a restored screen holding a sequence the router does not read, or with wra
     "\x1b[?7lline\x1b[2K",
     "\x1b[?7l\x1b]0;title\x07",
     "\x1b[?7ltab\there",
+    "\x1b[?7lab\u009b2Kcd",
+    "\x1b[?7l\x1b[3;4;9H",
     "\x1b[?7l\x1b[?1 q",
     "\x1b[?7l\x1b[1 m",
     "\x1b[?7l\x1b[",

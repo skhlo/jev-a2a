@@ -638,6 +638,17 @@ export function adapterOver(
       );
       return null;
     }));
+  // A read that failed: noted, and why.
+  const noteUnread = (
+    what: string,
+    subject: string,
+    error: unknown,
+    notes: string[],
+  ): string => {
+    const reason = error instanceof Error ? error.message : String(error);
+    notes.push(`${what} of ${subject} not read: ${reason}`);
+    return reason;
+  };
   const attempt = async <T>(
     what: string,
     agentId: string,
@@ -647,9 +658,7 @@ export function adapterOver(
     try {
       return await read();
     } catch (error: unknown) {
-      notes.push(
-        `${what} of ${agentId} not read: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      noteUnread(what, agentId, error, notes);
       return null;
     }
   };
@@ -663,9 +672,7 @@ export function adapterOver(
     try {
       return profile.prompt(await daemon.screen(id));
     } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : String(error);
-      notes.push(`screen of terminal:${id} not read: ${reason}`);
-      return { unread: reason };
+      return { unread: noteUnread("screen", `terminal:${id}`, error, notes) };
     }
   };
   // A terminal is observed from the daemon's terminal list, and, when its
@@ -899,8 +906,11 @@ const RESTORE_SEQUENCE = /\x1b\[(\?)?([0-9;]*)( ?)([A-Za-z])/y;
 // not take soft-wrap flags. With them, a wrapped line comes as one run for
 // the terminal to wrap, and its rows cannot be placed without the width.
 const VERBATIM_ROWS = "\x1b[?7l";
+// A code point the terminal draws into the cell before it (a combining mark
+// or a variation selector): dim, it blanks no column of its own.
+const SAME_CELL = /\p{M}/u;
 
-const unreadable = (what: string): never => {
+const refuseScreen = (what: string): never => {
   throw new Error(
     `the terminal's screen holds ${JSON.stringify(what)}, which the router does not read`,
   );
@@ -922,11 +932,12 @@ function dimAfter(params: string, dim: boolean): boolean {
 }
 
 // The rows a terminal shows, as Paseo restores it (`visible-snapshot` with
-// no scrollback, rows verbatim), read as screenFrom reads a grid. The form
-// holds each row's text in SGR runs, CRLF between rows, then the cursor's
-// place, style and visibility (verified on Paseo 0.11.1 with Claude Code,
-// Codex and a shell, a wide character and a wrapped line among them); any
-// other control is refused, so a screen is never guessed.
+// no scrollback, rows verbatim), read as screenFrom reads a grid less the
+// blanks the restore leaves off each row's end. The form holds each row's
+// text in SGR runs, CRLF between rows, then the cursor's place, style and
+// visibility (verified on Paseo 0.11.1 with Claude Code, Codex and a shell,
+// a wide character and a wrapped line among them); any other control is
+// refused, so a screen is never guessed.
 export function screenFromRestore(data: Uint8Array): Screen {
   const text = new TextDecoder().decode(data);
   if (!text.startsWith(VERBATIM_ROWS))
@@ -949,22 +960,24 @@ export function screenFromRestore(data: Uint8Array): Screen {
     if (text[at] === "\x1b") {
       RESTORE_SEQUENCE.lastIndex = at;
       const [sequence, privateMode, params = "", space, final] =
-        RESTORE_SEQUENCE.exec(text) ?? unreadable(text.slice(at, at + 8));
+        RESTORE_SEQUENCE.exec(text) ?? refuseScreen(text.slice(at, at + 8));
       if (space) {
-        if (privateMode || final !== "q") unreadable(sequence);
+        if (privateMode || final !== "q") refuseScreen(sequence);
       } else if (!privateMode && final === "m") dim = dimAfter(params, dim);
       else if (!privateMode && final === "H") {
-        const [row = 1, col = 1] = params.split(";").map((n) => Number(n) || 1);
+        const place = params.split(";");
+        if (place.length > 2) refuseScreen(sequence);
+        const [row = 1, col = 1] = place.map((n) => Number(n) || 1);
         cursorRow = row - 1;
         cursorCol = col - 1;
       } else if (!privateMode || (final !== "h" && final !== "l"))
-        unreadable(sequence);
+        refuseScreen(sequence);
       at += sequence.length;
       continue;
     }
     const char = String.fromCodePoint(text.codePointAt(at) ?? 0);
-    if (char < " " || char === "\x7f") unreadable(char);
-    lines[lines.length - 1] += dim ? " " : char;
+    if (char < " " || (char >= "\x7f" && char <= "\x9f")) refuseScreen(char);
+    lines[lines.length - 1] += !dim ? char : SAME_CELL.test(char) ? "" : " ";
     drawn[drawn.length - 1] += char;
     at += char.length;
   }
@@ -974,9 +987,8 @@ export function screenFromRestore(data: Uint8Array): Screen {
 // The rows a terminal shows, through a subscription released at once: the
 // visible snapshot with no scrollback (a daemon that answers with a grid
 // snapshot is read from that). The default snapshot carries the whole
-// scrollback as JSON cells: about 16 MB for a Codex session of 962 rows,
-// longer than the wait through an ssh tunnel. A refused subscription fails
-// with the daemon's reason.
+// scrollback, too slow for a long Codex session (the contract's Paseo
+// terminal section). A refused subscription fails with the daemon's reason.
 async function screenOf(
   daemonClient: DaemonClient,
   terminalId: string,
