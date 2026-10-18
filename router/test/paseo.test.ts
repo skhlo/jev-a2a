@@ -21,6 +21,7 @@ import {
   firstLine,
   pasteable,
   screenFrom,
+  screenFromRestore,
   subagentsOf,
   terminalSnapshotOf,
   type Daemon,
@@ -914,6 +915,7 @@ test("observing a terminal: ready only at an empty prompt box, the screen read o
   blind.daemon.screen = () => Promise.reject(new Error("capture failed"));
   const unread = await adapterOver(blind.daemon).observe("terminal:T1", SEEN);
   assert.equal(unread?.ready, false);
+  assert.equal(unread?.status, "screen not read: capture failed");
   assert.deepEqual(unread?.notes, [
     "screen of terminal:T1 not read: capture failed",
   ]);
@@ -1270,6 +1272,90 @@ const needsInput = (changedAt: number): PaseoTerminal["activity"] => ({
   changedAt,
 });
 const asCodex = { clis: { "terminal:T1": "codex" as const } };
+
+// The same rows as the daemon restores them to a client without soft-wrap
+// flags (shape as probed on Paseo 0.11.1, ticket 026): autowrap off, each
+// row with its dim runs in SGR 2, a line break between rows, then the
+// cursor's style, its 1-based position, and autowrap back on.
+const restoreOf = (rows: Run[][], row: number, col: number): Uint8Array =>
+  new TextEncoder().encode(
+    "\x1b[?7l" +
+      rows
+        .map((runs) =>
+          runs
+            .map((run) =>
+              typeof run === "string" ? run : `\x1b[0;2m${run[0]}\x1b[0m`,
+            )
+            .join(""),
+        )
+        .join("\r\n") +
+      `\x1b[0m\x1b[1 q\x1b[${row + 1};${col + 1}H\x1b[?25h\x1b[?7h`,
+  );
+const restored = (text: string): Screen =>
+  screenFromRestore(new TextEncoder().encode(text));
+
+test("a restored screen reads as the grid snapshot of the same rows: Codex's empty composer is empty, a draft is not, and Claude Code's empty box is empty", () => {
+  const empty = [
+    ...CODEX_HEAD,
+    PAST_PROMPT,
+    [],
+    ["• done"],
+    [],
+    COMPOSER,
+    ...CODEX_FOOT,
+  ];
+  const at = CODEX_HEAD.length + 4;
+  const read = screenFromRestore(restoreOf(empty, at, 2));
+  assert.deepEqual(read, gridScreen(empty, at, 2));
+  assert.equal(codexPrompt(read), "empty");
+
+  const draft = [...CODEX_HEAD, ["› draft"], ...CODEX_FOOT];
+  const typed = screenFromRestore(restoreOf(draft, CODEX_HEAD.length, 7));
+  assert.deepEqual(typed, gridScreen(draft, CODEX_HEAD.length, 7));
+  assert.equal(codexPrompt(typed), "other");
+
+  const box: Run[][] = [
+    ["source main ❯ claude"],
+    [],
+    [rule],
+    ["❯ ", ['Try "fix the tests"', "dim"]],
+    [rule],
+    ...status.map((line) => [line]),
+  ];
+  assert.equal(
+    claudePromptEmpty(screenFromRestore(restoreOf(box, 3, 2))),
+    true,
+  );
+});
+
+test("a restored screen's dim follows SGR 2 and 22, colours are not dim, and its cursor is 0-based or unknown", () => {
+  const read = restored(
+    "\x1b[?7l\x1b[38;5;2mgreen\x1b[0m \x1b[2mfaint\x1b[22mplain\r\n" +
+      "\x1b[48;2;1;2;2mx\x1b[1;2mbold\x1b[mreset\x1b[H\x1b[5;9H",
+  );
+  assert.deepEqual(read, {
+    lines: ["green      plain", "x    reset"],
+    drawn: ["green faintplain", "xboldreset"],
+    cursorRow: 4,
+    cursorCol: 8,
+  });
+  assert.deepEqual(restored("\x1b[?7lhome\x1b[H"), screen(["home"], 0, 0));
+  assert.deepEqual(restored("\x1b[?7l"), screen([""], null, null));
+});
+
+test("a restored screen holding a sequence the router does not read, or with wrapped rows joined, is refused", () => {
+  for (const text of [
+    "\x1b[?7lline\x1b[2K",
+    "\x1b[?7l\x1b]0;title\x07",
+    "\x1b[?7ltab\there",
+    "\x1b[?7l\x1b[?1 q",
+    "\x1b[?7l\x1b[1 m",
+    "\x1b[?7l\x1b[",
+  ])
+    assert.throws(() => restored(text), /does not read/, JSON.stringify(text));
+  assert.throws(() => restored("one\r\ntwo"), /wrapped rows joined/);
+  assert.equal(restored("\x1b[?7l\x1b[2 q\x1b[?25l›").lines[0], "›");
+});
 
 test("observing Codex: ready at its empty composer whatever its title, not while its activity or status line shows a turn, and a stale needs_input does not hold it", async () => {
   const observe = async (t: PaseoTerminal, shown: Screen) => {

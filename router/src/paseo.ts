@@ -25,9 +25,12 @@
 // message key, no receipt. So the router sends only to the CLI's empty
 // prompt, read from the terminal's activity and screen (and Claude Code's
 // title), and confirms a send by the activity change that follows it. The
-// facts this relies on, verified on the 0.10.2 daemon with Claude Code
-// 2.1.289 and Codex 0.159.2 and 0.160.0, and what it does not cover, are in
-// the contract's Adapters section (Paseo terminal).
+// screen is only the rows the terminal shows: Codex prints inline, so its
+// scrollback grows with every turn, and the full snapshot of a long session
+// outlasts the wait. The facts this relies on, verified on the 0.10.2
+// daemon with Claude Code 2.1.289 and Codex 0.159.2 and 0.160.0 (the
+// screen's form on 0.11.1), and what it does not cover, are in the
+// contract's Adapters section (Paseo terminal).
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
@@ -228,6 +231,8 @@ const CODEX_RUNNING = /esc to interrupt/;
 // Where a terminal stands on its screen: at an empty prompt, in a turn its
 // record does not show, or anywhere else.
 export type PromptState = "empty" | "busy" | "other";
+// A screen that could not be read, and why.
+export type Unread = { unread: string };
 
 // Codex's composer, empty and in use: the last line that starts with a `›`
 // not drawn dim (the transcript's earlier prompts are dim, and so is the
@@ -303,11 +308,13 @@ function terminalStatus(
   t: PaseoTerminal,
   profile: TerminalProfile,
   condition: TerminalCondition,
-  prompt: PromptState | null,
+  prompt: PromptState | Unread | null,
 ): string {
   if (condition === "working" || prompt === "busy") return "working";
   if (condition === "away")
     return `${profile.name} is not running in the terminal (title "${t.title ?? ""}")`;
+  if (typeof prompt === "object" && prompt !== null)
+    return `screen not read: ${prompt.unread}`;
   return prompt === "empty" ? "idle" : profile.notAtPrompt;
 }
 
@@ -319,7 +326,7 @@ export function terminalSnapshotOf(
   t: PaseoTerminal,
   seen: string,
   cli: TerminalCli = "claude",
-  prompt: PromptState | null = null,
+  prompt: PromptState | Unread | null = null,
 ): AgentSnapshot {
   const profile = PROFILES[cli];
   const condition = profile.condition(t);
@@ -647,18 +654,20 @@ export function adapterOver(
     }
   };
   // Where a terminal whose record says waiting stands on its screen; a
-  // screen that cannot be read is no empty prompt, with a note.
+  // screen that cannot be read is no empty prompt: why, with a note.
   const promptOf = async (
     id: string,
     profile: TerminalProfile,
     notes: string[],
-  ): Promise<PromptState> =>
-    (await attempt(
-      "screen",
-      `terminal:${id}`,
-      async () => profile.prompt(await daemon.screen(id)),
-      notes,
-    )) ?? "other";
+  ): Promise<PromptState | Unread> => {
+    try {
+      return profile.prompt(await daemon.screen(id));
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error);
+      notes.push(`screen of terminal:${id} not read: ${reason}`);
+      return { unread: reason };
+    }
+  };
   // A terminal is observed from the daemon's terminal list, and, when its
   // record says it waits, its screen: ready only at the CLI's empty prompt.
   // Its workspace gives the checkout; a terminal has no subagent list or
@@ -809,6 +818,9 @@ export async function createPaseoAdapter(
     // that reconnects never settles connect() while the host is gone, and
     // the ssh tunnel takes one connection, so a retry finds no listener.
     reconnect: { enabled: false },
+    // No soft-wrap flags, so a restored screen replays each row as it
+    // stands (screenFromRestore); the client keeps its other defaults.
+    capabilities: { terminal_reflowable_snapshot: false },
     ...(options.password ? { password: options.password } : {}),
   });
   try {
@@ -879,8 +891,92 @@ export function screenFrom(state: TerminalState): Screen {
   };
 }
 
-// One snapshot of a terminal's grid, through a subscription released at
-// once; a refused subscription fails with the daemon's reason.
+// A control sequence in a restored screen: CSI, its private marker, its
+// parameters, a space for the cursor's style, and its final byte.
+const RESTORE_SEQUENCE = /\x1b\[(\?)?([0-9;]*)( ?)([A-Za-z])/y;
+// How a restored screen starts when each row is replayed as it stands
+// (autowrap off, a line break per row): what Paseo sends a client that does
+// not take soft-wrap flags. With them, a wrapped line comes as one run for
+// the terminal to wrap, and its rows cannot be placed without the width.
+const VERBATIM_ROWS = "\x1b[?7l";
+
+const unreadable = (what: string): never => {
+  throw new Error(
+    `the terminal's screen holds ${JSON.stringify(what)}, which the router does not read`,
+  );
+};
+
+// Whether text after an SGR sequence is dim, given whether it was: 0 (or
+// none) and 22 clear it, 2 sets it, and a colour's own numbers (38;5;n,
+// 48;2;r;g;b, 58;5;n) are skipped, so colour 2 is not dim.
+function dimAfter(params: string, dim: boolean): boolean {
+  const codes = params === "" ? [0] : params.split(";").map(Number);
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    if (code === 0 || code === 22) dim = false;
+    else if (code === 2) dim = true;
+    else if (code === 38 || code === 48 || code === 58)
+      i += codes[i + 1] === 5 ? 2 : codes[i + 1] === 2 ? 4 : 0;
+  }
+  return dim;
+}
+
+// The rows a terminal shows, as Paseo restores it (`visible-snapshot` with
+// no scrollback, rows verbatim), read as screenFrom reads a grid. The form
+// holds each row's text in SGR runs, CRLF between rows, then the cursor's
+// place, style and visibility (verified on Paseo 0.11.1 with Claude Code,
+// Codex and a shell, a wide character and a wrapped line among them); any
+// other control is refused, so a screen is never guessed.
+export function screenFromRestore(data: Uint8Array): Screen {
+  const text = new TextDecoder().decode(data);
+  if (!text.startsWith(VERBATIM_ROWS))
+    throw new Error(
+      "the terminal's screen came with wrapped rows joined, which the router cannot place",
+    );
+  const lines = [""];
+  const drawn = [""];
+  let dim = false;
+  let cursorRow: number | null = null;
+  let cursorCol: number | null = null;
+  let at = 0;
+  while (at < text.length) {
+    if (text.startsWith("\r\n", at)) {
+      lines.push("");
+      drawn.push("");
+      at += 2;
+      continue;
+    }
+    if (text[at] === "\x1b") {
+      RESTORE_SEQUENCE.lastIndex = at;
+      const [sequence, privateMode, params = "", space, final] =
+        RESTORE_SEQUENCE.exec(text) ?? unreadable(text.slice(at, at + 8));
+      if (space) {
+        if (privateMode || final !== "q") unreadable(sequence);
+      } else if (!privateMode && final === "m") dim = dimAfter(params, dim);
+      else if (!privateMode && final === "H") {
+        const [row = 1, col = 1] = params.split(";").map((n) => Number(n) || 1);
+        cursorRow = row - 1;
+        cursorCol = col - 1;
+      } else if (!privateMode || (final !== "h" && final !== "l"))
+        unreadable(sequence);
+      at += sequence.length;
+      continue;
+    }
+    const char = String.fromCodePoint(text.codePointAt(at) ?? 0);
+    if (char < " " || char === "\x7f") unreadable(char);
+    lines[lines.length - 1] += dim ? " " : char;
+    drawn[drawn.length - 1] += char;
+    at += char.length;
+  }
+  return { lines, drawn, cursorRow, cursorCol };
+}
+
+// The rows a terminal shows, through a subscription released at once: the
+// visible snapshot with no scrollback (a daemon that answers with a grid
+// snapshot is read from that). The default snapshot carries the whole
+// scrollback as JSON cells: about 16 MB for a Codex session of 962 rows,
+// longer than the wait through an ssh tunnel. A refused subscription fails
+// with the daemon's reason.
 async function screenOf(
   daemonClient: DaemonClient,
   terminalId: string,
@@ -888,18 +984,28 @@ async function screenOf(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let release = (): Promise<void> => Promise.resolve();
   try {
-    const state = await new Promise<TerminalState>((resolve, reject) => {
+    return await new Promise<Screen>((resolve, reject) => {
       timer = setTimeout(
-        () => reject(new Error("no snapshot of the terminal within 5 s")),
+        () => reject(new Error("no screen of the terminal within 5 s")),
         5_000,
       );
-      const subscription = daemonClient.observeTerminal(terminalId, (event) => {
-        if (event.type === "snapshot") resolve(event.state);
-      });
+      const subscription = daemonClient.observeTerminal(
+        terminalId,
+        (event) => {
+          try {
+            if (event.type === "restore")
+              resolve(screenFromRestore(event.data));
+            else if (event.type === "snapshot")
+              resolve(screenFrom(event.state));
+          } catch (error: unknown) {
+            reject(error);
+          }
+        },
+        { restore: { mode: "visible-snapshot", scrollbackLines: 0 } },
+      );
       release = () => subscription.release();
       subscription.ready.catch(reject);
     });
-    return screenFrom(state);
   } finally {
     clearTimeout(timer);
     await release().catch(() => undefined);
