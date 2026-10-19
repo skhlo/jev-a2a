@@ -52,8 +52,9 @@ contract says why. Under the shared server its router commands are
 refused ([participants.md](participants.md#whose-environment)). A send it
 cannot confirm is unknown and waits for `router resolve`, since a
 terminal takes no message key. A line a person starts typing between the
-look and the paste is the race here, and the hold closes it the same way. The board shows no provider, model, context,
-subagents or activity tail for a terminal, which reports none of them.
+look and the paste is the race here, and the hold closes it the same way.
+The board shows no provider, model, context, subagents or activity tail
+for a terminal, which reports none of them.
 
 ### A Codex session on the shared server
 

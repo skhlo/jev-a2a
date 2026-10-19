@@ -15,13 +15,11 @@ import {
   psTable,
   type Processes,
 } from "../src/caller.ts";
-import { plain, table, under } from "./processes.ts";
+import { MBA_DAEMON, plain, table, under } from "./processes.ts";
 
 // Read from the hosts on 2026-10-19 (paths shortened): the shared daemon
-// on mba and on the VPS, its updater, ChatGPT's own server on mba, and
-// what Paseo starts per Codex agent.
-const MBA_DAEMON =
-  "/Users/u/.codex/packages/app-server-daemon/releases/0.163.0-aarch64-apple-darwin/bin/codex app-server --listen unix:// --analytics-default-enabled --managed-daemon";
+// on the VPS (mba's is MBA_DAEMON), its updater, ChatGPT's own server on
+// mba, and what Paseo starts per Codex agent.
 const VPS_DAEMON =
   "/home/u/.codex/packages/app-server-daemon/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex app-server --listen unix:// --analytics-default-enabled --managed-daemon";
 const UPDATER =
@@ -52,7 +50,6 @@ test("a Codex that runs its own commands: interactive, resume and fork with opti
     "codex app-server --listen stdio://",
     "codex app-server --listen=stdio://",
     "codex app-server --stdio",
-    "C:\\Codex\\codex.exe app-server",
   ])
     assert.equal(kind(line), "own", line);
 });
@@ -138,8 +135,9 @@ test("the ancestry: plain without Codex, own under a Codex that runs its command
     "shared",
   );
   assert.deepEqual(ancestry(under("bash", "codex review", "zsh")), {
-    kind: "unresolved",
-    what: "pid 98 is codex review, a Codex the router does not know",
+    kind: "unknown",
+    what: "codex review",
+    pid: 98,
   });
 });
 
@@ -222,8 +220,19 @@ test("the caller: its session from the environment, refused when two are named o
   );
   refused(
     { PASEO_TERMINAL_ID: "T9" },
+    under("bash", "codex app-server proxy"),
+    /^The router does not know the Codex above this command \(pid 98, codex app-server proxy\), .*under --no-daemon/,
+  );
+  // An ancestry it cannot read is no Codex's fault: no advice to resume one.
+  refused(
+    { PASEO_TERMINAL_ID: "T9" },
     unread,
-    /^The router cannot tell whether this command's environment is its own: the process table could not be read \(not read\)\./,
+    /^The router cannot tell whether this command's environment is its own: the process table could not be read \(not read\)\. Nothing was sent\. Run it again from the session's own shell/,
+  );
+  const unreadable = caller({ PASEO_AGENT_ID: "A1" }, unread);
+  assert.doesNotMatch(
+    "refused" in unreadable ? unreadable.refused : "",
+    /resume|Codex/,
   );
 });
 
@@ -273,53 +282,173 @@ test("Linux: /proc gives each process's parent, start and argv; a command name w
   );
 });
 
-test("Linux: this process's own /proc reads, and its ancestry holds no shared Codex", () => {
-  if (process.platform !== "linux") return;
-  const self = procfs().look(process.pid);
-  assert.ok(self && self.argv.length > 0 && self.ppid > 0);
-  assert.notEqual(ancestry(procfs).kind, "shared");
+test(
+  "Linux: this process's own /proc reads, and so does its ancestry, whatever runs the tests",
+  { skip: process.platform !== "linux" },
+  () => {
+    const self = procfs().look(process.pid);
+    assert.ok(self && self.argv.length > 0 && self.ppid > 0);
+    const found = ancestry(procfs);
+    assert.doesNotMatch(
+      "what" in found ? found.what : "",
+      /could not be read|not in the process table|exited during/,
+    );
+  },
+);
+
+// macOS as `ps` prints it under LC_ALL=C (read on mba: the day padded with
+// a space, the hour with a zero): pid, ppid, lstart, the executable (comm)
+// and the command line (args). comm is the last column of its own run.
+const MAC: [number, number, string, string, string][] = [
+  [1, 0, "Fri Oct  2 23:03:31 2026", "/sbin/launchd", "/sbin/launchd"],
+  [
+    7554,
+    1,
+    "Sun Oct 18 09:38:44 2026",
+    "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT",
+    "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT",
+  ],
+  [
+    7681,
+    7554,
+    "Sun Oct 18 09:38:46 2026",
+    CHATGPT.split(" ")[0] ?? "",
+    CHATGPT,
+  ],
+  [
+    4000,
+    1,
+    "Mon Oct 12 08:00:09 2026",
+    "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
+    "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
+  ],
+  [46142, 4000, "Mon Oct 19 10:40:00 2026", "/bin/zsh", "-zsh"],
+  [
+    51132,
+    46142,
+    "Mon Oct 19 10:42:17 2026",
+    "/Users/u/.local/share/mise/installs/codex/0.163.0/bin/codex",
+    "/Users/u/.local/share/mise/installs/codex/0.163.0/bin/codex",
+  ],
+  [
+    51134,
+    51132,
+    "Mon Oct 19 10:42:18 2026",
+    MBA_DAEMON.split(" ")[0] ?? "",
+    MBA_DAEMON,
+  ],
+  [
+    60000,
+    51134,
+    "Mon Oct 19 11:00:00 2026",
+    "/bin/zsh",
+    "/bin/zsh -c router reply",
+  ],
+  [
+    60001,
+    60000,
+    "Mon Oct 19 11:00:00 2026",
+    "/opt/node/bin/node",
+    "node cli.ts reply",
+  ],
+  [
+    60100,
+    7681,
+    "Mon Oct 19 11:01:00 2026",
+    "/bin/zsh",
+    "/bin/zsh -c router reply",
+  ],
+  [
+    60101,
+    60100,
+    "Mon Oct 19 11:01:00 2026",
+    "/opt/node/bin/node",
+    "node cli.ts reply",
+  ],
+  // A shared daemon whose path holds a space.
+  [
+    70000,
+    46142,
+    "Mon Oct 19 12:00:00 2026",
+    "/Users/u/Library/Application Support/Tools/bin/codex",
+    "/Users/u/Library/Application Support/Tools/bin/codex app-server --listen unix:// --managed-daemon",
+  ],
+  [
+    70001,
+    70000,
+    "Mon Oct 19 12:00:01 2026",
+    "/opt/node/bin/node",
+    "node cli.ts reply",
+  ],
+  // An argument holding a space.
+  [
+    90000,
+    46142,
+    "Mon Oct 19 12:40:00 2026",
+    "/Users/u/bin/codex",
+    "/Users/u/bin/codex -c model='a b' resume 0199c0de",
+  ],
+  [
+    90001,
+    90000,
+    "Mon Oct 19 12:40:01 2026",
+    "/opt/node/bin/node",
+    "node cli.ts reply",
+  ],
+];
+const pad = (n: number) => String(n).padStart(5);
+const ARGS_RUN = MAC.map(
+  ([pid, ppid, lstart, , args]) =>
+    `${pad(pid)} ${pad(ppid)} ${lstart}     ${args}`,
+).join("\n");
+const COMM_RUN = MAC.map(
+  ([pid, , lstart, exe]) => `${pad(pid)} ${lstart}     ${exe}`,
+).join("\n");
+const mac =
+  (self: number, args = ARGS_RUN, comm = COMM_RUN) =>
+  () =>
+    psTable((columns) => (columns.includes("args") ? args : comm), self);
+
+test("macOS: two ps runs, joined by pid and start; the executable's path may hold spaces", () => {
+  const processes = mac(60001)();
+  assert.deepEqual(processes.look(51134), {
+    ppid: 51132,
+    start: null,
+    argv: MBA_DAEMON.split(" "),
+  });
+  assert.deepEqual(processes.look(4000)?.argv, [
+    "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
+  ]);
+  assert.deepEqual(processes.look(46142)?.argv, ["/bin/zsh"]);
+  assert.equal(processes.look(4242), null);
+  assert.deepEqual(ancestry(mac(70001)).kind, "shared");
+  assert.deepEqual(ancestry(mac(90001)), {
+    kind: "unknown",
+    what: "codex b'",
+    pid: 90000,
+  });
 });
 
-// `ps -A -ww -o pid=,ppid=,lstart=,args=` as macOS prints it under LC_ALL=C
-// (read on mba): the day padded with a space, the hour with a zero.
-const PS = `    1     0 Fri Oct  2 23:03:31 2026     /sbin/launchd
- 7554     1 Sun Oct 18 09:38:44 2026     /Applications/ChatGPT.app/Contents/MacOS/ChatGPT
- 7681  7554 Sun Oct 18 09:38:46 2026     ${CHATGPT}
-46142  4000 Mon Oct 19 10:40:00 2026     -zsh
- 4000     1 Mon Oct 12 08:00:09 2026     /Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper
-51132 46142 Mon Oct 19 10:42:17 2026     /Users/u/.local/share/mise/installs/codex/0.163.0/bin/codex
-51134 51132 Mon Oct 19 10:42:18 2026     ${MBA_DAEMON}
-60000 51134 Mon Oct 19 11:00:00 2026     /bin/zsh -c router reply
-60001 60000 Mon Oct 19 11:00:00 2026     node cli.ts reply
-60100  7681 Mon Oct 19 11:01:00 2026     /bin/zsh -c router reply
-60101 60100 Mon Oct 19 11:01:00 2026     node cli.ts reply
-`;
-
-test("macOS: one ps snapshot; the daemon's command is shared, ChatGPT's own server is not", () => {
-  const processes = psTable(() => PS, 60001);
-  assert.deepEqual(processes.look(51134)?.argv, MBA_DAEMON.split(" "));
-  assert.equal(processes.look(46142)?.start, Date.UTC(2026, 9, 19, 10, 40, 0));
-  assert.equal(processes.look(7554)?.start, Date.UTC(2026, 9, 18, 9, 38, 44));
-  assert.deepEqual(
-    ancestry(() => psTable(() => PS, 60001)),
-    {
-      kind: "shared",
-      what: "codex app-server --managed-daemon, the shared daemon",
-      pid: 51134,
-    },
+test("macOS: the daemon's command is shared, ChatGPT's own server is not; a pid that changed between the runs, or a line ps should not print, is unresolved", () => {
+  assert.deepEqual(ancestry(mac(60001)), {
+    kind: "shared",
+    what: "codex app-server --managed-daemon, the shared daemon",
+    pid: 51134,
+  });
+  assert.deepEqual(ancestry(mac(60101)), {
+    kind: "own",
+    what: "codex app-server on stdio",
+  });
+  const changed = COMM_RUN.replace(
+    "51134 Mon Oct 19 10:42:18 2026",
+    "51134 Mon Oct 19 10:42:19 2026",
   );
-  assert.deepEqual(
-    ancestry(() => psTable(() => PS, 60101)),
-    {
-      kind: "own",
-      what: "codex app-server on stdio",
-    },
-  );
-  assert.deepEqual(
-    ancestry(() => psTable(() => `${PS}garbage\n`, 60001)),
-    {
-      kind: "unresolved",
-      what: "the process table could not be read (ps printed a line it does not read: garbage)",
-    },
-  );
+  assert.deepEqual(ancestry(mac(60001, ARGS_RUN, changed)), {
+    kind: "unresolved",
+    what: "pid 51134 could not be read (pid 51134 changed between the two ps runs)",
+  });
+  assert.deepEqual(ancestry(mac(60001, `${ARGS_RUN}\ngarbage`)), {
+    kind: "unresolved",
+    what: "the process table could not be read (ps printed a line it does not read: garbage)",
+  });
 });

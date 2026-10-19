@@ -4,7 +4,12 @@
 // so a reply host runs it from a checkout without an install.
 import { randomBytes } from "node:crypto";
 import { parseArgs } from "node:util";
-import { caller, systemProcesses, type Processes } from "./caller.ts";
+import {
+  caller,
+  systemProcesses,
+  type Caller,
+  type Processes,
+} from "./caller.ts";
 import { UPDATE_KINDS } from "./core.ts";
 import { textOption } from "./text.ts";
 import type { Event, Role } from "./types.ts";
@@ -80,34 +85,39 @@ const parse = (args: string[]) =>
   });
 
 // What the caller asked for: the command, its options and the words after
-// it, the environment that says who is asking, and the process table that
-// says whether that environment is its own (read only when it names a
-// session).
+// it, the environment that says who is asking, and who that is once the
+// process table says whether the environment is its own (read once, and
+// only when it names a session).
 export type Invocation = {
   command: string | undefined;
   values: ReturnType<typeof parse>["values"];
   rest: string[];
   env: Record<string, string | undefined>;
-  processes: () => Processes;
+  caller: () => Caller;
 };
 
 export function invocation(
   argv: string[],
   env: Invocation["env"],
-  processes: Invocation["processes"] = systemProcesses,
+  processes: () => Processes = systemProcesses,
 ): Invocation {
   const { values, positionals } = parse(argv);
   const [command, ...rest] = positionals;
-  return { command, values, rest, env, processes };
+  let found: Caller | undefined;
+  return {
+    command,
+    values,
+    rest,
+    env,
+    caller: () => (found ??= caller(env, processes)),
+  };
 }
 
 // The participant session the caller's environment names, or null when it
 // names none; refused, before anything is sent, when it names two or may
 // belong to another session (see caller.ts).
-export function callerSession(
-  inv: Pick<Invocation, "env" | "processes">,
-): string | null {
-  const found = caller(inv.env, inv.processes);
+export function callerSession(inv: Pick<Invocation, "caller">): string | null {
+  const found = inv.caller();
   return "refused" in found ? refuse(found.refused) : found.session;
 }
 

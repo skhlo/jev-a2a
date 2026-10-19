@@ -19,11 +19,12 @@
 // It loads node's own modules only, as the reply host requires.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { TERMINAL } from "./config.ts";
+import { terminalSession } from "./config.ts";
 
 // One process as a table reads it: its parent, when it started (in the
-// table's own unit, compared only within one table), and its argv.
-export type Proc = { ppid: number; start: number; argv: string[] };
+// table's own unit, compared only within one table; null where the table
+// is one snapshot, in which a pid cannot have been reused), and its argv.
+export type Proc = { ppid: number; start: number | null; argv: string[] };
 
 // A process table: this process's pid, and each pid's entry, null once the
 // process is gone. Opening or reading it may throw.
@@ -61,41 +62,60 @@ export function procfs(root = "/proc", self = process.pid): Processes {
   return { self, look };
 }
 
-const MONTHS = "JanFebMarAprMayJunJulAugSepOctNovDec";
-const PS_LINE =
-  /^\s*(\d+)\s+(\d+)\s+\w{3} (\w{3}) +(\d{1,2}) (\d\d):(\d\d):(\d\d) (\d{4})\s+(.*)$/;
+// `ps` with the given columns, as macOS prints them under the C locale.
+const ps = (columns: string): string =>
+  execFileSync("ps", ["-A", "-ww", "-o", columns], {
+    encoding: "utf8",
+    env: { ...process.env, LC_ALL: "C" },
+  });
+const LSTART = String.raw`\w{3} \w{3} +\d{1,2} \d\d:\d\d:\d\d \d{4}`;
+const ARGS_LINE = new RegExp(
+  String.raw`^\s*(\d+)\s+(\d+)\s+(${LSTART})\s+(.*)$`,
+);
+const COMM_LINE = new RegExp(String.raw`^\s*(\d+)\s+(${LSTART})\s+(.*)$`);
 
-// macOS: one `ps` snapshot. Its args are argv joined by spaces, so an
-// argument holding a space reads as two; lstart counts whole seconds.
+// One run's lines by pid, each split by the line's pattern.
+function lines(text: string, pattern: RegExp): Map<number, string[]> {
+  const found = new Map<number, string[]>();
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const m = pattern.exec(line);
+    if (!m) throw new Error(`ps printed a line it does not read: ${line}`);
+    found.set(Number(m[1]), m.slice(2));
+  }
+  return found;
+}
+
+// macOS: one `ps` snapshot of parents and command lines, which holds no
+// reused pid. Its args are argv joined by spaces, so the executable's own
+// path, which may hold spaces, comes from a second run's comm (full only
+// as the last column), matched by pid and start; a pid that changed in
+// between cannot be read. An argument holding a space still reads as two,
+// which leaves a Codex command line unknown, not allowed.
 export function psTable(
-  run: () => string = () =>
-    execFileSync("ps", ["-A", "-ww", "-o", "pid=,ppid=,lstart=,args="], {
-      encoding: "utf8",
-      env: { ...process.env, LC_ALL: "C" },
-    }),
+  run: (columns: string) => string = ps,
   self = process.pid,
 ): Processes {
-  const table = new Map<number, Proc>();
-  for (const line of run().split("\n")) {
-    if (!line.trim()) continue;
-    const m = PS_LINE.exec(line);
-    if (!m) throw new Error(`ps printed a line it does not read: ${line}`);
-    const [, pid, ppid, mon, day, h, min, s, year, args = ""] = m;
-    const start = Date.UTC(
-      Number(year),
-      MONTHS.indexOf(mon ?? "") / 3,
-      Number(day),
-      Number(h),
-      Number(min),
-      Number(s),
-    );
-    table.set(Number(pid), {
-      ppid: Number(ppid),
-      start,
-      argv: args ? args.split(" ") : [],
-    });
-  }
-  return { self, look: (pid) => table.get(pid) ?? null };
+  const argsOf = lines(run("pid=,ppid=,lstart=,args="), ARGS_LINE);
+  const commOf = lines(run("pid=,lstart=,comm="), COMM_LINE);
+  const look = (pid: number): Proc | null => {
+    const entry = argsOf.get(pid);
+    if (!entry) return null;
+    const [ppid = "", start, args = ""] = entry;
+    const [commStart, exe = ""] = commOf.get(pid) ?? [];
+    if (commStart !== start)
+      throw new Error(`pid ${pid} changed between the two ps runs`);
+    // args begins with argv[0] as invoked: the executable's path, or a
+    // name without spaces.
+    const after = args.startsWith(`${exe} `)
+      ? args.slice(exe.length + 1)
+      : args === exe
+        ? ""
+        : args.slice(args.indexOf(" ") + 1 || args.length);
+    const argv = exe ? [exe, ...(after ? after.split(" ") : [])] : [];
+    return { ppid: Number(ppid), start: null, argv };
+  };
+  return { self, look };
 }
 
 // This host's process table.
@@ -202,22 +222,22 @@ function options(
   return { options: found, rest: [] };
 }
 
-const basename = (path: string): string => path.split(/[/\\]/).at(-1) ?? "";
+const basename = (path: string): string => path.split("/").at(-1) ?? "";
 // A word as a message names it: a prompt may be long.
-const word = (arg: string): string =>
+const clipped = (arg: string): string =>
   arg.length > 40 ? `${arg.slice(0, 40)}…` : arg;
 const remote = (args: string[]): boolean =>
   args.some((a) => a === "--remote" || a.startsWith("--remote="));
 
 // An app-server: on stdio it serves the one process that started it; over
 // a socket, any client.
-function server(args: string[]): Codex {
+function appServer(args: string[]): Codex {
   const parsed = options(args, SERVER_VALUE, SERVER_FLAG);
   if ("unknown" in parsed)
     return { kind: "unknown", what: `codex app-server with ${parsed.unknown}` };
   const [sub] = parsed.rest;
   if (sub !== undefined)
-    return { kind: "unknown", what: `codex app-server ${word(sub)}` };
+    return { kind: "unknown", what: `codex app-server ${clipped(sub)}` };
   const opts = parsed.options;
   if (opts.has("--managed-daemon"))
     return {
@@ -237,7 +257,7 @@ function server(args: string[]): Codex {
 export function codexOf(argv: string[]): Codex | null {
   const [zero, ...args] = argv;
   const name = basename(zero ?? "");
-  if (name !== "codex" && name !== "codex.exe") return null;
+  if (name !== "codex") return null;
   const parsed = options(args, TOP_VALUE, TOP_FLAG);
   if ("unknown" in parsed)
     return { kind: "unknown", what: `codex with ${parsed.unknown}` };
@@ -251,16 +271,18 @@ export function codexOf(argv: string[]): Codex | null {
   if (sub === "resume" || sub === "fork")
     return { kind: "own", what: `codex ${sub}` };
   if (sub === "exec" || sub === "e") return { kind: "own", what: "codex exec" };
-  if (sub === "app-server") return server(after);
-  return { kind: "unknown", what: `codex ${word(sub)}` };
+  if (sub === "app-server") return appServer(after);
+  return { kind: "unknown", what: `codex ${clipped(sub)}` };
 }
 
 // What the caller's ancestry says: no Codex above it, only Codex that runs
-// its own commands, or why its environment may not be its own.
+// its own commands, or why its environment may not be its own: a shared
+// server, a Codex the router does not know, or an ancestry it cannot read.
 export type Ancestry =
   | { kind: "plain" }
   | { kind: "own"; what: string }
   | { kind: "shared"; what: string; pid: number }
+  | { kind: "unknown"; what: string; pid: number }
   | { kind: "unresolved"; what: string };
 
 // More ancestors than any shell, terminal and agent stack has.
@@ -298,50 +320,61 @@ export function ancestry(table: () => Processes): Ancestry {
     }
     if (!parent)
       return unresolved(`its ancestor pid ${pid} exited during the check`);
-    if (parent.start > child.start)
+    if (
+      parent.start !== null &&
+      child.start !== null &&
+      parent.start > child.start
+    )
       return unresolved(
         `pid ${pid} started after its child, so the pid was reused`,
       );
     if (!parent.argv.length)
       return unresolved(`the command line of pid ${pid} could not be read`);
     const codex = codexOf(parent.argv);
-    if (codex?.kind === "shared")
-      return { kind: "shared", what: codex.what, pid };
-    if (codex?.kind === "unknown")
-      return unresolved(
-        `pid ${pid} is ${codex.what}, a Codex the router does not know`,
-      );
+    if (codex && codex.kind !== "own") return { ...codex, pid };
     own ??= codex?.what ?? null;
     child = parent;
   }
   return own ? { kind: "own", what: own } : { kind: "plain" };
 }
 
-const RESTART =
-  "Nothing was sent. Run Codex in this terminal without the shared server, `codex --no-daemon resume <id>` with this conversation's id ($CODEX_THREAD_ID inside it), then run the command again.";
+const NOT_SENT = "Nothing was sent.";
+const CODEX_HELP =
+  'Resume this conversation without the shared server, in the same terminal and while no turn runs: `codex --no-daemon resume <id>` with its id ($CODEX_THREAD_ID inside it), never --last (docs/operating.md, "A Codex session on the shared server").';
+const SHAPES =
+  'Run the session\'s Codex interactively, or with resume, fork or exec, under --no-daemon (docs/participants.md, "Whose environment").';
+const SHELL_HELP =
+  'Run it again from the session\'s own shell (docs/participants.md, "Whose environment").';
 
 // The session the caller's environment names, null when it names none; or
 // why the router will not act on it.
+export type Caller = { session: string | null } | { refused: string };
+
 export function caller(
   env: Record<string, string | undefined>,
   table: () => Processes,
-): { session: string | null } | { refused: string } {
+): Caller {
   const agent = env.PASEO_AGENT_ID;
   const terminal = env.PASEO_TERMINAL_ID;
   if (agent && terminal)
     return {
-      refused: `Both $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are set, so the router cannot tell which session is calling. Nothing was sent.`,
+      refused:
+        "Both $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are set, so the router cannot tell which session is calling. Nothing was sent.",
     };
-  const session = agent || (terminal ? `${TERMINAL}${terminal}` : null);
+  const session = agent || (terminal ? terminalSession(terminal) : null);
   if (!session) return { session: null };
   const found = ancestry(table);
   if (found.kind === "shared")
     return {
-      refused: `This runs under a shared Codex server (pid ${found.pid}, ${found.what}), whose environment is the terminal's that started it, so ${session} may not be this session. ${RESTART}`,
+      refused: `This runs under a shared Codex server (pid ${found.pid}, ${found.what}), whose environment is the terminal's that started it, so ${session} may not be this session. ${NOT_SENT} ${CODEX_HELP}`,
+    };
+  if (found.kind === "unknown")
+    return {
+      refused: `The router does not know the Codex above this command (pid ${found.pid}, ${found.what}), so it cannot tell whether this command's environment is its own. ${NOT_SENT} ${SHAPES}`,
     };
   if (found.kind === "unresolved")
     return {
-      refused: `The router cannot tell whether this command's environment is its own: ${found.what}. ${RESTART}`,
+      refused: `The router cannot tell whether this command's environment is its own: ${found.what}. ${NOT_SENT} ${SHELL_HELP}`,
     };
   return { session };
 }

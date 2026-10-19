@@ -114,15 +114,18 @@ process ancestry shows that environment is its own:
   too; `codex exec`; and `codex app-server` on stdio, which Paseo starts
   for each Codex agent.
 - **Refused:** a shared Codex server above it, at any height: an
-  `app-server` for clients over a socket (`--managed-daemon`, or `--listen`
-  other than `stdio://`). Bare `codex` starts it or attaches to it, and it
-  runs every client's commands in the environment of the terminal that
-  started it, so its `$PASEO_TERMINAL_ID` may be another terminal's.
-- **Refused as unresolved:** a Codex command line the router does not know
-  (`--remote`, another subcommand, an unknown option, a prompt as an
-  argument), and an ancestry it cannot read: no process table, an ancestor
-  gone during the check, a reused pid, more than 64 ancestors, or an
-  orphan whose parent is pid 1.
+  `app-server` for clients over a socket (`--managed-daemon`, `--listen`
+  other than `stdio://`, or a websocket option). Bare `codex` starts it or
+  attaches to it, and it runs every client's commands in the environment
+  of the terminal that started it, so its `$PASEO_TERMINAL_ID` may be
+  another terminal's.
+- **Refused as unknown:** a Codex command line the router does not know:
+  `--remote`, another subcommand, an option it does not know, an argument
+  holding a space as `ps` shows it on macOS, or a prompt or image given
+  on the command line.
+- **Refused as unresolved:** an ancestry it cannot read: no process table,
+  an ancestor gone during the check, a reused pid, more than 64 ancestors,
+  an orphan whose parent is pid 1, or a command line it cannot read.
 
 Nothing is sent when it refuses; the message says what it saw. To move a
 Codex session off the shared server, see

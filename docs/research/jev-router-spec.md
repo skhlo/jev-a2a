@@ -520,8 +520,9 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
    terminal, never both, and only when the CLI's process ancestry holds no
    Codex server shared by socket clients and nothing it cannot classify
    (participants.md, "Whose environment"). That stops an accidental
-   attribution, not a deliberate one. Over HTTP, a reply, answer, request or choice is trusted on
-   the sending host's own token (`ROUTER_TOKEN_<HOST>` on the router host),
+   attribution, not a deliberate one. Over HTTP, a reply, answer, request
+   or choice is trusted on the sending host's own token
+   (`ROUTER_TOKEN_<HOST>` on the router host),
    and `serve` refuses a `by` whose session the record places on another
    host (`wrong_host`). Agents on one host run as one user and read one
    secrets file, so a token per participant would separate nothing: a

@@ -13,7 +13,8 @@ import { checkoutCommit } from "../src/checkout.ts";
 import { runReplyHost } from "../src/reply-host.ts";
 import { invocation, UsageError } from "../src/request.ts";
 import type { Processes } from "../src/caller.ts";
-import { plain, under } from "./processes.ts";
+import { ancestry, systemProcesses } from "../src/caller.ts";
+import { MBA_DAEMON, plain, under } from "./processes.ts";
 
 const dir = sharedScratch("reply-host-");
 const file = join(dir, "reply.md");
@@ -133,10 +134,8 @@ test("reply host: a reply goes as the session, with the text from a file", async
 });
 
 // Codex in terminal B attached to the daemon terminal A started: its
-// commands carry A's terminal id. The daemon's command line as mba runs it.
-const DAEMON =
-  "/Users/u/.codex/packages/app-server-daemon/releases/0.163.0-aarch64-apple-darwin/bin/codex app-server --listen unix:// --analytics-default-enabled --managed-daemon";
-const shared = under("/bin/zsh -c router", DAEMON, "codex", "-zsh");
+// commands carry A's terminal id.
+const shared = under("/bin/zsh -c router", MBA_DAEMON, "codex", "-zsh");
 const unknown = under("/bin/zsh -c router", "codex app-server proxy", "-zsh");
 const own = under(
   "/bin/zsh -c router",
@@ -161,7 +160,7 @@ test("reply host: under a shared Codex server, or one the router does not know, 
     );
     await refused(
       argv,
-      /pid 98 is codex app-server proxy, a Codex the router does not know/,
+      /^The router does not know the Codex above this command \(pid 98, codex app-server proxy\)/,
       A,
       unknown,
     );
@@ -368,9 +367,18 @@ test("reply host: the router command runs from a copy of src/ with no packages, 
     `ROUTER_URL=${url}\nROUTER_TOKEN=t\n`,
   );
   const sent = await cli([...reply, "working", "--config", config]);
-  assert.equal(sent.code, 0, sent.stderr);
-  assert.equal(sent.stdout, "recorded\ndelivered D1\n");
-  assert.partialDeepStrictEqual(posted[0], { type: "update", by: "A1" });
+  // The copy reads this host's process table: run under a shared Codex
+  // server, the tests' own reply is refused, as any would be.
+  const here = ancestry(systemProcesses).kind;
+  if (here === "plain" || here === "own") {
+    assert.equal(sent.code, 0, sent.stderr);
+    assert.equal(sent.stdout, "recorded\ndelivered D1\n");
+    assert.partialDeepStrictEqual(posted[0], { type: "update", by: "A1" });
+  } else {
+    assert.equal(sent.code, 2, sent.stderr);
+    assert.match(sent.stderr, /Nothing was sent\./);
+    assert.equal(posted.length, 0);
+  }
   const mistake = await cli([...reply, "done", "--config", config]);
   assert.equal(mistake.code, 2);
   assert.match(mistake.stderr, /--kind is working/);

@@ -26,5 +26,9 @@ export const under = (...lines: string[]) => {
   return table(rows);
 };
 
+// The shared daemon's command line as mba runs it (path shortened).
+export const MBA_DAEMON =
+  "/Users/u/.codex/packages/app-server-daemon/releases/0.163.0-aarch64-apple-darwin/bin/codex app-server --listen unix:// --analytics-default-enabled --managed-daemon";
+
 // A caller with no Codex above it: a shell in a Paseo terminal.
 export const plain = under("bash -c router", "zsh", "Paseo.bin");

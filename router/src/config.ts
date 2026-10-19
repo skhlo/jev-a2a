@@ -10,9 +10,10 @@ import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 // A placement's session in `agents`: a Paseo agent id, or `terminal:<id>`
 // for an agent CLI in a Paseo terminal (see paseo.ts). The terminal it
 // names, or null for an agent.
-export const TERMINAL = "terminal:";
+const TERMINAL = "terminal:";
 export const terminalOf = (session: string): string | null =>
   session.startsWith(TERMINAL) ? session.slice(TERMINAL.length) || null : null;
+export const terminalSession = (id: string): string => `${TERMINAL}${id}`;
 // Paseo's terminal ids are UUIDs; the short form a table prints matches
 // nothing the daemon lists.
 const TERMINAL_ID =
