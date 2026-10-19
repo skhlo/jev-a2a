@@ -4,7 +4,12 @@
 // so a reply host runs it from a checkout without an install.
 import { randomBytes } from "node:crypto";
 import { parseArgs } from "node:util";
-import { callerSession } from "./config.ts";
+import {
+  caller,
+  systemProcesses,
+  type Caller,
+  type Processes,
+} from "./caller.ts";
 import { UPDATE_KINDS } from "./core.ts";
 import { textOption } from "./text.ts";
 import type { Event, Role } from "./types.ts";
@@ -43,7 +48,9 @@ export const USAGE = `router: a prompt with an envelope and a record
 
 Options: --config <path> (default $ROUTER_CONFIG or ~/.config/jev-router/config.json).
 A participant's reply is authenticated by its session (never --as):
-$PASEO_AGENT_ID, or terminal:$PASEO_TERMINAL_ID in a Paseo terminal. A
+$PASEO_AGENT_ID, or terminal:$PASEO_TERMINAL_ID in a Paseo terminal, not
+both, and refused under a shared Codex server, whose environment may be
+another terminal's (docs/participants.md, "Whose environment"). A
 participant session on the router host submits, chooses and answers with
 --as <its session id>. On a host without a configuration, reply, submit,
 answer and choose go to the router at $ROUTER_URL as the session itself,
@@ -78,18 +85,40 @@ const parse = (args: string[]) =>
   });
 
 // What the caller asked for: the command, its options and the words after
-// it, and the environment that says who is asking.
+// it, the environment that says who is asking, and who that is once the
+// process table says whether the environment is its own (read once, and
+// only when it names a session).
 export type Invocation = {
   command: string | undefined;
   values: ReturnType<typeof parse>["values"];
   rest: string[];
   env: Record<string, string | undefined>;
+  caller: () => Caller;
 };
 
-export function invocation(argv: string[], env: Invocation["env"]): Invocation {
+export function invocation(
+  argv: string[],
+  env: Invocation["env"],
+  processes: () => Processes = systemProcesses,
+): Invocation {
   const { values, positionals } = parse(argv);
   const [command, ...rest] = positionals;
-  return { command, values, rest, env };
+  let found: Caller | undefined;
+  return {
+    command,
+    values,
+    rest,
+    env,
+    caller: () => (found ??= caller(env, processes)),
+  };
+}
+
+// The participant session the caller's environment names, or null when it
+// names none; refused, before anything is sent, when it names two or may
+// belong to another session (see caller.ts).
+export function callerSession(inv: Pick<Invocation, "caller">): string | null {
+  const found = inv.caller();
+  return "refused" in found ? refuse(found.refused) : found.session;
 }
 
 // Where a command's lines go: what it reports to `out`, trouble to `err`.
@@ -162,7 +191,7 @@ export const EVENTS: Record<string, (o: Args) => Event> = {
   reply: (o) => {
     // A reply's identity is the session's own, never chosen by hand.
     const by =
-      callerSession(o.env) ??
+      callerSession(o) ??
       refuse(
         "Replies come from a participant session: $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are unset.",
       );

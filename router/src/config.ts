@@ -13,6 +13,7 @@ import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 const TERMINAL = "terminal:";
 export const terminalOf = (session: string): string | null =>
   session.startsWith(TERMINAL) ? session.slice(TERMINAL.length) || null : null;
+export const terminalSession = (id: string): string => `${TERMINAL}${id}`;
 // Paseo's terminal ids are UUIDs; the short form a table prints matches
 // nothing the daemon lists.
 const TERMINAL_ID =
@@ -34,14 +35,6 @@ export const configPathOf = (
   given ??
   env.ROUTER_CONFIG ??
   join(homedir(), ".config", "jev-router", "config.json");
-
-// The calling session as the record names it: a Paseo agent's id, or the
-// terminal the CLI runs in. Null outside a participant session.
-export const callerSession = (
-  env: Record<string, string | undefined> = process.env,
-): string | null =>
-  env.PASEO_AGENT_ID ||
-  (env.PASEO_TERMINAL_ID ? `${TERMINAL}${env.PASEO_TERMINAL_ID}` : null);
 
 export type HostConfig = {
   // Paseo daemon endpoint: a websocket URL, or ssh://[user@]host[:port] to

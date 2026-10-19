@@ -407,7 +407,8 @@ no message key, no receipt. Therefore:
 - A participant with a terminal placement is configured `idempotent: false`,
   which the config enforces, so its `unknown` sends are never repeated.
 - The session replies as `terminal:$PASEO_TERMINAL_ID`, which the reply
-  command reads when `$PASEO_AGENT_ID` is unset.
+  command reads when `$PASEO_AGENT_ID` is unset (with both set it
+  refuses).
 
 **Paseo terminal (Codex).** A terminal placement that `terminals` names
 `codex` runs Codex as `codex --no-daemon` (built 2026-10-05, ticket 018).
@@ -418,6 +419,11 @@ hosts' own sandbox (`workspace-write`) and automatic approval reviewer:
 - The activity comes from Paseo's Codex hooks, and only when Codex runs its
   own turns (`--no-daemon`): under the shared app-server daemon the hooks
   run without the terminal's environment and the activity stays null.
+- Its shell commands carry the terminal's `$PASEO_TERMINAL_ID` only under
+  `--no-daemon` too. The shared daemon runs every client's commands in the
+  environment of the terminal that started it (Codex 0.163's daemon
+  README: no per-client isolation), so the router CLI refuses to act under
+  it (participants.md, "Whose environment").
 - It reads `working` about a second after Enter, and `idle`/`finished` at
   the end.
 - At an approval request it reads `idle` with `needs_input`. That outlives
@@ -511,13 +517,17 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
 2. Authentication of participant events: decided 2026-10-06, a token per
    host (ticket 022). A local reply is trusted on `PASEO_AGENT_ID`, or on
    `PASEO_TERMINAL_ID` as `terminal:<id>` for an agent CLI in a Paseo
-   terminal. Over HTTP, a reply, answer, request or choice is trusted on
-   the sending host's own token (`ROUTER_TOKEN_<HOST>` on the router host),
-   and `serve` refuses a `by` whose session the record places on another
-   host (`wrong_host`). Agents on one host run as one user and read one
-   secrets file, so a token per participant would separate nothing: a
-   host's agents can still act as one another. `serve` also refuses a `by`
-   that is not a session the record knows, and a replaced session's
+   terminal, never both, and only when the CLI's process ancestry holds no
+   Codex server shared by socket clients and nothing it cannot classify
+   (participants.md, "Whose environment"). That stops an accidental
+   attribution, not a deliberate one. Over HTTP, a reply, answer, request
+   or choice is trusted on the sending host's own token
+   (`ROUTER_TOKEN_<HOST>` on the router host), and `serve` refuses a `by`
+   whose session the record places on another host (`wrong_host`).
+   Agents on one host run as one user and read one secrets file, so a
+   token per participant would separate nothing: a host's agents can
+   still act as one another. `serve` also refuses a `by` that is not a
+   session the record knows, and a replaced session's
    request or choice; a replaced session's reply still reaches the core,
    which knows whether it holds the delivery. Board actions are
    authenticated by Tailscale identity and are not affected.
