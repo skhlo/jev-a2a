@@ -153,7 +153,7 @@ a user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)
 | `router run`                                                        | Observe the sessions and deliver what is eligible, once                                                      |
 | `router serve`                                                      | Accept events from other hosts; serve the board; keep looking                                                |
 | `router host setup <host>`                                          | Install or update `router` on a host reached over ssh, with its token, and check it there                    |
-| `router roster repoint <participant@host> <session>`                | Point a placement at its new Paseo session, restart `serve` and see it bound                                 |
+| `router roster repoint <participant@host> [<session>]`              | Point a placement at its new Paseo session, or find it in its folder; restart `serve`, see it bound          |
 | `router roster add <participant> <host>:<path> <host>=<session>...` | Add a participant, its text read from its owner's main branch; judged by the eval first                      |
 | `router roster remove <participant>`                                | Drop a participant and relabel its requests to `none`; judged by the eval first                              |
 | `router roster refresh <participant> [<host>:<path>]`               | Read a participant's text again; a new text is judged by the eval first                                      |

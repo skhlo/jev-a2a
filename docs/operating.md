@@ -272,7 +272,8 @@ links, forms and redirects use relative URLs.
   note appears once while its cause lasts.
 - A placement absent from the board has no entry in `agents`. One whose
   agent id the daemon does not know shows `missing` in its health line
-  (`router roster repoint` points it at its new session);
+  (`router roster repoint <placement>` finds its new session in its
+  folder);
   one whose host could not be reached shows `unreachable`, with the reason
   as a tooltip, and the next run tries again: a host that drops off the
   network costs that run, not the ones after it.

@@ -34,6 +34,7 @@ import {
   createPaseoAdapter,
   type Adapter,
   type AdapterOptions,
+  type Finder,
 } from "./paseo.ts";
 import { judge } from "./jev.ts";
 import {
@@ -89,7 +90,7 @@ const paseoOn = (
   host: string,
   endpoint: string,
   options: AdapterOptions,
-): Promise<Adapter> =>
+): Promise<Adapter & Finder> =>
   createPaseoAdapter(endpoint, {
     ...options,
     password: process.env[paseoPasswordName(host)],
@@ -147,19 +148,25 @@ async function hostSetup(): Promise<number> {
 async function roster(): Promise<number> {
   const [verb, first, second, ...more] = inv.rest;
   const record = recordReader(config);
+  // One connection per host for the command, opened when first asked.
+  const opened = new Map<string, Promise<Adapter & Finder>>();
+  const on = (host: string): Promise<Adapter & Finder> => {
+    const endpoint =
+      own(config.hosts, host)?.paseo ?? fail(`${host} is not in hosts.`);
+    let adapter = opened.get(host);
+    if (!adapter) {
+      adapter = paseoOn(host, endpoint, { sheet: false });
+      opened.set(host, adapter);
+    }
+    return adapter;
+  };
   const deps: RosterDeps = {
     configPath,
     record: () => record().state,
-    resolve: async (host, id) => {
-      const endpoint = own(config.hosts, host)?.paseo;
-      if (!endpoint) return null;
-      const adapter = await paseoOn(host, endpoint, { sheet: false });
-      try {
-        return await adapter.resolve(id);
-      } finally {
-        await adapter.close();
-      }
-    },
+    resolve: async (host, id) =>
+      own(config.hosts, host) ? (await on(host)).resolve(id) : null,
+    folderOf: async (host, session) => (await on(host)).folderOf(session),
+    sessionsIn: async (host, folder) => (await on(host)).sessionsIn(folder),
     read: (host, path) => readOver(own(config.hosts, host)?.paseo ?? "", path),
     judge: (question) =>
       apiKey
@@ -176,18 +183,25 @@ async function roster(): Promise<number> {
     now: () => new Date(),
     log: (line) => console.log(line),
   };
-  switch (verb) {
-    case "repoint":
-      if (first && second && !more.length) return repoint(first, second, deps);
-      break;
-    case "add":
-      if (first && second && more.length) return add(first, second, more, deps);
-      break;
-    case "remove":
-      if (first && !second) return remove(first, deps);
-      break;
-    case "refresh":
-      if (first && !more.length) return refresh(first, second, deps);
+  try {
+    switch (verb) {
+      case "repoint":
+        if (first && !more.length)
+          return await repoint(first, second ?? null, deps);
+        break;
+      case "add":
+        if (first && second && more.length)
+          return await add(first, second, more, deps);
+        break;
+      case "remove":
+        if (first && !second) return await remove(first, deps);
+        break;
+      case "refresh":
+        if (first && !more.length) return await refresh(first, second, deps);
+    }
+  } finally {
+    for (const adapter of opened.values())
+      await adapter.then((a) => a.close()).catch(() => undefined);
   }
   return fail(
     "Use router roster repoint, add, remove or refresh; router --help lists their arguments.",

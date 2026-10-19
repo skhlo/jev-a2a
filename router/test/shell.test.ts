@@ -31,6 +31,7 @@ const configFor = (home: string, core: Config = base): RouterConfig => ({
   hosts: { mbp: { paseo: "fake://mbp", replyCommand: "router" } },
   agents: { "orchestrator@mbp": "A1" },
   terminals: {},
+  folders: {},
   serve: {
     listen: "127.0.0.1:0",
     board: "127.0.0.1:0",

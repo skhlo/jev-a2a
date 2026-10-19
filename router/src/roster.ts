@@ -13,7 +13,8 @@
 //
 // `repoint` points a placement at a new session after its Paseo session
 // was replaced: a daemon restart closes terminals, and a reopened terminal
-// or a cleared agent context gets a new id. `add`, `remove` and `refresh`
+// or a cleared agent context gets a new id. Named no session, it finds the
+// one new session in the placement's folder. `add`, `remove` and `refresh`
 // change the participants; a text is read over ssh as committed on its
 // repository's main on the host that owns it.
 import { execFile } from "node:child_process";
@@ -31,6 +32,7 @@ import {
   loadConfig,
   terminalOf,
   type RouterConfig,
+  type TerminalCli,
 } from "./config.ts";
 import { own, responsibilityTexts } from "./core.ts";
 import {
@@ -42,7 +44,7 @@ import {
 } from "./eval.ts";
 import { HOST_PATH, shellCommand } from "./host-setup.ts";
 import type { JudgeResult } from "./jev.ts";
-import { sshArgs } from "./paseo.ts";
+import { sshArgs, type FolderSession } from "./paseo.ts";
 import { refuse } from "./request.ts";
 import type { JudgmentQuestion, State } from "./types.ts";
 
@@ -57,6 +59,10 @@ export type RosterDeps = {
   // The session as the Paseo daemon on `host` names it; null when the
   // daemon does not know it.
   resolve(host: string, session: string): Promise<string | null>;
+  // Where a session on `host` works, and the sessions working in a folder
+  // there (Finder in paseo.ts).
+  folderOf(host: string, session: string): Promise<string | null>;
+  sessionsIn(host: string, folder: string): Promise<FolderSession[]>;
   // A responsibility file on `host`, as its repository's main has it.
   read(host: string, path: string): Promise<Read>;
   // Jev's answer to a routing question, for the eval, asked as the
@@ -304,17 +310,27 @@ async function checkSession(
     );
 }
 
-// The configuration file, as written, with `placement` at `session`. A
-// terminal takes no message key, so its participant's sends are not
-// repeated (see checkTerminal in config.ts); an agent has no terminal CLI.
+// A session a placement is pointed at: where it works, and for a terminal
+// the CLI that runs there.
+type Target = { session: string; folder: string; cli: TerminalCli | null };
+
+// The configuration file, as written, with `placement` at the target and
+// its folder recorded. A terminal takes no message key, so its
+// participant's sends are not repeated (see checkTerminal in config.ts);
+// `terminals` names Codex, and Claude Code (the default) or an agent not.
 function pointed(
   path: string,
   placement: string,
-  session: string,
+  { session, folder, cli }: Target,
   log: (line: string) => void,
 ): Record<string, unknown> {
   const file = fileOf(path);
   sectionOf(file, "agents")[placement] = session;
+  const folders = sectionOf(file, "folders");
+  if (folders[placement] !== folder) {
+    folders[placement] = folder;
+    log(`${placement} works in ${folder}.`);
+  }
   if (terminalOf(session) !== null) {
     const participant = participantOf(placement);
     const entry = records(file.participants).find((p) => p.id === participant);
@@ -322,14 +338,142 @@ function pointed(
       entry.idempotent = false;
       log(`${participant} is idempotent: false now, for a terminal.`);
     }
+  }
+  const named = isRecord(file.terminals)
+    ? own(file.terminals, placement)
+    : undefined;
+  if (cli === "codex" && named !== "codex") {
+    sectionOf(file, "terminals")[placement] = "codex";
+    log(`terminals.${placement}: codex, as its screen shows.`);
   } else if (
-    isRecord(file.terminals) &&
-    own(file.terminals, placement) !== undefined
+    cli !== "codex" &&
+    named !== undefined &&
+    isRecord(file.terminals)
   ) {
     delete file.terminals[placement];
-    log(`terminals.${placement} removed: ${session} is an agent.`);
+    log(
+      `terminals.${placement} removed: ${cli === "claude" ? `Claude Code runs in ${session}` : `${session} is an agent`}.`,
+    );
   }
   return file;
+}
+
+// Why a session in the folder cannot take `placement`, or null when it can:
+// a terminal showing Claude Code or Codex, or a Claude or Codex agent not
+// archived; not the current session, one at another placement, or one the
+// record has seen (a placement never takes a seen session).
+function unfit(
+  s: FolderSession,
+  placement: string,
+  current: string,
+  config: RouterConfig,
+  state: State,
+): string | null {
+  if (s.kind === "terminal" && s.cli === null)
+    return s.unread
+      ? `its screen was not read: ${s.unread}`
+      : "shows neither Claude Code's title nor Codex's empty composer";
+  if (s.kind === "agent" && s.archived) return "archived";
+  if (s.kind === "agent" && s.provider !== "claude" && s.provider !== "codex")
+    return `a ${s.provider} agent; only Claude Code and Codex take placements`;
+  if (s.session === current) return "the current session";
+  const other = Object.keys(config.agents).find(
+    (key) => key !== placement && config.agents[key] === s.session,
+  );
+  if (other) return `at ${other}`;
+  const seen = own(state.sessions, s.session);
+  if (seen) return `seen before, as ${seen.participant}@${seen.host}'s`;
+  return null;
+}
+
+// A session as a listing names it.
+function described(s: FolderSession): string {
+  const what =
+    s.kind === "terminal"
+      ? `terminal${s.cli === "claude" ? ", Claude Code" : s.cli === "codex" ? ", Codex" : ""}`
+      : `${s.provider} agent, ${s.status}`;
+  const title = s.title?.trim();
+  return `${s.session} (${what}${title ? `, "${title.slice(0, 40)}"` : ""})`;
+}
+
+// The one session in the placement's folder that can take it: the folder
+// recorded for it, else the current session's. None or several: nothing
+// changes, and what is in the folder is listed; archived agents counted.
+async function found(
+  config: RouterConfig,
+  state: State,
+  placement: string,
+  current: string,
+  deps: RosterDeps,
+): Promise<Target | null> {
+  const host = hostOf(placement);
+  const folder =
+    own(config.folders, placement) ??
+    (await deps
+      .folderOf(host, current)
+      .catch((error: unknown) =>
+        refuse(`Cannot reach Paseo on ${host}: ${messageOf(error)}`),
+      )) ??
+    refuse(
+      `No folder is recorded for ${placement}, and Paseo on ${host} no longer knows ${current}; name the session: router roster repoint ${placement} <session>.`,
+    );
+  const sessions = await deps
+    .sessionsIn(host, folder)
+    .catch((error: unknown) =>
+      refuse(`Cannot reach Paseo on ${host}: ${messageOf(error)}`),
+    );
+  const judged = sessions.map((s) => ({
+    s,
+    why: unfit(s, placement, current, config, state),
+  }));
+  const fit = judged.filter((j) => j.why === null);
+  const only = fit.length === 1 ? fit[0]?.s : undefined;
+  if (only) {
+    deps.log(
+      `${placement}: ${described(only)} is the one new session in ${folder}.`,
+    );
+    return {
+      session: only.session,
+      folder,
+      cli: only.kind === "terminal" ? only.cli : null,
+    };
+  }
+  deps.log(
+    `${placement}: ${fit.length ? `${fit.length} sessions` : "no session"} in ${folder} can take it, so nothing changed. Name one: router roster repoint ${placement} <session>.`,
+  );
+  for (const { s, why } of judged)
+    if (!(s.kind === "agent" && s.archived))
+      deps.log(`  ${described(s)}${why ? `: ${why}` : ""}`);
+  const archived = sessions.filter((s) => s.kind === "agent" && s.archived);
+  if (archived.length)
+    deps.log(
+      `  and ${plural(archived.length, "archived agent", "archived agents")}`,
+    );
+  return null;
+}
+
+// Where a named session works and, for a terminal, the CLI it shows; a
+// terminal showing neither Claude Code nor Codex is refused.
+async function targetOf(
+  host: string,
+  session: string,
+  deps: RosterDeps,
+): Promise<Target> {
+  const reach = (error: unknown): never =>
+    refuse(`Cannot reach Paseo on ${host}: ${messageOf(error)}`);
+  const folder =
+    (await deps.folderOf(host, session).catch(reach)) ??
+    refuse(`Paseo on ${host} does not know ${session}.`);
+  if (terminalOf(session) === null) return { session, folder, cli: null };
+  const shown = (await deps.sessionsIn(host, folder).catch(reach)).find(
+    (s) => s.session === session,
+  );
+  const cli = shown?.kind === "terminal" ? shown.cli : null;
+  if (cli === null)
+    refuse(
+      `${session} ${shown?.kind === "terminal" && shown.unread ? `could not be read: ${shown.unread}` : "shows neither Claude Code's title nor Codex's empty composer"}; start the CLI in it (Codex as codex --no-daemon), leave it at its empty prompt and run this again.`,
+    );
+  return { session, folder, cli };
 }
 
 // After a restart: whether serve's first run has done what `done` looks
@@ -370,20 +514,38 @@ const watchBind = (
     deps,
   );
 
-// `router roster repoint <participant@host> <session>`: 0 when serve binds
-// the placement to the session. Asked again after a restart that bound
-// nothing, it restarts serve without writing the file again.
+// `router roster repoint <participant@host> [<session>]`: 0 when serve
+// binds the placement to the session, or to the one new session in its
+// folder when none is named; 1 when there is not exactly one. Asked again
+// after a restart that bound nothing, it restarts serve without writing the
+// file again.
 export async function repoint(
   placement: string,
-  session: string,
+  named: string | null,
   deps: RosterDeps,
 ): Promise<number> {
   const config = loadConfig(deps.configPath);
   const configured =
     own(config.agents, placement) ??
     refuse(`${placement} is not a placement in agents.`);
+  const host = hostOf(placement);
+  if (!own(config.hosts, host)) refuse(`${host} is not in hosts.`);
   const state = deps.record();
   const before = own(state.placements, placement)?.session;
+  if (named === null && before !== configured) {
+    // A configuration already changed (a restart that failed) is the one
+    // serve has to read; a search would skip it as the current session.
+    deps.log(
+      `${placement} is configured at ${configured}; serve has not bound it yet.`,
+    );
+    named = configured;
+  }
+  const target =
+    named === null
+      ? await found(config, state, placement, configured, deps)
+      : null;
+  if (named === null && target === null) return 1;
+  const session = target?.session ?? named ?? configured;
   if (configured === session && before === session) {
     deps.log(`${placement} is at ${session} already.`);
     return 0;
@@ -392,7 +554,12 @@ export async function repoint(
   // A configuration already changed (a restart that failed) only needs
   // serve to read it.
   if (configured !== session) {
-    const file = pointed(deps.configPath, placement, session, deps.log);
+    const file = pointed(
+      deps.configPath,
+      placement,
+      target ?? (await targetOf(host, session, deps)),
+      deps.log,
+    );
     await approved(file, null, deps);
     const backup = swapConfig(deps.configPath, file, deps.now());
     deps.log(

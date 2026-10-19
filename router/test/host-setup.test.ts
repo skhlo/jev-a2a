@@ -37,6 +37,7 @@ const config: RouterConfig = {
   },
   agents: {},
   terminals: {},
+  folders: {},
   serve: {
     listen: "100.64.0.1:7677",
     board: "127.0.0.1:7678",

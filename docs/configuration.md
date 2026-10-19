@@ -77,15 +77,23 @@ adapters section ([jev-router-spec.md](research/jev-router-spec.md)).
 
 A Paseo daemon restart closes terminals, and a reopened terminal or a
 cleared agent context gets a new id. `router roster repoint
-<participant@host> <session>` points the placement at it:
+<participant@host> [<session>]` points the placement at it:
 
+- Without a session, it looks in the placement's folder
+  ([`folders`](#folders), else the current session's) for the one session
+  that can take it: a terminal whose title carries Claude Code's mark, a
+  terminal at Codex's empty composer, or a Claude or Codex agent not
+  archived. Not the current session, one another placement names, or one
+  the record has seen. None or several: nothing changes, and it lists the
+  folder's sessions; run it again naming one.
 - It refuses a session the host's Paseo does not know, or knows by another
   id: an agent named by a prefix or a title needs its full id. It also
   refuses a session another placement names, and one the record has seen,
   which the record would refuse to bind.
-- For a terminal it sets the participant `idempotent: false`; for an agent
-  it drops the placement's `terminals` entry. A terminal that runs Codex
-  needs its `terminals` entry added by hand afterwards, then a restart.
+- For a terminal it sets the participant `idempotent: false`, and sets or
+  drops the placement's `terminals` entry by what the terminal shows; a
+  terminal showing neither CLI is refused. For an agent it drops the
+  entry. It records the session's folder in `folders`.
 - It writes the file only once it loads, keeping the old one as
   `config.json.bak-<time>`. The copy restores the file, not the record:
   once `serve` binds the new session, the placement cannot go back to the
@@ -104,6 +112,18 @@ terminal, and a value other than `claude` or `codex`.
 
 ```json
 "terminals": { "coder@laptop": "codex" }
+```
+
+### `folders`
+
+Placement key to the folder its session works in, on its host, as Paseo
+writes it: where `router roster repoint` looks for a new session. Every
+repoint writes it; optional. A terminal's folder is where it was created;
+a `cd` in it does not move it. Refused: a key not in `agents`, and a path
+that is not absolute.
+
+```json
+"folders": { "coder@laptop": "/home/me/project" }
 ```
 
 ### `serve`

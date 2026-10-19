@@ -460,6 +460,10 @@ function scripted(status: PaseoAgent["status"], fail: string[] = []) {
       calls.push("terminals");
       return [];
     },
+    async agents() {
+      calls.push("agents");
+      return [];
+    },
     async screen() {
       calls.push("screen");
       return screen([], null);
@@ -1470,6 +1474,95 @@ test("a Codex send goes only to its empty composer, and is confirmed by the turn
     );
     assert.deepEqual(held.inputs, []);
   }
+});
+
+test("a folder's sessions: terminals and agents in exactly that folder, a terminal's CLI by Claude Code's title or Codex's empty composer, archived agents marked, nothing resumed", async () => {
+  const { daemon, calls } = scripted("idle");
+  const work = "/work/.paseo/worktrees/feat-x";
+  const screens: Record<string, Screen> = { T2: CODEX_EMPTY, T3: CODEX_DRAFT };
+  const reads: string[] = [];
+  const listed: Daemon = {
+    ...daemon,
+    async terminals() {
+      return [
+        term(finishedAt(5)),
+        { ...codexTerm(null), id: "T2" },
+        { ...codexTerm(null, "skhl@mbp:~"), id: "T3" },
+        { ...codexTerm(null), id: "T4" },
+        // A subfolder and another spelling are other folders.
+        { ...term(finishedAt(5)), id: "T5", cwd: `${work}/sub` },
+        { ...term(finishedAt(5)), id: "T6", cwd: `${work}/` },
+      ];
+    },
+    async screen(id) {
+      reads.push(id);
+      const shown = screens[id];
+      if (!shown) throw new Error("no screen of the terminal within 5 s");
+      return shown;
+    },
+    async agents() {
+      return [
+        { ...agent("idle"), title: "Review" },
+        { ...agent("closed"), id: "A2", provider: "pi", archivedAt: SEEN },
+        { ...agent("idle"), id: "A3", cwd: "/elsewhere" },
+      ];
+    },
+  };
+  const finder = adapterOver(listed);
+  assert.deepEqual(await finder.sessionsIn(work), [
+    {
+      kind: "terminal",
+      session: "terminal:T1",
+      title: "✳ Claude Code",
+      cli: "claude",
+    },
+    {
+      kind: "terminal",
+      session: "terminal:T2",
+      title: "jev-a2a",
+      cli: "codex",
+    },
+    {
+      kind: "terminal",
+      session: "terminal:T3",
+      title: "skhl@mbp:~",
+      cli: null,
+    },
+    {
+      kind: "terminal",
+      session: "terminal:T4",
+      title: "jev-a2a",
+      cli: null,
+      unread: "no screen of the terminal within 5 s",
+    },
+    {
+      kind: "agent",
+      session: "A1",
+      title: "Review",
+      provider: "claude",
+      status: "idle",
+      archived: false,
+    },
+    {
+      kind: "agent",
+      session: "A2",
+      title: null,
+      provider: "pi",
+      status: "closed",
+      archived: true,
+    },
+  ]);
+  // Claude Code's title is enough; only the others' screens are read.
+  assert.deepEqual(reads.sort(), ["T2", "T3", "T4"]);
+  assert.equal(await finder.folderOf("terminal:T5"), `${work}/sub`);
+  assert.equal(await finder.folderOf("A2"), work);
+  assert.equal(await finder.folderOf("A3"), "/elsewhere");
+  assert.equal(await finder.folderOf("terminal:T9"), null);
+  assert.equal(await finder.folderOf("A9"), null);
+  assert.deepEqual(
+    calls.filter((call) => !/^(terminals|agents)$/.test(call)),
+    [],
+  );
 });
 
 test("pasteable keeps text, tabs and newlines and drops what could drive the terminal", () => {

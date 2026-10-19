@@ -90,6 +90,39 @@ export type Adapter = {
   close(): Promise<void>;
 };
 
+// A session working in a folder, with what says what runs there. A
+// terminal's CLI is Claude Code when its title carries Claude Code's mark,
+// Codex when its screen shows Codex's empty composer, else null (with why,
+// when its screen could not be read). An agent says its provider and
+// status, and whether it is archived.
+export type FolderSession =
+  | {
+      kind: "terminal";
+      session: string;
+      title: string | null;
+      cli: TerminalCli | null;
+      unread?: string;
+    }
+  | {
+      kind: "agent";
+      session: string;
+      title: string | null;
+      provider: string;
+      status: string;
+      archived: boolean;
+    };
+
+// What `router roster repoint` asks of a host's Paseo to find a session by
+// its folder. Lists and screen reads only: nothing resumes an agent.
+export type Finder = {
+  // Where a session works: a terminal's cwd (where it was created; a `cd`
+  // in it does not move it) or an agent's, archived or not. null when the
+  // daemon does not know the session.
+  folderOf(session: string): Promise<string | null>;
+  // The sessions whose folder is exactly `folder`, as the daemon writes it.
+  sessionsIn(folder: string): Promise<FolderSession[]>;
+};
+
 export type AdapterOptions = {
   // Whether to read the health sheet (checkout, subagents, activity) along
   // with the rail. Default on.
@@ -125,6 +158,8 @@ export type Daemon = {
   subagents(agentId: string): Promise<ProviderSubagent[]>;
   tail(agentId: string, limit: number): Promise<TimelineEntry[]>;
   terminals(): Promise<PaseoTerminal[]>;
+  // Every agent, archived included.
+  agents(): Promise<PaseoAgent[]>;
   screen(terminalId: string): Promise<Screen>;
   input(terminalId: string, data: string): Promise<void>;
   close(): Promise<void>;
@@ -610,7 +645,7 @@ function toolText(detail: ToolCall["detail"]): string | null {
 export function adapterOver(
   daemon: Daemon,
   options: AdapterOptions = {},
-): Adapter {
+): Adapter & Finder {
   const sheet = options.sheet ?? true;
   const tail = options.tail ?? 8;
   const receiptMs = options.receiptMs ?? 10_000;
@@ -749,11 +784,61 @@ export function adapterOver(
     }
     return "unknown";
   };
+  // The CLI a terminal shows: Claude Code by its title, else Codex by its
+  // empty composer on the screen.
+  const cliShown = async (
+    t: PaseoTerminal,
+  ): Promise<{ cli: TerminalCli | null; unread?: string }> => {
+    if (claudeCondition(t) !== "away") return { cli: "claude" };
+    try {
+      const shown = codexPrompt(await daemon.screen(t.id)) === "empty";
+      return { cli: shown ? "codex" : null };
+    } catch (error: unknown) {
+      return {
+        cli: null,
+        unread: error instanceof Error ? error.message : String(error),
+      };
+    }
+  };
   return {
     async resolve(session) {
       const id = terminalOf(session);
       if (id) return (await terminal(id)) ? session : null;
       return (await refreshed(session))?.agent.id ?? null;
+    },
+    async folderOf(session) {
+      const id = terminalOf(session);
+      if (id) return (await terminal(id))?.cwd ?? null;
+      return (await daemon.agents()).find((a) => a.id === session)?.cwd ?? null;
+    },
+    async sessionsIn(folder) {
+      const [terminals, agents] = await Promise.all([
+        daemon.terminals(),
+        daemon.agents(),
+      ]);
+      const here = await Promise.all(
+        terminals
+          .filter((t) => t.cwd === folder)
+          .map(async (t): Promise<FolderSession> => ({
+            kind: "terminal",
+            session: `terminal:${t.id}`,
+            title: t.title ?? null,
+            ...(await cliShown(t)),
+          })),
+      );
+      return [
+        ...here,
+        ...agents
+          .filter((a) => a.cwd === folder)
+          .map((a): FolderSession => ({
+            kind: "agent",
+            session: a.id,
+            title: a.title ?? null,
+            provider: a.provider,
+            status: a.status,
+            archived: Boolean(a.archivedAt),
+          })),
+      ];
     },
     async observe(agentId, seen) {
       const id = terminalOf(agentId);
@@ -813,7 +898,7 @@ export function adapterOver(
 export async function createPaseoAdapter(
   endpoint: string,
   options: AdapterOptions = {},
-): Promise<Adapter> {
+): Promise<Adapter & Finder> {
   const tunnel = endpoint.startsWith("ssh://")
     ? await openSshTunnel(endpoint)
     : null;
@@ -857,6 +942,21 @@ export async function createPaseoAdapter(
           })
         ).entries,
       terminals: async () => (await daemonClient.listTerminals()).terminals,
+      async agents() {
+        const all: PaseoAgent[] = [];
+        let cursor: string | undefined;
+        do {
+          const { entries, pageInfo } = await api.agents.list({
+            filter: { includeArchived: true },
+            page: { limit: 200, ...(cursor ? { cursor } : {}) },
+          });
+          all.push(...entries.map((entry) => entry.agent));
+          cursor = pageInfo.hasMore
+            ? (pageInfo.nextCursor ?? undefined)
+            : undefined;
+        } while (cursor);
+        return all;
+      },
       screen: (terminalId) => screenOf(daemonClient, terminalId),
       async input(terminalId, data) {
         daemonClient.sendTerminalInput(terminalId, { type: "input", data });

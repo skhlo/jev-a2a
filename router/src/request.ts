@@ -30,8 +30,9 @@ export const USAGE = `router: a prompt with an envelope and a record
   router cancel <task> [--as <principal>]
   router host setup <host>                     install or update router on a host the router reaches over ssh, with its token, and check it
   router check                                 on a host without a configuration: the router answers, takes this host's token, runs this commit
-  router roster repoint <participant@host> <session>
-                                               point a placement at a new Paseo session (agent id or terminal:<id>), restart serve, see it bound
+  router roster repoint <participant@host> [<session>]
+                                               point a placement at a new Paseo session (agent id or terminal:<id>), or find the one
+                                               new session in its folder; restart serve, see it bound
   router roster add <participant> <host>:<path> <host>=<session>...
                                                add a participant, its text from the file's ## <participant> section on its repository's
                                                main branch, a placement per host, grants all to all; eval, restart serve, see them bound

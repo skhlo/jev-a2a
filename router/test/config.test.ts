@@ -154,6 +154,15 @@ test("what the router refuses, with the reason", () => {
       { ...withTerminal, terminals: { "orchestrator@mbp": "pi" } },
       /terminals.orchestrator@mbp must be one of claude, codex/,
     ],
+    [{ ...valid, folders: "/srv" }, /folders maps placements to the folder/],
+    [
+      { ...valid, folders: { "nobody@mbp": "/srv" } },
+      /folders.nobody@mbp names no placement in agents/,
+    ],
+    [
+      { ...valid, folders: { "orchestrator@mbp": "~/work" } },
+      /folders.orchestrator@mbp must be an absolute path/,
+    ],
     [{ ...valid, serve: { board: "0.0.0.0:7678" } }, /loopback/],
     [
       { ...valid, telemetry: { sheet: "yes" } },
@@ -204,11 +213,17 @@ test("a terminal placement is accepted for a participant that is not idempotent,
   const config = loadConfig(write(withTerminal));
   assert.equal(config.agents["orchestrator@mbp"], `terminal:${TERMINAL_ID}`);
   assert.deepEqual(config.terminals, {});
+  assert.deepEqual(config.folders, {});
   assert.deepEqual(terminalClis(config), {});
   const codex = loadConfig(
-    write({ ...withTerminal, terminals: { "orchestrator@mbp": "codex" } }),
+    write({
+      ...withTerminal,
+      terminals: { "orchestrator@mbp": "codex" },
+      folders: { "orchestrator@mbp": "/srv/work" },
+    }),
   );
   assert.deepEqual(codex.terminals, { "orchestrator@mbp": "codex" });
+  assert.deepEqual(codex.folders, { "orchestrator@mbp": "/srv/work" });
   assert.deepEqual(terminalClis(codex), {
     [`terminal:${TERMINAL_ID}`]: "codex",
   });
