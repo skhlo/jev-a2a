@@ -29,6 +29,7 @@ import {
   type RosterDeps,
 } from "../src/roster.ts";
 import { loadConfig } from "../src/config.ts";
+import type { FolderSession } from "../src/paseo.ts";
 import { recordReader } from "../src/server.ts";
 import { coreConfig } from "../src/shell.ts";
 import { UsageError } from "../src/request.ts";
@@ -94,6 +95,18 @@ function setup(
   const read = recordReader({ ...fixture, home: dir });
   const log: string[] = [];
   const counts = { restarts: 0 };
+  // The sessions each host's Paseo lists, with their folders. One not
+  // listed works in /srv/work, unless the daemon does not know it.
+  const world: (FolderSession & { host: string; folder: string })[] = [
+    {
+      host: "mini",
+      folder: "/srv/work",
+      kind: "terminal",
+      session: TERMINAL,
+      title: "✳ Notes",
+      cli: "claude",
+    },
+  ];
   let binds = true;
   const binding = (on: boolean): void => {
     binds = on;
@@ -105,6 +118,17 @@ function setup(
     resolve: (_host, session) =>
       Promise.resolve(
         session === "unknown" ? null : session === "K" ? "K2" : session,
+      ),
+    folderOf: (host, session) =>
+      Promise.resolve(
+        world.find((s) => s.host === host && s.session === session)?.folder ??
+          (session === "unknown" ? null : "/srv/work"),
+      ),
+    sessionsIn: (host, folder) =>
+      Promise.resolve(
+        world
+          .filter((s) => s.host === host && s.folder === folder)
+          .map(({ host: _host, folder: _folder, ...s }) => s),
       ),
     read: (host, path) => {
       const text = files.get(`${host}:${path}`);
@@ -176,11 +200,12 @@ function setup(
     counts,
     fileNow,
     binding,
+    world,
   };
 }
 
 test("roster repoint: refuses, touching neither the configuration nor serve, what it cannot point at", async (t) => {
-  const { dir, configPath, deps, counts } = setup(t);
+  const { dir, configPath, deps, counts, world } = setup(t);
   const before = readFileSync(configPath, "utf8");
   const refused = (
     placement: string,
@@ -213,7 +238,15 @@ test("roster repoint: refuses, touching neither the configuration nor serve, wha
     resolve: () => Promise.reject(new Error("down")),
   });
   // What the configuration refuses, named as the file it would replace: a
-  // terminal named by a short id.
+  // terminal named by a short id (that a daemon would know it so).
+  world.push({
+    host: "mini",
+    folder: "/srv/work",
+    kind: "terminal",
+    session: "terminal:0b6a4c2e",
+    title: "✳ Notes",
+    cli: "claude",
+  });
   await refused(
     "knowledge@mini",
     "terminal:0b6a4c2e",
@@ -274,6 +307,7 @@ test("roster repoint: an agent placement moved to a terminal, its participant no
   );
   assert.equal(counts.restarts, 1);
   assert.deepEqual(log, [
+    "knowledge@mini works in /srv/work.",
     "knowledge is idempotent: false now, for a terminal.",
     `knowledge@mini: K1 -> ${TERMINAL}; the old configuration is ${configPath}.bak-20261006T130501Z.`,
     "1 open delivery went to the old session K1; router needs-you lists what they need.",
@@ -322,7 +356,7 @@ test("roster repoint: a terminal placement moved to an agent drops its terminal'
     after.participants.find((p) => p.id === "knowledge")?.idempotent,
     false,
   );
-  assert.equal(log[0], "terminals.knowledge@mini removed: K2 is an agent.");
+  assert.equal(log[1], "terminals.knowledge@mini removed: K2 is an agent.");
 });
 
 test("roster repoint: a restart that bound nothing is repaired by asking again; until then it fails", async (t) => {
@@ -344,6 +378,313 @@ test("roster repoint: a restart that bound nothing is repaired by asking again; 
     "1 open delivery went to the old session K1; router needs-you lists what they need.",
     "knowledge@mini: serve binds K2, ready.",
   ]);
+  assert.equal(
+    readdirSync(dir).filter((name) => name.includes(".bak-")).length,
+    1,
+  );
+});
+
+// More terminals, and a folder's sessions as a host's Paseo lists them.
+const T2 = "terminal:1c7b5d3f-8a2e-4f4b-ad6c-3e9f2a1b4c5d";
+const T3 = "terminal:2d8c6e4a-9b3f-4a5c-be7d-4fa03b2c5d6e";
+const T4 = "terminal:3e9d7f5b-ac4a-4b6d-8f8e-50b14c3d6e7f";
+type Listed = FolderSession & { host: string; folder: string };
+const inNotes = (s: FolderSession): Listed => ({
+  ...s,
+  host: "mini",
+  folder: "/srv/notes",
+});
+const terminal = (
+  session: string,
+  cli: "claude" | "codex" | null,
+  title: string,
+  unsure?: string,
+): Listed =>
+  inNotes({
+    kind: "terminal",
+    session,
+    title,
+    cli,
+    ...(unsure ? { unsure } : {}),
+  });
+const agent = (
+  session: string,
+  provider: string,
+  status: string,
+  title: string,
+  archived = false,
+): Listed =>
+  inNotes({ kind: "agent", session, title, provider, status, archived });
+
+test("roster repoint without a session: the one new session in the folder, its CLI from what it shows, the folder kept for the next", async (t) => {
+  const { deps, log, fileNow, world, counts } = setup(t);
+  world.length = 0;
+  world.push(
+    agent("K1", "codex", "closed", "Notes", true),
+    terminal(T2, "codex", "zsh"),
+    terminal(T3, null, "~/notes"),
+    agent("P1", "pi", "idle", "Vault admin"),
+    { ...terminal(TERMINAL, "claude", "✳ Other"), folder: "/srv/other" },
+  );
+  assert.equal(await repoint("knowledge@mini", null, deps), 0);
+  assert.equal(fileNow().agents["knowledge@mini"], T2);
+  assert.deepEqual(fileNow().terminals, { "knowledge@mini": "codex" });
+  assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/notes" });
+  assert.deepEqual(log.slice(0, 4), [
+    `knowledge@mini: ${T2} (terminal, Codex, "zsh") is the one new session in /srv/notes.`,
+    "knowledge@mini works in /srv/notes.",
+    "knowledge is idempotent: false now, for a terminal.",
+    "terminals.knowledge@mini: codex, as its screen shows.",
+  ]);
+  // Codex's terminal closed, Claude Code in a new one: found by the folder
+  // kept, though the daemon no longer knows the current session.
+  world.splice(1, 1, terminal(T4, "claude", "✳ Notes"));
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", null, deps), 0);
+  assert.equal(fileNow().agents["knowledge@mini"], T4);
+  assert.deepEqual(fileNow().terminals, {});
+  assert.deepEqual(log.slice(0, 2), [
+    `knowledge@mini: ${T4} (terminal, Claude Code, "✳ Notes") is the one new session in /srv/notes.`,
+    `terminals.knowledge@mini removed: Claude Code runs in ${T4}.`,
+  ]);
+  assert.equal(counts.restarts, 2);
+});
+
+test("roster repoint without a session: none or several that can take it, or one beside an unsure terminal, change nothing and list the folder; a seen session never comes back", async (t) => {
+  const { configPath, deps, log, fileNow, world, counts } = setup(t);
+  const listed = (...sessions: Listed[]) =>
+    world.splice(0, world.length, ...sessions);
+  // The current session, archived: gone.
+  const gone = agent("K1", "claude", "idle", "Notes", true);
+  const shell = terminal(T3, null, "~/notes");
+  const claude = terminal(T2, "claude", "✳ Notes");
+  const review = agent("K3", "codex", "idle", "Review");
+  listed(
+    gone,
+    shell,
+    agent("X1", "claude", "closed", "Old", true),
+    agent("P1", "pi", "idle", "Vault admin"),
+    agent("K4", "claude", "closed", "Left"),
+  );
+  const before = readFileSync(configPath, "utf8");
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.deepEqual(log, [
+    "knowledge@mini: no session in /srv/notes can take it, so nothing changed. Name one: router roster repoint knowledge@mini <session>.",
+    `  ${T3} (terminal, "~/notes"): shows neither Claude Code's title nor Codex's empty composer`,
+    '  P1 (pi agent, idle, "Vault admin"): a pi agent; only Claude Code and Codex take placements',
+    '  K4 (claude agent, closed, "Left"): closed; only a live agent is found, so name it',
+    "  and 2 archived agents",
+  ]);
+  listed(gone, shell, claude, review);
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.equal(
+    log[0],
+    "knowledge@mini: 2 sessions in /srv/notes can take it, so nothing changed. Name one: router roster repoint knowledge@mini <session>.",
+  );
+  // A Codex turn, or a screen not read, may be one more candidate.
+  for (const why of [
+    "a turn is running on its screen",
+    "its screen was not read: no screen of the terminal within 5 s",
+  ]) {
+    listed(gone, claude, terminal(T4, null, "zsh", why));
+    log.length = 0;
+    assert.equal(await repoint("knowledge@mini", null, deps), 1);
+    assert.deepEqual(log.slice(0, 3), [
+      "knowledge@mini: 1 session in /srv/notes can take it, and 1 terminal is unsure, so nothing changed. Name one: router roster repoint knowledge@mini <session>.",
+      `  ${T2} (terminal, Claude Code, "✳ Notes")`,
+      `  ${T4} (terminal, "zsh"): ${why}`,
+    ]);
+  }
+  assert.equal(readFileSync(configPath, "utf8"), before);
+  assert.equal(counts.restarts, 0);
+  // Named, one binds, and its folder is kept.
+  listed(gone, claude, review);
+  assert.equal(await repoint("knowledge@mini", "K3", deps), 0);
+  assert.equal(fileNow().agents["knowledge@mini"], "K3");
+  assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/notes" });
+  // K3 gone and K1 out of the archive: the record has seen K1.
+  listed(agent("K1", "claude", "idle", "Notes"));
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.equal(
+    log[1],
+    '  K1 (claude agent, idle, "Notes"): seen before, as knowledge@mini\'s',
+  );
+});
+
+test("roster repoint without a session: while the current session is still there, nothing changes, whatever is beside it", async (t) => {
+  const { configPath, deps, log, world, counts } = setup(t);
+  const before = readFileSync(configPath, "utf8");
+  for (const status of ["closed", "idle"]) {
+    world.splice(
+      0,
+      world.length,
+      agent("K1", "claude", status, "Notes"),
+      terminal(T2, "codex", "review"),
+    );
+    log.length = 0;
+    assert.equal(await repoint("knowledge@mini", null, deps), 1);
+    assert.deepEqual(log, [
+      `knowledge@mini: its session K1 (claude agent, ${status}, "Notes") is still there, so nothing changed. Close its terminal or archive its agent first, or name the new session: router roster repoint knowledge@mini <session>.`,
+    ]);
+  }
+  assert.equal(readFileSync(configPath, "utf8"), before);
+  assert.equal(counts.restarts, 0);
+  // Still there in another folder, when the configuration is out of step
+  // with the folder recorded.
+  world.splice(
+    0,
+    world.length,
+    { ...agent("K1", "claude", "idle", "Notes"), folder: "/srv/work" },
+    terminal(T2, "claude", "✳ Side"),
+  );
+  const file = JSON.parse(readFileSync(configPath, "utf8")) as File;
+  writeFileSync(
+    configPath,
+    JSON.stringify({ ...file, folders: { "knowledge@mini": "/srv/notes" } }),
+  );
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.match(
+    log[0] ?? "",
+    /^knowledge@mini: its session K1 \(claude agent, idle, "Notes"\) is still there/,
+  );
+  writeFileSync(configPath, before);
+  // A terminal whose CLI has exited is still there too.
+  world.splice(0, world.length, terminal(TERMINAL, "claude", "✳ Notes"));
+  assert.equal(await repoint("knowledge@mini", TERMINAL, deps), 0);
+  world.splice(
+    0,
+    world.length,
+    terminal(TERMINAL, null, "~/notes"),
+    terminal(T2, "codex", "review"),
+  );
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.match(
+    log[0] ?? "",
+    /^knowledge@mini: its session terminal:\S+ \(terminal, "~\/notes"\) is still there, so nothing changed\./,
+  );
+});
+
+test("roster repoint without a session: a terminal unsure of its CLI blocks nothing when it could not take the placement anyway", async (t) => {
+  const { deps, fileNow, world } = setup(t, (file) => ({
+    ...file,
+    agents: { ...file.agents, "environment@mini": T4 },
+    participants: file.participants.map((p) =>
+      p.id === "environment" ? { ...p, idempotent: false } : p,
+    ),
+  }));
+  world.splice(
+    0,
+    world.length,
+    agent("K1", "claude", "idle", "Notes", true),
+    terminal(T2, "claude", "✳ Notes"),
+    terminal(T4, null, "zsh", "a turn is running on its screen"),
+  );
+  assert.equal(await repoint("knowledge@mini", null, deps), 0);
+  assert.equal(fileNow().agents["knowledge@mini"], T2);
+});
+
+test("roster repoint: no folder to look in, an unreachable host and a terminal showing neither CLI are refused before anything is written", async (t) => {
+  const { configPath, deps, fileNow, world, counts } = setup(t);
+  world.length = 0;
+  const before = readFileSync(configPath, "utf8");
+  await assert.rejects(
+    repoint("knowledge@mini", null, {
+      ...deps,
+      folderOf: () => Promise.resolve(null),
+    }),
+    /^UsageError: No folder is recorded for knowledge@mini, and Paseo on mini no longer knows K1; name the session: router roster repoint knowledge@mini <session>\.$/,
+  );
+  await assert.rejects(
+    repoint("knowledge@mini", null, {
+      ...deps,
+      sessionsIn: () => Promise.reject(new Error("down")),
+    }),
+    /^UsageError: Cannot reach Paseo on mini: down$/,
+  );
+  world.push(
+    { ...terminal(T3, null, "~"), folder: "/srv/work" },
+    {
+      ...terminal(
+        T2,
+        null,
+        "~",
+        "its screen was not read: no screen of the terminal within 5 s",
+      ),
+      folder: "/srv/work",
+    },
+  );
+  await assert.rejects(
+    repoint("knowledge@mini", T3, deps),
+    /^UsageError: terminal:\S+ shows neither Claude Code's title nor Codex's empty composer; start the CLI in it \(Codex as codex --no-daemon\), leave it at its empty prompt and run this again\.$/,
+  );
+  await assert.rejects(
+    repoint("knowledge@mini", T2, deps),
+    /^UsageError: terminal:\S+: its screen was not read: no screen of the terminal within 5 s; run this again when it is at its empty prompt\.$/,
+  );
+  assert.equal(readFileSync(configPath, "utf8"), before);
+  assert.equal(counts.restarts, 0);
+  // Named, a Codex terminal is recorded as Codex.
+  world.push({ ...terminal(T4, "codex", "zsh"), folder: "/srv/work" });
+  assert.equal(await repoint("knowledge@mini", T4, deps), 0);
+  assert.deepEqual(fileNow().terminals, { "knowledge@mini": "codex" });
+  assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/work" });
+});
+
+test("roster repoint: naming the bound session records its folder when none is, once, without a restart", async (t) => {
+  const { dir, deps, log, counts, fileNow } = setup(t);
+  // A host not reached, or a session its Paseo no longer knows: nothing
+  // recorded, and still done.
+  for (const folderOf of [
+    () => Promise.reject(new Error("down")),
+    () => Promise.resolve(null),
+  ])
+    assert.equal(
+      await repoint("knowledge@mini", "K1", { ...deps, folderOf }),
+      0,
+    );
+  assert.deepEqual(log, [
+    "knowledge@mini is at K1 already.",
+    "knowledge@mini's folder is not recorded: Cannot reach Paseo on mini: down.",
+    "knowledge@mini is at K1 already.",
+    "knowledge@mini's folder is not recorded: Paseo on mini does not know K1.",
+  ]);
+  assert.deepEqual(fileNow().folders, {});
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 0);
+  assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/work" });
+  assert.deepEqual(log, [
+    "knowledge@mini is at K1 already.",
+    `knowledge@mini works in /srv/work, recorded; the old configuration is ${dir}/config.json.bak-20261006T130501Z.`,
+  ]);
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 0);
+  assert.deepEqual(log, ["knowledge@mini is at K1 already."]);
+  assert.equal(counts.restarts, 0);
+});
+
+test("roster repoint without a session: after a restart that bound nothing, asked again it restarts serve into the configured session", async (t) => {
+  const { dir, deps, log, counts, fileNow, binding, world } = setup(t);
+  world.length = 0;
+  world.push(
+    agent("K1", "claude", "idle", "Notes", true),
+    terminal(T2, "claude", "✳ Notes"),
+  );
+  binding(false);
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.equal(fileNow().agents["knowledge@mini"], T2);
+  binding(true);
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", null, deps), 0);
+  assert.equal(
+    log[0],
+    `knowledge@mini is configured at ${T2}; serve has not bound it yet.`,
+  );
+  assert.equal(log.at(-1), `knowledge@mini: serve binds ${T2}, ready.`);
+  assert.equal(counts.restarts, 2);
   assert.equal(
     readdirSync(dir).filter((name) => name.includes(".bak-")).length,
     1,
@@ -492,7 +833,10 @@ test("roster add: a participant from its section of a responsibility file, grant
 });
 
 test("roster remove: the participant, its grants and placements go; its labeled requests expect none, the rest as written", async (t) => {
-  const { setPath, deps, log, counts, fileNow } = setup(t);
+  const { setPath, deps, log, counts, fileNow } = setup(t, (file) => ({
+    ...file,
+    folders: { "knowledge@mini": "/srv/notes", "orchestrator@mbp": "/srv" },
+  }));
   await assert.rejects(
     remove("nobody", deps),
     /^UsageError: nobody is not in the roster/,
@@ -508,6 +852,7 @@ test("roster remove: the participant, its grants and placements go; its labeled 
     orchestrator: ["environment", "incus"],
   });
   assert.equal(after.agents["knowledge@mini"], undefined);
+  assert.deepEqual(after.folders, { "orchestrator@mbp": "/srv" });
   assert.equal(
     readFileSync(setPath, "utf8"),
     `${SET.map((line) => line.replace('"expect": "knowledge"', '"expect": "none"')).join("\n")}\n`,

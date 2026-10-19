@@ -58,6 +58,7 @@ const config: RouterConfig = {
   hosts: { mbp: { paseo: "ws://x", replyCommand: "router" } },
   agents: { "orchestrator@mbp": "A1" },
   terminals: {},
+  folders: {},
   serve: {
     listen: "127.0.0.1:0",
     board: "127.0.0.1:0",

@@ -77,15 +77,28 @@ adapters section ([jev-router-spec.md](research/jev-router-spec.md)).
 
 A Paseo daemon restart closes terminals, and a reopened terminal or a
 cleared agent context gets a new id. `router roster repoint
-<participant@host> <session>` points the placement at it:
+<participant@host> [<session>]` points the placement at it:
 
+- Without a session, once the current session is gone (its terminal
+  closed, its agent archived or gone), it looks in the placement's folder
+  ([`folders`](#folders), else the current session's) for the one session
+  that can take it: a terminal whose title carries Claude Code's mark, a
+  terminal at Codex's empty composer, or a live (idle or running) Claude or
+  Codex agent, not archived. Not one another placement names, or one the
+  record has seen. None or several, or a terminal it cannot tell yet (a
+  Codex turn or draft on its screen, or a screen not read): nothing
+  changes, and it lists the folder's sessions; run it again naming one.
+  While the current session is still there, nothing changes either: a
+  session beside it may be a side session.
 - It refuses a session the host's Paseo does not know, or knows by another
   id: an agent named by a prefix or a title needs its full id. It also
   refuses a session another placement names, and one the record has seen,
   which the record would refuse to bind.
-- For a terminal it sets the participant `idempotent: false`; for an agent
-  it drops the placement's `terminals` entry. A terminal that runs Codex
-  needs its `terminals` entry added by hand afterwards, then a restart.
+- For a terminal it sets the participant `idempotent: false`, and sets or
+  drops the placement's `terminals` entry by what the terminal shows; a
+  terminal showing neither CLI is refused. For an agent it drops the
+  entry. It records the session's folder in `folders`; naming the bound
+  session records its folder when none is, without a restart.
 - It writes the file only once it loads, keeping the old one as
   `config.json.bak-<time>`. The copy restores the file, not the record:
   once `serve` binds the new session, the placement cannot go back to the
@@ -104,6 +117,19 @@ terminal, and a value other than `claude` or `codex`.
 
 ```json
 "terminals": { "coder@laptop": "codex" }
+```
+
+### `folders`
+
+Placement key to the folder its session works in, on its host, as Paseo
+writes it: where `router roster repoint` looks for a new session. A
+repoint that moves the placement writes it, and naming the bound session
+records it when none is; optional. A terminal's folder is where it was
+created; a `cd` in it does not move it. Refused: a key not in `agents`,
+and a path that is not absolute.
+
+```json
+"folders": { "coder@laptop": "/home/me/project" }
 ```
 
 ### `serve`

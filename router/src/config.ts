@@ -63,6 +63,10 @@ export type RouterConfig = Config & {
   // Placement key -> the CLI in its terminal, for a terminal placement that
   // does not run Claude Code.
   terminals: Record<string, TerminalCli>;
+  // Placement key -> the folder its session works in, on its host, as
+  // Paseo writes it: where `router roster repoint` looks for a new session,
+  // which records it (see repoint in roster.ts).
+  folders: Record<string, string>;
   // Where `router serve` listens for events from other hosts, where it
   // serves the board (loopback; expose it through Tailscale Serve), and which
   // tailnet logins may act from the board, as which principals.
@@ -129,6 +133,7 @@ export function configOf(raw: unknown, path: string): RouterConfig {
     const hosts = hostsOf(extra.hosts);
     const agents = agentsOf(extra.agents ?? {}, config.participants, hosts);
     const terminals = terminalsOf(extra.terminals ?? {}, agents);
+    const folders = foldersOf(extra.folders ?? {}, agents);
     const serve = serveOf(extra.serve, config.principals ?? {});
     const jev = jevOf(extra.jev);
     const telemetry = telemetryOf(extra.telemetry);
@@ -141,6 +146,7 @@ export function configOf(raw: unknown, path: string): RouterConfig {
       hosts,
       agents,
       terminals,
+      folders,
       serve,
       jev,
       telemetry,
@@ -254,6 +260,23 @@ function terminalsOf(
     terminals[key] = cli;
   }
   return terminals;
+}
+
+function foldersOf(
+  value: unknown,
+  agents: Record<string, string>,
+): Record<string, string> {
+  if (!isRecord(value))
+    refuse("folders maps placements to the folder their session works in");
+  const folders: Record<string, string> = {};
+  for (const [key, folder] of Object.entries(value)) {
+    if (own(agents, key) === undefined)
+      refuse(`folders.${key} names no placement in agents`);
+    if (typeof folder !== "string" || !folder.startsWith("/"))
+      refuse(`folders.${key} must be an absolute path`);
+    folders[key] = folder;
+  }
+  return folders;
 }
 
 function serveOf(
