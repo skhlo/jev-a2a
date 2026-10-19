@@ -1483,6 +1483,7 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
     T2: CODEX_EMPTY,
     T3: CODEX_DRAFT,
     T7: CODEX_THINKING,
+    T8: screen(["skhl@mbp ~/work $"], 0, 18),
   };
   const reads: string[] = [];
   const listed: Daemon = {
@@ -1494,6 +1495,7 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
         { ...codexTerm(null, "skhl@mbp:~"), id: "T3" },
         { ...codexTerm(null), id: "T4" },
         { ...codexTerm(null), id: "T7" },
+        { ...codexTerm(null, "~/work"), id: "T8" },
         // A subfolder and another spelling are other folders.
         { ...term(finishedAt(5)), id: "T5", cwd: `${work}/sub` },
         { ...term(finishedAt(5)), id: "T6", cwd: `${work}/` },
@@ -1532,6 +1534,7 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
       session: "terminal:T3",
       title: "skhl@mbp:~",
       cli: null,
+      unsure: "Codex's composer is on its screen, not empty",
     },
     {
       kind: "terminal",
@@ -1547,6 +1550,7 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
       cli: null,
       unsure: "a turn is running on its screen",
     },
+    { kind: "terminal", session: "terminal:T8", title: "~/work", cli: null },
     {
       kind: "agent",
       session: "A1",
@@ -1565,7 +1569,7 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
     },
   ]);
   // Claude Code's title is enough; only the others' screens are read.
-  assert.deepEqual(reads.sort(), ["T2", "T3", "T4", "T7"]);
+  assert.deepEqual(reads.sort(), ["T2", "T3", "T4", "T7", "T8"]);
   assert.equal(await finder.folderOf("terminal:T5"), `${work}/sub`);
   assert.equal(await finder.folderOf("A2"), work);
   assert.equal(await finder.folderOf("A3"), "/elsewhere");

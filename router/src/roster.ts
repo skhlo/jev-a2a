@@ -274,11 +274,13 @@ async function approved(
   return candidate;
 }
 
-// The refusal for a host's Paseo that could not be reached.
+// A host's Paseo that could not be reached, and the refusal for it.
+const noReach = (host: string, error: unknown): string =>
+  `Cannot reach Paseo on ${host}: ${messageOf(error)}`;
 const unreachable =
   (host: string) =>
   (error: unknown): never =>
-    refuse(`Cannot reach Paseo on ${host}: ${messageOf(error)}`);
+    refuse(noReach(host, error));
 
 // The other placement configured with `session`, if one is.
 const placedAt = (
@@ -373,18 +375,20 @@ const NEITHER = "shows neither Claude Code's title nor Codex's empty composer";
 const unshown = ({ unsure }: { unsure?: string }): string => unsure ?? NEITHER;
 
 // Why a session in the folder cannot take `placement`, or null when it can:
-// a terminal showing Claude Code or Codex, or a live (idle or running)
-// Claude or Codex agent, not archived; not the current session, one at
-// another placement, or one the record has seen (a placement never takes a
-// seen session). A closed agent may be one left behind, so it is named,
-// never found.
+// not one at another placement or one the record has seen (a placement
+// never takes a seen session); a terminal showing Claude Code or Codex, or
+// a live (idle or running) Claude or Codex agent, not archived. A closed
+// agent may be one left behind, so it is named, never found.
 function unfit(
   s: FolderSession,
   placement: string,
-  current: string,
   config: RouterConfig,
   state: State,
 ): string | null {
+  const other = placedAt(config, placement, s.session);
+  if (other) return `at ${other}`;
+  const seen = own(state.sessions, s.session);
+  if (seen) return `seen before, as ${seen.participant}@${seen.host}'s`;
   if (s.kind === "terminal" && s.cli === null) return unshown(s);
   if (s.kind === "agent") {
     if (s.archived) return "archived";
@@ -393,12 +397,28 @@ function unfit(
     if (s.status !== "idle" && s.status !== "running")
       return `${s.status}; only a live agent is found, so name it`;
   }
-  if (s.session === current) return "the current session";
-  const other = placedAt(config, placement, s.session);
-  if (other) return `at ${other}`;
-  const seen = own(state.sessions, s.session);
-  if (seen) return `seen before, as ${seen.participant}@${seen.host}'s`;
   return null;
+}
+
+// The current session when it is still there: a terminal, or an agent not
+// archived, in the folder or, when the configuration names it elsewhere,
+// in its own folder.
+async function stillThere(
+  host: string,
+  current: string,
+  folder: string,
+  sessions: FolderSession[],
+  deps: RosterDeps,
+): Promise<FolderSession | null> {
+  const live = (list: FolderSession[]): FolderSession | null =>
+    list.find(
+      (s) => s.session === current && !(s.kind === "agent" && s.archived),
+    ) ?? null;
+  const here = live(sessions);
+  if (here) return here;
+  const elsewhere = await deps.folderOf(host, current).catch(unreachable(host));
+  if (elsewhere === null || elsewhere === folder) return null;
+  return live(await deps.sessionsIn(host, elsewhere).catch(unreachable(host)));
 }
 
 // A session as a listing names it.
@@ -432,23 +452,25 @@ async function findTarget(
       `No folder is recorded for ${placement}, and Paseo on ${host} no longer knows ${current}; name the session: router roster repoint ${placement} <session>.`,
     );
   const sessions = await deps.sessionsIn(host, folder).catch(unreachable(host));
-  const still = sessions.find(
-    (s) => s.session === current && !(s.kind === "agent" && s.archived),
-  );
+  const still = await stillThere(host, current, folder, sessions, deps);
   if (still) {
     deps.log(
       `${placement}: its session ${described(still)} is still there, so nothing changed. Close its terminal or archive its agent first, or name the new session: router roster repoint ${placement} <session>.`,
     );
     return null;
   }
-  const judged = sessions.map((s) => ({
-    s,
-    why: unfit(s, placement, current, config, state),
-  }));
+  // A terminal unsure of its CLI, and ruled out by nothing else, may be
+  // one more that can take it.
+  const judged = sessions.map((s) => {
+    const why = unfit(s, placement, config, state);
+    return {
+      s,
+      why,
+      undecided: s.kind === "terminal" && !!s.unsure && why === s.unsure,
+    };
+  });
   const fit = judged.filter((j) => j.why === null);
-  const undecided = sessions.filter(
-    (s) => s.kind === "terminal" && s.unsure !== undefined,
-  ).length;
+  const undecided = judged.filter((j) => j.undecided).length;
   const only = fit.length === 1 && !undecided ? fit[0]?.s : undefined;
   if (only) {
     deps.log(
@@ -565,7 +587,7 @@ async function recordFolder(
   try {
     folder = await deps.folderOf(host, session);
   } catch (error: unknown) {
-    return unrecorded(`cannot reach Paseo on ${host}: ${messageOf(error)}`);
+    return unrecorded(noReach(host, error));
   }
   if (folder === null)
     return unrecorded(`Paseo on ${host} does not know ${session}`);
@@ -597,7 +619,7 @@ export async function repoint(
   const before = own(state.placements, placement)?.session;
   // Named no session, the one new session in the folder; but a
   // configuration already changed (a restart that failed) is the one serve
-  // has to read, which a search would skip as the current session.
+  // has to read, which a search would stop at as still there.
   let target: Target | null = null;
   if (named === null && before === configured) {
     target = await findTarget(config, state, placement, configured, deps);

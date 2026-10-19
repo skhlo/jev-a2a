@@ -80,16 +80,16 @@ cleared agent context gets a new id. `router roster repoint
 <participant@host> [<session>]` points the placement at it:
 
 - Without a session, once the current session is gone (its terminal
-  closed, its agent archived), it looks in the placement's folder
+  closed, its agent archived or gone), it looks in the placement's folder
   ([`folders`](#folders), else the current session's) for the one session
   that can take it: a terminal whose title carries Claude Code's mark, a
   terminal at Codex's empty composer, or a live (idle or running) Claude or
   Codex agent, not archived. Not one another placement names, or one the
   record has seen. None or several, or a terminal it cannot tell yet (a
-  turn on its screen, or a screen not read): nothing changes, and it lists
-  the folder's sessions; run it again naming one. While the current
-  session is still there, nothing changes either: a session beside it may
-  be a side session.
+  Codex turn or draft on its screen, or a screen not read): nothing
+  changes, and it lists the folder's sessions; run it again naming one.
+  While the current session is still there, nothing changes either: a
+  session beside it may be a side session.
 - It refuses a session the host's Paseo does not know, or knows by another
   id: an agent named by a prefix or a title needs its full id. It also
   refuses a session another placement names, and one the record has seen,

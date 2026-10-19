@@ -786,16 +786,21 @@ export function adapterOver(
   };
   // The CLI a terminal shows: Claude Code by its title, else Codex by its
   // empty composer on the screen. A turn on the screen (Codex's status
-  // line) or a screen not read leaves it unsure.
+  // line), Codex's composer not empty (a draft, or a Codex gone), or a
+  // screen not read leaves it unsure.
   const cliShown = async (
     t: PaseoTerminal,
   ): Promise<{ cli: TerminalCli | null; unsure?: string }> => {
     if (claudeCondition(t) !== "away") return { cli: "claude" };
     try {
-      const prompt = codexPrompt(await daemon.screen(t.id));
-      return prompt === "busy"
-        ? { cli: null, unsure: "a turn is running on its screen" }
-        : { cli: prompt === "empty" ? "codex" : null };
+      const shown = await daemon.screen(t.id);
+      const prompt = codexPrompt(shown);
+      if (prompt === "empty") return { cli: "codex" };
+      if (prompt === "busy")
+        return { cli: null, unsure: "a turn is running on its screen" };
+      return shown.lines.some((line) => line.startsWith("›"))
+        ? { cli: null, unsure: "Codex's composer is on its screen, not empty" }
+        : { cli: null };
     } catch (error: unknown) {
       return {
         cli: null,

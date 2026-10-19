@@ -531,6 +531,26 @@ test("roster repoint without a session: while the current session is still there
   }
   assert.equal(readFileSync(configPath, "utf8"), before);
   assert.equal(counts.restarts, 0);
+  // Still there in another folder, when the configuration is out of step
+  // with the folder recorded.
+  world.splice(
+    0,
+    world.length,
+    { ...agent("K1", "claude", "idle", "Notes"), folder: "/srv/work" },
+    terminal(T2, "claude", "✳ Side"),
+  );
+  const file = JSON.parse(readFileSync(configPath, "utf8")) as File;
+  writeFileSync(
+    configPath,
+    JSON.stringify({ ...file, folders: { "knowledge@mini": "/srv/notes" } }),
+  );
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.match(
+    log[0] ?? "",
+    /^knowledge@mini: its session K1 \(claude agent, idle, "Notes"\) is still there/,
+  );
+  writeFileSync(configPath, before);
   // A terminal whose CLI has exited is still there too.
   world.splice(0, world.length, terminal(TERMINAL, "claude", "✳ Notes"));
   assert.equal(await repoint("knowledge@mini", TERMINAL, deps), 0);
@@ -546,6 +566,25 @@ test("roster repoint without a session: while the current session is still there
     log[0] ?? "",
     /^knowledge@mini: its session terminal:\S+ \(terminal, "~\/notes"\) is still there, so nothing changed\./,
   );
+});
+
+test("roster repoint without a session: a terminal unsure of its CLI blocks nothing when it could not take the placement anyway", async (t) => {
+  const { deps, fileNow, world } = setup(t, (file) => ({
+    ...file,
+    agents: { ...file.agents, "environment@mini": T4 },
+    participants: file.participants.map((p) =>
+      p.id === "environment" ? { ...p, idempotent: false } : p,
+    ),
+  }));
+  world.splice(
+    0,
+    world.length,
+    agent("K1", "claude", "idle", "Notes", true),
+    terminal(T2, "claude", "✳ Notes"),
+    terminal(T4, null, "zsh", "a turn is running on its screen"),
+  );
+  assert.equal(await repoint("knowledge@mini", null, deps), 0);
+  assert.equal(fileNow().agents["knowledge@mini"], T2);
 });
 
 test("roster repoint: no folder to look in, an unreachable host and a terminal showing neither CLI are refused before anything is written", async (t) => {
@@ -609,7 +648,7 @@ test("roster repoint: naming the bound session records its folder when none is, 
     );
   assert.deepEqual(log, [
     "knowledge@mini is at K1 already.",
-    "knowledge@mini's folder is not recorded: cannot reach Paseo on mini: down.",
+    "knowledge@mini's folder is not recorded: Cannot reach Paseo on mini: down.",
     "knowledge@mini is at K1 already.",
     "knowledge@mini's folder is not recorded: Paseo on mini does not know K1.",
   ]);
