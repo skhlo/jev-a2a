@@ -484,7 +484,38 @@ test("roster repoint without a session: none or several that can take it change 
   assert.equal(await repoint("knowledge@mini", "K3", deps), 0);
   assert.equal(fileNow().agents["knowledge@mini"], "K3");
   assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/notes" });
-  // With K3 and T2 gone, K1 is all that could: the record has seen it.
+  // A closed agent may be one left behind: named, never found. A screen
+  // not read may be one more candidate: nothing is decided.
+  world.splice(world.length - 2, 2, agent("K4", "claude", "closed", "Left"));
+  world.push(
+    terminal(T2, "claude", "✳ Notes"),
+    terminal(T4, null, "zsh", "no screen of the terminal within 5 s"),
+  );
+  log.length = 0;
+  const written = readFileSync(configPath, "utf8");
+  assert.equal(await repoint("knowledge@mini", null, deps), 1);
+  assert.equal(
+    log[0],
+    "knowledge@mini: 1 session in /srv/notes can take it, and 1 terminal's screen was not read, so nothing changed. Name one: router roster repoint knowledge@mini <session>.",
+  );
+  assert.ok(
+    log.includes(
+      '  K4 (claude agent, closed, "Left"): closed; only a live agent is found, so name it',
+    ),
+  );
+  assert.ok(
+    log.includes(
+      `  ${T4} (terminal, "zsh"): its screen was not read: no screen of the terminal within 5 s`,
+    ),
+  );
+  assert.equal(readFileSync(configPath, "utf8"), written);
+  world.splice(
+    world.length - 3,
+    3,
+    terminal(T2, "claude", "✳ Notes"),
+    agent("K3", "codex", "idle", "Review"),
+  );
+  // With K3 gone, K1 is all that could: the record has seen it.
   world.splice(world.length - 2, 2);
   log.length = 0;
   assert.equal(await repoint("knowledge@mini", null, deps), 1);
@@ -526,7 +557,7 @@ test("roster repoint: no folder to look in, an unreachable host and a terminal s
   );
   await assert.rejects(
     repoint("knowledge@mini", T2, deps),
-    /could not be read: no screen of the terminal within 5 s; start the CLI/,
+    /its screen was not read: no screen of the terminal within 5 s; start the CLI/,
   );
   assert.equal(readFileSync(configPath, "utf8"), before);
   assert.equal(counts.restarts, 0);
@@ -535,6 +566,20 @@ test("roster repoint: no folder to look in, an unreachable host and a terminal s
   assert.equal(await repoint("knowledge@mini", T4, deps), 0);
   assert.deepEqual(fileNow().terminals, { "knowledge@mini": "codex" });
   assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/work" });
+});
+
+test("roster repoint: naming the bound session records its folder when none is, once, without a restart", async (t) => {
+  const { dir, deps, log, counts, fileNow } = setup(t);
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 0);
+  assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/work" });
+  assert.deepEqual(log, [
+    "knowledge@mini is at K1 already.",
+    `knowledge@mini works in /srv/work, recorded; the old configuration is ${dir}/config.json.bak-20261006T130501Z.`,
+  ]);
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 0);
+  assert.deepEqual(log, ["knowledge@mini is at K1 already."]);
+  assert.equal(counts.restarts, 0);
 });
 
 test("roster repoint without a session: after a restart that bound nothing, asked again it restarts serve into the configured session", async (t) => {
@@ -704,7 +749,10 @@ test("roster add: a participant from its section of a responsibility file, grant
 });
 
 test("roster remove: the participant, its grants and placements go; its labeled requests expect none, the rest as written", async (t) => {
-  const { setPath, deps, log, counts, fileNow } = setup(t);
+  const { setPath, deps, log, counts, fileNow } = setup(t, (file) => ({
+    ...file,
+    folders: { "knowledge@mini": "/srv/notes", "orchestrator@mbp": "/srv" },
+  }));
   await assert.rejects(
     remove("nobody", deps),
     /^UsageError: nobody is not in the roster/,
@@ -720,6 +768,7 @@ test("roster remove: the participant, its grants and placements go; its labeled 
     orchestrator: ["environment", "incus"],
   });
   assert.equal(after.agents["knowledge@mini"], undefined);
+  assert.deepEqual(after.folders, { "orchestrator@mbp": "/srv" });
   assert.equal(
     readFileSync(setPath, "utf8"),
     `${SET.map((line) => line.replace('"expect": "knowledge"', '"expect": "none"')).join("\n")}\n`,

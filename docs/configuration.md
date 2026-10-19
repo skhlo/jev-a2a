@@ -82,10 +82,11 @@ cleared agent context gets a new id. `router roster repoint
 - Without a session, it looks in the placement's folder
   ([`folders`](#folders), else the current session's) for the one session
   that can take it: a terminal whose title carries Claude Code's mark, a
-  terminal at Codex's empty composer, or a Claude or Codex agent not
-  archived. Not the current session, one another placement names, or one
-  the record has seen. None or several: nothing changes, and it lists the
-  folder's sessions; run it again naming one.
+  terminal at Codex's empty composer, or a live (idle or running) Claude or
+  Codex agent, not archived. Not the current session, one another placement
+  names, or one the record has seen. None or several, or a terminal whose
+  screen could not be read: nothing changes, and it lists the folder's
+  sessions; run it again naming one.
 - It refuses a session the host's Paseo does not know, or knows by another
   id: an agent named by a prefix or a title needs its full id. It also
   refuses a session another placement names, and one the record has seen,
@@ -93,7 +94,8 @@ cleared agent context gets a new id. `router roster repoint
 - For a terminal it sets the participant `idempotent: false`, and sets or
   drops the placement's `terminals` entry by what the terminal shows; a
   terminal showing neither CLI is refused. For an agent it drops the
-  entry. It records the session's folder in `folders`.
+  entry. It records the session's folder in `folders`; naming the bound
+  session records its folder when none is, without a restart.
 - It writes the file only once it loads, keeping the old one as
   `config.json.bak-<time>`. The copy restores the file, not the record:
   once `serve` binds the new session, the placement cannot go back to the

@@ -163,8 +163,7 @@ async function roster(): Promise<number> {
   const deps: RosterDeps = {
     configPath,
     record: () => record().state,
-    resolve: async (host, id) =>
-      own(config.hosts, host) ? (await on(host)).resolve(id) : null,
+    resolve: async (host, id) => (await on(host)).resolve(id),
     folderOf: async (host, session) => (await on(host)).folderOf(session),
     sessionsIn: async (host, folder) => (await on(host)).sessionsIn(folder),
     read: (host, path) => readOver(own(config.hosts, host)?.paseo ?? "", path),
