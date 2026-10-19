@@ -1,20 +1,21 @@
 // The router command on a reply host: reply, submit, answer and choose sent
 // to a router's events endpoint as the participant session, in-process; and
-// once as the process a participant runs, from a copy of src/ with no
-// node_modules above it, so the path loads no package.
+// as the process a participant runs, from copies of src/ with no
+// node_modules above them, so the path loads no package: directly, and
+// under a stand-in Codex.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer, type IncomingMessage } from "node:http";
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { sharedScratch } from "./test-scratch.ts";
 import { checkoutCommit } from "../src/checkout.ts";
 import { runReplyHost } from "../src/reply-host.ts";
 import { invocation, UsageError } from "../src/request.ts";
 import type { Processes } from "../src/caller.ts";
 import { ancestry, systemProcesses } from "../src/caller.ts";
-import { MBA_DAEMON, plain, under } from "./processes.ts";
+import { LAUNCHED, MBA_DAEMON, plain, under } from "./processes.ts";
 
 const dir = sharedScratch("reply-host-");
 const file = join(dir, "reply.md");
@@ -333,28 +334,58 @@ test("reply host: an event still goes when the router runs another commit, and t
   );
 });
 
-test("reply host: the router command runs from a copy of src/ with no packages, its secrets beside the configuration's path", async (t) => {
-  const { posted, url } = await router(t);
-  const copy = join(dir, "copy");
+// A child's exit code and what it printed.
+const exited = (child: ChildProcessWithoutNullStreams) =>
+  new Promise<{ code: number | null; stdout: string; stderr: string }>(
+    (resolve) => {
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      child.on("close", (code) => resolve({ code, stdout, stderr }));
+    },
+  );
+
+// A copy of src/ in the scratch directory, with no node_modules above it.
+const copyOfSrc = (name: string): string => {
+  const copy = join(dir, name);
   cpSync(join(import.meta.dirname, "..", "src"), join(copy, "src"), {
     recursive: true,
   });
+  return copy;
+};
+
+// The secrets beside a configuration's path: the router at url, token t.
+const secretsBeside = (config: string, url: string) =>
+  writeFileSync(
+    join(dirname(config), "secrets.env"),
+    `ROUTER_URL=${url}\nROUTER_TOKEN=t\n`,
+  );
+
+// Whether the tests' ancestry is their own, as a copy reads this host's
+// process table, which must read. Run under a shared Codex server or one
+// the router does not know, the copies' commands are refused, as any
+// would be.
+const ancestryIsOwn = (): boolean => {
+  const here = ancestry(systemProcesses);
+  assert.notEqual(here.kind, "unresolved", JSON.stringify(here));
+  return here.kind === "plain" || here.kind === "own";
+};
+
+test("reply host: the router command runs from a copy of src/ with no packages, its secrets beside the configuration's path", async (t) => {
+  const { posted, url } = await router(t);
+  const copy = copyOfSrc("copy");
   // HOME is the scratch directory: no configuration, and the host's own
   // secrets stay out.
   const cli = (args: string[]) =>
-    new Promise<{ code: number | null; stdout: string; stderr: string }>(
-      (resolve) => {
-        const child = spawn(
-          process.execPath,
-          [join(copy, "src", "cli.ts"), ...args],
-          { env: { PATH: process.env.PATH, HOME: dir, PASEO_AGENT_ID: "A1" } },
-        );
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", (chunk) => (stdout += chunk));
-        child.stderr.on("data", (chunk) => (stderr += chunk));
-        child.on("close", (code) => resolve({ code, stdout, stderr }));
-      },
+    exited(
+      spawn(
+        process.execPath,
+        ["--no-warnings", join(copy, "src", "cli.ts"), ...args],
+        {
+          env: { PATH: process.env.PATH, HOME: dir, PASEO_AGENT_ID: "A1" },
+        },
+      ),
     );
   const lost = await cli([...reply, "working"]);
   assert.equal(lost.code, 2);
@@ -362,18 +393,10 @@ test("reply host: the router command runs from a copy of src/ with no packages, 
 
   const config = join(dir, "elsewhere", "config.json");
   mkdirSync(join(dir, "elsewhere"));
-  writeFileSync(
-    join(dir, "elsewhere", "secrets.env"),
-    `ROUTER_URL=${url}\nROUTER_TOKEN=t\n`,
-  );
+  secretsBeside(config, url);
   const sent = await cli([...reply, "working", "--config", config]);
   const mistake = await cli([...reply, "done", "--config", config]);
-  // The copy reads this host's process table, which must read. Run under
-  // a shared Codex server or one the router does not know, the tests' own
-  // commands are refused, as any would be.
-  const here = ancestry(systemProcesses);
-  assert.notEqual(here.kind, "unresolved", JSON.stringify(here));
-  if (here.kind === "plain" || here.kind === "own") {
+  if (ancestryIsOwn()) {
     assert.equal(sent.code, 0, sent.stderr);
     assert.equal(sent.stdout, "recorded\ndelivered D1\n");
     assert.partialDeepStrictEqual(posted[0], { type: "update", by: "A1" });
@@ -386,4 +409,67 @@ test("reply host: the router command runs from a copy of src/ with no packages, 
     }
     assert.equal(posted.length, 0);
   }
+});
+
+// Codex as codex-terminal starts it, and shared servers' command lines,
+// stood in for by a shell run as codex: `codex -s workspace-write
+// <arguments>`, -s being an option Codex takes, which reads its script,
+// the router command from a copy of src/, from stdin. The router command
+// runs with --no-warnings, as the router's own launcher runs it.
+test("reply host: the router command run by Codex as codex-terminal starts it, with a prompt, an image or --, goes as its terminal; run by a shared server's command line, the daemon's or one with a prompt or a spaced value before app-server, nothing is sent", async (t) => {
+  const { posted, url } = await router(t);
+  const copy = copyOfSrc("launched");
+  const config = join(copy, "config.json");
+  secretsBeside(config, url);
+  const quoted = (arg: string) => `'${arg.replaceAll("'", "'\\''")}'`;
+  const command = [
+    process.execPath,
+    "--no-warnings",
+    join(copy, "src", "cli.ts"),
+    ...reply,
+    "working",
+    "--config",
+    config,
+  ];
+  // A second command keeps sh from exec'ing node, so the stand-in stays
+  // the router command's parent.
+  const script = `${command.map(quoted).join(" ")}; exit $?`;
+  const codex = (args: string[]) => {
+    const child = spawn("/bin/sh", ["-s", "workspace-write", ...args], {
+      argv0: "codex",
+      env: { PATH: process.env.PATH, HOME: dir, PASEO_TERMINAL_ID: "B1" },
+    });
+    child.stdin.end(`${script}\n`);
+    return exited(child);
+  };
+  const mine = ancestryIsOwn();
+  for (const [, ...args] of LAUNCHED) {
+    const before = posted.length;
+    const ran = await codex(args);
+    assert.equal(ran.code, mine ? 0 : 2, `${args.join(" ")}: ${ran.stderr}`);
+    assert.equal(posted.length, before + (mine ? 1 : 0));
+    if (mine)
+      assert.partialDeepStrictEqual(posted.at(-1), {
+        type: "update",
+        by: "terminal:B1",
+      });
+  }
+  for (const [args, what] of [
+    [MBA_DAEMON.split(" ").slice(1), "--managed-daemon, the shared daemon"],
+    [["a prompt", "app-server", "--listen", "ws://127.0.0.1:9"], "--listen"],
+    [
+      ["-C", "/tmp/a b", "app-server", "--listen", "ws://127.0.0.1:9"],
+      "--listen",
+    ],
+  ] as const) {
+    const server = await codex([...args]);
+    assert.equal(server.code, 2, server.stderr);
+    assert.match(
+      server.stderr,
+      new RegExp(
+        String.raw`^This runs under a shared Codex server \(pid \d+, codex app-server ${what}.*Nothing was sent\.`,
+      ),
+    );
+  }
+  assert.equal(posted.length, mine ? LAUNCHED.length : 0);
 });

@@ -23,7 +23,9 @@ import { terminalSession } from "./config.ts";
 
 // One process as a table reads it: its parent, when it started (in the
 // table's own unit, compared only within one table; null where the table
-// is one snapshot, in which a pid cannot have been reused), and its argv.
+// is one snapshot, in which a pid cannot have been reused), and its argv,
+// which macOS's table gives whole only for Codex: for another process,
+// argv[0] alone.
 export type Proc = { ppid: number; start: number | null; argv: string[] };
 
 // A process table: this process's pid, and each pid's entry, null once the
@@ -62,61 +64,114 @@ export function procfs(root = "/proc", self = process.pid): Processes {
   return { self, look };
 }
 
-// `ps` with the given columns, as macOS prints them under the C locale.
-const ps = (columns: string): string =>
-  execFileSync("ps", ["-A", "-ww", "-o", columns], {
+// macOS's `ps` of every process: pid, ppid, lstart and comm, as it prints
+// them under the C locale.
+const ps = (): string =>
+  execFileSync("ps", ["-A", "-ww", "-o", "pid=,ppid=,lstart=,comm="], {
     encoding: "utf8",
     env: { ...process.env, LC_ALL: "C" },
   });
 const LSTART = String.raw`\w{3} \w{3} +\d{1,2} \d\d:\d\d:\d\d \d{4}`;
-const ARGS_LINE = new RegExp(
-  String.raw`^\s*(\d+)\s+(\d+)\s+(${LSTART})\s+(.*)$`,
-);
-const COMM_LINE = new RegExp(String.raw`^\s*(\d+)\s+(${LSTART})\s+(.*)$`);
+const LINE = new RegExp(String.raw`^\s*(\d+)\s+(\d+)\s+(${LSTART})\s+(.*)$`);
 
-// One run's rows by pid: each line's fields after the pid, by the pattern.
-function rowsByPid(text: string, pattern: RegExp): Map<number, string[]> {
+const basename = (path: string): string => path.split("/").at(-1) ?? "";
+
+// One ps run's rows by pid: ppid, lstart and comm.
+function rowsByPid(text: string): Map<number, string[]> {
   const found = new Map<number, string[]>();
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
-    const m = pattern.exec(line);
+    const m = LINE.exec(line);
     if (!m) throw new Error(`ps printed a line it does not read: ${line}`);
     found.set(Number(m[1]), m.slice(2));
   }
   return found;
 }
 
-// macOS: one `ps` snapshot of parents and command lines, which holds no
-// reused pid. Its args are argv joined by spaces, so argv[0], which may
-// hold spaces, comes whole from a second run's comm (printed whole only as
-// the last column; on every process read on mba, args begins with it),
-// matched by pid and start; a pid missing from that run, or changed in
-// between, cannot be read. An argument holding a space still reads as
-// two, which leaves a Codex command line unknown, not allowed.
+// A process's argv as sysctl's KERN_PROCARGS2 gives it: argc, the
+// executable's path, padding, then the arguments, each ending in a NUL
+// (the environment follows).
+export function procArgs(data: Buffer): string[] {
+  const argc = data.length >= 4 ? data.readInt32LE(0) : -1;
+  let at = data.indexOf(0, 4);
+  if (argc < 0 || at < 0) throw new Error("its arguments read cut short");
+  while (data[at] === 0) at++;
+  const argv: string[] = [];
+  for (let k = 0; k < argc; k++) {
+    const end = data.indexOf(0, at);
+    if (end < 0) throw new Error("its arguments read cut short");
+    argv.push(data.toString("utf8", at, end));
+    at = end + 1;
+  }
+  return argv;
+}
+
+// sysctl(3), through node:ffi, which Node 26.1 added as experimental (the
+// router runs with --no-warnings, so it says nothing): at most size bytes
+// of the value at a name.
+let sysctlCall: ReturnType<typeof loadSysctl> | undefined;
+function loadSysctl() {
+  // Undefined, though typed as always there, where Node lacks it.
+  const ffi = process.getBuiltinModule("node:ffi");
+  if (!ffi)
+    throw new Error("this Node has no node:ffi to read a Codex's arguments");
+  return ffi.dlopen(null, {
+    sysctl: {
+      arguments: ["pointer", "u32", "pointer", "pointer", "pointer", "u64"],
+      return: "i32",
+    },
+  }).functions.sysctl;
+}
+function sysctl(name: number[], size: number): Buffer {
+  sysctlCall ??= loadSysctl();
+  const out = Buffer.alloc(size);
+  const length = new BigUint64Array([BigInt(size)]);
+  if (sysctlCall(new Int32Array(name), name.length, out, length, null, 0n))
+    throw new Error(`sysctl ${name.join(".")} failed`);
+  return out.subarray(0, Number(length[0]));
+}
+const CTL_KERN = 1;
+const KERN_ARGMAX = 8;
+const KERN_PROCARGS2 = 49;
+
+// A process's exact argv from macOS's kernel, which gives it for the
+// user's own processes.
+const exactArgv = (pid: number): string[] =>
+  procArgs(
+    sysctl(
+      [CTL_KERN, KERN_PROCARGS2, pid],
+      sysctl([CTL_KERN, KERN_ARGMAX], 4).readInt32LE(0),
+    ),
+  );
+
+// macOS: one `ps` snapshot of parents, start times and argv[0] (comm,
+// printed whole as the last column), which holds no reused pid. ps joins
+// the other arguments with spaces, losing where one ends, so a Codex's,
+// which decide what it runs, are read from the kernel instead, and the
+// snapshot taken again: a Codex gone by then is gone, and one whose start
+// or comm changed in between, or whose argv[0] from the kernel is not
+// comm, cannot be read (nor so one whose argv[0] holds non-ASCII bytes,
+// which ps escapes).
 export function psTable(
-  run: (columns: string) => string = ps,
+  run: () => string = ps,
+  argvOf: (pid: number) => string[] = exactArgv,
   self = process.pid,
 ): Processes {
-  const argsOf = rowsByPid(run("pid=,ppid=,lstart=,args="), ARGS_LINE);
-  const commOf = rowsByPid(run("pid=,lstart=,comm="), COMM_LINE);
+  const rows = rowsByPid(run());
   const look = (pid: number): Proc | null => {
-    const entry = argsOf.get(pid);
-    if (!entry) return null;
-    const [ppid = "", start, args = ""] = entry;
-    const comm = commOf.get(pid);
-    if (!comm) throw new Error("the pid is missing from the second ps run");
-    const [commStart, exe = ""] = comm;
-    if (commStart !== start)
-      throw new Error("the pid changed between the two ps runs");
-    // args begins with argv[0]; should it not, its first word is taken
-    // for it, and a Codex command line read wrong is unknown.
-    const after = args.startsWith(`${exe} `)
-      ? args.slice(exe.length + 1)
-      : args === exe
-        ? ""
-        : args.slice(args.indexOf(" ") + 1 || args.length);
-    const argv = exe ? [exe, ...(after ? after.split(" ") : [])] : [];
-    return { ppid: Number(ppid), start: null, argv };
+    const row = rows.get(pid);
+    if (!row) return null;
+    const [ppid = "", start, exe = ""] = row;
+    const proc = { ppid: Number(ppid), start: null, argv: exe ? [exe] : [] };
+    if (basename(exe) !== "codex") return proc;
+    const argv = argvOf(pid);
+    const again = rowsByPid(run()).get(pid);
+    if (!again) return null;
+    if (again[1] !== start || again[2] !== exe)
+      throw new Error("the pid changed while its arguments were read");
+    if (argv[0] !== exe)
+      throw new Error("its argv[0] from the kernel is not the one ps shows");
+    return { ...proc, argv };
   };
   return { self, look };
 }
@@ -135,9 +190,16 @@ export type Codex =
   | { kind: "shared"; what: string }
   | { kind: "unknown"; what: string };
 
-// Codex 0.163's options before a subcommand, and app-server's, by whether
-// they take a value. --managed-daemon is the shared daemon's own flag; it
-// is not in the help.
+// Codex 0.163's command line as clap reads it (codex-rs/cli/src/main.rs,
+// tui/src/cli.rs and utils/cli/src): options anywhere; the first argument
+// that no option takes names a subcommand, or else is the prompt, after
+// which a subcommand may still follow; after --, the one argument left is
+// the prompt.
+//
+// Codex's options by whether they take a value, before a subcommand and
+// app-server's; no value begins with -, and -i takes every argument up to
+// the next option. --managed-daemon is the shared daemon's own flag; it is
+// not in the help.
 const TOP_VALUE = new Set([
   "-c",
   "--config",
@@ -145,6 +207,8 @@ const TOP_VALUE = new Set([
   "--disable",
   "--remote",
   "--remote-auth-token-env",
+  "-i",
+  "--image",
   "-m",
   "--model",
   "--local-provider",
@@ -162,13 +226,16 @@ const TOP_FLAG = new Set([
   "--strict-config",
   "--oss",
   "--approve-for-me",
+  "--not-so-yolo",
   "--dangerously-bypass-approvals-and-sandbox",
+  "--yolo",
   "--dangerously-bypass-hook-trust",
   "--worktree",
   "--search",
   "--no-alt-screen",
   "--no-daemon",
 ]);
+const IMAGES = new Set(["-i", "--image"]);
 const SERVER_VALUE = new Set([
   "-c",
   "--config",
@@ -190,58 +257,100 @@ const SERVER_FLAG = new Set([
   "--analytics-default-enabled",
   "--managed-daemon",
 ]);
+// Codex's subcommands and their aliases, the hidden ones too; app, which only
+// macOS and Windows have, serves no client and reads as a prompt.
+const SUBCOMMANDS = new Set([
+  "agents",
+  "tcp-tunnel",
+  "exec",
+  "e",
+  "review",
+  "login",
+  "logout",
+  "mcp",
+  "plugin",
+  "app-server",
+  "remote-control",
+  "completion",
+  "update",
+  "doctor",
+  "sandbox",
+  "debug",
+  "execpolicy",
+  "apply",
+  "a",
+  "resume",
+  "queue",
+  "archive",
+  "delete",
+  "migrate-rollouts",
+  "unarchive",
+  "fork",
+  "cloud",
+  "cloud-tasks",
+  "responses-api-proxy",
+  "stdio-to-uds",
+  "exec-server",
+  "features",
+  "help",
+]);
+
+const isOption = (arg: string): boolean => arg.startsWith("-") && arg !== "-";
 // Short options that take a value may carry it attached: -ckey=value.
 const shortValue = (arg: string, values: Set<string>): boolean =>
   /^-[A-Za-z]./.test(arg) && values.has(arg.slice(0, 2));
 
-type Parsed =
-  { options: Map<string, string[]>; rest: string[] } | { unknown: string };
+// One option as clap reads it: its name, its (first) value or null for a
+// flag, and where the next argument starts; or why it does not read.
+type Step =
+  { name: string; value: string | null; next: number } | { unknown: string };
 
-// The options before the first word, as clap reads them; a word or option
-// the router does not know leaves the shape unknown.
-function options(
+function option(
   args: string[],
+  i: number,
   values: Set<string>,
   flags: Set<string>,
-): Parsed {
-  const found = new Map<string, string[]>();
-  const add = (name: string, value: string) =>
-    found.set(name, [...(found.get(name) ?? []), value]);
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i] ?? "";
-    if (!arg.startsWith("-") || arg === "-")
-      return { options: found, rest: args.slice(i) };
-    const eq = arg.indexOf("=");
-    const name = arg.startsWith("--") && eq > 0 ? arg.slice(0, eq) : arg;
-    if (name !== arg && values.has(name)) add(name, arg.slice(eq + 1));
-    else if (name === arg && flags.has(arg)) add(arg, "");
-    else if (name === arg && values.has(arg)) {
-      const value = args[++i];
-      if (value === undefined) return { unknown: `${arg} without its value` };
-      add(arg, value);
-    } else if (shortValue(arg, values)) add(arg.slice(0, 2), arg.slice(2));
-    else return { unknown: `the option ${arg}` };
+): Step {
+  const arg = args[i] ?? "";
+  const eq = arg.indexOf("=");
+  const name = arg.startsWith("--") && eq > 0 ? arg.slice(0, eq) : arg;
+  if (name !== arg && values.has(name))
+    return { name, value: arg.slice(eq + 1), next: i + 1 };
+  if (flags.has(arg)) return { name: arg, value: null, next: i + 1 };
+  if (values.has(arg)) {
+    const value = args[i + 1];
+    if (value === undefined || isOption(value))
+      return { unknown: `${arg} without its value` };
+    let next = i + 2;
+    if (IMAGES.has(arg))
+      while (next < args.length && !isOption(args[next] ?? "")) next++;
+    return { name: arg, value, next };
   }
-  return { options: found, rest: [] };
+  if (shortValue(arg, values))
+    return { name: arg.slice(0, 2), value: arg.slice(2), next: i + 1 };
+  return { unknown: `the option ${arg}` };
 }
 
-const basename = (path: string): string => path.split("/").at(-1) ?? "";
 // A word as a message names it: a prompt may be long.
 const clipped = (arg: string): string =>
   arg.length > 40 ? `${arg.slice(0, 40)}…` : arg;
-const remote = (args: string[]): boolean =>
-  args.some((a) => a === "--remote" || a.startsWith("--remote="));
+const unknown = (what: string): Codex => ({ kind: "unknown", what });
+const INTERACTIVE: Codex = { kind: "own", what: "an interactive codex" };
+const REMOTE = unknown("codex --remote, whose server is elsewhere");
 
 // An app-server: on stdio it serves the one process that started it; over
 // a socket, any client.
 function appServer(args: string[]): Codex {
-  const parsed = options(args, SERVER_VALUE, SERVER_FLAG);
-  if ("unknown" in parsed)
-    return { kind: "unknown", what: `codex app-server with ${parsed.unknown}` };
-  const [sub] = parsed.rest;
-  if (sub !== undefined)
-    return { kind: "unknown", what: `codex app-server ${clipped(sub)}` };
-  const opts = parsed.options;
+  const opts = new Map<string, string[]>();
+  for (let i = 0; i < args.length;) {
+    const arg = args[i] ?? "";
+    if (!isOption(arg)) return unknown(`codex app-server ${clipped(arg)}`);
+    const step = option(args, i, SERVER_VALUE, SERVER_FLAG);
+    if ("unknown" in step)
+      return unknown(`codex app-server with ${step.unknown}`);
+    opts.set(step.name, [...(opts.get(step.name) ?? []), step.value ?? ""]);
+    i = step.next;
+  }
   if (opts.has("--managed-daemon"))
     return {
       kind: "shared",
@@ -256,26 +365,65 @@ function appServer(args: string[]): Codex {
   return { kind: "own", what: "codex app-server on stdio" };
 }
 
-// What one process's argv says, or null when it is not Codex.
+// Whether a subcommand's arguments ask for a remote server, as resume's
+// and fork's may. clap takes no value that begins with -, so such an
+// argument is the option.
+const remote = (args: string[]): boolean => {
+  const end = args.indexOf("--");
+  return (end < 0 ? args : args.slice(0, end)).some(
+    (a) => a === "--remote" || a.startsWith("--remote="),
+  );
+};
+
+// The subcommands that run their own commands, as an interactive codex.
+const OWN_SUBCOMMANDS = new Map([
+  ["resume", "codex resume"],
+  ["fork", "codex fork"],
+  ["exec", "codex exec"],
+  ["e", "codex exec"],
+]);
+
+// What a subcommand runs.
+function subcommand(sub: string, args: string[]): Codex {
+  const own = OWN_SUBCOMMANDS.get(sub);
+  if (own !== undefined)
+    return remote(args) ? REMOTE : { kind: "own", what: own };
+  if (sub === "app-server") return appServer(args);
+  return unknown(`codex ${sub}`);
+}
+
+// What one process's argv says, as clap reads it, or null when it is not
+// Codex.
 export function codexOf(argv: string[]): Codex | null {
   const [zero, ...args] = argv;
-  const name = basename(zero ?? "");
-  if (name !== "codex") return null;
-  const parsed = options(args, TOP_VALUE, TOP_FLAG);
-  if ("unknown" in parsed)
-    return { kind: "unknown", what: `codex with ${parsed.unknown}` };
-  const [sub, ...after] = parsed.rest;
-  if (remote(args))
-    return {
-      kind: "unknown",
-      what: "codex --remote, whose server is elsewhere",
-    };
-  if (sub === undefined) return { kind: "own", what: "an interactive codex" };
-  if (sub === "resume" || sub === "fork")
-    return { kind: "own", what: `codex ${sub}` };
-  if (sub === "exec" || sub === "e") return { kind: "own", what: "codex exec" };
-  if (sub === "app-server") return appServer(after);
-  return { kind: "unknown", what: `codex ${clipped(sub)}` };
+  if (basename(zero ?? "") !== "codex") return null;
+  const extra = (arg: string) =>
+    unknown(`codex with ${clipped(arg)} after its prompt`);
+  let remoted = false;
+  let prompted = false;
+  for (let i = 0; i < args.length;) {
+    const arg = args[i] ?? "";
+    if (arg === "--") {
+      // The prompt, if none came yet, and then nothing more.
+      const after = args[i + (prompted ? 1 : 2)];
+      if (after === undefined) break;
+      return extra(after);
+    }
+    if (isOption(arg)) {
+      const step = option(args, i, TOP_VALUE, TOP_FLAG);
+      if ("unknown" in step) return unknown(`codex with ${step.unknown}`);
+      remoted ||= step.name === "--remote";
+      i = step.next;
+    } else if (SUBCOMMANDS.has(arg)) {
+      return remoted ? REMOTE : subcommand(arg, args.slice(i + 1));
+    } else if (prompted) {
+      return extra(arg);
+    } else {
+      prompted = true;
+      i++;
+    }
+  }
+  return remoted ? REMOTE : INTERACTIVE;
 }
 
 // What the caller's ancestry says: no Codex above it, only Codex that runs
