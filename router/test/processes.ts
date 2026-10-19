@@ -30,5 +30,30 @@ export const under = (...lines: string[]) => {
 export const MBA_DAEMON =
   "/Users/u/.codex/packages/app-server-daemon/releases/0.163.0-aarch64-apple-darwin/bin/codex app-server --listen unix:// --analytics-default-enabled --managed-daemon";
 
+// What the codex-terminal launcher started on mba for no arguments, a
+// prompt, an image and a prompt (which Codex 0.163 takes as a second
+// image), a prompt after --, and a resume (2026-10-20): Codex in the
+// terminal's own process.
+export const LAUNCHED = [
+  ["codex", "--no-daemon", "--no-alt-screen"],
+  ["codex", "--no-daemon", "--no-alt-screen", "review this synthetic task"],
+  [
+    "codex",
+    "--no-daemon",
+    "--no-alt-screen",
+    "-i",
+    "/tmp/synthetic image.png",
+    "review this synthetic image",
+  ],
+  ["codex", "--no-daemon", "--no-alt-screen", "--", "synthetic prompt"],
+  [
+    "codex",
+    "resume",
+    "--no-daemon",
+    "--no-alt-screen",
+    "00000000-0000-0000-0000-000000000001",
+  ],
+];
+
 // A caller with no Codex above it: a shell in a Paseo terminal.
 export const plain = under("bash -c router", "zsh", "Paseo.bin");

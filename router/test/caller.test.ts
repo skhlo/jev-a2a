@@ -3,6 +3,7 @@
 // the Linux and macOS readers.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scratch } from "./test-scratch.ts";
@@ -11,11 +12,12 @@ import {
   caller,
   codexOf,
   MAX_DEPTH,
+  procArgs,
   procfs,
   psTable,
   type Processes,
 } from "../src/caller.ts";
-import { MBA_DAEMON, plain, table, under } from "./processes.ts";
+import { LAUNCHED, MBA_DAEMON, plain, table, under } from "./processes.ts";
 
 // Read from the hosts on 2026-10-19 (paths shortened): the shared daemon
 // on the VPS (mba's is MBA_DAEMON), its updater, ChatGPT's own server on
@@ -28,9 +30,11 @@ const CHATGPT =
   "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex -c features.code_mode_host=true app-server --analytics-default-enabled -c plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=true -c plugins.code-review@openai-bundled.mcp_servers.code-review.enabled=true";
 const PASEO_AGENT = "codex app-server --enable goals";
 
-const kind = (line: string) => codexOf(line.split(" "))?.kind ?? null;
+// A command line's kind: a string is split at spaces into its arguments.
+const kind = (line: string | string[]) =>
+  codexOf(typeof line === "string" ? line.split(" ") : line)?.kind ?? null;
 
-test("a Codex that runs its own commands: interactive, resume and fork with options before them, exec, and app-server on stdio", () => {
+test("a Codex that runs its own commands: interactive, with a prompt, images or -- and options on either side, resume and fork, exec, and app-server on stdio", () => {
   for (const line of [
     "codex",
     "/home/u/.local/share/mise/installs/codex/0.163.0/bin/codex --no-daemon --no-alt-screen",
@@ -50,8 +54,24 @@ test("a Codex that runs its own commands: interactive, resume and fork with opti
     "codex app-server --listen stdio://",
     "codex app-server --listen=stdio://",
     "codex app-server --stdio",
+    ...LAUNCHED,
+    ["codex", "fix the bug", "-m", "o3"],
+    ["codex", "-i", "a.png", "b.png", "fix"],
+    ["codex", "-i", "a.png", "--", "fix"],
+    ["codex", "--image=a.png", "fix"],
+    ["codex", "-ia.png", "resume", "0199c0de"],
+    ["codex", "--yolo", "-"],
+    // Literal flags in a prompt, or after --, are the prompt's.
+    ["codex", "fix --listen ws://h:1 --managed-daemon"],
+    ["codex", "--", "--remote"],
+    ["codex", "resume", "0199c0de", "use --remote"],
+    ["codex", "resume", "0199c0de", "--", "--remote"],
+    // A value, even one naming a subcommand.
+    ["codex", "--remote-auth-token-env", "app-server"],
+    // Not a subcommand in 0.163, so clap reads it as the prompt.
+    "codex mcp-server",
   ])
-    assert.equal(kind(line), "own", line);
+    assert.equal(kind(line), "own", JSON.stringify(line));
 });
 
 test("a server for socket clients is shared: the daemon on mba and the VPS, --listen on a socket, websocket options", () => {
@@ -63,8 +83,16 @@ test("a server for socket clients is shared: the daemon on mba and the VPS, --li
     "codex app-server --listen stdio:// --listen unix://",
     "codex -c x=y app-server --managed-daemon",
     "codex app-server --ws-auth token",
+    // A subcommand after the prompt, or after a value with a space, is
+    // still one: both run on mba.
+    "codex fix app-server --listen ws://127.0.0.1:47159",
+    ["codex", "a prompt", "app-server", "--listen", "ws://127.0.0.1:47159"],
+    ["codex", "-C", "/tmp/a b", "app-server", "--listen", "ws://127.0.0.1:1"],
+    // -i's images end at the next option, an attached one at itself.
+    "codex -i a.png --no-daemon app-server --listen ws://127.0.0.1:1",
+    ["codex", "--image=a.png", "fix", "app-server", "--listen", "ws://h:1"],
   ])
-    assert.equal(kind(line), "shared", line);
+    assert.equal(kind(line), "shared", JSON.stringify(line));
   assert.match(
     codexOf(MBA_DAEMON.split(" "))?.what ?? "",
     /--managed-daemon, the shared daemon/,
@@ -80,22 +108,35 @@ test("a Codex shape the router does not know is unknown, never an interactive co
     "codex app-server proxy",
     UPDATER,
     "codex exec-server",
-    "codex mcp-server",
+    "codex remote-control",
+    "codex agents",
+    "codex tcp-tunnel",
+    "codex stdio-to-uds",
+    "codex responses-api-proxy",
+    // An attached image ends at itself.
+    ["codex", "-ia.png", "exec-server"],
     "codex review",
-    "codex fix the bug",
+    "codex fix review",
+    "codex fix --remote ws://h:1",
+    "codex exec --remote ws://h:1",
     "codex --frobnicate",
+    "codex app-server --frobnicate",
+    "codex -h",
+    // Codex 0.163 would not run these: clap takes one prompt, a flag no
+    // value, a value option its value, and no value beginning with -.
+    "codex fix the bug",
+    "codex fix -- more",
+    "codex -- fix more",
     "codex --no-daemon=1",
     "codex -c",
-    "codex -i shot.png",
-    "codex -- fix",
-    "codex -h",
+    "codex -i",
+    "codex -m -x",
     "codex app-server --listen",
-    "codex app-server --frobnicate",
   ])
-    assert.equal(kind(line), "unknown", line);
+    assert.equal(kind(line), "unknown", JSON.stringify(line));
   assert.equal(
-    codexOf(["codex", "x".repeat(100)])?.what,
-    `codex ${"x".repeat(40)}…`,
+    codexOf(["codex", "fix", "x".repeat(100)])?.what,
+    `codex with ${"x".repeat(40)}… after its prompt`,
   );
 });
 
@@ -240,15 +281,10 @@ test("the caller: its session from the environment, refused when two are named o
 const stat = (pid: number, comm: string, ppid: number, start: number) =>
   `${pid} (${comm}) S ${ppid} ${"0 ".repeat(17)}${start} 0 0\n`;
 
-test("Linux: /proc gives each process's parent, start and argv; a command name with spaces and parentheses reads", (t) => {
-  const root = scratch(t, "caller-proc-");
-  const proc = (
-    pid: number,
-    comm: string,
-    ppid: number,
-    start: number,
-    argv: string[],
-  ) => {
+// A /proc under root that processes are written into.
+const fakeProc =
+  (root: string) =>
+  (pid: number, comm: string, ppid: number, start: number, argv: string[]) => {
     mkdirSync(join(root, String(pid)));
     writeFileSync(
       join(root, String(pid), "stat"),
@@ -259,6 +295,10 @@ test("Linux: /proc gives each process's parent, start and argv; a command name w
       argv.map((a) => `${a}\0`).join(""),
     );
   };
+
+test("Linux: /proc gives each process's parent, start and argv; a command name with spaces and parentheses reads", (t) => {
+  const root = scratch(t, "caller-proc-");
+  const proc = fakeProc(root);
   proc(100, "node", 99, 50, ["node", "cli.ts", "reply"]);
   proc(99, "bash", 98, 40, ["bash", "-c", "router reply"]);
   proc(98, "codex (x) y", 97, 30, VPS_DAEMON.split(" "));
@@ -297,9 +337,9 @@ test(
 );
 
 test(
-  "macOS: this host's ps reads, and so does this process's ancestry, whatever runs the tests",
+  "macOS: this host's ps reads, and so does this process's ancestry, whatever runs the tests; a Codex's arguments come whole from the kernel",
   { skip: process.platform !== "darwin" },
-  () => {
+  async () => {
     const self = psTable().look(process.pid);
     assert.ok(self && self.argv.length > 0 && self.ppid > 0);
     const found = ancestry(psTable);
@@ -307,14 +347,51 @@ test(
       "what" in found ? found.what : "",
       /could not be read|not in the process table/,
     );
+    // A shell run as codex, waiting on its input.
+    const args = ["-s", "a b", "app-server", "--", "c"];
+    const child = spawn("/bin/sh", args, { argv0: "codex" });
+    try {
+      const argv = psTable().look(child.pid ?? 0)?.argv;
+      assert.deepEqual(argv, ["codex", ...args]);
+    } finally {
+      child.stdin.end();
+      await new Promise((resolve) => child.on("close", resolve));
+    }
   },
 );
 
+test("macOS: KERN_PROCARGS2 holds argc, the executable's path, padding, the arguments and the environment; one cut short does not read", () => {
+  const data = Buffer.concat([
+    Buffer.from([3, 0, 0, 0]),
+    Buffer.from("/bin/codex\0\0\0\0codex\0a b\0\0HOME=/u\0"),
+  ]);
+  assert.deepEqual(procArgs(data), ["codex", "a b", ""]);
+  assert.throws(
+    () =>
+      procArgs(
+        Buffer.concat([
+          Buffer.from([2, 0, 0, 0]),
+          Buffer.from("/bin/codex\0codex"),
+        ]),
+      ),
+    /cut short/,
+  );
+  assert.throws(() => procArgs(Buffer.from([1, 0])), /cut short/);
+});
+
 // macOS as `ps` prints it under LC_ALL=C, the day padded with a space, the
-// hour with a zero: pid, ppid, lstart, comm (argv[0], the last column of
-// its own run) and args. The rows up to pid 51134 are as read on mba
-// (paths shortened); the rest are made up for the cases below.
-const MAC: [number, number, string, string, string][] = [
+// hour with a zero: pid, ppid, lstart and comm (argv[0], the last column);
+// and each process's argv as the kernel gives it, a string split at
+// spaces. The rows up to pid 51134 are as read on mba (paths shortened);
+// the rest are made up for the cases below.
+type MacRow = [
+  pid: number,
+  ppid: number,
+  lstart: string,
+  comm: string,
+  argv: string | string[],
+];
+const MAC: MacRow[] = [
   [1, 0, "Fri Oct  2 23:03:31 2026", "/sbin/launchd", "/sbin/launchd"],
   [
     7554,
@@ -366,7 +443,6 @@ const MAC: [number, number, string, string, string][] = [
     "/opt/node/bin/node",
     "node cli.ts reply",
   ],
-  // Made up: args not beginning with comm, so its first word is argv[0].
   [60100, 7681, "Mon Oct 19 11:01:00 2026", "/bin/sh", "sh -c router reply"],
   [
     60101,
@@ -381,7 +457,13 @@ const MAC: [number, number, string, string, string][] = [
     46142,
     "Mon Oct 19 12:00:00 2026",
     "/Users/u/Library/Application Support/Tools/bin/codex",
-    "/Users/u/Library/Application Support/Tools/bin/codex app-server --listen unix:// --managed-daemon",
+    [
+      "/Users/u/Library/Application Support/Tools/bin/codex",
+      "app-server",
+      "--listen",
+      "unix://",
+      "--managed-daemon",
+    ],
   ],
   [
     70001,
@@ -390,13 +472,14 @@ const MAC: [number, number, string, string, string][] = [
     "/opt/node/bin/node",
     "node cli.ts reply",
   ],
-  // An argument holding a space.
+  // Arguments holding a space: a value before resume, and the two shared
+  // servers whose argument boundaries ps's words hid on mba.
   [
     90000,
     46142,
     "Mon Oct 19 12:40:00 2026",
     "/Users/u/bin/codex",
-    "/Users/u/bin/codex -c model='a b' resume 0199c0de",
+    ["/Users/u/bin/codex", "-c", "model=a b", "resume", "0199c0de"],
   ],
   [
     90001,
@@ -405,22 +488,80 @@ const MAC: [number, number, string, string, string][] = [
     "/opt/node/bin/node",
     "node cli.ts reply",
   ],
+  [
+    91000,
+    46142,
+    "Tue Oct 20 02:55:00 2026",
+    "/Users/u/bin/codex",
+    [
+      "/Users/u/bin/codex",
+      "synthetic starting prompt",
+      "app-server",
+      "--listen",
+      "ws://127.0.0.1:53383",
+    ],
+  ],
+  [
+    91001,
+    91000,
+    "Tue Oct 20 02:55:01 2026",
+    "/opt/node/bin/node",
+    "node cli.ts reply",
+  ],
+  [
+    92000,
+    46142,
+    "Tue Oct 20 02:55:10 2026",
+    "/Users/u/bin/codex",
+    [
+      "/Users/u/bin/codex",
+      "-C",
+      "/tmp/fixture/cwd with spaces",
+      "app-server",
+      "--listen",
+      "ws://127.0.0.1:53391",
+    ],
+  ],
+  [
+    92001,
+    92000,
+    "Tue Oct 20 02:55:11 2026",
+    "/opt/node/bin/node",
+    "node cli.ts reply",
+  ],
 ];
 const pad = (n: number) => String(n).padStart(5);
-const ARGS_RUN = MAC.map(
-  ([pid, ppid, lstart, , args]) =>
-    `${pad(pid)} ${pad(ppid)} ${lstart}     ${args}`,
-).join("\n");
-const COMM_RUN = MAC.map(
-  ([pid, , lstart, exe]) => `${pad(pid)} ${lstart}     ${exe}`,
-).join("\n");
+const psRun = (rows: MacRow[]) =>
+  rows
+    .map(
+      ([pid, ppid, lstart, comm]) =>
+        `${pad(pid)} ${pad(ppid)} ${lstart}     ${comm}`,
+    )
+    .join("\n");
+// The kernel's argv by pid, and the pids it was asked for.
+const kernelOf =
+  (rows: MacRow[], asked: number[] = []) =>
+  (pid: number) => {
+    asked.push(pid);
+    const argv = rows.find((row) => row[0] === pid)?.[4];
+    if (argv === undefined) throw new Error(`sysctl 1.49.${pid} failed`);
+    return typeof argv === "string" ? argv.split(" ") : argv;
+  };
+// The table from ps runs, the last repeated, and the kernel's argv.
 const mac =
-  (self: number, args = ARGS_RUN, comm = COMM_RUN) =>
-  () =>
-    psTable((columns) => (columns.includes("args") ? args : comm), self);
+  (self: number, rows = MAC, runs = [psRun(rows)], argvOf = kernelOf(rows)) =>
+  () => {
+    const left = [...runs];
+    return psTable(
+      () => (left.length > 1 ? left.shift() : left[0]) ?? "",
+      argvOf,
+      self,
+    );
+  };
 
-test("macOS: two ps runs, joined by pid and start; the executable's path may hold spaces", () => {
-  const processes = mac(60001)();
+test("macOS: one ps snapshot of parents and argv[0], a Codex's argv from the kernel; the executable's path may hold spaces", () => {
+  const asked: number[] = [];
+  const processes = mac(60101, MAC, [psRun(MAC)], kernelOf(MAC, asked))();
   assert.deepEqual(processes.look(51134), {
     ppid: 51132,
     start: null,
@@ -430,22 +571,47 @@ test("macOS: two ps runs, joined by pid and start; the executable's path may hol
     "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
   ]);
   assert.deepEqual(processes.look(46142)?.argv, ["/bin/zsh"]);
-  assert.deepEqual(processes.look(60100)?.argv, [
-    "/bin/sh",
-    "-c",
-    "router",
-    "reply",
-  ]);
+  assert.deepEqual(processes.look(60100)?.argv, ["/bin/sh"]);
   assert.equal(processes.look(4242), null);
+  assert.deepEqual(asked, [51134]);
   assert.equal(ancestry(mac(70001)).kind, "shared");
-  assert.deepEqual(ancestry(mac(90001)), {
-    kind: "unknown",
-    what: "codex b'",
-    pid: 90000,
-  });
+  assert.equal(ancestry(mac(90001)).kind, "own");
 });
 
-test("macOS: the daemon's command is shared, ChatGPT's own server is not; a pid missing from the second run or changed between the runs, or a line ps should not print, is unresolved", () => {
+test("macOS: a Codex started with a prompt or a value with a space before app-server --listen is that shared server", () => {
+  for (const [pid, port] of [
+    [91000, 53383],
+    [92000, 53391],
+  ] as const)
+    assert.deepEqual(ancestry(mac(pid + 1)), {
+      kind: "shared",
+      what: `codex app-server --listen ws://127.0.0.1:${port}`,
+      pid,
+    });
+});
+
+test("what codex-terminal starts is the session's own Codex, read from /proc and from macOS's kernel", (t) => {
+  const root = scratch(t, "caller-launched-");
+  const proc = fakeProc(root);
+  proc(1, "systemd", 0, 1, ["/sbin/init"]);
+  const rows: MacRow[] = MAC.slice(0, 1);
+  const exe = "/Users/u/.local/share/mise/installs/codex/0.163.0/bin/codex";
+  const launched = LAUNCHED.map((argv, n) => {
+    const pid = 200 + 2 * n;
+    proc(pid, "codex", 1, 10, argv);
+    proc(pid + 1, "node", pid, 11, ["node", "cli.ts", "reply"]);
+    const at = `Tue Oct 20 09:${String(n).padStart(2, "0")}:00 2026`;
+    rows.push([pid, 1, at, exe, [exe, ...argv.slice(1)]]);
+    rows.push([pid + 1, pid, at, "/opt/node/bin/node", "node cli.ts reply"]);
+    return { self: pid + 1, line: JSON.stringify(argv) };
+  });
+  for (const { self, line } of launched) {
+    assert.equal(ancestry(() => procfs(root, self)).kind, "own", line);
+    assert.equal(ancestry(mac(self, rows)).kind, "own", line);
+  }
+});
+
+test("macOS: the daemon's command is shared, ChatGPT's own server is not; a Codex gone once its argv is read is gone; one whose start or comm changed meanwhile, whose argv[0] from the kernel is not comm, or whose argv the kernel will not give, or a line ps should not print, is unresolved", () => {
   assert.deepEqual(ancestry(mac(60001)), {
     kind: "shared",
     what: "codex app-server --managed-daemon, the shared daemon",
@@ -455,22 +621,41 @@ test("macOS: the daemon's command is shared, ChatGPT's own server is not; a pid 
     kind: "own",
     what: "codex app-server on stdio",
   });
-  const changed = COMM_RUN.replace(
-    "51134 Mon Oct 19 10:42:18 2026",
-    "51134 Mon Oct 19 10:42:19 2026",
+  const changed = (row: MacRow) =>
+    psRun(MAC.map((r) => (r[0] === row[0] ? row : r)));
+  const daemon = MAC.find((row) => row[0] === 51134);
+  assert.ok(daemon);
+  const [pid, ppid, lstart, comm, argv] = daemon;
+  const unread = (what: string) => ({
+    kind: "unresolved",
+    what: `pid 51134 could not be read (${what})`,
+  });
+  for (const again of [
+    changed([pid, ppid, "Mon Oct 19 10:42:19 2026", comm, argv]),
+    changed([pid, ppid, lstart, "/bin/codex", argv]),
+  ])
+    assert.deepEqual(
+      ancestry(mac(60001, MAC, [psRun(MAC), again])),
+      unread("the pid changed while its arguments were read"),
+    );
+  const gone = psRun(MAC.filter((row) => row[0] !== 51134));
+  assert.deepEqual(ancestry(mac(60001, MAC, [psRun(MAC), gone])), {
+    kind: "unresolved",
+    what: "its ancestor pid 51134 is not in the process table (it exited during the check, or the table hides it)",
+  });
+  const renamed = MAC.map((row): MacRow =>
+    row[0] === 51134 ? [pid, ppid, lstart, comm, ["codex", "app-server"]] : row,
   );
-  assert.deepEqual(ancestry(mac(60001, ARGS_RUN, changed)), {
-    kind: "unresolved",
-    what: "pid 51134 could not be read (the pid changed between the two ps runs)",
-  });
-  const missing = COMM_RUN.split("\n")
-    .filter((line) => !line.startsWith("51134 "))
-    .join("\n");
-  assert.deepEqual(ancestry(mac(60001, ARGS_RUN, missing)), {
-    kind: "unresolved",
-    what: "pid 51134 could not be read (the pid is missing from the second ps run)",
-  });
-  assert.deepEqual(ancestry(mac(60001, `${ARGS_RUN}\ngarbage`)), {
+  assert.deepEqual(
+    ancestry(mac(60001, renamed)),
+    unread("its argv[0] from the kernel is not the one ps shows"),
+  );
+  const withheld = MAC.filter((row) => row[0] !== 51134);
+  assert.deepEqual(
+    ancestry(mac(60001, MAC, [psRun(MAC)], kernelOf(withheld))),
+    unread("sysctl 1.49.51134 failed"),
+  );
+  assert.deepEqual(ancestry(mac(60001, MAC, [`${psRun(MAC)}\ngarbage`])), {
     kind: "unresolved",
     what: "the process table could not be read (ps printed a line it does not read: garbage)",
   });

@@ -110,9 +110,10 @@ every command on a host that does not run the router) only when its
 process ancestry shows that environment is its own:
 
 - **Allowed:** no Codex above it (Claude Code, a shell), or only Codex that
-  runs its own commands: an interactive `codex`, with `resume` or `fork`
-  too; `codex exec`; and `codex app-server` on stdio, which Paseo starts
-  for each Codex agent.
+  runs its own commands: an interactive `codex`, with a prompt, images
+  (`-i`) or `--` on its command line, and with `resume` or `fork` too;
+  `codex exec`; and `codex app-server` on stdio, which Paseo starts for
+  each Codex agent.
 - **Refused:** a shared Codex server above it, at any height: an
   `app-server` for clients over a socket (`--managed-daemon`, `--listen`
   other than `stdio://`, or a websocket option). Bare `codex` starts it or
@@ -120,12 +121,21 @@ process ancestry shows that environment is its own:
   of the terminal that started it, so its `$PASEO_TERMINAL_ID` may be
   another terminal's.
 - **Refused as unknown:** a Codex command line the router does not know:
-  `--remote`, another subcommand, an option it does not know, an argument
-  holding a space as `ps` shows it on macOS, or a prompt or image given
-  on the command line.
+  `--remote`, another subcommand (but macOS's `codex app`, which opens the
+  desktop app and exits, reads as a prompt), an option it does not know,
+  or arguments Codex would not take, such as two prompts.
 - **Refused as unresolved:** an ancestry it cannot read: no process table,
   an ancestor gone during the check, a reused pid, more than 64 ancestors,
   an orphan whose parent is pid 1, or a command line it cannot read.
+
+The router reads a command line as Codex 0.163 does, from its exact
+arguments: on Linux from `/proc`; on macOS, where `ps` joins them with
+spaces, from the kernel (`sysctl`'s `KERN_PROCARGS2`, called through
+Node's `node:ffi`, experimental since Node 26.1). A Codex whose arguments
+cannot be read that way is refused as unresolved, and so is one whose
+path holds non-ASCII characters on macOS, which `ps` escapes. A
+subcommand that a Codex after 0.163 adds reads as a prompt until the
+router lists it.
 
 Nothing is sent when it refuses; the message says what it saw. To move a
 Codex session off the shared server, see

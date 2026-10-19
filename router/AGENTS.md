@@ -29,7 +29,8 @@ update it when workflows change.
   `serve`, and `check` asks it whether the two work together. Both build
   events with `src/request.ts`. The reply host's path loads no package, so
   it runs from a checkout without `pnpm install`;
-  `test/reply-host.test.ts` runs it once from a copy of `src/`.
+  `test/reply-host.test.ts` runs it from copies of `src/`, directly and
+  under a stand-in Codex.
   `router host setup` (`src/host-setup.ts`) installs that checkout on a
   host over ssh; `test/host-setup.test.ts` runs its script here, with a
   scratch `HOME`, cloning a scratch repository.

@@ -62,9 +62,10 @@ session you are already looking at needs none of this.
 
 ## Quick start
 
-On the host that runs the router you need Node 26 (it runs the TypeScript
-directly), pnpm, and a Paseo daemon with at least one agent. A TypeSafe API
-key is needed only for requests that name no recipient.
+On the host that runs the router you need Node 26 (26.1 or later on macOS;
+it runs the TypeScript directly), pnpm, and a Paseo daemon with at least
+one agent. A TypeSafe API key is needed only for requests that name no
+recipient.
 
 ```sh
 git clone https://github.com/skhlo/jev-a2a && cd jev-a2a/router
@@ -117,7 +118,7 @@ Other machines join through `hosts` entries of the form `ssh://<host>`,
 with `serve.listen` on an address they can reach. Their agents run the
 same `router`, from a checkout that needs no `pnpm install`. On the router
 host, one command installs it there over that ssh; the host needs Node 26
-and git:
+(26.1 or later on macOS) and git:
 
 ```sh
 router host setup mini
