@@ -4,8 +4,14 @@
 // `check` says whether this host and the router work together. It loads
 // nothing that needs a package.
 import { checkoutCommit } from "./checkout.ts";
-import { callerSession } from "./config.ts";
-import { argsOf, EVENTS, refuse, type Invocation, type Io } from "./request.ts";
+import {
+  argsOf,
+  callerSession,
+  EVENTS,
+  refuse,
+  type Invocation,
+  type Io,
+} from "./request.ts";
 
 const SENT = ["reply", "submit", "answer", "choose"];
 
@@ -85,7 +91,7 @@ export async function runReplyHost(
   // The session is the caller on every command. The router's notices name
   // it with --as, for the router host; naming anyone else is refused.
   const session =
-    callerSession(inv.env) ??
+    callerSession(inv) ??
     refuse(
       "On a reply host, router acts as the participant session: $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are unset.",
     );

@@ -12,6 +12,8 @@ import { sharedScratch } from "./test-scratch.ts";
 import { checkoutCommit } from "../src/checkout.ts";
 import { runReplyHost } from "../src/reply-host.ts";
 import { invocation, UsageError } from "../src/request.ts";
+import type { Processes } from "../src/caller.ts";
+import { plain, under } from "./processes.ts";
 
 const dir = sharedScratch("reply-host-");
 const file = join(dir, "reply.md");
@@ -60,17 +62,20 @@ async function router(t: test.TestContext, commit?: string) {
   if (address === null || typeof address === "string")
     throw new Error("no port");
   const url = `http://127.0.0.1:${address.port}`;
-  // A command line as the session A1 runs it, unless `env` says otherwise:
-  // its exit code and printed lines.
+  // A command line as the session A1 runs it, in a shell with no Codex
+  // above it, unless `env` and `processes` say otherwise: its exit code and
+  // printed lines.
   const run = async (
     argv: string[],
     env: Record<string, string> = { PASEO_AGENT_ID: "A1" },
     to = url,
     token = "t",
+    processes: () => Processes = plain,
   ) => {
     const out: string[] = [];
     const err: string[] = [];
-    const code = await runReplyHost(invocation(argv, env), to, token, {
+    const inv = invocation(argv, env, processes);
+    const code = await runReplyHost(inv, to, token, {
       out: (line) => out.push(line),
       err: (line) => err.push(line),
     });
@@ -81,9 +86,10 @@ async function router(t: test.TestContext, commit?: string) {
     argv: string[],
     message: RegExp,
     env?: Record<string, string>,
+    processes?: () => Processes,
   ) =>
     assert.rejects(
-      run(argv, env),
+      run(argv, env, url, "t", processes),
       (error) => error instanceof UsageError && message.test(error.message),
       argv.join(" "),
     );
@@ -110,21 +116,82 @@ test("reply host: a reply goes as the session, with the text from a file", async
     text: body,
   });
   assert.match(String(posted[0]?.messageId), /^m-/);
-  // Claude Code in a Paseo terminal replies as its terminal; a Paseo
-  // agent's id comes first; with neither there is no session to act as.
+  // Claude Code in a Paseo terminal replies as its terminal; with both
+  // ids, or neither, there is no one session to act as.
   await run([...reply, "working"], { PASEO_TERMINAL_ID: "T9" });
   assert.partialDeepStrictEqual(posted[1], { by: "terminal:T9" });
-  await run([...reply, "working"], {
+  await refused([...reply, "working"], /^Both \$PASEO_AGENT_ID and/, {
     PASEO_AGENT_ID: "A1",
     PASEO_TERMINAL_ID: "T9",
   });
-  assert.partialDeepStrictEqual(posted[2], { by: "A1" });
   await refused([...reply, "working"], /\$PASEO_TERMINAL_ID are unset/, {});
   await refused(
     [...reply, "done"],
     /--kind is working, question, completed or failed/,
   );
-  assert.equal(posted.length, 3);
+  assert.equal(posted.length, 2);
+});
+
+// Codex in terminal B attached to the daemon terminal A started: its
+// commands carry A's terminal id. The daemon's command line as mba runs it.
+const DAEMON =
+  "/Users/u/.codex/packages/app-server-daemon/releases/0.163.0-aarch64-apple-darwin/bin/codex app-server --listen unix:// --analytics-default-enabled --managed-daemon";
+const shared = under("/bin/zsh -c router", DAEMON, "codex", "-zsh");
+const unknown = under("/bin/zsh -c router", "codex app-server proxy", "-zsh");
+const own = under(
+  "/bin/zsh -c router",
+  "codex --no-daemon resume 0199c0de",
+  "-zsh",
+);
+
+test("reply host: under a shared Codex server, or one the router does not know, nothing is sent; under the session's own Codex it goes as the session", async (t) => {
+  const { posted, run, refused } = await router(t);
+  const A = { PASEO_TERMINAL_ID: "A" };
+  for (const argv of [
+    [...reply, "completed", "--text", "done"],
+    ["submit", "--to", "environment", "Which shell?"],
+    ["answer", "--task", "T3", "--question", "Q1", "--text", "ubuntu"],
+    ["choose", "--task", "T3", "--to", "incus"],
+  ]) {
+    await refused(
+      argv,
+      /^This runs under a shared Codex server \(pid 98, /,
+      A,
+      shared,
+    );
+    await refused(
+      argv,
+      /pid 98 is codex app-server proxy, a Codex the router does not know/,
+      A,
+      unknown,
+    );
+  }
+  assert.equal(posted.length, 0);
+  // --as cannot bring the refused session back.
+  await refused(
+    ["choose", "--task", "T3", "--to", "incus", "--as", "terminal:A"],
+    /shared Codex server/,
+    A,
+    shared,
+  );
+  assert.equal(posted.length, 0);
+  const sent = await run(
+    [...reply, "completed", "--text", "done"],
+    { PASEO_TERMINAL_ID: "B" },
+    undefined,
+    "t",
+    own,
+  );
+  assert.deepEqual(sent, {
+    code: 0,
+    out: ["recorded", "delivered D1"],
+    err: [],
+  });
+  assert.equal(posted.length, 1);
+  assert.partialDeepStrictEqual(posted[0], {
+    type: "update",
+    by: "terminal:B",
+  });
 });
 
 test("reply host: a request goes as the session, its text as words or a file", async (t) => {

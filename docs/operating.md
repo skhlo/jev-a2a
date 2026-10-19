@@ -48,11 +48,32 @@ only at the CLI's empty prompt, as the contract's adapters section
 ([jev-router-spec.md](research/jev-router-spec.md)) defines it, by one
 paste and Enter. Codex must run as `codex --no-daemon`, and each prompt
 tells it to request escalated permissions for the router command; the
-contract says why. A send it cannot confirm is unknown and waits for
-`router resolve`, since a terminal takes no message key. A line a person
-starts typing between the look and the paste is the race here, and the hold
-closes it the same way. The board shows no provider, model, context,
+contract says why. Under the shared server its router commands are
+refused ([participants.md](participants.md#whose-environment)). A send it
+cannot confirm is unknown and waits for `router resolve`, since a
+terminal takes no message key. A line a person starts typing between the
+look and the paste is the race here, and the hold closes it the same way. The board shows no provider, model, context,
 subagents or activity tail for a terminal, which reports none of them.
+
+### A Codex session on the shared server
+
+Bare `codex` runs on the shared server, so the router refuses its
+commands. To move the session to `--no-daemon` without losing the
+conversation, at a point where no delivery is open and no turn runs:
+
+1. Read its conversation id, `$CODEX_THREAD_ID` as a command it runs
+   prints it, and check that a rollout under `~/.codex/sessions` carries
+   that id in its name. Not `resume --last`: with several sessions it may
+   pick another.
+2. Quit it, and in the same terminal run `codex --no-daemon resume <id>`.
+   The terminal, and so the placement, stay the same. If Codex reports the
+   conversation is loaded elsewhere, stop; do not force it.
+3. Check from the resumed session that `$PASEO_TERMINAL_ID` is the
+   placement's terminal and `$CODEX_THREAD_ID` the id read in step 1, then
+   send it a request and see its reply recorded: the core takes a reply
+   only from the session the delivery is pinned to.
+
+The shared server and its other clients keep running.
 
 ## The record
 

@@ -97,10 +97,42 @@ others.
 
 - On a host that does not run the router, `router` acts as the session
   `$PASEO_AGENT_ID`, which Paseo sets in the agent's environment, or
-  `terminal:$PASEO_TERMINAL_ID` for an agent CLI in a Paseo terminal.
+  `terminal:$PASEO_TERMINAL_ID` for an agent CLI in a Paseo terminal. With
+  both set it refuses: it cannot tell which session is calling.
 - On the router host the CLI acts as a person (the first requester, or
   `--as` / `$ROUTER_AS`), since an agent there also submits on a person's
   behalf; a session names itself with `--as <its session id>`.
+
+### Whose environment
+
+`router` takes a session from its environment (a reply on any host, and
+every command on a host that does not run the router) only when its
+process ancestry shows that environment is its own:
+
+- **Allowed:** no Codex above it (Claude Code, a shell), or only Codex that
+  runs its own commands: an interactive `codex`, with `resume` or `fork`
+  too; `codex exec`; and `codex app-server` on stdio, which Paseo starts
+  for each Codex agent.
+- **Refused:** a shared Codex server above it, at any height: an
+  `app-server` for clients over a socket (`--managed-daemon`, or `--listen`
+  other than `stdio://`). Bare `codex` starts it or attaches to it, and it
+  runs every client's commands in the environment of the terminal that
+  started it, so its `$PASEO_TERMINAL_ID` may be another terminal's.
+- **Refused as unresolved:** a Codex command line the router does not know
+  (`--remote`, another subcommand, an unknown option, a prompt as an
+  argument), and an ancestry it cannot read: no process table, an ancestor
+  gone during the check, a reused pid, more than 64 ancestors, or an
+  orphan whose parent is pid 1.
+
+Nothing is sent when it refuses; the message says what it saw. To move a
+Codex session off the shared server, see
+[operating.md](operating.md#a-codex-session-on-the-shared-server).
+
+This guards against an accidental attribution, not a deliberate one: a
+process of the same user can set the variables, run Codex under another
+name, or leave the ancestry (a double fork under a subreaper, a separate
+pid namespace). Other shared servers, such as a tmux server started from
+one terminal, are not recognised.
 
 The router then tells the sender what a person would read on the board,
 at the placement it sent from (`via`) and only when that session is idle,

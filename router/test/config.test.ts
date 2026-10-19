@@ -6,7 +6,6 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sharedScratch } from "./test-scratch.ts";
 import {
-  callerSession,
   loadConfig,
   loadSecrets,
   terminalClis,
@@ -229,17 +228,10 @@ test("a terminal placement is accepted for a participant that is not idempotent,
   });
 });
 
-test("a session is a Paseo agent id or terminal:<id>; the caller's own comes from the agent's id first, else its terminal's", () => {
+test("a session is a Paseo agent id or terminal:<id>", () => {
   assert.equal(terminalOf(`terminal:${TERMINAL_ID}`), TERMINAL_ID);
   assert.equal(terminalOf("terminal:"), null);
   assert.equal(terminalOf("6c9370bc-d2ed-45bc-98c4-a0f1807fa42c"), null);
-  assert.equal(callerSession({ PASEO_AGENT_ID: "A1" }), "A1");
-  assert.equal(callerSession({ PASEO_TERMINAL_ID: "T9" }), "terminal:T9");
-  assert.equal(
-    callerSession({ PASEO_AGENT_ID: "A1", PASEO_TERMINAL_ID: "T9" }),
-    "A1",
-  );
-  assert.equal(callerSession({}), null);
 });
 
 test("secrets: KEY=VALUE lines fill the environment without overriding it", () => {

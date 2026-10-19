@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { scratch } from "./test-scratch.ts";
 import { runCommand } from "../src/commands.ts";
 import { invocation, UsageError } from "../src/request.ts";
+import type { Processes } from "../src/caller.ts";
+import { plain, under } from "./processes.ts";
 import { openShell, type ShellOptions } from "../src/shell.ts";
 import type { RouterConfig } from "../src/config.ts";
 import { config as fixture, telemetry } from "../src/board-fixture.ts";
@@ -41,17 +43,26 @@ const idlePaseo: ShellOptions = {
 const routerOn = (t: test.TestContext, patch: Partial<RouterConfig> = {}) => {
   const config = { ...fixture, home: scratch(t, "commands-"), ...patch };
   let opened = 0;
-  const run = async (argv: string[], env: Record<string, string> = {}) => {
+  const run = async (
+    argv: string[],
+    env: Record<string, string> = {},
+    processes: () => Processes = plain,
+  ) => {
     const out: string[] = [];
     const err: string[] = [];
     const open = () => {
       opened++;
       return openShell(config, idlePaseo);
     };
-    const code = await runCommand(invocation(argv, env), config, open, {
-      out: (line) => out.push(line),
-      err: (line) => err.push(line),
-    });
+    const code = await runCommand(
+      invocation(argv, env, processes),
+      config,
+      open,
+      {
+        out: (line) => out.push(line),
+        err: (line) => err.push(line),
+      },
+    );
     return { code, out: out.join("\n"), err };
   };
   return { run, config, opened: () => opened };
@@ -155,6 +166,42 @@ test("a mistake in the options is refused before the journal opens", async (t) =
     /No requester principal in the configuration; pass --as\./,
   );
   assert.equal(router.opened() + noRequester.opened(), 0);
+});
+
+test("on the router host a reply under a shared Codex server, or with two session ids, is refused before the journal opens", async (t) => {
+  const router = routerOn(t);
+  const reply = [
+    "reply",
+    "--task",
+    "T1",
+    "--in-reply-to",
+    "M1",
+    "--kind",
+    "working",
+  ];
+  const shared = under(
+    "bash -c router",
+    "codex app-server --listen ws://127.0.0.1:47159",
+    "zsh",
+  );
+  const cases: [Record<string, string>, () => Processes, RegExp][] = [
+    [
+      { PASEO_TERMINAL_ID: "A" },
+      shared,
+      /^This runs under a shared Codex server/,
+    ],
+    [
+      { PASEO_AGENT_ID: "A1", PASEO_TERMINAL_ID: "T9" },
+      plain,
+      /^Both \$PASEO_AGENT_ID and \$PASEO_TERMINAL_ID are set/,
+    ],
+  ];
+  for (const [env, processes, message] of cases)
+    await assert.rejects(
+      router.run(reply, env, processes),
+      (error) => error instanceof UsageError && message.test(error.message),
+    );
+  assert.equal(router.opened(), 0);
 });
 
 test("status of a task the record does not hold is refused once it is read, and the journal is released", async (t) => {
