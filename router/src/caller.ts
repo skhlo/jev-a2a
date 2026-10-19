@@ -74,8 +74,8 @@ const ARGS_LINE = new RegExp(
 );
 const COMM_LINE = new RegExp(String.raw`^\s*(\d+)\s+(${LSTART})\s+(.*)$`);
 
-// One run's lines by pid, each split by the line's pattern.
-function lines(text: string, pattern: RegExp): Map<number, string[]> {
+// One run's rows by pid: each line's fields after the pid, by the pattern.
+function rowsByPid(text: string, pattern: RegExp): Map<number, string[]> {
   const found = new Map<number, string[]>();
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
@@ -87,26 +87,29 @@ function lines(text: string, pattern: RegExp): Map<number, string[]> {
 }
 
 // macOS: one `ps` snapshot of parents and command lines, which holds no
-// reused pid. Its args are argv joined by spaces, so the executable's own
-// path, which may hold spaces, comes from a second run's comm (full only
-// as the last column), matched by pid and start; a pid that changed in
-// between cannot be read. An argument holding a space still reads as two,
-// which leaves a Codex command line unknown, not allowed.
+// reused pid. Its args are argv joined by spaces, so argv[0], which may
+// hold spaces, comes whole from a second run's comm (printed whole only as
+// the last column; on every process read on mba, args begins with it),
+// matched by pid and start; a pid missing from that run, or changed in
+// between, cannot be read. An argument holding a space still reads as
+// two, which leaves a Codex command line unknown, not allowed.
 export function psTable(
   run: (columns: string) => string = ps,
   self = process.pid,
 ): Processes {
-  const argsOf = lines(run("pid=,ppid=,lstart=,args="), ARGS_LINE);
-  const commOf = lines(run("pid=,lstart=,comm="), COMM_LINE);
+  const argsOf = rowsByPid(run("pid=,ppid=,lstart=,args="), ARGS_LINE);
+  const commOf = rowsByPid(run("pid=,lstart=,comm="), COMM_LINE);
   const look = (pid: number): Proc | null => {
     const entry = argsOf.get(pid);
     if (!entry) return null;
     const [ppid = "", start, args = ""] = entry;
-    const [commStart, exe = ""] = commOf.get(pid) ?? [];
+    const comm = commOf.get(pid);
+    if (!comm) throw new Error("the pid is missing from the second ps run");
+    const [commStart, exe = ""] = comm;
     if (commStart !== start)
-      throw new Error(`pid ${pid} changed between the two ps runs`);
-    // args begins with argv[0] as invoked: the executable's path, or a
-    // name without spaces.
+      throw new Error("the pid changed between the two ps runs");
+    // args begins with argv[0]; should it not, its first word is taken
+    // for it, and a Codex command line read wrong is unknown.
     const after = args.startsWith(`${exe} `)
       ? args.slice(exe.length + 1)
       : args === exe
@@ -319,7 +322,9 @@ export function ancestry(table: () => Processes): Ancestry {
       );
     }
     if (!parent)
-      return unresolved(`its ancestor pid ${pid} exited during the check`);
+      return unresolved(
+        `its ancestor pid ${pid} is not in the process table (it exited during the check, or the table hides it)`,
+      );
     if (
       parent.start !== null &&
       child.start !== null &&
@@ -341,7 +346,7 @@ export function ancestry(table: () => Processes): Ancestry {
 const NOT_SENT = "Nothing was sent.";
 const CODEX_HELP =
   'Resume this conversation without the shared server, in the same terminal and while no turn runs: `codex --no-daemon resume <id>` with its id ($CODEX_THREAD_ID inside it), never --last (docs/operating.md, "A Codex session on the shared server").';
-const SHAPES =
+const UNKNOWN_HELP =
   'Run the session\'s Codex interactively, or with resume, fork or exec, under --no-daemon (docs/participants.md, "Whose environment").';
 const SHELL_HELP =
   'Run it again from the session\'s own shell (docs/participants.md, "Whose environment").';
@@ -358,8 +363,7 @@ export function caller(
   const terminal = env.PASEO_TERMINAL_ID;
   if (agent && terminal)
     return {
-      refused:
-        "Both $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are set, so the router cannot tell which session is calling. Nothing was sent.",
+      refused: `Both $PASEO_AGENT_ID and $PASEO_TERMINAL_ID are set, so the router cannot tell which session is calling. ${NOT_SENT}`,
     };
   const session = agent || (terminal ? terminalSession(terminal) : null);
   if (!session) return { session: null };
@@ -370,7 +374,7 @@ export function caller(
     };
   if (found.kind === "unknown")
     return {
-      refused: `The router does not know the Codex above this command (pid ${found.pid}, ${found.what}), so it cannot tell whether this command's environment is its own. ${NOT_SENT} ${SHAPES}`,
+      refused: `The router does not know the Codex above this command (pid ${found.pid}, ${found.what}), so it cannot tell whether this command's environment is its own. ${NOT_SENT} ${UNKNOWN_HELP}`,
     };
   if (found.kind === "unresolved")
     return {

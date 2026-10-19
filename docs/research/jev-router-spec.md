@@ -522,12 +522,12 @@ Nothing is recorded; the set is the evidence a text or a threshold changes on.
    (participants.md, "Whose environment"). That stops an accidental
    attribution, not a deliberate one. Over HTTP, a reply, answer, request
    or choice is trusted on the sending host's own token
-   (`ROUTER_TOKEN_<HOST>` on the router host),
-   and `serve` refuses a `by` whose session the record places on another
-   host (`wrong_host`). Agents on one host run as one user and read one
-   secrets file, so a token per participant would separate nothing: a
-   host's agents can still act as one another. `serve` also refuses a `by`
-   that is not a session the record knows, and a replaced session's
+   (`ROUTER_TOKEN_<HOST>` on the router host), and `serve` refuses a `by`
+   whose session the record places on another host (`wrong_host`).
+   Agents on one host run as one user and read one secrets file, so a
+   token per participant would separate nothing: a host's agents can
+   still act as one another. `serve` also refuses a `by` that is not a
+   session the record knows, and a replaced session's
    request or choice; a replaced session's reply still reaches the core,
    which knows whether it holds the delivery. Board actions are
    authenticated by Tailscale identity and are not affected.

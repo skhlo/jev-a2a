@@ -367,19 +367,23 @@ test("reply host: the router command runs from a copy of src/ with no packages, 
     `ROUTER_URL=${url}\nROUTER_TOKEN=t\n`,
   );
   const sent = await cli([...reply, "working", "--config", config]);
-  // The copy reads this host's process table: run under a shared Codex
-  // server, the tests' own reply is refused, as any would be.
-  const here = ancestry(systemProcesses).kind;
-  if (here === "plain" || here === "own") {
+  const mistake = await cli([...reply, "done", "--config", config]);
+  // The copy reads this host's process table, which must read. Run under
+  // a shared Codex server or one the router does not know, the tests' own
+  // commands are refused, as any would be.
+  const here = ancestry(systemProcesses);
+  assert.notEqual(here.kind, "unresolved", JSON.stringify(here));
+  if (here.kind === "plain" || here.kind === "own") {
     assert.equal(sent.code, 0, sent.stderr);
     assert.equal(sent.stdout, "recorded\ndelivered D1\n");
     assert.partialDeepStrictEqual(posted[0], { type: "update", by: "A1" });
+    assert.equal(mistake.code, 2);
+    assert.match(mistake.stderr, /--kind is working/);
   } else {
-    assert.equal(sent.code, 2, sent.stderr);
-    assert.match(sent.stderr, /Nothing was sent\./);
+    for (const refused of [sent, mistake]) {
+      assert.equal(refused.code, 2, refused.stderr);
+      assert.match(refused.stderr, /Nothing was sent\./);
+    }
     assert.equal(posted.length, 0);
   }
-  const mistake = await cli([...reply, "done", "--config", config]);
-  assert.equal(mistake.code, 2);
-  assert.match(mistake.stderr, /--kind is working/);
 });

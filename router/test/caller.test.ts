@@ -154,7 +154,7 @@ test("an ancestry the router cannot read is unresolved: no table, a missing call
   unresolved(table({ 100: [1, 5, "node cli.ts"] }), /parent is pid 1/);
   unresolved(
     table({ 100: [99, 5, "node"], 99: [98, 4, "bash"] }),
-    /^its ancestor pid 98 exited during the check$/,
+    /^its ancestor pid 98 is not in the process table \(it exited during the check, or the table hides it\)$/,
   );
   unresolved(
     table({ 100: [99, 5, "node"], 99: [1, 9, "bash"], 1: [0, 0, "init"] }),
@@ -291,14 +291,29 @@ test(
     const found = ancestry(procfs);
     assert.doesNotMatch(
       "what" in found ? found.what : "",
-      /could not be read|not in the process table|exited during/,
+      /could not be read|not in the process table/,
     );
   },
 );
 
-// macOS as `ps` prints it under LC_ALL=C (read on mba: the day padded with
-// a space, the hour with a zero): pid, ppid, lstart, the executable (comm)
-// and the command line (args). comm is the last column of its own run.
+test(
+  "macOS: this host's ps reads, and so does this process's ancestry, whatever runs the tests",
+  { skip: process.platform !== "darwin" },
+  () => {
+    const self = psTable().look(process.pid);
+    assert.ok(self && self.argv.length > 0 && self.ppid > 0);
+    const found = ancestry(psTable);
+    assert.doesNotMatch(
+      "what" in found ? found.what : "",
+      /could not be read|not in the process table/,
+    );
+  },
+);
+
+// macOS as `ps` prints it under LC_ALL=C, the day padded with a space, the
+// hour with a zero: pid, ppid, lstart, comm (argv[0], the last column of
+// its own run) and args. The rows up to pid 51134 are as read on mba
+// (paths shortened); the rest are made up for the cases below.
 const MAC: [number, number, string, string, string][] = [
   [1, 0, "Fri Oct  2 23:03:31 2026", "/sbin/launchd", "/sbin/launchd"],
   [
@@ -322,7 +337,7 @@ const MAC: [number, number, string, string, string][] = [
     "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
     "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
   ],
-  [46142, 4000, "Mon Oct 19 10:40:00 2026", "/bin/zsh", "-zsh"],
+  [46142, 4000, "Mon Oct 19 10:40:59 2026", "/bin/zsh", "/bin/zsh"],
   [
     51132,
     46142,
@@ -351,13 +366,8 @@ const MAC: [number, number, string, string, string][] = [
     "/opt/node/bin/node",
     "node cli.ts reply",
   ],
-  [
-    60100,
-    7681,
-    "Mon Oct 19 11:01:00 2026",
-    "/bin/zsh",
-    "/bin/zsh -c router reply",
-  ],
+  // Made up: args not beginning with comm, so its first word is argv[0].
+  [60100, 7681, "Mon Oct 19 11:01:00 2026", "/bin/sh", "sh -c router reply"],
   [
     60101,
     60100,
@@ -420,8 +430,14 @@ test("macOS: two ps runs, joined by pid and start; the executable's path may hol
     "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
   ]);
   assert.deepEqual(processes.look(46142)?.argv, ["/bin/zsh"]);
+  assert.deepEqual(processes.look(60100)?.argv, [
+    "/bin/sh",
+    "-c",
+    "router",
+    "reply",
+  ]);
   assert.equal(processes.look(4242), null);
-  assert.deepEqual(ancestry(mac(70001)).kind, "shared");
+  assert.equal(ancestry(mac(70001)).kind, "shared");
   assert.deepEqual(ancestry(mac(90001)), {
     kind: "unknown",
     what: "codex b'",
@@ -429,7 +445,7 @@ test("macOS: two ps runs, joined by pid and start; the executable's path may hol
   });
 });
 
-test("macOS: the daemon's command is shared, ChatGPT's own server is not; a pid that changed between the runs, or a line ps should not print, is unresolved", () => {
+test("macOS: the daemon's command is shared, ChatGPT's own server is not; a pid missing from the second run or changed between the runs, or a line ps should not print, is unresolved", () => {
   assert.deepEqual(ancestry(mac(60001)), {
     kind: "shared",
     what: "codex app-server --managed-daemon, the shared daemon",
@@ -445,7 +461,14 @@ test("macOS: the daemon's command is shared, ChatGPT's own server is not; a pid 
   );
   assert.deepEqual(ancestry(mac(60001, ARGS_RUN, changed)), {
     kind: "unresolved",
-    what: "pid 51134 could not be read (pid 51134 changed between the two ps runs)",
+    what: "pid 51134 could not be read (the pid changed between the two ps runs)",
+  });
+  const missing = COMM_RUN.split("\n")
+    .filter((line) => !line.startsWith("51134 "))
+    .join("\n");
+  assert.deepEqual(ancestry(mac(60001, ARGS_RUN, missing)), {
+    kind: "unresolved",
+    what: "pid 51134 could not be read (the pid is missing from the second ps run)",
   });
   assert.deepEqual(ancestry(mac(60001, `${ARGS_RUN}\ngarbage`)), {
     kind: "unresolved",
