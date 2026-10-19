@@ -369,10 +369,8 @@ function pointed(
 }
 
 // Why a terminal shows no CLI the router places.
-const unshown = ({ unread }: { unread?: string }): string =>
-  unread
-    ? `its screen was not read: ${unread}`
-    : "shows neither Claude Code's title nor Codex's empty composer";
+const NEITHER = "shows neither Claude Code's title nor Codex's empty composer";
+const unshown = ({ unsure }: { unsure?: string }): string => unsure ?? NEITHER;
 
 // Why a session in the folder cannot take `placement`, or null when it can:
 // a terminal showing Claude Code or Codex, or a live (idle or running)
@@ -414,9 +412,11 @@ function described(s: FolderSession): string {
 }
 
 // The one session in the placement's folder that can take it: the folder
-// recorded for it, else the current session's. None or several, or a
-// terminal whose screen could not be read (it may be one more): nothing
-// changes, and what is in the folder is listed; archived agents counted.
+// recorded for it, else the current session's. Only once the current
+// session is gone (its terminal closed, its agent archived or missing): a
+// session beside it may be a side session. None or several, or a terminal
+// that may yet be one (unsure): nothing changes, and what is in the folder
+// is listed; archived agents counted.
 async function findTarget(
   config: RouterConfig,
   state: State,
@@ -432,15 +432,24 @@ async function findTarget(
       `No folder is recorded for ${placement}, and Paseo on ${host} no longer knows ${current}; name the session: router roster repoint ${placement} <session>.`,
     );
   const sessions = await deps.sessionsIn(host, folder).catch(unreachable(host));
+  const still = sessions.find(
+    (s) => s.session === current && !(s.kind === "agent" && s.archived),
+  );
+  if (still) {
+    deps.log(
+      `${placement}: its session ${described(still)} is still there, so nothing changed. Close its terminal or archive its agent first, or name the new session: router roster repoint ${placement} <session>.`,
+    );
+    return null;
+  }
   const judged = sessions.map((s) => ({
     s,
     why: unfit(s, placement, current, config, state),
   }));
   const fit = judged.filter((j) => j.why === null);
-  const unread = sessions.filter(
-    (s) => s.kind === "terminal" && s.unread !== undefined,
+  const undecided = sessions.filter(
+    (s) => s.kind === "terminal" && s.unsure !== undefined,
   ).length;
-  const only = fit.length === 1 && !unread ? fit[0]?.s : undefined;
+  const only = fit.length === 1 && !undecided ? fit[0]?.s : undefined;
   if (only) {
     deps.log(
       `${placement}: ${described(only)} is the one new session in ${folder}.`,
@@ -452,7 +461,7 @@ async function findTarget(
     };
   }
   deps.log(
-    `${placement}: ${fit.length > 1 ? `${fit.length} sessions` : fit.length ? "1 session" : "no session"} in ${folder} can take it${unread ? `, and ${plural(unread, "terminal's screen was", "terminals' screens were")} not read` : ""}, so nothing changed. Name one: router roster repoint ${placement} <session>.`,
+    `${placement}: ${fit.length ? plural(fit.length, "session", "sessions") : "no session"} in ${folder} can take it${undecided ? `, and ${plural(undecided, "terminal is", "terminals are")} unsure` : ""}, so nothing changed. Name one: router roster repoint ${placement} <session>.`,
   );
   for (const { s, why } of judged)
     if (!(s.kind === "agent" && s.archived))
@@ -484,7 +493,9 @@ async function targetOf(
   const cli = terminal?.cli ?? null;
   if (cli === null)
     refuse(
-      `${session} ${unshown(terminal ?? {})}; start the CLI in it (Codex as codex --no-daemon), leave it at its empty prompt and run this again.`,
+      terminal?.unsure
+        ? `${session}: ${terminal.unsure}; run this again when it is at its empty prompt.`
+        : `${session} ${NEITHER}; start the CLI in it (Codex as codex --no-daemon), leave it at its empty prompt and run this again.`,
     );
   return { session, folder, cli };
 }
@@ -527,27 +538,43 @@ const watchBind = (
     deps,
   );
 
+// `file` written as the configuration once it loads; the old one's copy.
+async function written(
+  file: Record<string, unknown>,
+  deps: RosterDeps,
+): Promise<string> {
+  await approved(file, null, deps);
+  return swapConfig(deps.configPath, file, deps.now());
+}
+
 // The folder of a placement's bound session, recorded when no folder is,
 // so a later search knows where to look; serve does not read it, so it
-// needs no restart. 0, recorded or not.
+// needs no restart. A host that cannot be reached, or a session its Paseo
+// no longer knows, leaves it unrecorded, and says so.
 async function recordFolder(
   config: RouterConfig,
   placement: string,
   session: string,
   deps: RosterDeps,
-): Promise<number> {
-  if (own(config.folders, placement) !== undefined) return 0;
+): Promise<void> {
+  if (own(config.folders, placement) !== undefined) return;
   const host = hostOf(placement);
-  const folder = await deps.folderOf(host, session).catch(unreachable(host));
-  if (folder === null) return 0;
+  const unrecorded = (why: string): void =>
+    deps.log(`${placement}'s folder is not recorded: ${why}.`);
+  let folder: string | null;
+  try {
+    folder = await deps.folderOf(host, session);
+  } catch (error: unknown) {
+    return unrecorded(`cannot reach Paseo on ${host}: ${messageOf(error)}`);
+  }
+  if (folder === null)
+    return unrecorded(`Paseo on ${host} does not know ${session}`);
   const file = fileOf(deps.configPath);
   sectionOf(file, "folders")[placement] = folder;
-  await approved(file, null, deps);
-  const backup = swapConfig(deps.configPath, file, deps.now());
+  const backup = await written(file, deps);
   deps.log(
     `${placement} works in ${folder}, recorded; the old configuration is ${backup}.`,
   );
-  return 0;
 }
 
 // `router roster repoint <participant@host> [<session>]`: 0 when serve
@@ -582,7 +609,8 @@ export async function repoint(
   const session = target?.session ?? named ?? configured;
   if (configured === session && before === session) {
     deps.log(`${placement} is at ${session} already.`);
-    return recordFolder(config, placement, session, deps);
+    await recordFolder(config, placement, session, deps);
+    return 0;
   }
   await checkSession(config, state, placement, session, deps);
   // A configuration already changed (a restart that failed) only needs
@@ -594,8 +622,7 @@ export async function repoint(
       target ?? (await targetOf(host, session, deps)),
       deps.log,
     );
-    await approved(file, null, deps);
-    const backup = swapConfig(deps.configPath, file, deps.now());
+    const backup = await written(file, deps);
     deps.log(
       `${placement}: ${configured} -> ${session}; the old configuration is ${backup}.`,
     );

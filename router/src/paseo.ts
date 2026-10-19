@@ -92,16 +92,16 @@ export type Adapter = {
 
 // A session working in a folder, with what says what runs there. A
 // terminal's CLI is Claude Code when its title carries Claude Code's mark,
-// Codex when its screen shows Codex's empty composer, else null (with why,
-// when its screen could not be read). An agent says its provider and
-// status, and whether it is archived.
+// Codex when its screen shows Codex's empty composer, else null; `unsure`
+// says why when it may yet be either (its screen not read, or a turn on
+// it). An agent says its provider and status, and whether it is archived.
 export type FolderSession =
   | {
       kind: "terminal";
       session: string;
       title: string | null;
       cli: TerminalCli | null;
-      unread?: string;
+      unsure?: string;
     }
   | {
       kind: "agent";
@@ -785,18 +785,21 @@ export function adapterOver(
     return "unknown";
   };
   // The CLI a terminal shows: Claude Code by its title, else Codex by its
-  // empty composer on the screen.
+  // empty composer on the screen. A turn on the screen (Codex's status
+  // line) or a screen not read leaves it unsure.
   const cliShown = async (
     t: PaseoTerminal,
-  ): Promise<{ cli: TerminalCli | null; unread?: string }> => {
+  ): Promise<{ cli: TerminalCli | null; unsure?: string }> => {
     if (claudeCondition(t) !== "away") return { cli: "claude" };
     try {
-      const shown = codexPrompt(await daemon.screen(t.id)) === "empty";
-      return { cli: shown ? "codex" : null };
+      const prompt = codexPrompt(await daemon.screen(t.id));
+      return prompt === "busy"
+        ? { cli: null, unsure: "a turn is running on its screen" }
+        : { cli: prompt === "empty" ? "codex" : null };
     } catch (error: unknown) {
       return {
         cli: null,
-        unread: error instanceof Error ? error.message : String(error),
+        unsure: `its screen was not read: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
   };

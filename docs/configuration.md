@@ -79,14 +79,17 @@ A Paseo daemon restart closes terminals, and a reopened terminal or a
 cleared agent context gets a new id. `router roster repoint
 <participant@host> [<session>]` points the placement at it:
 
-- Without a session, it looks in the placement's folder
+- Without a session, once the current session is gone (its terminal
+  closed, its agent archived), it looks in the placement's folder
   ([`folders`](#folders), else the current session's) for the one session
   that can take it: a terminal whose title carries Claude Code's mark, a
   terminal at Codex's empty composer, or a live (idle or running) Claude or
-  Codex agent, not archived. Not the current session, one another placement
-  names, or one the record has seen. None or several, or a terminal whose
-  screen could not be read: nothing changes, and it lists the folder's
-  sessions; run it again naming one.
+  Codex agent, not archived. Not one another placement names, or one the
+  record has seen. None or several, or a terminal it cannot tell yet (a
+  turn on its screen, or a screen not read): nothing changes, and it lists
+  the folder's sessions; run it again naming one. While the current
+  session is still there, nothing changes either: a session beside it may
+  be a side session.
 - It refuses a session the host's Paseo does not know, or knows by another
   id: an agent named by a prefix or a title needs its full id. It also
   refuses a session another placement names, and one the record has seen,
@@ -119,10 +122,11 @@ terminal, and a value other than `claude` or `codex`.
 ### `folders`
 
 Placement key to the folder its session works in, on its host, as Paseo
-writes it: where `router roster repoint` looks for a new session. Every
-repoint writes it; optional. A terminal's folder is where it was created;
-a `cd` in it does not move it. Refused: a key not in `agents`, and a path
-that is not absolute.
+writes it: where `router roster repoint` looks for a new session. A
+repoint that moves the placement writes it, and naming the bound session
+records it when none is; optional. A terminal's folder is where it was
+created; a `cd` in it does not move it. Refused: a key not in `agents`,
+and a path that is not absolute.
 
 ```json
 "folders": { "coder@laptop": "/home/me/project" }

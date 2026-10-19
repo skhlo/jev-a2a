@@ -1479,7 +1479,11 @@ test("a Codex send goes only to its empty composer, and is confirmed by the turn
 test("a folder's sessions: terminals and agents in exactly that folder, a terminal's CLI by Claude Code's title or Codex's empty composer, archived agents marked, nothing resumed", async () => {
   const { daemon, calls } = scripted("idle");
   const work = "/work/.paseo/worktrees/feat-x";
-  const screens: Record<string, Screen> = { T2: CODEX_EMPTY, T3: CODEX_DRAFT };
+  const screens: Record<string, Screen> = {
+    T2: CODEX_EMPTY,
+    T3: CODEX_DRAFT,
+    T7: CODEX_THINKING,
+  };
   const reads: string[] = [];
   const listed: Daemon = {
     ...daemon,
@@ -1489,6 +1493,7 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
         { ...codexTerm(null), id: "T2" },
         { ...codexTerm(null, "skhl@mbp:~"), id: "T3" },
         { ...codexTerm(null), id: "T4" },
+        { ...codexTerm(null), id: "T7" },
         // A subfolder and another spelling are other folders.
         { ...term(finishedAt(5)), id: "T5", cwd: `${work}/sub` },
         { ...term(finishedAt(5)), id: "T6", cwd: `${work}/` },
@@ -1533,7 +1538,14 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
       session: "terminal:T4",
       title: "jev-a2a",
       cli: null,
-      unread: "no screen of the terminal within 5 s",
+      unsure: "its screen was not read: no screen of the terminal within 5 s",
+    },
+    {
+      kind: "terminal",
+      session: "terminal:T7",
+      title: "jev-a2a",
+      cli: null,
+      unsure: "a turn is running on its screen",
     },
     {
       kind: "agent",
@@ -1553,7 +1565,7 @@ test("a folder's sessions: terminals and agents in exactly that folder, a termin
     },
   ]);
   // Claude Code's title is enough; only the others' screens are read.
-  assert.deepEqual(reads.sort(), ["T2", "T3", "T4"]);
+  assert.deepEqual(reads.sort(), ["T2", "T3", "T4", "T7"]);
   assert.equal(await finder.folderOf("terminal:T5"), `${work}/sub`);
   assert.equal(await finder.folderOf("A2"), work);
   assert.equal(await finder.folderOf("A3"), "/elsewhere");

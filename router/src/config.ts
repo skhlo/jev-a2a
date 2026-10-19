@@ -64,8 +64,8 @@ export type RouterConfig = Config & {
   // does not run Claude Code.
   terminals: Record<string, TerminalCli>;
   // Placement key -> the folder its session works in, on its host, as
-  // Paseo writes it: where `router roster repoint` looks for a new session.
-  // Every repoint records it (see repoint in roster.ts).
+  // Paseo writes it: where `router roster repoint` looks for a new session,
+  // which records it (see repoint in roster.ts).
   folders: Record<string, string>;
   // Where `router serve` listens for events from other hosts, where it
   // serves the board (loopback; expose it through Tailscale Serve), and which
