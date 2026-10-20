@@ -326,10 +326,40 @@ async function checkSession(
 // the CLI that runs there.
 type Target = { session: string; folder: string; cli: TerminalCli | null };
 
-// The configuration file, as written, with `placement` at the target and
-// its folder recorded. A terminal takes no message key, so its
-// participant's sends are not repeated (see checkTerminal in config.ts);
-// `terminals` names Codex, and Claude Code (the default) or an agent not.
+// Whether a participant at these sessions deduplicates by the router's
+// message key: a Paseo agent's send carries it, a terminal takes none (see
+// checkTerminal in config.ts).
+const keyed = (sessions: Iterable<unknown>): boolean =>
+  ![...sessions].some((s) => typeof s === "string" && terminalOf(s) !== null);
+
+// `participant`'s `idempotent` in the file set from its placements, logged
+// when it changes; whether it changed.
+function settleIdempotent(
+  file: Record<string, unknown>,
+  participant: string,
+  log: (line: string) => void,
+): boolean {
+  const entry = records(file.participants).find((p) => p.id === participant);
+  if (!entry) return false;
+  const idempotent = keyed(
+    Object.entries(sectionOf(file, "agents"))
+      .filter(([key]) => participantOf(key) === participant)
+      .map(([, session]) => session),
+  );
+  if (entry.idempotent === idempotent) return false;
+  entry.idempotent = idempotent;
+  log(
+    idempotent
+      ? `${participant} is idempotent: true now, with no terminal placement.`
+      : `${participant} is idempotent: false now, for a terminal.`,
+  );
+  return true;
+}
+
+// The configuration file, as written, with `placement` at the target, its
+// folder recorded and its participant's `idempotent` set from its
+// placements; `terminals` names Codex, and Claude Code (the default) or an
+// agent not.
 function pointed(
   path: string,
   placement: string,
@@ -343,14 +373,7 @@ function pointed(
     folders[placement] = folder;
     log(`${placement} works in ${folder}.`);
   }
-  if (terminalOf(session) !== null) {
-    const participant = participantOf(placement);
-    const entry = records(file.participants).find((p) => p.id === participant);
-    if (entry?.idempotent === true) {
-      entry.idempotent = false;
-      log(`${participant} is idempotent: false now, for a terminal.`);
-    }
-  }
+  settleIdempotent(file, participantOf(placement), log);
   const recorded = isRecord(file.terminals)
     ? own(file.terminals, placement)
     : undefined;
@@ -569,33 +592,69 @@ async function written(
   return swapConfig(deps.configPath, file, deps.now());
 }
 
-// The folder of a placement's bound session, recorded when no folder is,
-// so a later search knows where to look; serve does not read it, so it
-// needs no restart. A host that cannot be reached, or a session its Paseo
-// no longer knows, leaves it unrecorded, and says so.
-async function recordFolder(
+// The folder of a placement's bound session when no folder is recorded, so
+// a later search knows where to look; else null. A host that cannot be
+// reached, or a session its Paseo no longer knows, leaves it unrecorded,
+// and says so.
+async function folderToRecord(
   config: RouterConfig,
   placement: string,
   session: string,
   deps: RosterDeps,
-): Promise<void> {
-  if (own(config.folders, placement) !== undefined) return;
+): Promise<string | null> {
+  if (own(config.folders, placement) !== undefined) return null;
   const host = hostOf(placement);
-  const unrecorded = (why: string): void =>
+  const unrecorded = (why: string): null => {
     deps.log(`${placement}'s folder is not recorded: ${why}.`);
+    return null;
+  };
   let folder: string | null;
   try {
     folder = await deps.folderOf(host, session);
   } catch (error: unknown) {
     return unrecorded(noReach(host, error));
   }
-  if (folder === null)
-    return unrecorded(`Paseo on ${host} does not know ${session}`);
+  return folder ?? unrecorded(`Paseo on ${host} does not know ${session}`);
+}
+
+// A bound placement's folder recorded and its participant's `idempotent`
+// set from its placements, in one write. serve does not read the folder,
+// but reads the flag at start: while the record says serve runs another
+// flag, serve is restarted. 0 once it runs this one.
+async function settle(
+  config: RouterConfig,
+  placement: string,
+  session: string,
+  deps: RosterDeps,
+): Promise<number> {
   const file = fileOf(deps.configPath);
-  sectionOf(file, "folders")[placement] = folder;
-  const backup = await written(file, deps);
-  deps.log(
-    `${placement} works in ${folder}, recorded; the old configuration is ${backup}.`,
+  const folder = await folderToRecord(config, placement, session, deps);
+  if (folder !== null) sectionOf(file, "folders")[placement] = folder;
+  const participant = participantOf(placement);
+  const flagged = settleIdempotent(file, participant, deps.log);
+  if (folder !== null || flagged) {
+    const backup = await written(file, deps);
+    deps.log(
+      folder !== null
+        ? `${placement} works in ${folder}, recorded; the old configuration is ${backup}.`
+        : `${participant}: the old configuration is ${backup}.`,
+    );
+  }
+  const wanted = records(file.participants).find(
+    (p) => p.id === participant,
+  )?.idempotent;
+  const running = (state: State): boolean | undefined =>
+    state.config.participants.find((p) => p.id === participant)?.idempotent;
+  if (typeof wanted !== "boolean" || running(deps.record()) === wanted)
+    return 0;
+  await deps.restart();
+  return watchRun(
+    (state) =>
+      running(state) === wanted
+        ? `serve runs ${participant} idempotent: ${wanted}.`
+        : null,
+    `serve does not run ${participant} idempotent: ${wanted} after ${WATCH_SECONDS} seconds; ${STILL} and run this again.`,
+    deps,
   );
 }
 
@@ -603,7 +662,7 @@ async function recordFolder(
 // binds the placement to the session, or to the one new session in its
 // folder when none is named; 1 when there is not exactly one. Asked again
 // after a restart that bound nothing, it restarts serve without writing the
-// file again.
+// file again. Named the bound session, it settles the placement (above).
 export async function repoint(
   placement: string,
   named: string | null,
@@ -631,8 +690,7 @@ export async function repoint(
   const session = target?.session ?? named ?? configured;
   if (configured === session && before === session) {
     deps.log(`${placement} is at ${session} already.`);
-    await recordFolder(config, placement, session, deps);
-    return 0;
+    return settle(config, placement, session, deps);
   }
   await checkSession(config, state, placement, session, deps);
   // A configuration already changed (a restart that failed) only needs
@@ -694,7 +752,7 @@ export async function add(
       id,
       kind: "agent",
       hosts,
-      idempotent: ![...placements.values()].some((s) => terminalOf(s) !== null),
+      idempotent: keyed(placements.values()),
       responsibility: text,
       responsibilityFrom: from,
     },

@@ -338,7 +338,7 @@ test("roster repoint: through a symlink, the file it names is replaced, its tabs
   assert.ok(existsSync(`${real}.bak-20261006T130501Z`));
 });
 
-test("roster repoint: a terminal placement moved to an agent drops its terminal's CLI", async (t) => {
+test("roster repoint: a terminal placement moved to an agent drops its terminal's CLI, and its participant, with no terminal left, is idempotent again", async (t) => {
   const { deps, log, fileNow } = setup(t, (file) => ({
     ...file,
     agents: { ...file.agents, "knowledge@mini": TERMINAL },
@@ -351,12 +351,89 @@ test("roster repoint: a terminal placement moved to an agent drops its terminal'
   const after = fileNow();
   assert.equal(after.agents["knowledge@mini"], "K2");
   assert.deepEqual(after.terminals, {});
-  // Once not idempotent, a participant is made so again only by a person.
   assert.equal(
     after.participants.find((p) => p.id === "knowledge")?.idempotent,
-    false,
+    true,
   );
-  assert.equal(log[1], "terminals.knowledge@mini removed: K2 is an agent.");
+  assert.deepEqual(log.slice(1, 3), [
+    "knowledge is idempotent: true now, with no terminal placement.",
+    "terminals.knowledge@mini removed: K2 is an agent.",
+  ]);
+});
+
+test("roster repoint: a participant with a terminal placement on another host stays not idempotent until that one moves too", async (t) => {
+  const { deps, log, fileNow } = setup(t, (file) => ({
+    ...file,
+    agents: { ...file.agents, "environment@mini": T4 },
+    participants: file.participants.map((p) =>
+      p.id === "environment" ? { ...p, idempotent: false } : p,
+    ),
+  }));
+  const environment = () =>
+    fileNow().participants.find((p) => p.id === "environment")?.idempotent;
+  assert.equal(await repoint("environment@mbp", "E8", deps), 0);
+  assert.equal(environment(), false);
+  assert.ok(!log.some((line) => line.includes("idempotent")), log.join("\n"));
+  assert.equal(await repoint("environment@mini", "E9", deps), 0);
+  assert.equal(environment(), true);
+  assert.ok(
+    log.includes(
+      "environment is idempotent: true now, with no terminal placement.",
+    ),
+  );
+});
+
+test("roster repoint: naming the bound session corrects a stale idempotent in the folder's write, restarts serve until it runs it, and then changes nothing", async (t) => {
+  const { dir, configPath, deps, log, counts, fileNow, binding } = setup(
+    t,
+    (file) => ({
+      ...file,
+      participants: file.participants.map((p) =>
+        p.id === "knowledge" ? { ...p, idempotent: false } : p,
+      ),
+    }),
+  );
+  // serve runs the stale file: what a repoint before 028 left.
+  appendFileSync(
+    join(dir, "journal.jsonl"),
+    `${JSON.stringify({
+      at: "2026-10-06T13:05:00.000Z",
+      event: { type: "configured", config: coreConfig(loadConfig(configPath)) },
+    })}\n`,
+  );
+  const backups = () =>
+    readdirSync(dir).filter((name) => name.includes(".bak-")).length;
+  // A restart that runs nothing: the file is right, serve is not, and it
+  // fails.
+  binding(false);
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 1);
+  assert.equal(
+    fileNow().participants.find((p) => p.id === "knowledge")?.idempotent,
+    true,
+  );
+  assert.deepEqual(fileNow().folders, { "knowledge@mini": "/srv/work" });
+  assert.deepEqual(log, [
+    "knowledge@mini is at K1 already.",
+    "knowledge is idempotent: true now, with no terminal placement.",
+    `knowledge@mini works in /srv/work, recorded; the old configuration is ${dir}/config.json.bak-20261006T130501Z.`,
+    "serve does not run knowledge idempotent: true after 90 seconds; its first run may still be going. router status shows when it does; if it never does, see serve's log and run this again.",
+  ]);
+  // Asked again: serve restarts onto it, and the file is not written twice.
+  binding(true);
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 0);
+  assert.deepEqual(log, [
+    "knowledge@mini is at K1 already.",
+    "serve runs knowledge idempotent: true.",
+  ]);
+  assert.equal(counts.restarts, 2);
+  assert.equal(backups(), 1);
+  // Right in the file and in serve: nothing to do.
+  log.length = 0;
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 0);
+  assert.deepEqual(log, ["knowledge@mini is at K1 already."]);
+  assert.equal(counts.restarts, 2);
+  assert.equal(backups(), 1);
 });
 
 test("roster repoint: a restart that bound nothing is repaired by asking again; until then it fails", async (t) => {
