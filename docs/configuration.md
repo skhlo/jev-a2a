@@ -94,11 +94,15 @@ cleared agent context gets a new id. `router roster repoint
   id: an agent named by a prefix or a title needs its full id. It also
   refuses a session another placement names, and one the record has seen,
   which the record would refuse to bind.
-- For a terminal it sets the participant `idempotent: false`, and sets or
-  drops the placement's `terminals` entry by what the terminal shows; a
-  terminal showing neither CLI is refused. For an agent it drops the
-  entry. It records the session's folder in `folders`; naming the bound
-  session records its folder when none is, without a restart.
+- It sets the participant's `idempotent` from all its placements: `false`
+  while one is a terminal, else `true`. For a terminal it sets or drops
+  the placement's `terminals` entry by what the terminal shows; a terminal
+  showing neither CLI is refused. For an agent it drops the entry. It
+  records the session's folder in `folders`.
+- Naming the bound session records its folder when none is, and sets a
+  stale `idempotent` from the placements, in one write. `serve` reads the
+  flag at start, so it restarts `serve` when it writes the flag, or while
+  the record says `serve` runs a different one.
 - It writes the file only once it loads, keeping the old one as
   `config.json.bak-<time>`. The copy restores the file, not the record:
   once `serve` binds the new session, the placement cannot go back to the

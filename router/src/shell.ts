@@ -283,8 +283,12 @@ export async function openShell(
   const isServed = servedBy(config, state);
   const served = Object.entries(config.agents).filter(([key]) => isServed(key));
 
+  // The placements this run saw running Codex as a Paseo agent.
+  const codexAgents = new Set<string>();
+
   async function observeAll(report: string[]): Promise<void> {
     const snapshots: Record<string, AgentSnapshot> = {};
+    codexAgents.clear();
     for (const [key, agentId] of served) {
       const placement = state.placements[key];
       if (!placement) continue;
@@ -304,6 +308,7 @@ export async function openShell(
         continue;
       }
       snapshots[key] = seen?.snapshot ?? emptySnapshot(at, "missing");
+      if (seen?.snapshot.provider === "codex") codexAgents.add(key);
       const ready = seen?.ready ?? false;
       const event: Event =
         placement.session === agentId
@@ -336,11 +341,12 @@ export async function openShell(
     }
   }
 
-  // Codex in a terminal runs shell commands in a sandbox that cannot reach
-  // the router, and does not ask to leave it unprompted (ticket 018), so a
-  // prompt that gives it a router command says to ask.
+  // Codex runs shell commands in a sandbox that cannot reach the router,
+  // and does not ask to leave it unprompted, in a terminal (ticket 018) and
+  // as a Paseo agent in Default Permissions or Auto-review (ticket 027), so
+  // a prompt that gives it a router command says to ask, in any mode.
   const sandboxNote = (placement: string): string =>
-    config.terminals[placement] === "codex"
+    config.terminals[placement] === "codex" || codexAgents.has(placement)
       ? " That command has to reach the router from outside your sandbox, so request escalated permissions for it."
       : "";
 

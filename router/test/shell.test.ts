@@ -860,19 +860,33 @@ test("a hand-back is told with the choice to make, and a failed end with each de
   await shell.close();
 });
 
-test("a Codex terminal is told to take the router's command out of its sandbox, in a notice it must answer and in a request; Claude Code is not", async (t) => {
+test("Codex, in a terminal or as an agent, is told to take the router's command out of its sandbox, in a notice it must answer and in a request; Claude Code is not", async (t) => {
   const NOTE =
     " That command has to reach the router from outside your sandbox, so request escalated permissions for it.";
-  for (const cli of ["codex", "claude"] as const) {
+  // A terminal is Codex by `terminals`, and reports no provider; an agent
+  // is Codex by the provider its observation reports.
+  const cases = [
+    { session: "terminal:T1", cli: "codex", provider: null, told: true },
+    { session: "terminal:T1", cli: "claude", provider: null, told: false },
+    { session: "A1", cli: null, provider: "codex", told: true },
+    { session: "A1", cli: null, provider: "claude", told: false },
+  ] as const;
+  for (const { session, cli, provider, told } of cases) {
+    const label = `${session} ${cli ?? provider}`;
     const config: RouterConfig = {
       ...configFor(scratch(t, "shell-")),
-      agents: { "orchestrator@mbp": "terminal:T1" },
+      agents: { "orchestrator@mbp": session },
       terminals: cli === "codex" ? { "orchestrator@mbp": cli } : {},
+    };
+    const seen: Observation = {
+      ...idle,
+      snapshot: { ...snapshot("idle"), provider },
     };
     const sent: { key: string; text: string }[] = [];
     const shell = await openShell(
       config,
       scripted({
+        observe: () => Promise.resolve(seen),
         send: (key, text) => {
           sent.push({ key, text });
           return Promise.resolve("accepted");
@@ -885,7 +899,7 @@ test("a Codex terminal is told to take the router's command out of its sandbox, 
     const events: Event[] = [
       {
         type: "submit",
-        by: "terminal:T1",
+        by: session,
         messageId: "M1",
         text: "Which shell config is active on mbp?",
         to: "environment",
@@ -930,14 +944,14 @@ test("a Codex terminal is told to take the router's command out of its sandbox, 
     await shell.deliver();
     const notice = sent.find((s) => s.key === "N/T1/question/D1/Q1")?.text;
     const request = sent.find((s) => s.key === "D2/M2")?.text;
-    assert.match(notice ?? "", /^\[router T1 question\/D1\/Q1\]/, cli);
+    assert.match(notice ?? "", /^\[router T1 question\/D1\/Q1\]/, label);
     assert.match(
       request ?? "",
       /^\[router T2 M2\] Task from the router\./,
-      cli,
+      label,
     );
     for (const text of [notice ?? "", request ?? ""])
-      assert.equal(text.includes(`.${NOTE}\n\n`), cli === "codex", cli);
+      assert.equal(text.includes(`.${NOTE}\n\n`), told, label);
     await shell.close();
   }
 });
