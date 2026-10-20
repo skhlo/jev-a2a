@@ -44,8 +44,9 @@ session (`router observe <participant@host> --hold`, or the lever on the
 board) closes it, and `--release` opens it again.
 
 A Codex agent's prompt that gives it a router command tells it to request
-escalated permissions for it, as a Codex terminal's does: Paseo runs
-Codex's commands in its sandbox, which cannot reach the router.
+escalated permissions for it, as a Codex terminal's does. In Paseo's
+Default Permissions and Auto-review modes, Codex runs its commands in a
+sandbox that cannot reach the router; a Full Access agent is told too.
 
 A terminal placement, Claude Code or Codex in a Paseo terminal, is sent to
 only at the CLI's empty prompt, as the contract's adapters section

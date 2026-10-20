@@ -393,7 +393,7 @@ test("roster repoint: naming the bound session corrects a stale idempotent in th
       ),
     }),
   );
-  // serve runs the stale file: what a repoint before 028 left.
+  // serve runs the stale file: what a repoint before ticket 028 left.
   appendFileSync(
     join(dir, "journal.jsonl"),
     `${JSON.stringify({
@@ -434,6 +434,23 @@ test("roster repoint: naming the bound session corrects a stale idempotent in th
   assert.deepEqual(log, ["knowledge@mini is at K1 already."]);
   assert.equal(counts.restarts, 2);
   assert.equal(backups(), 1);
+});
+
+test("roster repoint: a flag it writes restarts serve even when the record shows that flag already, as a router run here records the file", async (t) => {
+  // The record has the fixture's flag; the file a stale one.
+  const { deps, log, counts, fileNow } = setup(t, (file) => ({
+    ...file,
+    participants: file.participants.map((p) =>
+      p.id === "knowledge" ? { ...p, idempotent: false } : p,
+    ),
+  }));
+  assert.equal(await repoint("knowledge@mini", "K1", deps), 0);
+  assert.equal(
+    fileNow().participants.find((p) => p.id === "knowledge")?.idempotent,
+    true,
+  );
+  assert.equal(counts.restarts, 1);
+  assert.equal(log.at(-1), "serve runs knowledge idempotent: true.");
 });
 
 test("roster repoint: a restart that bound nothing is repaired by asking again; until then it fails", async (t) => {

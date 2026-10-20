@@ -342,9 +342,9 @@ export async function openShell(
   }
 
   // Codex runs shell commands in a sandbox that cannot reach the router,
-  // and does not ask to leave it unprompted (ticket 018), in a terminal and
-  // as an agent in Paseo's Auto-review mode (027), so a prompt that gives
-  // it a router command says to ask.
+  // and does not ask to leave it unprompted, in a terminal (ticket 018) and
+  // as a Paseo agent in Default Permissions or Auto-review (ticket 027), so
+  // a prompt that gives it a router command says to ask, in any mode.
   const sandboxNote = (placement: string): string =>
     config.terminals[placement] === "codex" || codexAgents.has(placement)
       ? " That command has to reach the router from outside your sandbox, so request escalated permissions for it."

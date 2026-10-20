@@ -101,7 +101,8 @@ cleared agent context gets a new id. `router roster repoint
   records the session's folder in `folders`.
 - Naming the bound session records its folder when none is, and sets a
   stale `idempotent` from the placements, in one write. `serve` reads the
-  flag at start, so only a flag `serve` does not run restarts it.
+  flag at start, so it restarts `serve` when it writes the flag, or while
+  the record says `serve` runs a different one.
 - It writes the file only once it loads, keeping the old one as
   `config.json.bak-<time>`. The copy restores the file, not the record:
   once `serve` binds the new session, the placement cannot go back to the

@@ -333,27 +333,28 @@ const keyed = (sessions: Iterable<unknown>): boolean =>
   ![...sessions].some((s) => typeof s === "string" && terminalOf(s) !== null);
 
 // `participant`'s `idempotent` in the file set from its placements, logged
-// when it changes; whether it changed.
+// when it changes; the flag and whether it changed, or null for no such
+// participant.
 function settleIdempotent(
   file: Record<string, unknown>,
   participant: string,
   log: (line: string) => void,
-): boolean {
+): { idempotent: boolean; changed: boolean } | null {
   const entry = records(file.participants).find((p) => p.id === participant);
-  if (!entry) return false;
+  if (!entry) return null;
   const idempotent = keyed(
     Object.entries(sectionOf(file, "agents"))
       .filter(([key]) => participantOf(key) === participant)
       .map(([, session]) => session),
   );
-  if (entry.idempotent === idempotent) return false;
+  if (entry.idempotent === idempotent) return { idempotent, changed: false };
   entry.idempotent = idempotent;
   log(
     idempotent
       ? `${participant} is idempotent: true now, with no terminal placement.`
       : `${participant} is idempotent: false now, for a terminal.`,
   );
-  return true;
+  return { idempotent, changed: true };
 }
 
 // The configuration file, as written, with `placement` at the target, its
@@ -619,9 +620,11 @@ async function folderToRecord(
 
 // A bound placement's folder recorded and its participant's `idempotent`
 // set from its placements, in one write. serve does not read the folder,
-// but reads the flag at start: while the record says serve runs another
-// flag, serve is restarted. 0 once it runs this one.
-async function settle(
+// but reads the flag at start: serve is restarted when the flag is written,
+// or when the record says serve runs another. A flag just written cannot go
+// by the record, as any router run here records the file's configuration.
+// 0 once serve runs the flag.
+async function settleBound(
   config: RouterConfig,
   placement: string,
   session: string,
@@ -631,8 +634,8 @@ async function settle(
   const folder = await folderToRecord(config, placement, session, deps);
   if (folder !== null) sectionOf(file, "folders")[placement] = folder;
   const participant = participantOf(placement);
-  const flagged = settleIdempotent(file, participant, deps.log);
-  if (folder !== null || flagged) {
+  const flag = settleIdempotent(file, participant, deps.log);
+  if (folder !== null || flag?.changed) {
     const backup = await written(file, deps);
     deps.log(
       folder !== null
@@ -640,13 +643,11 @@ async function settle(
         : `${participant}: the old configuration is ${backup}.`,
     );
   }
-  const wanted = records(file.participants).find(
-    (p) => p.id === participant,
-  )?.idempotent;
+  if (!flag) return 0;
+  const wanted = flag.idempotent;
   const running = (state: State): boolean | undefined =>
     state.config.participants.find((p) => p.id === participant)?.idempotent;
-  if (typeof wanted !== "boolean" || running(deps.record()) === wanted)
-    return 0;
+  if (!flag.changed && running(deps.record()) === wanted) return 0;
   await deps.restart();
   return watchRun(
     (state) =>
@@ -662,7 +663,7 @@ async function settle(
 // binds the placement to the session, or to the one new session in its
 // folder when none is named; 1 when there is not exactly one. Asked again
 // after a restart that bound nothing, it restarts serve without writing the
-// file again. Named the bound session, it settles the placement (above).
+// file again. Named the bound session, it settles the placement (settleBound).
 export async function repoint(
   placement: string,
   named: string | null,
@@ -690,7 +691,7 @@ export async function repoint(
   const session = target?.session ?? named ?? configured;
   if (configured === session && before === session) {
     deps.log(`${placement} is at ${session} already.`);
-    return settle(config, placement, session, deps);
+    return settleBound(config, placement, session, deps);
   }
   await checkSession(config, state, placement, session, deps);
   // A configuration already changed (a restart that failed) only needs
