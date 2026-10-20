@@ -319,6 +319,14 @@ Therefore:
   in the session is not a race the router can see, which is what the hold is
   for. How a hold is raised from a view or from Paseo's own UI is not designed
   yet.
+- A Codex agent runs its commands in Codex's sandbox: Paseo's Codex modes
+  Default Permissions and Auto-review set `sandbox: workspace-write` with
+  `approvalPolicy: on-request` (0.11 daemon bundle), which blocks the
+  network a router command needs. So every prompt that gives an agent the
+  run observed with provider `codex` a router command, a request or a
+  notice to answer, says to request escalated permissions for it, as for a
+  Codex terminal. Full Access (`danger-full-access`, `approvalPolicy:
+  never`) has no sandbox; the line is sent there too.
 - Outcome mapping: success → `accepted`; agent-resolution failure → `not_sent`;
   `agent_request_outcome_unknown`, timeout, disconnect or a run-start failure →
   `unknown`. A key conflict is a router bug.
