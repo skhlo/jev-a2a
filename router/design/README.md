@@ -7,6 +7,34 @@ where it departs from it on purpose. They matter to whoever changes the
 page or the design; a user of the board needs only
 [`docs/board.md`](../../docs/board.md).
 
+## Society home prototype
+
+The throwaway society study in `plugin/design-prototype/` asks which home
+makes the agents' shared work understandable: Commons (`?variant=A`),
+Dispatch (`?variant=B`), or Constellation (`?variant=C`). Start it with
+`pnpm --dir router/plugin prototype:society` from the repository root,
+then open `http://127.0.0.1:4318/`. It needs only Node, uses no external
+assets, and binds to loopback. `PORT` selects another port.
+
+This is a standalone browser preview of the proposed Paseo plugin surface,
+using fictional stories; it does not render in Paseo or contact the router.
+Commons presents Office and Computers as a small game-like world, with
+agent characters, a mission journal, and a selected mission you can answer
+in place. Its zoom controls and replay make the sample handoff explorable.
+Office and Computers open into shared work, agent profiles, artifacts,
+and the underlying record. A sample answer updates the home, and a new
+intention appears in Work. All state lasts only for the browser visit.
+Services and Studio are explicitly future roles. The footer can replay
+a handoff, disable motion, or reset the sample. Reduced-motion preferences
+are respected. The bottom switcher and arrow keys select shareable home
+variants; `NODE_ENV=production` hides the switcher and disables those keys.
+
+The study is retained on `feat/agent-society-ui` for review. Commons
+explores a game-like working surface; Dispatch and Constellation provide
+alternative compositions. No variant has been selected for production.
+The question is whether a newcomer can identify the agents' roles, follow
+a handoff, and contribute a decision without needing the delivery details.
+
 ## Files
 
 - `v0.13-paths.txt`: every `data-path` the design's fourteen pages bind,

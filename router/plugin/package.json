@@ -8,7 +8,8 @@
   "description": "The router's Paseo plugin: wakes serve when an agent's turn ends, and serves the board to the Paseo app",
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
-    "typecheck": "tsc && tsc -p tsconfig.client.json"
+    "typecheck": "tsc && tsc -p tsconfig.client.json",
+    "prototype:society": "node design-prototype/serve.mjs"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.10.2",

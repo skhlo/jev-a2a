@@ -5,6 +5,9 @@
   // by hand. The plugin's entries are loaded by Paseo.
   "entry": [
     "src/board-check.ts",
+    // The standalone prototype is loaded by its HTML, outside the TS import graph.
+    "plugin/design-prototype/prototype.js",
+    "plugin/design-prototype/prototype.css",
     "plugin/index.server.ts",
     "plugin/index.client.tsx",
   ],
