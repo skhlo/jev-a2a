@@ -12,7 +12,8 @@ import base from "../src/example-config.ts";
 const options = ["knowledge", "scratch", "none"];
 // The live roster the committed set is labeled against.
 const roster = [
-  "knowledge",
+  "office",
+  "office-local",
   "dotfiles",
   "dotfiles-host",
   "design",
