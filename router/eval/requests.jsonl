@@ -2,16 +2,19 @@
 # live roster of that day (knowledge on mini, the scratch test participant).
 # The scratch participant left the roster on 2026-10-02; its seven requests
 # now expect none, since no one owns a test ping.
+# On 2026-10-22 the vault took the name office. The sixteen rows that named
+# it say office or 오피스 now (the knowledge@mini row names office@mini, and
+# the one-word reply row asks for '오피스'), and so do the comments.
 # One JSON object per line: text, expect (participant id or none), lang.
-{"text": "볼트의 검토 파이프라인 단계가 뭐야?", "expect": "office-local", "lang": "ko"}
+{"text": "오피스의 검토 파이프라인 단계가 뭐야?", "expect": "office-local", "lang": "ko"}
 {"text": "전문 검토 대기 상태인 항목이 몇 개인지 알려줘", "expect": "office-local", "lang": "ko"}
-{"text": "라우터 설계 요약을 볼트 노트로 써줘", "expect": "office-local", "lang": "ko"}
-{"text": "vault의 source collection 상태 종류를 알려줘", "expect": "office-local", "lang": "ko"}
+{"text": "라우터 설계 요약을 office 노트로 써줘", "expect": "office-local", "lang": "ko"}
+{"text": "office의 source collection 상태 종류를 알려줘", "expect": "office-local", "lang": "ko"}
 {"text": "테스트 참가자: pong이라고 답해줘", "expect": "none", "lang": "ko"}
 {"text": "짧은 테스트야, 오늘 날짜만 답해", "expect": "none", "lang": "ko"}
 {"text": "금요일 저녁 네 명 자리 예약해줘", "expect": "none", "lang": "ko"}
 {"text": "라우터 코어의 타입스크립트 버그를 고쳐줘", "expect": "orchestrator", "lang": "ko"}
-{"text": "What are the stages of the vault's review pipeline?", "expect": "office-local", "lang": "en"}
+{"text": "What are the stages of office's review pipeline?", "expect": "office-local", "lang": "en"}
 {"text": "Test participant: reply with the word pong.", "expect": "none", "lang": "en"}
 {"text": "Fix the failing TypeScript build in the router repo.", "expect": "orchestrator", "lang": "en"}
 {"text": "수신함 정리 좀 해줘", "expect": "office-local", "lang": "ko"}
@@ -29,18 +32,18 @@
 {"text": "Where should this filing's original go, and what collection status does it get?", "expect": "office-local", "lang": "en"}
 # Added 2026-10-01 (008b). From the journal:
 {"text": "Delivery test only. Do NOT run any router command for this task. Just say ok.", "expect": "none", "lang": "en"}
-{"text": "Read-only question, do not change any file: in one or two sentences, what are the stages of the vault's status pipeline, in order?", "expect": "office-local", "lang": "en"}
-{"text": "T25 답장의 두 초안을 그대로 승인한다. AGENTS.md에 상태 규칙 단락을 추가하고 responsibility.md를 만들어 볼트의 로컬 Git에 한 커밋으로 남겨줘.", "expect": "office", "lang": "ko"}
+{"text": "Read-only question, do not change any file: in one or two sentences, what are the stages of office's status pipeline, in order?", "expect": "office-local", "lang": "en"}
+{"text": "T25 답장의 두 초안을 그대로 승인한다. AGENTS.md에 상태 규칙 단락을 추가하고 responsibility.md를 만들어 오피스의 로컬 Git에 한 커밋으로 남겨줘.", "expect": "office", "lang": "ko"}
 # Written to be mis-routed: the rubric says responsibility, not technology names.
-{"text": "라우터 설계 메모를 볼트에 노트로 정리해줘", "expect": "office-local", "lang": "ko"}
+{"text": "라우터 설계 메모를 오피스에 노트로 정리해줘", "expect": "office-local", "lang": "ko"}
 {"text": "타입스크립트 테스트 작성법에 대한 참고 노트 있는지 찾아줘", "expect": "office-local", "lang": "ko"}
 {"text": "pong 테스트 결과를 산출물로 기록해줘", "expect": "office-local", "lang": "ko"}
-{"text": "Draft a vault note on how the scratch participant was tested.", "expect": "office-local", "lang": "en"}
+{"text": "Draft an office note on how the scratch participant was tested.", "expect": "office-local", "lang": "en"}
 {"text": "이 산출물 검토 상태를 전문 검토 대기로 올려줘", "expect": "office-local", "lang": "ko"}
-{"text": "테스트: '볼트'라는 단어 하나로 답해줘", "expect": "none", "lang": "ko"}
+{"text": "테스트: '오피스'라는 단어 하나로 답해줘", "expect": "none", "lang": "ko"}
 {"text": "Ping test for the router, just reply pong.", "expect": "none", "lang": "en"}
 {"text": "지금 몇 시야? 짧게 답해", "expect": "none", "lang": "ko"}
-{"text": "볼트 스크립트의 파이썬 오류 고쳐줘", "expect": "office", "lang": "ko"}
+{"text": "office 스크립트의 파이썬 오류 고쳐줘", "expect": "office", "lang": "ko"}
 {"text": "mini에 node 버전 올려줘", "expect": "none", "lang": "ko"}
 {"text": "Change the router's threshold to 0.8 in the config.", "expect": "orchestrator", "lang": "en"}
 {"text": "미니 서버 재부팅해줘", "expect": "none", "lang": "ko"}
@@ -69,14 +72,14 @@
 {"text": "Review the open pull request in the pi-live repository.", "expect": "none", "lang": "en"}
 {"text": "Buy more Claude credits for my account.", "expect": "none", "lang": "en"}
 # The design participant (2026-10-03): nine requests it owns and seven on its
-# borders with code, the vault and the baseline.
+# borders with code, the office repository and the baseline.
 {"text": "I need a mockup of the router board's task list as a dark dashboard, 1440 wide.", "expect": "design", "lang": "en"}
 {"text": "Draw up a pricing table with three tiers in Paper and give me the JSX.", "expect": "design", "lang": "en"}
 {"text": "Sketch a mobile onboarding flow, three screens, and send me screenshots.", "expect": "design", "lang": "en"}
 {"text": "Take the hero artboard in my Paper file 'jev landing' and hand me its Tailwind JSX.", "expect": "design", "lang": "en"}
 {"text": "Come up with a colour palette and type scale for the router's web board and export them as tokens.", "expect": "design", "lang": "en"}
 {"text": "Redo the look of the voice widget: a compact pill with a waveform and a mute button.", "expect": "design", "lang": "en"}
-{"text": "What would an empty inbox screen look like for the vault app? Show me two options.", "expect": "design", "lang": "en"}
+{"text": "What would an empty inbox screen look like for the office app? Show me two options.", "expect": "design", "lang": "en"}
 {"text": "라우터 보드 화면 시안을 Paper로 만들어줘", "expect": "design", "lang": "ko"}
 {"text": "로그인 화면 디자인하고 스크린샷이랑 JSX 보내줘", "expect": "design", "lang": "ko"}
 {"text": "Implement the status card from the designs repo as a React component in pi-live.", "expect": "none", "lang": "en"}
@@ -93,7 +96,7 @@
 # board CSS row). Below: eight requests it owns and four on its borders, phrased
 # unlike its examples.
 {"text": "The agents column still shows the old card layout after the designs merge; make the served page match.", "expect": "orchestrator", "lang": "en"}
-{"text": "knowledge@mini keeps reading not ready although the vault agent is idle; find out why the router thinks so.", "expect": "orchestrator", "lang": "en"}
+{"text": "office@mini keeps reading not ready although the office agent is idle; find out why the router thinks so.", "expect": "orchestrator", "lang": "en"}
 {"text": "Show me Jev's probability table for the task I just submitted.", "expect": "orchestrator", "lang": "en"}
 {"text": "We agreed on context-use and liveness fields for the board; plan how the record gets them and what each agent side does.", "expect": "orchestrator", "lang": "en"}
 {"text": "라우터 보드가 질문에 답한 뒤에도 '질문 중'으로 보여. 고쳐줘.", "expect": "orchestrator", "lang": "ko"}
@@ -102,26 +105,26 @@
 {"text": "라우터가 어떤 기준으로 수신자를 고르는지 설명해줘.", "expect": "orchestrator", "lang": "ko"}
 {"text": "Design the agent health sheet for the board at 1440 width.", "expect": "design", "lang": "en"}
 {"text": "After the baseline merge, is the mini's checkout on it, and did the apply leave anything pending?", "expect": "dotfiles-host", "lang": "en"}
-{"text": "라우터 설계 결정들을 볼트에 정리해서 보고서 초안 써줘.", "expect": "office-local", "lang": "ko"}
+{"text": "라우터 설계 결정들을 오피스에 정리해서 보고서 초안 써줘.", "expect": "office-local", "lang": "ko"}
 {"text": "Reply pong, this is only a delivery test for the router.", "expect": "none", "lang": "en"}
 {"text": "The log panel's last line is clipped at 1280 wide on the live board; the generator's CSS has a min-height on .lines that the port lacks.", "expect": "orchestrator", "lang": "en"}
 {"text": "Give me a mockup of a notices table under the task detail, four columns, both themes, and the data-paths you want bound.", "expect": "design", "lang": "en"}
-{"text": "Is there a note in the vault on how the router picks a recipient, and what does it say about the threshold?", "expect": "office-local", "lang": "en"}
-{"text": "The vault's lint script wants a newer Python on the mini. Is the mini on the merged baseline, or does an apply still wait?", "expect": "dotfiles-host", "lang": "en"}
+{"text": "Is there a note in the office repo on how the router picks a recipient, and what does it say about the threshold?", "expect": "office-local", "lang": "en"}
+{"text": "The office repo's lint script wants a newer Python on the mini. Is the mini on the merged baseline, or does an apply still wait?", "expect": "dotfiles-host", "lang": "en"}
 {"text": "The baseline PR is merged; apply it on mba and mini and tell me the transaction paths.", "expect": "dotfiles-host", "lang": "en"}
 {"text": "My proofs workflow needs ImageMagick in the shared tooling list. Add it to the baseline and open the PR.", "expect": "dotfiles", "lang": "en"}
 {"text": "The rollout on mba failed on a Ghostty keybind the baseline no longer has; fix the source and send a PR.", "expect": "dotfiles", "lang": "en"}
 {"text": "A research memo needs a cover figure of the review pipeline as five stages; two options, dark, exported as PNG.", "expect": "design", "lang": "en"}
 {"text": "v0.9에 notices 필드를 바인딩할 건데, 샘플 JSON에 알림이 있는 작업을 하나 넣어 줄 수 있나요?", "expect": "orchestrator", "lang": "ko"}
-{"text": "지난 라운드의 디자인 결정 기록을 볼트 노트로 정리해 줄 수 있어?", "expect": "office-local", "lang": "ko"}
+{"text": "지난 라운드의 디자인 결정 기록을 office 노트로 정리해 줄 수 있어?", "expect": "office-local", "lang": "ko"}
 # 2026-10-21: knowledge leaves, split like dotfiles and dotfiles-host. office
-# (mini) changes the vault's shared repository: common guidance, skills,
+# (mini) changes the shared office repository: common guidance, skills,
 # scripts, CI, the common folder structure and shared material. office-local
 # (mba) owns that machine's material and work: it files, searches and
 # summarizes any material, moves files into or out of sharing by PR, and
 # answers questions on the guidance, skills and scripts. Knowledge's rows now
 # expect office-local, except the T25 approval row in 008b, which edits
-# AGENTS.md and expects office; so does the vault-script row there, which
+# AGENTS.md and expects office; so does the office-script row there, which
 # expected none. Below: seven for office, twelve for office-local and one for
 # none, eight of them on the office/office-local border or another
 # repository's, phrased unlike their examples.
