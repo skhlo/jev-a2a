@@ -7,6 +7,8 @@ const files = {
   "index.html": "text/html; charset=utf-8",
   "prototype.css": "text/css; charset=utf-8",
   "prototype.js": "text/javascript; charset=utf-8",
+  "command.js": "text/javascript; charset=utf-8",
+  "command.css": "text/css; charset=utf-8",
 };
 
 createServer(async (req, res) => {

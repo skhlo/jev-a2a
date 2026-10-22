@@ -1,14 +1,17 @@
 // PROTOTYPE: in-memory sample stories, no router integration or persistence.
 // Question: which home makes a small agent society understandable and inviting?
+import { commandHome, commandSceneSelection } from "./command.js";
 const app = document.querySelector("#app");
 const layer = document.querySelector("#layer");
 const announcer = document.querySelector("#announcer");
-const variants = ["A", "B", "C"];
-const names = { A: "Commons", B: "Dispatch", C: "Constellation" };
+const variants = ["A", "B", "C", "D"];
+const names = { A: "Commons", B: "Dispatch", C: "Constellation", D: "Command" };
 const requested = new URLSearchParams(location.search).get("variant");
 const state = {
   variant: variants.includes(requested) ? requested : "A",
   page: "home",
+  commandScene: "today",
+  commandSelection: "mission:sync",
   focus: "research",
   zoom: 1,
   layers: [],
@@ -19,6 +22,7 @@ const state = {
 let opener;
 let handoffTimer;
 let answerTimer;
+let commandTimer;
 
 const escape = (value) =>
   String(value).replace(
@@ -329,6 +333,15 @@ function render() {
   document.documentElement.dataset.variant = state.variant;
   document.documentElement.dataset.motion = state.motion ? "on" : "off";
   document.title = `Jev · ${names[state.variant]} · ${state.page}`;
+  if (state.variant === "D") {
+    app.innerHTML = commandHome(state) + switcher();
+    console.debug("Command prototype state", {
+      scene: state.commandScene,
+      selection: state.commandSelection,
+      motion: state.motion,
+    });
+    return;
+  }
   app.innerHTML = `<div class="paseo-frame"><span>${icon("globe")} Paseo <span class="frame-separator">/</span> Jev</span><span>Design prototype · sample stories</span></div>
     <header class="site-header"><button class="brand" data-page="home" aria-label="Jev home"><span class="jev-symbol"><i></i><i></i><i></i></span>jev<span class="brand-description">a small society</span></button><nav aria-label="Main navigation">${["home", "work", "agents"].map((page) => `<button data-page="${page}" ${state.page === page ? 'aria-current="page"' : ""}>${page === "home" ? "Home" : page === "work" ? "Work" : "Agents"}</button>`).join("")}</nav><button class="you-badge" data-open="about:you"><span>Y</span><span>You’re part of this</span></button></header>
     <main id="main">${state.page === "home" ? { A: variantA, B: variantB, C: variantC }[state.variant]() : state.page === "work" ? workPage() : agentsPage()}</main>
@@ -435,6 +448,8 @@ function closeLayer() {
 }
 function changeVariant(variant) {
   if (layer.open) closeLayer();
+  clearTimeout(commandTimer);
+  document.body.classList.remove("command-transferring");
   state.variant = variant;
   const url = new URL(location.href);
   url.searchParams.set("variant", variant);
@@ -444,7 +459,9 @@ function changeVariant(variant) {
     .querySelector(`[data-variant="${variant}"]`)
     ?.focus({ preventScroll: true });
   announce(
-    `${names[variant]} design. ${state.decision ? "No questions waiting" : "One question waiting"}.`,
+    variant === "D"
+      ? `Command design. ${state.commandScene} sample. ${state.commandSelection} selected.`
+      : `${names[variant]} design. ${state.decision ? "No questions waiting" : "One question waiting"}.`,
   );
 }
 function announce(message) {
@@ -464,9 +481,60 @@ function replay() {
     );
   });
 }
+function commandReplay() {
+  clearTimeout(commandTimer);
+  document.body.classList.remove("command-transferring");
+  requestAnimationFrame(() => {
+    document.body.classList.add("command-transferring");
+    announce(
+      "Future sample: Office passes the brief to Studio. Ops waits for design approval.",
+    );
+    commandTimer = setTimeout(
+      () => document.body.classList.remove("command-transferring"),
+      3600,
+    );
+  });
+}
 document.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
+  if (button.dataset.commandScene) {
+    clearTimeout(commandTimer);
+    document.body.classList.remove("command-transferring");
+    state.commandScene = button.dataset.commandScene;
+    state.commandSelection = commandSceneSelection(state.commandScene);
+    render();
+    document
+      .querySelector(`[data-command-scene="${state.commandScene}"]`)
+      .focus({ preventScroll: true });
+    announce(
+      `${state.commandScene === "handoff" ? "Future crew, six agents across four bases" : "Current crew, four agents across two bases"}. ${state.commandScene === "question" ? "One question needs you." : "No questions waiting."}`,
+    );
+    return;
+  }
+  if (button.dataset.commandSelect) {
+    clearTimeout(commandTimer);
+    document.body.classList.remove("command-transferring");
+    state.commandSelection = button.dataset.commandSelect;
+    render();
+    document
+      .querySelector("#cc-inspector-title")
+      .focus({ preventScroll: true });
+    if (matchMedia("(max-width: 720px)").matches) {
+      document
+        .querySelector(".cc-inspector")
+        .scrollIntoView({ block: "start", behavior: "instant" });
+    }
+    return;
+  }
+  if (button.hasAttribute("data-command-map")) {
+    document.querySelector(".cc-map-top button").focus({ preventScroll: true });
+    document
+      .querySelector(".cc-world")
+      .scrollIntoView({ block: "start", behavior: "instant" });
+    return;
+  }
+  if (button.hasAttribute("data-command-replay")) return commandReplay();
   if (button.dataset.mission) {
     state.focus = button.dataset.mission;
     render();
@@ -513,9 +581,16 @@ document.addEventListener("click", (event) => {
       state.layers.pop();
       return renderLayer();
     case "next":
-      return changeVariant(variants[(variants.indexOf(state.variant) + 1) % 3]);
+      return changeVariant(
+        variants[(variants.indexOf(state.variant) + 1) % variants.length],
+      );
     case "previous":
-      return changeVariant(variants[(variants.indexOf(state.variant) + 2) % 3]);
+      return changeVariant(
+        variants[
+          (variants.indexOf(state.variant) + variants.length - 1) %
+            variants.length
+        ],
+      );
     case "reconsider":
       state.decision = null;
       render();
@@ -590,8 +665,9 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
   changeVariant(
     variants[
-      (variants.indexOf(state.variant) + (event.key === "ArrowRight" ? 1 : 2)) %
-        3
+      (variants.indexOf(state.variant) +
+        (event.key === "ArrowRight" ? 1 : variants.length - 1)) %
+        variants.length
     ],
   );
 });

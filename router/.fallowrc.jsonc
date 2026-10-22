@@ -8,6 +8,7 @@
     // The standalone prototype is loaded by its HTML, outside the TS import graph.
     "plugin/design-prototype/prototype.js",
     "plugin/design-prototype/prototype.css",
+    "plugin/design-prototype/command.css",
     "plugin/index.server.ts",
     "plugin/index.client.tsx",
   ],
