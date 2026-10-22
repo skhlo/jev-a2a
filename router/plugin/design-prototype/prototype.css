@@ -1655,8 +1655,11 @@ textarea::placeholder {
 .replaying .sheet-front {
   animation: receive-sheet 3.4s ease both;
 }
-.replaying .map-crossing {
-  animation: connect-places 3.4s ease both;
+.replaying .map-office .map-faces .agent-mark:first-child {
+  animation: agent-send 0.65s ease;
+}
+.replaying .map-office .map-faces .agent-mark:last-child {
+  animation: agent-send 0.65s 1.4s ease;
 }
 @keyframes layer-arrive {
   from {
@@ -1708,16 +1711,6 @@ textarea::placeholder {
   }
   85% {
     opacity: 0.55;
-  }
-}
-@keyframes connect-places {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-    stroke-width: 3;
   }
 }
 [data-motion="off"] *,
@@ -3504,4 +3497,8 @@ textarea::placeholder {
   .world-question {
     top: 38%;
   }
+}
+
+.answering .world-agent.office .sprite-body {
+  animation: agent-send 0.65s ease;
 }

@@ -18,6 +18,7 @@ const state = {
 };
 let opener;
 let handoffTimer;
+let answerTimer;
 
 const escape = (value) =>
   String(value).replace(
@@ -232,7 +233,7 @@ function missionInspector() {
   const id = state.focus;
   const item = work[id];
   const question = id === "research" && !state.decision;
-  return `<section class="mission-inspector" aria-label="Selected mission"><div class="mission-inspector-top"><div class="mission-portraits">${item.people.map((agent) => mark(agents[agent].kind)).join("")}</div><span class="eyebrow">${item.place} <span>/</span> ${question ? "YOUR TURN" : id === "sync" ? "A RESULT IS BACK" : id === "research" ? "DIRECTION RECEIVED" : "WAITING FOR A DEVICE"}</span><button class="text-link" data-open="work:${id}">Open mission ${icon("arrow")}</button></div><div class="mission-inspector-body"><div><h2>${question ? "How should we arrange your research?" : id === "research" ? `Office has your direction: by ${state.decision}.` : id === "sync" ? "Your Office is up to date on both computers." : "Linux is checked. The MacBook Air is next."}</h2><p>${question ? "Office has gathered the notes. Give them a useful home, and the next step is theirs." : id === "research" ? "Your answer has reached the Office agents. Follow the mission as the collection takes shape." : id === "sync" ? "Office on MacBook Air reported the update complete. Explore what came back, or replay their handoff." : "The request is waiting for the device to check in. There is no confirmed result from it yet."}</p></div><div class="mission-actions">${question ? `<button class="choice-button" data-decision="project">${icon("book")} By project ${icon("arrow")}</button><button class="choice-button" data-decision="topic">${icon("spark")} By topic ${icon("arrow")}</button>` : `<button class="choice-button" data-open="${id === "sync" ? "artifact:office" : `work:${id}`}">${icon(id === "sync" ? "document" : "arrow")} ${id === "sync" ? "Explore the result" : "Follow the work"}</button><button class="text-link" data-action="replay">${icon("play")} Replay a handoff</button>`}</div></div></section>`;
+  return `<section class="mission-inspector" aria-label="Selected mission"><div class="mission-inspector-top"><div class="mission-portraits">${item.people.map((agent) => mark(agents[agent].kind)).join("")}</div><span class="eyebrow">${item.place} <span>/</span> ${question ? "YOUR TURN" : id === "sync" ? "A RESULT IS BACK" : id === "research" ? "DIRECTION RECEIVED" : "WAITING FOR A DEVICE"}</span><button class="text-link" data-open="work:${id}">Open mission ${icon("arrow")}</button></div><div class="mission-inspector-body"><div><h2>${question ? "How should we arrange your research?" : id === "research" ? `Office has your direction: by ${state.decision}.` : id === "sync" ? "Your Office is up to date on both computers." : "Linux is checked. The MacBook Air is next."}</h2><p>${question ? "Office has gathered the notes. Give them a useful home, and the next step is theirs." : id === "research" ? "Your answer has reached the Office agents. Follow the mission as the collection takes shape." : id === "sync" ? "Office on MacBook Air reported the update complete. Explore what came back, or replay their handoff." : "The request is waiting for the device to check in. There is no confirmed result from it yet."}</p></div><div class="mission-actions">${question ? `<button class="choice-button" data-decision="project">${icon("book")} By project ${icon("arrow")}</button><button class="choice-button" data-decision="topic">${icon("spark")} By topic ${icon("arrow")}</button>` : `<button class="choice-button" data-open="${id === "sync" ? "artifact:office" : `work:${id}`}">${icon(id === "sync" ? "document" : "arrow")} ${id === "sync" ? "Explore the result" : "Follow the work"}</button><button class="text-link" data-action="replay">${icon("play")} Replay Office handoff</button>`}</div></div></section>`;
 }
 function variantA() {
   return `<section class="game-home"><header class="game-heading"><div><span class="eyebrow">YOUR SOCIETY AT WORK</span><h1>The Commons<span class="title-period">.</span></h1></div><div class="world-status"><span><i class="tiny-dot green"></i> 4 agents</span><button data-mission="research"><span class="question-count">${state.decision ? "0" : "1"}</span> ${state.decision ? "questions" : "needs you"}</button><button class="world-add" data-open="compose:new">${icon("plus")} New mission</button></div></header>
@@ -246,11 +247,11 @@ function variantA() {
       <button class="world-future studio-plot" data-open="future:studio">${icon("studio")}<span>Room for Studio</span></button><button class="world-future services-plot" data-open="future:services">${icon("services")}<span>Room for Ops</span></button>
       <button class="world-you" data-open="about:you"><span>Y</span><small>You’re here</small></button>
       <span class="world-message">${icon("document")}</span><span class="world-reply">${icon("check")}</span>
-      </div><div class="world-bottom"><div class="world-event"><span class="tiny-dot green"></span><span>${state.decision ? `You gave Office a direction: organize by ${state.decision}.` : "Office on MacBook Air reported back · 18 min ago"}</span></div><div class="world-controls"><button data-action="replay" aria-label="Replay a sample handoff">${icon("play")}</button><button data-action="zoom-out" aria-label="Zoom out">−</button><button data-action="zoom-in" aria-label="Zoom in">+</button></div></div></section>${missionInspector()}</div></div></section>`;
+      </div><div class="world-bottom"><div class="world-event"><span class="tiny-dot green"></span><span>${state.decision ? `You gave Office a direction: organize by ${state.decision}.` : "Office on MacBook Air reported back · 18 min ago"}</span></div><div class="world-controls"><button data-action="replay" aria-label="Replay the sample Office handoff">${icon("play")}</button><button data-action="zoom-out" aria-label="Zoom out">−</button><button data-action="zoom-in" aria-label="Zoom in">+</button></div></div></section>${missionInspector()}</div></div></section>`;
 }
 
 function variantB() {
-  return `<div class="dispatch"><header class="dispatch-masthead"><span class="eyebrow">A LETTER FROM YOUR SOCIETY</span><h1>Today, <em>together.</em></h1><div class="dispatch-rule"><span>Office & Computers</span><span>Three stories worth your time</span><button class="text-link" data-action="replay">${icon("play")} Replay a handoff</button></div></header>
+  return `<div class="dispatch"><header class="dispatch-masthead"><span class="eyebrow">A LETTER FROM YOUR SOCIETY</span><h1>Today, <em>together.</em></h1><div class="dispatch-rule"><span>Office & Computers</span><span>Three stories worth your time</span><button class="text-link" data-action="replay">${icon("play")} Replay Office handoff</button></div></header>
     <div class="dispatch-layout"><section class="dispatch-stories"><article class="lead-story"><span class="eyebrow">01 / WHAT FOUND ITS WAY HOME</span><button class="story-title" data-open="work:sync"><h2>A thought on one computer.<br>A useful thing on another.</h2>${icon("arrow")}</button><p>Office on mini shared the latest changes. Office on your MacBook Air brought them home and reported back. A small exchange. One less thing for you to carry.</p><div class="dispatch-art">${officeArt()}<div class="dispatch-agents">${agentButton("office")}${icon("arrow")}${agentButton("local")}</div></div></article>
     <article class="dispatch-story"><span class="eyebrow">02 / A QUESTION FOR YOU</span><button class="story-title" data-open="work:research"><h2>${state.decision ? "Your ideas have a direction." : "How do you like your ideas arranged?"}</h2>${icon("arrow")}</button><p>${state.decision ? "Office has your preference and the next step is clear." : "Office has gathered the research. A little guidance from you will give it a useful home."}</p></article>
     <article class="dispatch-story"><span class="eyebrow">03 / QUIETLY IN PROGRESS</span><button class="story-title" data-open="work:computers"><h2>A familiar setup is making the rounds.</h2>${icon("arrow")}</button><p>Linux has been checked. The next step waits for the MacBook Air to check in.</p></article></section>
@@ -331,7 +332,7 @@ function render() {
   app.innerHTML = `<div class="paseo-frame"><span>${icon("globe")} Paseo <span class="frame-separator">/</span> Jev</span><span>Design prototype · sample stories</span></div>
     <header class="site-header"><button class="brand" data-page="home" aria-label="Jev home"><span class="jev-symbol"><i></i><i></i><i></i></span>jev<span class="brand-description">a small society</span></button><nav aria-label="Main navigation">${["home", "work", "agents"].map((page) => `<button data-page="${page}" ${state.page === page ? 'aria-current="page"' : ""}>${page === "home" ? "Home" : page === "work" ? "Work" : "Agents"}</button>`).join("")}</nav><button class="you-badge" data-open="about:you"><span>Y</span><span>You’re part of this</span></button></header>
     <main id="main">${state.page === "home" ? { A: variantA, B: variantB, C: variantC }[state.variant]() : state.page === "work" ? workPage() : agentsPage()}</main>
-    <footer class="site-footer"><span><span class="tiny-dot green"></span> An imagined day in your society</span><div><button data-action="motion">${icon(state.motion ? "pause" : "play")} Motion ${state.motion ? "on" : "off"}</button><button data-action="replay">Replay handoff</button><button data-action="reset">Reset sample</button></div><span class="prototype-state">${names[state.variant]} · ${state.page} · ${state.decision ? "0 questions" : "1 question"}${state.requests.length ? ` · ${state.requests.length} new requests` : ""}</span></footer>${switcher()}`;
+    <footer class="site-footer"><span><span class="tiny-dot green"></span> An imagined day in your society</span><div><button data-action="motion">${icon(state.motion ? "pause" : "play")} Motion ${state.motion ? "on" : "off"}</button><button data-action="replay">Replay Office handoff</button><button data-action="reset">Reset sample</button></div><span class="prototype-state">${names[state.variant]} · ${state.page} · ${state.decision ? "0 questions" : "1 question"}${state.requests.length ? ` · ${state.requests.length} new requests` : ""}</span></footer>${switcher()}`;
   console.debug("Society prototype state", {
     variant: state.variant,
     page: state.page,
@@ -359,7 +360,7 @@ function workLayer(id) {
   let content;
   if (id === "sync") {
     content = `<section class="outcome"><span class="eyebrow">WHAT CAME OF IT</span><h2>Your Office changes are available on both computers.</h2><p>Office on MacBook Air reported the update complete and its checkout clean.</p><button class="text-link" data-open="artifact:office">Explore the result ${icon("arrow")}</button><small>Reported by the agent · no independent verification in this sample</small></section>
-      <section class="layer-section"><div class="section-heading"><h2>How it came together</h2><button class="text-link" data-action="replay">${icon("play")} Replay handoff</button></div><div class="handoff-scene">${agentButton("office")}<div class="handoff-track"><span class="travelling-note">${icon("document")}</span></div>${agentButton("local")}</div>
+      <section class="layer-section"><div class="section-heading"><h2>How it came together</h2><button class="text-link" data-action="replay">${icon("play")} Replay Office handoff</button></div><div class="handoff-scene">${agentButton("office")}<div class="handoff-track"><span class="travelling-note">${icon("document")}</span></div>${agentButton("local")}</div>
       <ol class="timeline">${timelineEntry("office", "SHARED A CHANGE · 24 MIN AGO", "The shared Office has new changes. Please bring your local checkout up to date and let me know what happened.")}${timelineEntry("local", "BROUGHT IT HOME · 18 MIN AGO", "The changes are here. The checkout is clean, and I have read the updated working instructions.")}${timelineEntry("office", "HEARD BACK · 18 MIN AGO", "The result is back with the sender. Both agents now have the same point of reference.", true)}</ol></section>`;
   } else if (id === "research") {
     content = `<section class="decision-panel"><span class="eyebrow">${state.decision ? "YOUR DIRECTION" : "A LITTLE DIRECTION FROM YOU"}</span><h2>${state.decision ? `Organize the research by ${state.decision === "project" ? "project" : "topic"}.` : "How would you like to find these ideas again?"}</h2><p>${state.decision ? "Your choice is recorded in this sample. Office can use it as the starting point for the collection." : "Office has brought the research notes together. Both approaches keep the sources; the choice changes how you browse."}</p>
@@ -490,7 +491,17 @@ document.addEventListener("click", (event) => {
     state.decision = button.dataset.decision;
     render();
     renderLayer();
-    replay();
+    if (!layer.open) {
+      const outcome = document.querySelector(".mission-inspector h2");
+      outcome.tabIndex = -1;
+      outcome.focus({ preventScroll: true });
+    }
+    clearTimeout(answerTimer);
+    document.body.classList.add("answering");
+    answerTimer = setTimeout(
+      () => document.body.classList.remove("answering"),
+      900,
+    );
     announce(`Office has your preference: by ${state.decision}.`);
     return;
   }
