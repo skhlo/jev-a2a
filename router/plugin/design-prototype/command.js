@@ -281,11 +281,11 @@ function agentInspector(id, scene) {
   const missionId =
     person.base === "computers"
       ? "setup"
-      : person.base === "office"
-        ? scene === "question"
+      : scene === "handoff" && missions(scene).guide.participants.includes(id)
+        ? "guide"
+        : scene === "question"
           ? "research"
-          : "sync"
-        : "guide";
+          : "sync";
   return `<div class="cc-agent-heading">${portrait(id)}<span class="cc-kicker">AGENT / ${person.host}</span></div><h2 id="cc-inspector-title" tabindex="-1">${person.name}</h2><span class="cc-status ${bases[person.base].color}">${person.role}</span><p class="cc-description">${person.description}</p><dl class="cc-facts"><dt>Belongs to</dt><dd><button data-command-select="base:${person.base}">${bases[person.base].name} ↗</button></dd><dt>Works on</dt><dd>${person.host}</dd></dl><div class="cc-section-label">CURRENT CONTRIBUTION</div><button class="cc-inline-link" data-command-select="mission:${missionId}">${missions(scene)[missionId].title}<span>↗</span></button><details class="cc-record"><summary>Sample workbench <span>+</span></summary><pre>DESIGN SAMPLE · READ ONLY\n\n${person.name} @ ${person.host}\nrole: ${person.role}\nmission: ${missionId}\n\nThe live version would open\nthis agent's Paseo workspace.</pre></details><div class="cc-explanation">The agent keeps its identity across missions. Its session and machine are details you can inspect.</div>`;
 }
 
