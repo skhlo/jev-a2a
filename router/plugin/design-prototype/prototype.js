@@ -11,7 +11,7 @@ const state = {
   variant: variants.includes(requested) ? requested : "A",
   page: "home",
   commandScene: "today",
-  commandSelection: "mission:sync",
+  commandSelection: "base:office",
   focus: "research",
   zoom: 1,
   layers: [],
@@ -335,6 +335,15 @@ function render() {
   document.title = `Jev · ${names[state.variant]} · ${state.page}`;
   if (state.variant === "D") {
     app.innerHTML = commandHome(state) + switcher();
+    const viewport = document.querySelector(".cc-map-viewport");
+    const target =
+      document.querySelector(
+        `.cc-field [data-command-select="${state.commandSelection}"]`,
+      ) ??
+      document.querySelector(
+        '.cc-field [data-command-select="facility:archive"]',
+      );
+    viewport.scrollLeft = target.offsetLeft - viewport.clientWidth / 2;
     console.debug("Command prototype state", {
       scene: state.commandScene,
       selection: state.commandSelection,
@@ -482,6 +491,11 @@ function replay() {
   });
 }
 function commandReplay() {
+  state.commandSelection = "mission:guide";
+  render();
+  document
+    .querySelector("[data-command-replay]")
+    .focus({ preventScroll: true });
   clearTimeout(commandTimer);
   document.body.classList.remove("command-transferring");
   requestAnimationFrame(() => {

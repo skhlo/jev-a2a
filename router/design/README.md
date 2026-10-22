@@ -37,31 +37,45 @@ a handoff, and contribute a decision without needing the delivery details.
 
 ## Command study: the abstraction under the motif
 
-Command (`?variant=D`) asks whether three concepts make the society
-legible: bases hold ongoing responsibilities, agents contribute to them,
-and missions connect agents around one outcome. MBA is the first command
-center, the human's point of view. A machine is a location shown on an
-agent, rather than another mandatory level of navigation. Office can
-therefore span MBA and mini while remaining one base. Artifacts are the
-lasting output of missions; session and transport records sit beneath
-the work. This is a candidate model, not a production domain change.
+Command (`?variant=D`) asks whether an inhabited compound makes the society
+understandable: bases hold ongoing responsibilities, facilities express durable
+functions, named agents contribute work, and missions connect them around an
+outcome. MBA is the first command center, the human's point of view. A machine
+is a location shown on an agent, rather than another navigation level. Office
+therefore spans MBA and mini while remaining one base. This is a candidate
+visual model, not a production domain change.
 
-The dark strategy-game and terminal motif has a map, mission rail and
-contextual inspector. It is deliberately observational: inspect a base,
-agent, mission or sample record, without unit commands or live actions.
-The three sample scenes show the current crew, future cooperation, and a
-question needing the human. The future scene explicitly introduces
-fictional Studio and Ops agents. Its brief travels from Office to Studio;
-Ops remains waiting for design approval. Replay shows this one handoff,
-not continuous invented activity. Motion can be disabled.
+The [RTS reference study](../../docs/research/agent-society-rts-design.md) informed
+the rebuilt scene. Office has an Archive, Workshop, and Review room; a small
+Reference index annex illustrates a capability belonging to the Archive.
+Computers has an Engineering bay. Original vector buildings, ground, paths,
+work areas, and role equipment distinguish places from crew. These facilities
+and associations are illustrative. The annex does not represent a detected or
+installed integration, and the map does not represent network distance.
 
-The design corrects the earlier six-layer hierarchy: bases and machines
-are different dimensions, and a mission can cross several bases. A
-newcomer should be able to answer who cares for an area, who is working
-together, what they are trying to produce, and what needs the human.
-A real implementation would derive all activity from router evidence.
-The sample counts, statuses and exchanges are fictional even where they
-use familiar host labels.
+The world occupies the main surface. Selecting a building, annex, agent, base,
+or mission opens the bottom console with its purpose, people, and sample work.
+The current sample mission carries a setup-guide draft from Office to
+Computers for checks on Linux and Mac. A mission selection reveals its route.
+On phones the scene scrolls horizontally; selection brings the console into
+view, and Return to scene restores the map. All four home variants remain
+available through the shared switcher.
+
+Three scenarios show the current crew, future cooperation, and a question
+needing the human. Studio and Ops are planned plots in the current scene. The
+future scene explicitly introduces fictional Designer and Ops teammates. Its
+brief travels from Office to Studio; Ops waits for design approval. Replay
+selects that mission and animates one handoff. A slow command-center beacon is
+an ambient accent. Motion can be disabled and respects reduced-motion
+preferences. The study remains observational, without unit orders or live
+mutations. Underlying sample records disclose the fictional source.
+
+The question for user feedback is whether a newcomer can distinguish the
+command landmark, bases, facilities, an attached capability, and teammates;
+then follow who contributes to a shared outcome and what needs the human.
+Visual and interaction checks verify the prototype runs, not that this
+vocabulary has been validated with newcomers. A real implementation would
+derive activity from router evidence.
 
 ## Files
 
