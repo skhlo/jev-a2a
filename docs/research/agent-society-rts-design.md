@@ -1,6 +1,6 @@
 # RTS hierarchy for the agent society
 
-Research: 2026-10-22. Scope: official StarCraft, Age of Empires II and IV, and Beyond All Reason references. This refines the [Command study](../../router/design/README.md#command-study-the-abstraction-under-the-motif): bases are ongoing responsibilities, agents are teammates, missions are shared outcomes, and machines are locations. MBA remains the first command center and human viewpoint. No game assets were copied.
+Research: 2026-10-22. Scope: official StarCraft, Age of Empires II and IV, and Beyond All Reason references. This refines the [Command study](../design-prototypes/agent-society/README.md#command-study-the-abstraction-under-the-motif): bases are ongoing responsibilities, agents are teammates, missions are shared outcomes, and machines are locations. MBA remains the first command center and human viewpoint. No game assets were copied.
 
 The useful hypothesis is that a base should read as a small compound containing different facilities, with recognizable people working around them. One generic building per base leaves much of that hierarchy unused. This is our design interpretation, not evidence that an RTS layout will be usable for this audience.
 

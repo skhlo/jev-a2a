@@ -9,7 +9,7 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc && tsc -p tsconfig.client.json",
-    "prototype:society": "node design-prototype/serve.mjs"
+    "prototype:society": "node ../../docs/design-prototypes/agent-society/serve.mjs"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.10.2",
