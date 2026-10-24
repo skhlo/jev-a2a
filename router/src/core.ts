@@ -718,14 +718,14 @@ export function reduce(previous: State, event: Event): State {
 function draft(previous: State, event: Event): State {
   const type = isRecord(event) ? event.type : null;
   const named = namedTask(previous, event);
-  const every = type === "configured";
+  const reconfigured = type === "configured";
   return {
     ...previous,
     placements: Object.fromEntries(
       Object.entries(previous.placements).map(([key, p]) => [key, { ...p }]),
     ),
     sessions:
-      every || type === "observe"
+      reconfigured || type === "observe"
         ? { ...previous.sessions }
         : previous.sessions,
     receipts:
@@ -733,7 +733,7 @@ function draft(previous: State, event: Event): State {
         ? { ...previous.receipts }
         : previous.receipts,
     tasks: previous.tasks.map((task) =>
-      every || task === named || !quiet(task) ? clone(task) : task,
+      reconfigured || task === named || !quiet(task) ? clone(task) : task,
     ),
     last: null,
   };
@@ -756,14 +756,9 @@ function namedTask(state: State, event: unknown): Task | undefined {
 // word, which is due once it ends, is recorded and still open. A task in
 // a state reduce returned is never changed again, so one found quiet
 // stays quiet and is not looked at again.
-const QUIET = new WeakSet<Task>();
+const knownQuiet = new WeakSet<Task>();
 function quiet(task: Task): boolean {
-  if (QUIET.has(task)) return true;
-  const found = settled(task);
-  if (found) QUIET.add(task);
-  return found;
-}
-function settled(task: Task): boolean {
+  if (knownQuiet.has(task)) return true;
   if (!task.final || task.status !== task.final.status) return false;
   for (const delivery of task.deliveries)
     if (
@@ -772,11 +767,13 @@ function settled(task: Task): boolean {
     )
       return false;
   if (task.via !== null && !findNotice(task, "final")) return false;
-  return task.notices.every((notice) =>
+  const found = task.notices.every((notice) =>
     notice.key === "final"
       ? notice.outcome !== "attempting"
       : notice.outcome === "accepted" || notice.outcome === "withdrawn",
   );
+  if (found) knownQuiet.add(task);
+  return found;
 }
 
 // The log with one more line, which goes to the router's last lines and

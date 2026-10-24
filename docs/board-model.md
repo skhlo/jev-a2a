@@ -109,5 +109,5 @@ the model is an ISO string, as the journal records it.
   end.
 - `log` is the router's last twenty lines; each task's `log` is the last
   eight that named it once it was recorded, as `router status <task>`
-  shows them. `times` maps message ids to when they
-  were recorded. `telemetryAt` is `null` without telemetry.
+  shows them. `times` maps message ids to when they were recorded.
+  `telemetryAt` is `null` without telemetry.

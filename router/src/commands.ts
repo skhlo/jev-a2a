@@ -42,9 +42,9 @@ export function actingAs(
 }
 
 // A command once its options are checked: its work on the record, and the
-// exit code. A reading reads the record as of now without the lock and
-// records nothing, so it never waits for a run to end; the rest work
-// through one shell.
+// exit code. A reading reads the journal without the lock and records
+// nothing, so it never waits for a run, and a config change or an attempt
+// a run left shows once a run records it; the rest work through one shell.
 type Writing = (shell: Shell, io: Io) => Promise<number>;
 type Reading = (state: State, io: Io) => number;
 type Work = { writes: Writing } | { reads: Reading };
@@ -112,9 +112,8 @@ const COMMANDS: Record<string, (o: Args, config: RouterConfig) => Work> = {
   }),
 };
 
-// Runs a command that reads or changes the record: a reading reads the
-// journal as of now, a change goes through the shell `open` gives. A
-// mistake in what the caller asked throws a UsageError.
+// Runs a command, its changes through the shell `open` gives. A mistake in
+// what the caller asked throws a UsageError.
 export async function runCommand(
   inv: Invocation,
   config: RouterConfig,

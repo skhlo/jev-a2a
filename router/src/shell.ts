@@ -148,10 +148,10 @@ function foldMore(state: State, entries: Entry[]): State {
 // The journal folded without the lock and kept between reads: a read folds
 // only the lines appended since the last one onto the state it left, as a
 // full replay takes longer the longer the record grows, and the journal
-// changes at least every serve.poll. A journal that
-// is not the one read before (cut back, replaced) is folded from the start,
-// and so is one whose first `configured` line has just arrived, as that
-// line sets where the fold starts. A read returns the state and the lines
+// changes at least every serve.poll. A journal that is not the one read
+// before (cut back, replaced) is folded from the start, and so is one
+// whose first `configured` line has just arrived, as that line sets where
+// the fold starts. A read returns the state and the lines
 // it folded: those since the last read (`from` "mark") or the whole record
 // (`from` "start"), and whether the journal has a `configured` line.
 export type JournalFold = Readonly<{

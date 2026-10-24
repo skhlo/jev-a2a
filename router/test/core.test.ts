@@ -1,6 +1,7 @@
 // Executable contract for core.ts. Run: pnpm test
 import test from "node:test";
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import * as Core from "../src/core.ts";
 import { initial, reduce, commands, currentSend, isOpen } from "../src/core.ts";
 import config from "../src/example-config.ts";
@@ -606,11 +607,24 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+// A task the next state shares skipped settle, so settling it must change
+// nothing; `configured` settles every task, and the same config changes
+// nothing else.
+function unsettledShares(state: State, next: State): string[] {
+  const settled = reduce(next, { type: "configured", config: next.config });
+  return next.tasks.flatMap((task, i) =>
+    task === state.tasks[i] && !isDeepStrictEqual(settled.tasks[i], task)
+      ? [`${task.id} is shared but settling it changes it`]
+      : [],
+  );
+}
+
 function apply(state: State, event: Event): State {
   const next = reduce(deepFreeze(state), event);
   const problems = [
     ...stepViolations(state, event, next),
     ...stateViolations(next),
+    ...unsettledShares(state, next),
   ];
   assert.deepEqual(problems, [], `after ${JSON.stringify(event)}`);
   return next;

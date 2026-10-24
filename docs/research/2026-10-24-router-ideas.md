@@ -42,9 +42,8 @@ the record keeps the log's last lines, not all of them. Today's record
 folds in 0.2 s, down from 20.3 s. Its quarters take 43, 41, 43 and 74 ms:
 the time follows the open tasks each quarter copies, not the record's
 length. `status` and `needs-you` read without the lock. The other
-commands still fold under it, now in a fraction of a second, so "one
-process folds" was not needed. The rest of this section is as it was
-measured.
+commands still fold under it, now in a fraction of a second. The rest of
+this section is as it was measured.
 
 **Evidence:**
 
