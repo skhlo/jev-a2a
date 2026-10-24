@@ -586,14 +586,18 @@ process.exit(0);`;
   });
 }
 
-test("a daemon the run cannot reach fails the adapter at once, rather than being waited for", async (t) => {
-  // A port nothing listens on, as a daemon that is down.
+// A port nothing listens on, as a daemon that is down.
+async function closedPort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const { port } = server.address() as AddressInfo;
   await new Promise<void>((done) => server.close(() => done()));
+  return port;
+}
+
+test("a daemon the run cannot reach fails the adapter at once, rather than being waited for", async (t) => {
   assert.match(
-    await adapterOutcome(`ws://127.0.0.1:${port}/ws`),
+    await adapterOutcome(`ws://127.0.0.1:${await closedPort()}/ws`),
     /^rejected: /,
   );
   // Over ssh, an ssh that fails as it does for a host that has dropped off
@@ -651,7 +655,7 @@ function hotCheckTrace(endpoint?: string): Promise<string> {
   const script = `const [paseo, check, endpoint] = process.argv.slice(1);
 if (endpoint) {
   const { createPaseoAdapter } = await import(paseo);
-  await createPaseoAdapter(endpoint).then((adapter) => adapter.close(), () => {});
+  await createPaseoAdapter(endpoint).catch(() => {});
 }
 const { validateWSOutboundMessage } = await import(check);
 for (let round = 0; round < 40; round++) {
@@ -689,21 +693,14 @@ process.exit(0);`;
 }
 
 test("once an adapter is made, Maglev does not compile Paseo's message check, as it does without one", async () => {
-  // The check is one generated function of some 87,000 lines. Each time it
-  // ran hot, Maglev compiled it on a worker thread in half a second and
-  // about 600 MB, which the thread kept: serve passed 3 GB in 15 hours.
-  // The adapter goes to a port nothing listens on.
-  const server = createServer();
-  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
-  const { port } = server.address() as AddressInfo;
-  await new Promise<void>((done) => server.close(() => done()));
+  // Why it matters is at the flag, in createPaseoAdapter.
   const compiled = /safeParse_WSOutboundMessageSchema\b.*target MAGLEV/;
   const [without, after] = await Promise.all([
     hotCheckTrace(),
-    hotCheckTrace(`ws://127.0.0.1:${port}/ws`),
+    hotCheckTrace(`ws://127.0.0.1:${await closedPort()}/ws`),
   ]);
-  // The line that matched, not the whole trace, when either fails.
   assert.ok(compiled.test(without), "without an adapter, Maglev compiles it");
+  // On failure, the line that matched rather than the whole trace.
   assert.equal(after.match(compiled)?.[0], undefined);
 });
 
