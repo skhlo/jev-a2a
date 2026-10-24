@@ -18,8 +18,8 @@ At its last entry, 2026-10-24T01:45:56Z:
 - Send outcomes: 222 sends, 220 accepted and 2 unknown. 108 notices, 100
   accepted and 8 not sent.
 - 18 tasks named no recipient, and Jev's choice was used for 10 of them.
-  Most traffic is agent to agent.
-- 70 tasks went to dotfiles-host, the rollout participant.
+- The record credits 104 tasks to the person. At least one of them, T189,
+  came from an agent that omitted `--as` (#69).
 - For completed tasks, from submit to completion: median 2 min, 90th
   percentile 33 min. To the first update: median 1.4 min, 90th percentile
   13 min.
@@ -32,10 +32,10 @@ cost, sessions that are replaced, and tasks that wait without a word.
 ## 1. Make the router cheap to run
 
 Its own resource use comes close to making it unusable. There are two
-causes, both measured on 2026-10-24. The fold costs CPU and holds the
-lock; the usage readers cost memory.
+causes, both measured on 2026-10-24. Folding the record costs CPU and
+holds the lock; reading usage costs memory.
 
-### The fold
+### Folding the record
 
 **Evidence:**
 
@@ -43,16 +43,15 @@ lock; the usage readers cost memory.
   whole log, for each event, and a rejected event copies it twice. Folding
   the record therefore costs time that grows with the square of its
   length.
-  - Folding 6,931 entries takes 20 s of CPU, 97% of it in
-    `structuredClone`.
-  - On 2026-10-06, 2,470 entries took 2.6 s (ticket 024's probe). The
-    record grew about 2.8 times since, and the time 7.7 times, about 2.8
-    squared.
+  - Folding the first quarter, half and all of the record (6,963 entries)
+    took 1.5 s, 5.5 s and 20.7 s of CPU. Each doubling costs about 3.7
+    times as much.
+  - 97% of the full fold is in `structuredClone`.
 - Each router-host command that opens the record folds it from the start
   while it holds `journal.lock`: `status`, `needs-you`, `run`, `submit`,
   `answer`, `choose`, `cancel`, `resolve`, `observe` and a local `reply`.
   - The ones that record an event, and `run`, then deliver, observing
-    placements over ssh, before they let go.
+    placements over SSH, before they let go.
   - `roster` folds without the lock. `eval`, `usage` and `host` do not
     fold.
 - The lock is not a queue. A waiting command tries again every 100 ms and
@@ -64,7 +63,7 @@ lock; the usage readers cost memory.
 - From 2026-10-06 to 2026-10-24 the record grew by about 250 entries a
   day. At that rate it doubles by late November, and a fold then takes
   about 80 s.
-- `serve` folds once at each start. On 2026-10-20, with about 5,800
+- `serve` folds once at each start. On 2026-10-20, with about 5,700
   entries, it used about 15 s of CPU in its first 30 s. After that it
   folds only new lines, but each event still copies the whole state.
 
@@ -85,32 +84,33 @@ lock; the usage readers cost memory.
   about twice the time.
 - No read on the router host takes the lock.
 
-### The usage readers
+### Reading usage
 
 **Evidence:**
 
-- Every 120 s the usage readers start two `codex app-server` processes,
-  one for the limits and one for the history, at about 370 MB each.
-  `serve` itself holds about 350 MB.
+- Every 120 s, the [`usage`](../configuration.md#usage) readings start two
+  `codex app-server` processes, one for the limits and one for the
+  history, at about 370 MB each. `serve` itself holds about 350 MB.
 - systemd's memory peak per run went from about 320 MB to about 900 MB on
   2026-10-05, the day usage landed (#36). Since then, long runs peak at
   about 0.9-1.4 GB, and runs of 30 s at about 0.75 GB.
 
 **Shape,** cheapest first:
 
-- both reads through one app-server;
+- both readings through one app-server;
 - Codex usage read less often, for example every 10 minutes;
 - Codex usage made opt-in in the config.
 
 **Done when:** a day's memory peak, from systemd, is at most `serve` plus
 one app-server (about 0.75 GB), and about 0.35 GB with Codex usage off.
 
-### Ssh
+### SSH connections
 
-Each run opens a new ssh connection to each remote host (ticket 023).
-With the 30 s poll, that is at least about 8,600 handshakes a day for
-three hosts. Measure it again after the two fixes above. If it still
-costs, keep each host's connection across runs.
+Each run opens a new SSH connection to each remote host (ticket 023). The
+poll waits 30 s after each run ends, so that is up to about 2,880 runs a
+day, and up to about 8,600 connections for three hosts. Whether SSH
+multiplexing shares them was not checked. Measure it again after the two
+fixes above. If it still costs, keep each host's connection across runs.
 
 ## 2. Follow a replaced session, and let the new one join
 
@@ -118,30 +118,25 @@ costs, keep each host's connection across runs.
 
 - 16 sessions were replaced from 2026-09-30 to 2026-10-19, 13 of them
   dotfiles placements.
+- On 2026-10-20, six placements moved to Codex agents by repoint.
 - 3 more were replaced on 2026-10-23 and 2026-10-24: dotfiles-host@vps,
   then dotfiles@mba twice. Each needed a repoint by hand.
 - The new dotfiles@mba agent read the docs, said in its session that it
   could not bind itself, and stopped.
 
-**Shape (ticket 025 step 2, decided 2026-10-19):**
+**Shape (ticket 025 step 2, decided 2026-10-19).** On each poll, `serve`
+applies the rule that
+[`router roster repoint` without a session](../configuration.md#agents)
+applies today. What changes:
 
 - **Opt-in** per participant; dotfiles and dotfiles-host first.
-- **Trigger:** the bound session is gone, meaning its terminal is missing
-  or its agent is archived or missing. A busy or idle session, a closed
-  agent, or a terminal whose CLI exited does not trigger it.
-- **Each poll** applies the rule that `router roster repoint` without a
-  session applies today (step 1, #67):
-  - one candidate is bound;
-  - the config is written with one backup;
-  - `serve` keeps running, where a repoint restarts it today.
-- **Decided rules:**
-  - A closed agent is not a candidate, and a bound closed agent is not
-    gone: a send resumes it.
-  - Only Claude Code and Codex may become the participant.
-  - A tie leaves the placement not ready, its candidates shown on the
-    board.
-  - A session the record has seen is never bound again.
-  - Open deliveries stay with the old session.
+- **No command.** It acts only once the bound session is gone, as repoint
+  judges it. A closed agent is not gone, since a send resumes it, and
+  neither is a terminal whose CLI exited.
+- **No restart.** `serve` writes the config as repoint does, and keeps
+  running where a repoint restarts it.
+- **A tie** leaves the placement not ready, its candidates shown on the
+  board.
 - **Each bind** shows on the board and in `serve`'s log.
 - **Check first** whether the plugin's `agent.closed` event (Paseo 0.11)
   is a better trigger than the next poll.
@@ -169,12 +164,12 @@ costs, keep each host's connection across runs.
 
 ## 3. No silent 6-hour failures
 
-**Evidence.** Each of these failed on its deadline, and the sender heard
-nothing until then:
+**Evidence.** Each of these failed on its deadline. For T126, T180 and
+T188, the sender heard nothing until then.
 
 | Task | What happened                                                                                                                                                                  |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| T77  | A moving task: it asked a question and sent two `working` updates, then completed after its deadline.                                                                          |
+| T77  | A moving task: it asked a question, which reached the sender, and sent two `working` updates, then completed after its deadline.                                               |
 | T126 | Never delivered: its Codex terminal never read ready (ticket 026).                                                                                                             |
 | T180 | Accepted, never answered: Codex's auto-review refused the replies (T184).                                                                                                      |
 | T188 | Accepted, never answered. It needed a request from dotfiles-host@mbp. That request (T189) omitted `--as`, so it was recorded as the person's, and its answer went there (#69). |
@@ -185,10 +180,10 @@ went idle without trying again.
 **Shape:**
 
 - **Not ready for too long.** When a delivery has waited 15 minutes (a
-  policy key) on a placement that is not ready, missing or gone, the
-  router tells the sender. It also adds a needs-you item: "waits on X:
-  missing since …". Today needs-you covers only choose, answer and
-  resolve.
+  [`policy`](../configuration.md#policy) key) on a placement that is not
+  ready, missing or gone, the router tells the sender. It also adds a
+  needs-you item: "waits on X: missing since …". Today `router needs-you`
+  lists only choices, answers and resolves.
 - **Idle without a reply.** When a session accepted a delivery and went
   idle with no reply or update, the router reminds it once, in the
   session. If it is still silent, a needs-you item follows.
@@ -209,26 +204,30 @@ that sends `working` updates outlives its first deadline.
   and a receipt, as sensitive data leaving the host. Only short replies
   passed, and T180 failed this way.
 - Rollouts are much of the traffic: 70 of the 198 tasks went to
-  dotfiles-host.
+  dotfiles-host, the rollout participant.
 
 **Shape:**
 
 - **`router reply --attach <file>`.** The file stays on the replying
   host. The record holds its path, size and hash.
 - **`router fetch <task>`,** run by the requester, asks `serve`, which
-  pulls the file over the ssh it already uses and checks the hash.
+  pulls the file over the SSH it already uses and checks the hash.
 - **The envelope** tells Codex to reply with a summary and attach the
   rest.
 - **The trade-off.** The details still leave the replying host, only
   later and on the requester's demand. The transfer is then outside the
   replying agent's turn, so its auto-review no longer judges it. Whether
-  that is wanted is the person's decision. T184 found one route that is
-  allowed today: a person's turn that names the payload and its
-  destination.
+  that is wanted is the person's decision. T184 inferred two routes the
+  auto-review would allow, and tried neither: a person's turn that names
+  the payload and its destination, or an answer through Codex's
+  `request_user_input`.
 - **An alternative (ticket 024):** the plugin's `agent.create` hook could
   give each new agent an MCP reply tool, in place of `router reply` in
   bash. That avoids Codex's sandbox escalation, but only for agents
   created after the install, on hosts with the plugin.
+
+**Done when:** the person has decided the trade-off, and a detailed
+rollout receipt from a Codex session reaches the requester.
 
 ## 5. Warn before sending to a session near its context limit or a stale checkout
 
@@ -249,9 +248,14 @@ sends to them.
   behind adds a warning, to the envelope and to the task on the board.
 - Optionally, a rollout task is held until its checkout is current.
 
+**Done when:** a send to a session near its context limit, or to a dirty
+or behind checkout, shows the warning in the envelope and on the board.
+
 ## Carried over from the tickets
 
-Each item is still open.
+Each item is still open. An item not seen live moves into the spec's
+[Verified live, and not](jev-router-spec.md#verified-live-and-not) once it
+runs.
 
 - **009, a second judge:** waiting for another decision model. The first
   candidate had no public documentation.
@@ -262,11 +266,25 @@ Each item is still open.
     onto probabilities.
   - In the config, `jev` becomes `judge: { provider, model, … }`, and the
     API key follows the provider.
-  - The request and the responsibility texts go to the provider, so, as
-    for Jev, no text may name a company or office's business-area
-    folders.
-- **011, a hold set from the session:** not planned; the spec's open
-  decision 3.
+  - The responsibility texts go to the provider, so their
+    [rule on names](../participants.md#the-responsibility-text) holds for
+    it as for Jev.
+- **011, a hold set from the session:** not planned; the spec's
+  [open decision](jev-router-spec.md#open-decisions) 3.
+  - **Goal:** when the person starts steering a session, the router stops
+    sending to it, with no trip to the CLI or the board.
+  - **Signals to check:** a prompt in the session that the router did not
+    send (the router tags its own); the session turning `running` with no
+    router send; an event stream from Paseo, if one exists.
+  - **Release** is the hard half, since "done steering" has no event. The
+    options are a timer since the person's last prompt, the explicit
+    `router observe --release` of today, or a question in the session.
+    The ticket preferred the automatic hold with an explicit release.
+  - **The board** shows an automatic hold as it shows a manual one, with
+    who or what set it.
+  - **Done when:** typing in a scratch session while a request is queued
+    makes the next run report `held`, and a release lets the request
+    through.
 - **018, Pi in a Paseo terminal:** Codex is done (#40); Pi is not
   started.
   - **The ready rule** was probed on Pi 0.87.1. Pi is ready when:
@@ -274,7 +292,18 @@ Each item is still open.
     - the last two rows made only of `─` are two apart, with a blank row
       between them and at most four rows below the lower one;
     - the cursor is on the blank row at column 0, visible or not.
-  - **Before building:** re-probe on the current Pi.
+  - **Before building:** re-probe on the current Pi. The probe scripts
+    and logs stayed with the tickets.
+  - **Build:** Pi becomes a terminal CLI profile beside Codex's (#40):
+    its condition, the ready rule, its board title and its reason in the
+    run report.
+    - Fixtures from real screens: fresh, with and without the hardware
+      cursor; drafts; a paste; the Working border; the question dialog;
+      exited; killed.
+    - Each guard is proven by breaking it once: accepting the Working
+      border; ignoring the cursor, which makes an exited frame ready;
+      requiring a visible cursor, which makes mini never ready.
+    - End to end with scratch Pi terminals on mbp and mini.
   - **Not probed:** Pi without the custom status line, light themes,
     terminals narrower than 80 columns, and mini's Pi permission
     extensions.
@@ -289,7 +318,17 @@ Each item is still open.
     command with `$VAR`, `$(...)` or a redirect, and that an allow rule
     lifts the network block is not proven.
   - **An alternative:** herdr inside a Paseo terminal, which gives stable
-    names and state. It still has no message key.
+    names and state. Still open there:
+    - no message key, so a repeated prompt runs twice;
+    - the reply identity, from the pane's `HERDR_PANE_ID`;
+    - herdr is not on mini;
+    - reaching another host's socket;
+    - a name is cleared when the agent exits.
+  - **Probe safety:** hash and copy the Codex and Pi configs before and
+    after each run. Send a key only when the screen shows the state the
+    key is meant for. Run Codex without `-m`: a retired model once brought
+    up the migration notice, and answering it blind changed a host's
+    default model.
 - **019, a closed agent after a daemon restart:** since #27, a closed
   session counts as ready, but a cold one left closed until a request
   resumes it has not been seen live. Check it the next time a daemon
@@ -313,18 +352,22 @@ Each item is still open.
     prompt format a contract. Then a row pushed by the daemon for each
     task.
   - **Command Center items** "Open board" and "Submit to Jev".
+  - **A composer pill,** only with the plugin on mba and mini.
+  - **A header button with a count,** optionally.
+  - **RPCs** `board.placement {agentId}`, for pills, and `usage.get`.
+  - **Not tested:** whether panels, pills and Command Center items show
+    when the app views another host. The board surface did.
   - **Paseo's channel** (`invokePluginRpc`) in place of the events door
     and the host tokens.
-  - **Paseo's relay** in place of the ssh tunnels. Still open: where the
+  - **Paseo's relay** in place of the SSH tunnels. Still open: where the
     pairing's credentials live on the router host, and the relay runs on
     the internet.
   - **The HTML board** stays until the plugin matches it.
   - **Dropped:** the agent panel.
-- **025, step 2:** idea 2.
 
-Also open: issue #69. On the router host, a session that omits `--as` is
-recorded as the first principal, the person. It caused T188's failure
-(idea 3).
+Also open:
+[issue #69](https://github.com/skhlo/jev-a2a/issues/69), the cause of
+T188's failure (idea 3).
 
 ## Closed tickets
 
