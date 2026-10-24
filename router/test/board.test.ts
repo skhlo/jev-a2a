@@ -14,7 +14,6 @@ import {
   describeNeed,
   identify,
   messageTimes,
-  taskLog,
 } from "../src/board.ts";
 import {
   answeredJournal,
@@ -106,7 +105,7 @@ test("the model lists what waits on a person and the open and finished tasks", (
   assert.ok(t2);
   assert.equal(t2.deliveries[0]?.latest?.text, "Force push?");
   assert.equal(t2.deliveries[0]?.question?.id, "Q2");
-  assert.equal(model.log.length, Math.min(20, state.log.length));
+  assert.deepEqual(model.log, state.log.lines);
 });
 
 test("the model names its contract and carries what a template binds to", () => {
@@ -431,18 +430,6 @@ test("a canceled task names who canceled it; other ends name nobody", () => {
   assert.equal(model.finished.find((t) => t.id === "T3")?.final?.by, null);
   const later = boardModel(boardState(config, journal, LATER), config, LATER);
   assert.equal(later.finished.find((t) => t.id === "T1")?.final?.by, null);
-});
-
-test("a task's log holds its own id, not a longer one that starts the same", () => {
-  const log = [
-    { n: 1, actor: "Router", text: "T1 recorded for you/M1." },
-    { n: 2, actor: "Router", text: "T12 recorded for you/M12." },
-    { n: 3, actor: "Jev", text: "T1: no confident owner." },
-  ];
-  assert.deepEqual(
-    taskLog(log, "T1").map((entry) => entry.n),
-    [1, 3],
-  );
 });
 
 test("a deadline that passed shows as passed without any write", () => {

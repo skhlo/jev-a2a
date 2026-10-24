@@ -98,6 +98,14 @@ test("a torn final line is dropped by the writer and skipped by the reader", asy
   const again = await openJournal(home);
   assert.equal(readFileSync(path, "utf8"), korean);
   again.release();
+  // A torn line longer than repair reads at a time, and one with no line
+  // before it.
+  writeFileSync(path, `${korean}${"x".repeat(200_000)}`);
+  (await openJournal(home)).release();
+  assert.equal(readFileSync(path, "utf8"), korean);
+  writeFileSync(path, line(5).slice(0, 12));
+  (await openJournal(home)).release();
+  assert.equal(readFileSync(path, "utf8"), "");
 });
 
 test("a reader goes on from its mark: a missing journal, appends, a torn line, a truncation, a replacement of the same size and a rewrite", (t) => {

@@ -188,9 +188,17 @@ export type State = {
   tasks: Task[];
   nextTask: number;
   nextDelivery: number;
-  log: { n: number; actor: string; text: string }[];
+  // The router's log as kept: how many lines it has written, its last
+  // lines, and each task's last lines that name it.
+  log: {
+    written: number;
+    lines: LogLine[];
+    byTask: Record<string, LogLine[]>;
+  };
   last: Outcome | null;
 };
+
+export type LogLine = { n: number; actor: string; text: string };
 
 export type Event =
   | { type: "configured"; config: Config }

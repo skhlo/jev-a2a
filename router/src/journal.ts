@@ -5,13 +5,13 @@ import {
   appendFileSync,
   closeSync,
   fstatSync,
+  ftruncateSync,
   mkdirSync,
   openSync,
   readFileSync,
   readSync,
   rmSync,
   statSync,
-  truncateSync,
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -37,6 +37,8 @@ const LOCK_WAIT_MS = 90_000;
 const LOCK_POLL_MS = 100;
 // A lock file younger than this with no readable pid is one being created.
 const LOCK_GRACE_MS = 2_000;
+// How much of its end repair reads at a time, looking for a torn line.
+const REPAIR_CHUNK = 64 * 1024;
 
 export async function openJournal(
   home: string,
@@ -107,16 +109,6 @@ export function readJournalSince(
   }
   try {
     const stat = fstatSync(fd);
-    const read = (length: number, position: number): Buffer => {
-      const buffer = Buffer.alloc(length);
-      let done = 0;
-      while (done < length) {
-        const n = readSync(fd, buffer, done, length - done, position + done);
-        if (n === 0) break;
-        done += n;
-      }
-      return buffer.subarray(0, done);
-    };
     const same =
       mark !== null && stat.ino === mark.ino && stat.size >= mark.size;
     if (same && stat.size === mark.size && stat.mtimeMs === mark.mtimeMs)
@@ -126,9 +118,9 @@ export function readJournalSince(
       same &&
       (mark.offset === 0 ||
         (mark.offset >= ended.length &&
-          read(ended.length, mark.offset - ended.length).equals(ended)));
+          readAt(fd, ended.length, mark.offset - ended.length).equals(ended)));
     const start = goOn ? mark.offset : 0;
-    const bytes = read(stat.size - start, start);
+    const bytes = readAt(fd, stat.size - start, start);
     // Whole lines only, cut at a newline byte, so no character is split.
     const whole = bytes.subarray(0, bytes.lastIndexOf(0x0a) + 1);
     const lines = whole.toString("utf8").split("\n");
@@ -151,21 +143,47 @@ export function readJournalSince(
   }
 }
 
+// `length` bytes of an open file from `position`, fewer at its end.
+function readAt(fd: number, length: number, position: number): Buffer {
+  const buffer = Buffer.alloc(length);
+  let done = 0;
+  while (done < length) {
+    const n = readSync(fd, buffer, done, length - done, position + done);
+    if (n === 0) break;
+    done += n;
+  }
+  return buffer.subarray(0, done);
+}
+
 // A final line without its newline is a write that died mid-way. It was
 // never acknowledged, so the writer drops it rather than append after it.
+// Only the end is read: the journal holds every event ever accepted, and
+// every run repairs it.
 function repair(path: string): void {
-  let text: string;
+  let fd: number;
   try {
-    text = readFileSync(path, "utf8");
+    fd = openSync(path, "r+");
   } catch (error: unknown) {
     if (isCode(error, "ENOENT")) return;
     throw error;
   }
-  if (!text || text.endsWith("\n")) return;
-  truncateSync(
-    path,
-    Buffer.byteLength(text.slice(0, text.lastIndexOf("\n") + 1)),
-  );
+  try {
+    const size = fstatSync(fd).size;
+    if (!size || readAt(fd, 1, size - 1)[0] === 0x0a) return;
+    // Back to the newline before the torn line, a chunk at a time.
+    let keep = 0;
+    for (let end = size; end > 0; end -= REPAIR_CHUNK) {
+      const start = Math.max(0, end - REPAIR_CHUNK);
+      const at = readAt(fd, end - start, start).lastIndexOf(0x0a);
+      if (at >= 0) {
+        keep = start + at + 1;
+        break;
+      }
+    }
+    ftruncateSync(fd, keep);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 // The lock is a file created exclusively, holding its owner's pid. A run

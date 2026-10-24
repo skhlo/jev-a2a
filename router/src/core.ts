@@ -20,6 +20,7 @@ import type {
   Event,
   Final,
   JudgmentQuestion,
+  LogLine,
   NeedsYouItem,
   Notice,
   NoticeDue,
@@ -156,6 +157,11 @@ const clone = <T>(value: T): T => structuredClone(value);
 const placementKey = (participant: string, host: string): string =>
   `${participant}@${host}`;
 const digest = (value: unknown): string => JSON.stringify(value);
+// The log keeps the router's last lines and each task's last lines, what a
+// board shows; a log kept whole grew with the record.
+export const LOG_KEPT = 20;
+export const TASK_LOG_KEPT = 8;
+const TASK_ID = /\bT[1-9]\d*\b/g;
 
 export function initial(config: Config): State {
   validateConfig(config);
@@ -172,7 +178,7 @@ export function initial(config: Config): State {
     tasks: [],
     nextTask: 1,
     nextDelivery: 1,
-    log: [],
+    log: { written: 0, lines: [], byTask: {} },
     last: null,
   };
 }
@@ -181,6 +187,9 @@ export function initial(config: Config): State {
 
 export const findTask = (state: State, id: string): Task | undefined =>
   state.tasks.find((task) => task.id === id);
+// A task's last lines in the log: those that named it once it existed.
+export const taskLog = (state: State, id: string): LogLine[] =>
+  own(state.log.byTask, id) ?? [];
 // In task order, the order the needs-you lists keep. It is not creation
 // order: a task that waited for a recipient gets its deliveries after newer
 // tasks got theirs, so a placement's queue orders by `created` instead.
@@ -669,8 +678,7 @@ function addPlacements(
 }
 
 export function reduce(previous: State, event: Event): State {
-  const state = clone(previous);
-  state.last = null;
+  const state = draft(previous, event);
   const handler = isRecord(event)
     ? (handlers as Record<string, Handler<Event["type"]> | undefined>)[
         String(event.type)
@@ -679,28 +687,112 @@ export function reduce(previous: State, event: Event): State {
   const outcome = handler
     ? handler(state, event)
     : reject("unknown_event", "Unknown event type.");
-  if (!outcome.ok) {
-    // A rejected event changes nothing except the log and its outcome.
-    const unchanged = clone(previous);
-    unchanged.last = outcome;
-    unchanged.log.push({
-      n: unchanged.log.length + 1,
-      actor: "Router",
-      text: outcome.message,
-    });
-    return unchanged;
-  }
-  const withdrawn = state.tasks.flatMap((task) => settle(state, task));
+  // A rejected event changes nothing except the log and its outcome.
+  if (!outcome.ok)
+    return {
+      ...previous,
+      last: outcome,
+      log: logged(previous, "Router", outcome.message),
+    };
+  // A task the draft shares is quiet: settling it would change nothing.
+  const withdrawn = state.tasks.flatMap((task, i) =>
+    task === previous.tasks[i] ? [] : settle(state, task),
+  );
   state.last = outcome;
   if (outcome.message)
-    state.log.push({
-      n: state.log.length + 1,
-      actor: outcome.actor ?? "Router",
-      text: outcome.message,
-    });
-  for (const text of withdrawn)
-    state.log.push({ n: state.log.length + 1, actor: "Router", text });
+    state.log = logged(state, outcome.actor ?? "Router", outcome.message);
+  for (const text of withdrawn) state.log = logged(state, "Router", text);
   return state;
+}
+
+// The state an event's handler works on: copies of what the event may
+// change, sharing the rest with `previous`, which reduce never changes.
+// Copying the whole state at every event made a replay's time grow with
+// the square of the record's length. Most of a record's tasks are quiet
+// (see `quiet`): a quiet task is shared unless the event names it, or is
+// `configured`, which may change any task. The placements are few and
+// copied whole. The sessions and receipts grow with the record and are
+// only ever added to, so their maps are copied only for the events that
+// add to them, and their entries are shared. The configuration and the
+// log are replaced, never changed.
+function draft(previous: State, event: Event): State {
+  const type = isRecord(event) ? event.type : null;
+  const named = namedTask(previous, event);
+  const reconfigured = type === "configured";
+  return {
+    ...previous,
+    placements: Object.fromEntries(
+      Object.entries(previous.placements).map(([key, p]) => [key, { ...p }]),
+    ),
+    sessions:
+      reconfigured || type === "observe"
+        ? { ...previous.sessions }
+        : previous.sessions,
+    receipts:
+      type === "submit" || type === "answer"
+        ? { ...previous.receipts }
+        : previous.receipts,
+    tasks: previous.tasks.map((task) =>
+      reconfigured || task === named || !quiet(task) ? clone(task) : task,
+    ),
+    last: null,
+  };
+}
+
+// The task an event names, by its id or by one of its deliveries.
+function namedTask(state: State, event: unknown): Task | undefined {
+  if (!isRecord(event)) return undefined;
+  if (typeof event.taskId === "string") return findTask(state, event.taskId);
+  if (typeof event.deliveryId !== "string") return undefined;
+  const delivery = findDelivery(state, event.deliveryId);
+  return delivery && findTask(state, delivery.taskId);
+}
+
+// A task that changes only by an event that names it, or by `configured`:
+// it has ended, so the clock passes it by; nothing of it is attempting,
+// which a restart would mark unknown; and it is settled, so settling it
+// again changes nothing (see settle): no never-sent delivery is left to
+// expire, its status is its final one, and of its notices only the final
+// word, which is due once it ends, is recorded and still open. A task in
+// a state reduce returned is never changed again, so one found quiet
+// stays quiet and is not looked at again.
+const knownQuiet = new WeakSet<Task>();
+function quiet(task: Task): boolean {
+  if (knownQuiet.has(task)) return true;
+  if (!task.final || task.status !== task.final.status) return false;
+  for (const delivery of task.deliveries)
+    if (
+      (isOpen(delivery) && delivery.session === null) ||
+      delivery.sends.some((send) => send.outcome === "attempting")
+    )
+      return false;
+  if (task.via !== null && !findNotice(task, "final")) return false;
+  const found = task.notices.every((notice) =>
+    notice.key === "final"
+      ? notice.outcome !== "attempting"
+      : notice.outcome === "accepted" || notice.outcome === "withdrawn",
+  );
+  if (found) knownQuiet.add(task);
+  return found;
+}
+
+// The log with one more line, which goes to the router's last lines and
+// to the lines of each task it names.
+function logged(state: State, actor: string, text: string): State["log"] {
+  const { written, lines, byTask } = state.log;
+  const line = { n: written + 1, actor, text };
+  let tasks = byTask;
+  for (const id of new Set(text.match(TASK_ID)))
+    if (Number(id.slice(1)) < state.nextTask)
+      tasks = {
+        ...tasks,
+        [id]: [...(own(tasks, id) ?? []).slice(1 - TASK_LOG_KEPT), line],
+      };
+  return {
+    written: line.n,
+    lines: [...lines.slice(1 - LOG_KEPT), line],
+    byTask: tasks,
+  };
 }
 
 const ok = (

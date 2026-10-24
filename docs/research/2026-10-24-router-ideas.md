@@ -37,6 +37,14 @@ holds the lock; reading usage costs memory (usage has since been removed).
 
 ### Folding the record
 
+**2026-10-24, later:** an event now copies only what it may change, and
+the record keeps the log's last lines, not all of them. Today's record
+folds in 0.2 s, down from 20.3 s. Its quarters take 43, 41, 43 and 74 ms:
+the time follows the open tasks each quarter copies, not the record's
+length. `status` and `needs-you` read without the lock. The other
+commands still fold under it, now in a fraction of a second. The rest of
+this section is as it was measured.
+
 **Evidence:**
 
 - `reduce` in the core deep-copies the whole state, every task and the

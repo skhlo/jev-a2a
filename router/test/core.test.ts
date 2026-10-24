@@ -1,6 +1,7 @@
 // Executable contract for core.ts. Run: pnpm test
 import test from "node:test";
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import * as Core from "../src/core.ts";
 import { initial, reduce, commands, currentSend, isOpen } from "../src/core.ts";
 import config from "../src/example-config.ts";
@@ -596,11 +597,34 @@ function stepViolations(prev: State, event: Event, next: State): string[] {
   return out;
 }
 
+// reduce never changes the state it is given: the next state shares what
+// the event left alone, so a change to a shared part would rewrite history.
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const entry of Object.values(value)) deepFreeze(entry);
+  }
+  return value;
+}
+
+// A task the next state shares skipped settle, so settling it must change
+// nothing; `configured` settles every task, and the same config changes
+// nothing else.
+function unsettledShares(state: State, next: State): string[] {
+  const settled = reduce(next, { type: "configured", config: next.config });
+  return next.tasks.flatMap((task, i) =>
+    task === state.tasks[i] && !isDeepStrictEqual(settled.tasks[i], task)
+      ? [`${task.id} is shared but settling it changes it`]
+      : [],
+  );
+}
+
 function apply(state: State, event: Event): State {
-  const next = reduce(state, event);
+  const next = reduce(deepFreeze(state), event);
   const problems = [
     ...stepViolations(state, event, next),
     ...stateViolations(next),
+    ...unsettledShares(state, next),
   ];
   assert.deepEqual(problems, [], `after ${JSON.stringify(event)}`);
   return next;
@@ -1511,7 +1535,7 @@ test("notices follow the record: no sender session, no notice; a dropped questio
     "withdrawn",
   ]);
   assert.match(
-    s.log.at(-1)?.text ?? "",
+    s.log.lines.at(-1)?.text ?? "",
     /^T1 notice choose\/1 withdrawn: the choice no longer stands\.$/,
   );
   assert.equal(notice(s, "choose/1").idempotent, false);
@@ -1558,7 +1582,7 @@ test("notices follow the record: no sender session, no notice; a dropped questio
   });
   assert.deepEqual(Core.dueNotices(s, task(s)), []);
   assert.equal(notice(s, "question/D1/Q1").outcome, "withdrawn");
-  assert.match(s.log.at(-1)?.text ?? "", /question no longer stands/);
+  assert.match(s.log.lines.at(-1)?.text ?? "", /question no longer stands/);
   // A replaced sender session may not submit; the current one may.
   s = expectOk(s, {
     type: "observe",
@@ -2123,12 +2147,12 @@ test("deadline fails the task; an unconfirmed send still blocks its session unti
     to: "orchestrator",
   });
   s = deliver(s, "D1", "unknown");
-  const lines = s.log.length;
+  const lines = s.log.written;
   s = expectOk(s, { type: "tick", now: 50 });
-  assert.equal(s.log.length, lines, "a clock that ends nothing logs nothing");
+  assert.equal(s.log.written, lines, "a clock that ends nothing logs nothing");
   s = submit(s, { messageId: "M2", text: "Next job", to: "orchestrator" });
   s = expectOk(s, { type: "tick", now: 100 });
-  assert.match(s.log.at(-1)?.text ?? "", /^Deadline passed: T1 failed/);
+  assert.match(s.log.lines.at(-1)?.text ?? "", /^Deadline passed: T1 failed/);
   assert.equal(task(s).status, "failed");
   assert.equal(task(s, "T2").status, "queued");
   s = idle(s);
@@ -3095,6 +3119,77 @@ function randomEvent(s: State, r: () => number): Event {
       return { type: "tick", now: s.now + Math.floor(r() * 40) };
   }
 }
+
+test("a quiet task is shared with the next state; an open one is copied", () => {
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Never mind",
+    to: "orchestrator",
+  });
+  s = expectOk(s, { type: "cancel", by: "you", taskId: "T1" });
+  s = submit(s, { messageId: "M2", text: "Still open", to: "orchestrator" });
+  const next = expectOk(s, { type: "tick", now: 1 });
+  assert.equal(task(next), task(s), "the canceled T1 is shared");
+  assert.notEqual(task(next, "T2"), task(s, "T2"), "the open T2 is copied");
+  const configured = expectOk(s, { type: "configured", config });
+  assert.notEqual(task(configured), task(s), "configured may change any task");
+});
+
+test("the log keeps its last lines, and each task the last lines naming it", () => {
+  let s = initial(config);
+  for (let i = 1; i <= 12; i++)
+    s = submit(s, { messageId: `M${i}`, text: `Job ${i}`, to: "orchestrator" });
+  assert.deepEqual(
+    Core.taskLog(s, "T1").map((line) => line.n),
+    [1],
+    "T1 does not collect the lines of T10 to T12",
+  );
+  s = expectOk(s, { type: "cancel", by: "you", taskId: "T1" });
+  for (let i = 0; i < 10; i++)
+    s = expectReject(
+      s,
+      { type: "cancel", by: "you", taskId: "T1" },
+      "not_cancelable",
+    );
+  assert.equal(s.log.written, 23);
+  assert.deepEqual(
+    s.log.lines.map((line) => line.n),
+    Array.from({ length: Core.LOG_KEPT }, (_, i) => i + 4),
+  );
+  assert.deepEqual(
+    Core.taskLog(s, "T1").map((line) => line.n),
+    Array.from({ length: Core.TASK_LOG_KEPT }, (_, i) => i + 16),
+  );
+  assert.deepEqual(Core.taskLog(s, "T13"), []);
+});
+
+test("a line is in a task's log only once the task exists", () => {
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Tidy the docs.",
+    to: "orchestrator",
+  });
+  s = deliver(s, "D1");
+  s = expectOk(s, {
+    type: "update",
+    by: ORCH,
+    taskId: "T1",
+    messageId: "Q1",
+    inReplyTo: "M1",
+    kind: "question",
+    text: "Is this T2?",
+  });
+  s = submit(s, {
+    messageId: "M2",
+    text: "Tidy the tests.",
+    to: "orchestrator",
+  });
+  assert.deepEqual(
+    Core.taskLog(s, "T2").map((line) => line.text),
+    ["T2 recorded for you/M2. The caller may disconnect."],
+  );
+  assert.ok(s.log.lines.some((line) => line.text === "D1 asks: Is this T2?"));
+});
 
 test("random event sequences never violate the contract", () => {
   const reached = new Set<string>();

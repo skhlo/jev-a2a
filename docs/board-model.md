@@ -107,6 +107,7 @@ the model is an ISO string, as the journal records it.
   request. The sample's T5, in `finished`, is one the orchestrator's
   session sent, with a withdrawn choice, an accepted question and a pending
   end.
-- `log` is the router's last twenty lines; each task's `log` is its own, as
-  `router status <task>` shows them. `times` maps message ids to when they
-  were recorded. `telemetryAt` is `null` without telemetry.
+- `log` is the router's last twenty lines; each task's `log` is the last
+  eight that named it once it was recorded, as `router status <task>`
+  shows them. `times` maps message ids to when they were recorded.
+  `telemetryAt` is `null` without telemetry.
