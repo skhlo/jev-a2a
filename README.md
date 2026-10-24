@@ -255,23 +255,23 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
 - [router/design/README.md](router/design/README.md): how the page is held
   to its design.
 - [docs/research/2026-10-24-router-ideas.md](docs/research/2026-10-24-router-ideas.md): the
-  ranked ideas and the work still open, as of 2026-10-24.
+  ranked ideas and the work still open.
 
 ## Repository layout and development
 
-| Path                         | Contents                                                              |
-| ---------------------------- | --------------------------------------------------------------------- |
-| `router/src/`                | The router: a pure core (`core.ts`) and the shell around it           |
-| `router/test/`               | The router's tests; fixtures the scripts also read stay in `src/`     |
-| `router/config.example.json` | A one-host configuration that loads as it is; a test keeps it valid   |
-| `router/eval/`               | The maintainer's labeled request set                                  |
-| `router/design/`             | The board design's data-paths, the page's deviations, the screenshots |
-| `router/jev-router.service`  | The systemd user unit for `router serve`                              |
-| `router/plugin/`             | The router's Paseo plugin: wakes `serve`, shows the board in the app  |
-| `router/AGENTS.md`           | Context for coding agents, with Fallow's commands                     |
-| `docs/`                      | Reference pages                                                       |
-| `docs/research/`             | The spec, the model it was verified on, background and dated ideas    |
-| `assets/icon.svg`            | Paseo's project icon, found by name and folder: Lucide's Route (ISC)  |
+| Path                         | Contents                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| `router/src/`                | The router: a pure core (`core.ts`) and the shell around it                    |
+| `router/test/`               | The router's tests; fixtures the scripts also read stay in `src/`              |
+| `router/config.example.json` | A one-host configuration that loads as it is; a test keeps it valid            |
+| `router/eval/`               | The maintainer's labeled request set                                           |
+| `router/design/`             | The board design's data-paths, the page's deviations, the screenshots          |
+| `router/jev-router.service`  | The systemd user unit for `router serve`                                       |
+| `router/plugin/`             | The router's Paseo plugin: wakes `serve`, shows the board in the app           |
+| `router/AGENTS.md`           | Context for coding agents, with Fallow's commands                              |
+| `docs/`                      | Reference pages                                                                |
+| `docs/research/`             | The spec, the executable model it was verified on, background, and dated ideas |
+| `assets/icon.svg`            | Paseo's project icon, found by name and folder: Lucide's Route (ISC)           |
 
 ```sh
 cd router

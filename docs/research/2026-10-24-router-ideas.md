@@ -15,8 +15,8 @@ At its last entry, 2026-10-24T01:45:56Z:
 
 - About 6,950 journal entries and 198 tasks: 184 completed, 9 failed, 5
   canceled, none working.
-- Send outcomes: 222 sends, 220 accepted and 2 unknown. 108 notices, 100
-  accepted and 8 not sent.
+- Send outcomes: 222 send results, 220 accepted and 2 unknown. 108
+  notices, 100 accepted and 8 not sent.
 - 18 tasks named no recipient, and Jev's choice was used for 10 of them.
 - The record credits 104 tasks to the person. At least one of them, T189,
   came from an agent that omitted `--as` (#69).
@@ -88,18 +88,19 @@ holds the lock; reading usage costs memory.
 
 **Evidence:**
 
-- Every 120 s, the [`usage`](../configuration.md#usage) readings start two
+- Each [`usage`](../configuration.md#usage) reading starts two
   `codex app-server` processes, one for the limits and one for the
-  history, at about 370 MB each. `serve` itself holds about 350 MB.
+  history, at about 370 MB each. The maintainer's config reads all four
+  accounts, 120 s after each reading ends. `serve` itself holds about 350 MB.
 - systemd's memory peak per run went from about 320 MB to about 900 MB on
   2026-10-05, the day usage landed (#36). Since then, long runs peak at
   about 0.9-1.4 GB, and runs of 30 s at about 0.75 GB.
 
-**Shape,** cheapest first:
+**Shape:**
 
-- both readings through one app-server;
-- Codex usage read less often, for example every 10 minutes;
-- Codex usage made opt-in in the config.
+- **Today, in the config:** leave `codex` out of `usage.accounts`, or
+  raise `usage.every` (up to 3600 s). Both exist already.
+- **In code:** both readings through one app-server.
 
 **Done when:** a day's memory peak, from systemd, is at most `serve` plus
 one app-server (about 0.75 GB), and about 0.35 GB with Codex usage off.
@@ -116,11 +117,12 @@ fixes above. If it still costs, keep each host's connection across runs.
 
 **Evidence:**
 
-- 16 sessions were replaced from 2026-09-30 to 2026-10-19, 13 of them
+- 19 sessions were replaced from 2026-09-30 to 2026-10-19, 16 of them
   dotfiles placements.
-- On 2026-10-20, six placements moved to Codex agents by repoint.
-- 3 more were replaced on 2026-10-23 and 2026-10-24: dotfiles-host@vps,
-  then dotfiles@mba twice. Each needed a repoint by hand.
+- On 2026-10-20, by repoint, two dotfiles placements moved to terminals,
+  then the four dotfiles placements moved to Codex agents.
+- 3 more were replaced on 2026-10-23 and 2026-10-24: a dotfiles-host
+  placement, then dotfiles@mba twice. Each needed a repoint by hand.
 - The new dotfiles@mba agent read the docs, said in its session that it
   could not bind itself, and stopped.
 
@@ -182,8 +184,9 @@ went idle without trying again.
 - **Not ready for too long.** When a delivery has waited 15 minutes (a
   [`policy`](../configuration.md#policy) key) on a placement that is not
   ready, missing or gone, the router tells the sender. It also adds a
-  needs-you item: "waits on X: missing since …". Today `router needs-you`
-  lists only choices, answers and resolves.
+  needs-you item: "waits on X: missing since …". Today
+  [`router needs-you`](../operating.md#when-nothing-moves) lists only
+  choices, answers and resolves.
 - **Idle without a reply.** When a session accepted a delivery and went
   idle with no reply or update, the router reminds it once, in the
   session. If it is still silent, a needs-you item follows.
@@ -231,10 +234,9 @@ rollout receipt from a Codex session reaches the requester.
 
 ## 5. Warn before sending to a session near its context limit or a stale checkout
 
-**Evidence.** On 2026-10-24 a ping (T193) showed the dotfiles checkouts on
-mini and vps 7 commits behind mbp's, which matched main. The telemetry
-showed vps's checkout with uncommitted changes. Nothing warned at the
-sends to them.
+**Evidence.** On 2026-10-24 a ping (T193) showed two hosts' dotfiles
+checkouts 7 commits behind main. The telemetry showed one of them with
+uncommitted changes. Nothing warned at the sends to them.
 
 **Shape:**
 
@@ -283,8 +285,8 @@ runs.
   - **The board** shows an automatic hold as it shows a manual one, with
     who or what set it.
   - **Done when:** typing in a scratch session while a request is queued
-    makes the next run report `held`, and a release lets the request
-    through.
+    makes the next run report `held`, a release lets the request through,
+    and the spec's open decision 3 is closed or narrowed to release only.
 - **018, Pi in a Paseo terminal:** Codex is done (#40); Pi is not
   started.
   - **The ready rule** was probed on Pi 0.87.1. Pi is ready when:
@@ -292,8 +294,23 @@ runs.
     - the last two rows made only of `─` are two apart, with a blank row
       between them and at most four rows below the lower one;
     - the cursor is on the blank row at column 0, visible or not.
+  - **Other facts from that probe:**
+    - the title reads `π - <dir>` from start to exit;
+    - the activity is `null` until the first turn, `working` 0.1-0.2 s
+      after Enter and `idle` at the end, and Esc mid-turn sets `idle`
+      with no reason;
+    - a paste shows as `[paste #1 +26 lines]`, and Enter 300 ms later
+      submits all of it;
+    - the editor's top border reads `── ⠋ Working ───` for the whole
+      turn;
+    - the question dialog sets `idle` with `needs_input` and replaces the
+      editor;
+    - an exit or a kill leaves the last frame on screen, with the cursor
+      on the shell's row;
+    - Enter during a turn queues a steering message, by Pi's docs; not
+      probed.
   - **Before building:** re-probe on the current Pi. The probe scripts
-    and logs stayed with the tickets.
+    and logs are not in this repository.
   - **Build:** Pi becomes a terminal CLI profile beside Codex's (#40):
     its condition, the ready rule, its board title and its reason in the
     run report.
@@ -308,9 +325,9 @@ runs.
     terminals narrower than 80 columns, and mini's Pi permission
     extensions.
   - **Pi's reply** needs no escalation: Pi has no sandbox.
-  - **Open:** whether a receiving-side dedup extension is in scope. A
-    terminal takes no message key, so an `unknown` send waits for
-    `router resolve`.
+  - **Open:** whether a receiving-side dedup extension is in scope, since
+    an `unknown` send to a terminal
+    [waits for `router resolve`](../operating.md#when-the-router-looks).
   - **Not seen live:** Codex's approval overlay on a host whose reviewer
     is a person.
   - **If Codex's escalation delay costs:** a Codex rules file that allows
@@ -329,19 +346,21 @@ runs.
     key is meant for. Run Codex without `-m`: a retired model once brought
     up the migration notice, and answering it blind changed a host's
     default model.
-- **019, a closed agent after a daemon restart:** since #27, a closed
-  session counts as ready, but a cold one left closed until a request
-  resumes it has not been seen live. Check it the next time a daemon
-  restart leaves an agent placement closed. The ticket's other item is
-  host-private and is not carried here.
+- **019, a closed agent after a daemon restart:** a closed session
+  [counts as ready](../operating.md#when-the-router-looks), but a cold one
+  left closed until a request resumes it has not been seen live. Check it
+  the next time a daemon restart leaves an agent placement closed. The
+  ticket's other item is host-private and is not carried here.
 - **022, more commands from a reply host:**
   - Later, in this order:
     - `status` and `needs-you`, scoped to the host's own sessions;
     - `cancel`.
   - Never: `observe`, `resolve`, `run`, `serve`, `eval` or `usage`.
+  - Not yet checked on real use: `router roster add` and `remove` in
+    place of a hand roster change.
 - **023, a dropped host:**
-  - Acceptance 3, telemetry that stays fresh across one of mba's drops,
-    has not been seen yet.
+  - Telemetry that stays fresh across one of mba's drops has not been
+    seen yet.
   - Optional: `serve` exits within a few seconds of SIGTERM and logs what
     was still in flight.
 - **024, the plugin's later steps:**
@@ -355,6 +374,10 @@ runs.
   - **A composer pill,** only with the plugin on mba and mini.
   - **A header button with a count,** optionally.
   - **RPCs** `board.placement {agentId}`, for pills, and `usage.get`.
+  - **The usage section** is skipped once Paseo 0.11's Usage screen is
+    checked against it.
+  - **The actor:** a handler gets no caller, so the backend fixes the
+    actor, and anyone whose app reaches mbp's daemon can act.
   - **Not tested:** whether panels, pills and Command Center items show
     when the app views another host. The board surface did.
   - **Paseo's channel** (`invokePluginRpc`) in place of the events door
@@ -365,10 +388,6 @@ runs.
   - **The HTML board** stays until the plugin matches it.
   - **Dropped:** the agent panel.
 
-Also open:
-[issue #69](https://github.com/skhlo/jev-a2a/issues/69), the cause of
-T188's failure (idea 3).
-
 ## Closed tickets
 
 The spec and the code cite some of these numbers.
@@ -377,7 +396,7 @@ The spec and the code cite some of these numbers.
 | ------ | ------------------------------------------- | ------------------------------------ |
 | 009    | A second judge behind the same interface    | Waiting; carried over                |
 | 011    | Holding a session from where the person is  | Not planned; carried over            |
-| 015    | Claude Code in a Paseo terminal             | Built 2026-10-05; closed before this |
+| 015    | Claude Code in a Paseo terminal             | #39; closed before this              |
 | 018    | Pi and Codex in a Paseo terminal            | Codex in #40; Pi carried over        |
 | 019    | Loose ends from the design participant      | One item carried over                |
 | 022    | One router command on every host            | #51-#56; later commands carried over |
