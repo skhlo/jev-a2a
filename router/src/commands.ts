@@ -9,8 +9,10 @@ import {
   needsYou,
   noticeWaits,
   own,
+  taskLog,
 } from "./core.ts";
-import { describeNeed, taskLog } from "./board.ts";
+import { boardState, describeNeed } from "./board.ts";
+import { readJournal } from "./journal.ts";
 import {
   argsOf,
   EVENTS,
@@ -40,17 +42,21 @@ export function actingAs(
 }
 
 // A command once its options are checked: its work on the record, and the
-// exit code.
-type Work = (shell: Shell, io: Io) => Promise<number>;
+// exit code. A reading reads the record as of now without the lock and
+// records nothing, so it never waits for a run to end; the rest work
+// through one shell.
+type Writing = (shell: Shell, io: Io) => Promise<number>;
+type Reading = (state: State, io: Io) => number;
+type Work = { writes: Writing } | { reads: Reading };
 
-const delivering: Work = async (shell, io) => {
+const delivering: Writing = async (shell, io) => {
   for (const line of await shell.deliver()) io.out(line);
   return 0;
 };
 // An event, then the deliveries it made possible; 1 when the core refuses
 // it.
 const recording =
-  (event: Event): Work =>
+  (event: Event): Writing =>
   async (shell, io) => {
     const outcome = shell.apply(event);
     io.out(outcome.message);
@@ -59,22 +65,22 @@ const recording =
 
 // `status <task>`: the task, its deliveries and its log.
 const taskStatus =
-  (id: string): Work =>
-  async (shell, io) => {
-    const task = findTask(shell.state, id) ?? refuse(`No task ${id}.`);
-    for (const line of describe(task, shell.state)) io.out(line);
+  (id: string): Reading =>
+  (state, io) => {
+    const task = findTask(state, id) ?? refuse(`No task ${id}.`);
+    for (const line of describe(task, state)) io.out(line);
     return 0;
   };
 
 // `status`: a line per task, then each configured placement with its
 // telemetry.
 const overview =
-  (config: RouterConfig): Work =>
-  async (shell, io) => {
-    if (!shell.state.tasks.length) io.out("No tasks recorded.");
-    for (const task of shell.state.tasks) io.out(oneLine(task));
+  (config: RouterConfig): Reading =>
+  (state, io) => {
+    if (!state.tasks.length) io.out("No tasks recorded.");
+    for (const task of state.tasks) io.out(oneLine(task));
     const telemetry = readTelemetry(config.home, io.err);
-    for (const [key, p] of Object.entries(shell.state.placements))
+    for (const [key, p] of Object.entries(state.placements))
       if (config.agents[key]) {
         io.out(
           `${key}: ${p.ready ? "ready" : "not ready"}${p.hold ? ", held" : ""} · session ${p.session}`,
@@ -89,21 +95,26 @@ const overview =
 // The commands that read the record or deliver; the recording ones are
 // request.ts's EVENTS.
 const COMMANDS: Record<string, (o: Args, config: RouterConfig) => Work> = {
-  run: () => delivering,
+  run: () => ({ writes: delivering }),
   "needs-you": (o) => {
     const who = o.as("requester");
-    return async (shell, io) => {
-      const items = needsYou(shell.state, who);
-      if (!items.length) io.out(`Nothing waits on ${who}.`);
-      for (const item of items) io.out(describeNeed(item));
-      return 0;
+    return {
+      reads: (state, io) => {
+        const items = needsYou(state, who);
+        if (!items.length) io.out(`Nothing waits on ${who}.`);
+        for (const item of items) io.out(describeNeed(item));
+        return 0;
+      },
     };
   },
-  status: (o, config) => (o.rest[0] ? taskStatus(o.rest[0]) : overview(config)),
+  status: (o, config) => ({
+    reads: o.rest[0] ? taskStatus(o.rest[0]) : overview(config),
+  }),
 };
 
-// Runs a command that reads or changes the record; a mistake in what the
-// caller asked throws a UsageError.
+// Runs a command that reads or changes the record: a reading reads the
+// journal as of now, a change goes through the shell `open` gives. A
+// mistake in what the caller asked throws a UsageError.
 export async function runCommand(
   inv: Invocation,
   config: RouterConfig,
@@ -114,14 +125,19 @@ export async function runCommand(
   const o = argsOf(inv, (role) => actingAs(inv, config, role));
   const event = own(EVENTS, name);
   const command = own(COMMANDS, name);
-  const work = event
-    ? recording(event(o))
+  const work: Work = event
+    ? { writes: recording(event(o)) }
     : command
       ? command(o, config)
       : refuse(`Unknown command ${name}.\n\n${USAGE}`);
+  if ("reads" in work)
+    return work.reads(
+      boardState(config, readJournal(config.home), Date.now()),
+      io,
+    );
   const shell = await open();
   try {
-    return await work(shell, io);
+    return await work.writes(shell, io);
   } finally {
     await shell.close();
   }
@@ -155,7 +171,7 @@ function describe(task: Task, state: State): string[] {
     for (const { key, why } of noticeWaits(state, task))
       lines.push(`  notice ${key} waits: ${why.replaceAll("_", " ")}`);
   }
-  for (const entry of taskLog(state.log, task.id))
+  for (const entry of taskLog(state, task.id))
     lines.push(`  ${entry.n}. ${entry.actor}: ${entry.text}`);
   return lines;
 }

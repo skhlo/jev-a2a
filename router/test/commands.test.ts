@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -204,15 +204,36 @@ test("on the router host a reply under a shared Codex server, or with two sessio
   assert.equal(router.opened(), 0);
 });
 
-test("status of a task the record does not hold is refused once it is read, and the journal is released", async (t) => {
-  const router = routerOn(t);
-  await assert.rejects(
-    router.run(["status", "T9"]),
-    (error) => error instanceof UsageError && error.message === "No task T9.",
-  );
-  assert.equal(router.opened(), 1);
-  assert.equal(existsSync(join(router.config.home, "journal.lock")), false);
-});
+test(
+  "status and needs-you read the record without the lock, so a run in progress does not hold them up",
+  {
+    timeout: 10_000,
+  },
+  async (t) => {
+    const router = routerOn(t);
+    await router.run([
+      "submit",
+      "--to",
+      "orchestrator",
+      "--message",
+      "M1",
+      "Fix",
+    ]);
+    const run = await openShell(router.config, idlePaseo);
+    t.after(() => run.close());
+    assert.match((await router.run(["status"])).out, /^T1 working /m);
+    assert.match((await router.run(["status", "T1"])).out, /^T1 working /m);
+    assert.equal(
+      (await router.run(["needs-you"])).out,
+      "Nothing waits on you.",
+    );
+    await assert.rejects(
+      router.run(["status", "T9"]),
+      (error) => error instanceof UsageError && error.message === "No task T9.",
+    );
+    assert.equal(router.opened(), 1, "only the submit opened the journal");
+  },
+);
 
 test("the router command: a mistake exits 2 with its message, and status reads an empty record", (t) => {
   const home = scratch(t, "commands-cli-");

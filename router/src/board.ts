@@ -11,6 +11,7 @@ import {
   own,
   queueHead,
   reduce,
+  taskLog,
 } from "./core.ts";
 import { fold } from "./shell.ts";
 import { newMessageId } from "./request.ts";
@@ -22,6 +23,7 @@ import type {
   Delivery,
   Event,
   Final,
+  LogLine,
   NeedsYouItem,
   Notice,
   NoticeKind,
@@ -96,7 +98,7 @@ export type TaskView = {
   }[];
   // This task's lines in the router's log, as `router status <task>` shows
   // them, so a template never matches log text itself.
-  log: State["log"];
+  log: LogLine[];
 };
 
 // A placement this router serves, as `router status` lists it.
@@ -146,14 +148,12 @@ export type BoardModel = {
   finished: TaskView[];
   // When each message was recorded, by message id.
   times: Readonly<Record<string, string>>;
-  log: State["log"];
+  log: LogLine[];
   // When the placements' snapshots were taken; null without telemetry.
   telemetryAt: string | null;
 };
 
 const FINISHED_SHOWN = 10;
-const LOG_SHOWN = 20;
-const TASK_LOG_SHOWN = 8;
 const EXCERPT_LENGTH = 90;
 
 // The record as of `now`, folded in memory: deadlines that passed since the
@@ -262,7 +262,7 @@ export function boardModel(
     open: tasks.filter((t) => !t.final),
     finished: tasks.filter((t) => t.final).slice(0, FINISHED_SHOWN),
     times,
-    log: state.log.slice(-LOG_SHOWN),
+    log: state.log.lines,
     telemetryAt: telemetry?.at ?? null,
   };
 }
@@ -347,16 +347,8 @@ function taskView(task: Task, state: State): TaskView {
         waits: waits(state, d),
       };
     }),
-    log: taskLog(state.log, task.id),
+    log: taskLog(state, task.id),
   };
-}
-
-// A task's last lines in the router's log, shared with `router status
-// <task>`. The id is matched as a whole word, so T1 does not collect the
-// lines of T12.
-export function taskLog(log: State["log"], taskId: string): State["log"] {
-  const word = new RegExp(`\\b${taskId}\\b`);
-  return log.filter((entry) => word.test(entry.text)).slice(-TASK_LOG_SHOWN);
 }
 
 // The CLI's wording for a needs-you item, shared with `router needs-you`.

@@ -87,7 +87,8 @@ The shared server and its other clients keep running.
 
 - `journal.jsonl`: every event that changed the record, appended. The CLI
   on the router host writes it directly; `serve` watches it.
-  `router status` reads it.
+  `router status` and `router needs-you` read it without the lock, so
+  they never wait for a run; an attempt in progress shows as delivering.
 - `telemetry.json`: one snapshot per served placement from the last run,
   written whole by rename after the run's observations and before its
   sends. It is not part of the record: an observation is journaled only

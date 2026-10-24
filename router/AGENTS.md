@@ -19,7 +19,8 @@ update it when workflows change.
 ## Architecture Notes
 
 - Module boundaries: `src/core.ts` is a pure, deterministic model of the
-  contract and performs no I/O. `src/shell.ts` and the adapters around it
+  contract and performs no I/O. Nothing changes a state `reduce` returned:
+  the next state shares what an event left alone. `src/shell.ts` and the adapters around it
   (`paseo.ts`, `jev.ts`, `journal.ts`, `server.ts`) perform the core's
   commands and feed results back as events.
 - `src/cli.ts` picks the host: with a configuration it loads
