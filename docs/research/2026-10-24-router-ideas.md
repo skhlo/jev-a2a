@@ -108,8 +108,9 @@ one app-server (about 0.75 GB), and about 0.35 GB with Codex usage off.
 ### SSH connections
 
 Each run opens a new SSH connection to each remote host (ticket 023). The
-poll waits 30 s after each run ends, so that is up to about 2,880 runs a
-day, and up to about 8,600 connections for three hosts. Whether SSH
+maintainer's [`serve.poll`](../operating.md#when-the-router-looks) is 30 s
+(the default polls nothing), so that is up to about 2,880 runs a day, and
+up to about 8,600 connections for three hosts. Whether SSH
 multiplexing shares them was not checked. Measure it again after the two
 fixes above. If it still costs, keep each host's connection across runs.
 
@@ -119,8 +120,8 @@ fixes above. If it still costs, keep each host's connection across runs.
 
 - 19 sessions were replaced from 2026-09-30 to 2026-10-19, 16 of them
   dotfiles placements.
-- On 2026-10-20, by repoint, two dotfiles placements moved to terminals,
-  then the four dotfiles placements moved to Codex agents.
+- On 2026-10-20, by repoint, two dotfiles placements moved to new
+  terminals, then the four dotfiles placements moved to Codex agents.
 - 3 more were replaced on 2026-10-23 and 2026-10-24: a dotfiles-host
   placement, then dotfiles@mba twice. Each needed a repoint by hand.
 - The new dotfiles@mba agent read the docs, said in its session that it
@@ -131,10 +132,11 @@ applies the rule that
 [`router roster repoint` without a session](../configuration.md#agents)
 applies today. What changes:
 
-- **Opt-in** per participant; dotfiles and dotfiles-host first.
+- **Opt-in** per participant, for dotfiles and dotfiles-host only.
 - **No command.** It acts only once the bound session is gone, as repoint
-  judges it. A closed agent is not gone, since a send resumes it, and
-  neither is a terminal whose CLI exited.
+  judges it. A closed agent is not gone, since
+  [a send resumes it](../operating.md#when-the-router-looks), and neither
+  is a terminal whose CLI exited.
 - **No restart.** `serve` writes the config as repoint does, and keeps
   running where a repoint restarts it.
 - **A tie** leaves the placement not ready, its candidates shown on the
@@ -234,15 +236,16 @@ rollout receipt from a Codex session reaches the requester.
 
 ## 5. Warn before sending to a session near its context limit or a stale checkout
 
-**Evidence.** On 2026-10-24 a ping (T193) showed two hosts' dotfiles
-checkouts 7 commits behind main. The telemetry showed one of them with
-uncommitted changes. Nothing warned at the sends to them.
+**Evidence.** On 2026-10-24 a ping (T193) showed two hosts' checkouts of
+one participant's repository behind its main branch, and the telemetry
+showed one of them dirty. Nothing warned at the sends to them.
 
 **Shape:**
 
 - The router's telemetry already holds each session's context use
   (`used`, `max`) and its checkout's branch, `dirty`, `ahead` and
-  `behind`.
+  `behind`, which the board shows on
+  [the sheet](../board.md#the-sheet).
 - `behind` comes from Paseo and counts from the checkout's last fetch, so
   a checkout that has not fetched can read current. The telemetry fetches
   before it counts, or the warning leaves `behind` out.
@@ -268,9 +271,9 @@ runs.
     onto probabilities.
   - In the config, `jev` becomes `judge: { provider, model, … }`, and the
     API key follows the provider.
-  - The responsibility texts go to the provider, so their
-    [rule on names](../participants.md#the-responsibility-text) holds for
-    it as for Jev.
+  - The request text and the responsibility texts go to the provider, so
+    the [rule on names](../participants.md#the-responsibility-text) holds
+    for it as for Jev.
 - **011, a hold set from the session:** not planned; the spec's
   [open decision](jev-router-spec.md#open-decisions) 3.
   - **Goal:** when the person starts steering a session, the router stops
@@ -320,7 +323,13 @@ runs.
     - Each guard is proven by breaking it once: accepting the Working
       border; ignoring the cursor, which makes an exited frame ready;
       requiring a visible cursor, which makes mini never ready.
-    - End to end with scratch Pi terminals on mbp and mini.
+    - The contract gains a "Paseo terminal (Pi)" section, the
+      configuration doc's value list gains `pi`, and the operating doc
+      gains its report reason.
+    - End to end with scratch Pi terminals on mbp and mini and a scratch
+      record: accepted at idle; held while working, at a draft, at the
+      question dialog and after an exit; a reply recorded as
+      `terminal:<id>`.
   - **Not probed:** Pi without the custom status line, light themes,
     terminals narrower than 80 columns, and mini's Pi permission
     extensions.
@@ -365,7 +374,7 @@ runs.
     was still in flight.
 - **024, the plugin's later steps:**
   - **An event source on every host:** the plugin wakes `serve` when a
-    turn ends, with the host's token.
+    turn ends or a permission is resolved, with the host's token.
   - **Timeline rows:** first a client transformer that turns the router's
     prompt into a card and `router reply` into one line, which makes the
     prompt format a contract. Then a row pushed by the daemon for each
@@ -376,33 +385,41 @@ runs.
   - **RPCs** `board.placement {agentId}`, for pills, and `usage.get`.
   - **The usage section** is skipped once Paseo 0.11's Usage screen is
     checked against it.
-  - **The actor:** a handler gets no caller, so the backend fixes the
-    actor, and anyone whose app reaches mbp's daemon can act.
+  - **The actor:** a handler gets no caller, so the backend
+    [fixes the actor](../operating.md#the-paseo-plugin), and anyone whose
+    app reaches mbp's daemon can act.
   - **Not tested:** whether panels, pills and Command Center items show
     when the app views another host. The board surface did.
-  - **Paseo's channel** (`invokePluginRpc`) in place of the events door
-    and the host tokens.
+  - **A community plugin** is a later direction, with Jev as its core,
+    not an option.
+  - **Paseo's channel** (`invokePluginRpc`) in place of
+    [`POST /events`](../operating.md#endpoints) on the tailnet, the host
+    tokens and the reply host's `ROUTER_URL`.
   - **Paseo's relay** in place of the SSH tunnels. Still open: where the
-    pairing's credentials live on the router host, and the relay runs on
-    the internet.
+    pairing's credentials live on the router host, and that the relay is
+    Paseo's service on the internet, where the tailnet is direct.
   - **The HTML board** stays until the plugin matches it.
   - **Dropped:** the agent panel.
+  - The ticket's items in the design participant's repository are
+    host-private and are not carried here.
 
 ## Closed tickets
 
-The spec and the code cite some of these numbers.
+The spec and the code cite some of these numbers. The numbers missing
+from 009-028 were closed before this: 022 took in 010 and 013, and 019
+took in 016.
 
-| Ticket | Subject                                     | Outcome                              |
-| ------ | ------------------------------------------- | ------------------------------------ |
-| 009    | A second judge behind the same interface    | Waiting; carried over                |
-| 011    | Holding a session from where the person is  | Not planned; carried over            |
-| 015    | Claude Code in a Paseo terminal             | #39; closed before this              |
-| 018    | Pi and Codex in a Paseo terminal            | Codex in #40; Pi carried over        |
-| 019    | Loose ends from the design participant      | One item carried over                |
-| 022    | One router command on every host            | #51-#56; later commands carried over |
-| 023    | A run hangs when a host drops off           | #57; acceptance 3 carried over       |
-| 024    | The router as a Paseo plugin                | #58-#62; later steps carried over    |
-| 025    | A placement follows its session             | Step 1 in #67; step 2 is idea 2      |
-| 026    | A terminal's visible screen, not scrollback | #66                                  |
-| 027    | Codex agents are told to escalate           | #71                                  |
-| 028    | Repoint recomputes `idempotent`             | #71                                  |
+| Ticket | Subject                                           | Outcome                                                              |
+| ------ | ------------------------------------------------- | -------------------------------------------------------------------- |
+| 009    | A second judge behind the same interface          | Waiting; carried over                                                |
+| 011    | Holding a session from where the person is typing | Not planned; carried over                                            |
+| 015    | Claude Code in a Paseo terminal                   | #39; closed before this                                              |
+| 018    | Pi and Codex in a Paseo terminal                  | Codex in #40; Pi carried over                                        |
+| 019    | Loose ends from the design participant            | One item carried over                                                |
+| 022    | One router command on every host                  | #51-#56; later commands carried over                                 |
+| 023    | A run hangs when a host drops off                 | #57; one check and an option carried over                            |
+| 024    | The router as a Paseo plugin                      | #58-#62; later steps carried over, the design repository's items not |
+| 025    | A placement follows its session                   | Step 1 in #67; step 2 is idea 2                                      |
+| 026    | A terminal's visible screen, not scrollback       | #66                                                                  |
+| 027    | Codex agents are told to escalate                 | #71                                                                  |
+| 028    | Repoint recomputes `idempotent`                   | #71                                                                  |
