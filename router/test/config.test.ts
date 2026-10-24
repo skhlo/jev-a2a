@@ -49,23 +49,10 @@ test("a valid file gets its defaults", () => {
   assert.equal(config.serve.poll, 0);
   assert.equal(config.jev.model, "jev-latest");
   assert.deepEqual(config.telemetry, { sheet: true });
-  assert.equal(config.usage, null, "usage is opt-in");
   assert.match(config.home, /jev-router$/);
-  // Usage on: every two minutes and all four accounts unless narrowed; a
-  // narrowed list is read in the page's order.
-  assert.deepEqual(loadConfig(write({ ...valid, usage: {} })).usage, {
-    every: 120,
-    accounts: ["codex", "claude", "deepseek", "openrouter"],
-  });
-  assert.deepEqual(
-    loadConfig(
-      write({
-        ...valid,
-        usage: { every: 300, accounts: ["openrouter", "codex"] },
-      }),
-    ).usage,
-    { every: 300, accounts: ["codex", "openrouter"] },
-  );
+  // The retired usage section no longer refuses a file, so a deployment's
+  // file loads before the section is taken out.
+  assert.doesNotThrow(() => loadConfig(write({ ...valid, usage: true })));
   const explicit = loadConfig(
     write({
       ...valid,
@@ -167,15 +154,6 @@ test("what the router refuses, with the reason", () => {
       { ...valid, telemetry: { sheet: "yes" } },
       /telemetry.sheet is true or false/,
     ],
-    [{ ...valid, usage: true }, /usage is an object/],
-    [{ ...valid, usage: { every: 10 } }, /usage.every is a number of seconds/],
-    [{ ...valid, usage: { every: "120" } }, /usage.every/],
-    [{ ...valid, usage: { every: 3601 } }, /usage.every/],
-    [{ ...valid, usage: { accounts: [] } }, /usage.accounts lists accounts/],
-    [{ ...valid, usage: { accounts: ["codex", "codex"] } }, /once each/],
-    [{ ...valid, usage: { accounts: ["pi"] } }, /among codex, claude/],
-    [{ ...valid, usage: { accounts: ["codex", "pi"] } }, /among codex/],
-    [{ ...valid, usage: { accounts: "codex" } }, /usage.accounts/],
     [{ ...valid, serve: { board: "100.64.0.1:7678" } }, /loopback/],
     [{ ...valid, serve: { identities: ["me"] } }, /identities maps/],
     [
@@ -251,13 +229,12 @@ test("secrets: KEY=VALUE lines fill the environment without overriding it", () =
   process.env.CONFIG_TEST_B = "from-env";
   delete process.env.CONFIG_TEST_A;
   delete process.env.CONFIG_TEST_C;
-  // The names the file sets, whether applied or already in the
-  // environment; an empty value sets nothing.
-  assert.deepEqual(loadSecrets(path), ["CONFIG_TEST_A", "CONFIG_TEST_B"]);
+  // The environment wins, and an empty value sets nothing.
+  loadSecrets(path);
   assert.equal(process.env.CONFIG_TEST_A, "from-file");
   assert.equal(process.env.CONFIG_TEST_B, "from-env");
   assert.equal(process.env.CONFIG_TEST_C, undefined);
-  assert.deepEqual(loadSecrets(join(dir, "missing.env")), []);
+  loadSecrets(join(dir, "missing.env"));
 });
 
 // The example the README's quick start copies loads as it is, and the one

@@ -1,6 +1,6 @@
 // The `router` command on the router host, the one with a configuration
-// (cli.ts loads it then): the configuration and secrets, serve, eval and
-// usage, the commands on the record, and exit codes.
+// (cli.ts loads it then): the configuration and secrets, serve and eval,
+// the commands on the record, and exit codes.
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
@@ -12,7 +12,6 @@ import {
   loadSecrets,
   paseoPasswordName,
   terminalClis,
-  USAGE_EVERY,
   type RouterConfig,
 } from "./config.ts";
 import { own, responsibilityTexts } from "./core.ts";
@@ -26,10 +25,7 @@ import {
   boardListener,
   doorKeys,
   eventsListener,
-  keepReading,
 } from "./server.ts";
-import { ACCOUNT_IDS, usageView } from "./usage.ts";
-import { usageStore } from "./usage-readers.ts";
 import {
   createPaseoAdapter,
   type Adapter,
@@ -71,10 +67,8 @@ const config = ((): RouterConfig => {
     return fail(error instanceof Error ? error.message : String(error));
   }
 })();
-// The names the secrets file sets, which no child process the router
-// starts for usage inherits.
 const secretsPath = join(configPath, "..", "secrets.env");
-const secretNames = loadSecrets(secretsPath);
+loadSecrets(secretsPath);
 
 function fail(message: string): never {
   console.error(message);
@@ -113,7 +107,6 @@ const shellOptions: ShellOptions = {
 try {
   if (command === "serve") await serve(config);
   else if (command === "eval") await evaluateSet(config);
-  else if (command === "usage") await readUsage(config);
   else if (command === "host") process.exit(await hostSetup());
   else if (command === "roster") process.exit(await roster());
   else
@@ -268,22 +261,12 @@ async function serve(config: RouterConfig): Promise<void> {
     },
   });
   const handle = runner.handle;
-  // With a usage section, the accounts are read on their own cadence,
-  // apart from the runs, and held in memory for the board.
-  const usage = config.usage;
-  const store = usage && usageStore(usage.accounts, secretNames);
-  const reading =
-    store &&
-    keepReading(store, usage.every * 1000, {
-      log: (line) => console.error(line),
-    });
   const deps = {
     config,
     handle,
     record,
     sessionOf: sessionReader(record),
     log: (line: string) => console.log(line),
-    usage: store && (() => ({ ...store.state(), every: usage.every })),
     commit: checkoutCommit(),
     nudge: runner.nudge,
   };
@@ -307,27 +290,12 @@ async function serve(config: RouterConfig): Promise<void> {
   await new Promise<void>((resolve) => {
     const stop = (): void => {
       runner.stop();
-      reading?.stop();
       board.close();
       events.close(() => resolve());
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   });
-}
-
-// `router usage`: every configured account read once (all four without a
-// usage section), printed as the board model carries it, for checking the
-// readers on a host. Private account data, to this terminal only; the
-// journal is not opened.
-async function readUsage(config: RouterConfig): Promise<void> {
-  const store = usageStore(config.usage?.accounts ?? ACCOUNT_IDS, secretNames);
-  await store.refresh();
-  const state = {
-    ...store.state(),
-    every: config.usage?.every ?? USAGE_EVERY,
-  };
-  console.log(JSON.stringify(usageView(state, Date.now()), null, 2));
 }
 
 // `router eval`: the labeled set against this config's responsibility texts,

@@ -162,8 +162,7 @@ a user service ([docs/operating.md](docs/operating.md#router-serve-as-a-service)
 Agents use `router reply`. `router observe <placement> --hold` keeps the
 router from sending to a session a person is typing in; `router resolve`
 lets an operator settle a send the router could not confirm; `router eval`
-judges a labeled request set; `router usage` reads this host's usage
-accounts once and prints them. `router --help` lists every flag, including
+judges a labeled request set. `router --help` lists every flag, including
 `--as` (which principal acts), `--text-file` for text a shell cannot quote,
 and `--config`.
 
@@ -191,20 +190,10 @@ it from another device and to act: the board reads the login Serve reports
 answers, chooses, cancels, resolves and holds as its principals. The page
 works without JavaScript; with it, it refreshes every ten seconds, opens a
 task in place and takes keys: the arrows move between tasks and open one,
-`←` or `esc` goes back, `u` opens the usage, `p` holds or releases, `r`
-opens the router log and `?` lists the rest
-([docs/board.md](docs/board.md#the-script)). The same address serves the
-page's data as JSON (`board.json`), the contract `jev-router-board/1`.
-
-With a `usage` section in the configuration, the rail gains a Usage
-section with this host's Codex and Claude quota windows. A rail row, or
-`u`, opens the Usage pop-up beside it, which adds the DeepSeek and
-OpenRouter balances and each account's history, read with the host's own
-logins ([docs/board.md](docs/board.md#usage),
-[operating](docs/operating.md#usage),
-[configuration](docs/configuration.md#usage)).
-
-![The usage pop-up beside the rail: subscription windows and API balances](router/design/screenshots/board-usage.png)
+`←` or `esc` goes back, `p` holds or releases, `r` opens the router log
+and `?` lists the rest ([docs/board.md](docs/board.md#the-script)). The
+same address serves the page's data as JSON (`board.json`), the contract
+`jev-router-board/2`.
 
 More: [docs/board.md](docs/board.md) (what every part shows),
 [docs/board-model.md](docs/board-model.md) (the JSON).

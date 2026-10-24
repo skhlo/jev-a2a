@@ -6,13 +6,7 @@ import { createServer } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  config,
-  NOW,
-  sampleJournal,
-  telemetry,
-  usage,
-} from "./board-fixture.ts";
+import { config, NOW, sampleJournal, telemetry } from "./board-fixture.ts";
 import { boardListener, recordReader } from "./server.ts";
 import { writeTelemetry } from "./telemetry.ts";
 
@@ -64,7 +58,6 @@ async function serveSample(home: string): Promise<{
       handle: () =>
         Promise.resolve({ outcome: { ok: true, message: "" }, report: [] }),
       now: () => NOW,
-      usage: () => usage,
     }),
   );
   await new Promise<void>((resolve) =>
@@ -433,22 +426,6 @@ async function checks(page: Page, url: string): Promise<string[]> {
     await value(DETAIL),
   );
 
-  // The pop-up gives the focus back to its opener after a refresh
-  // replaced it.
-  await goto(page, `${url}?task=T2`);
-  await value(`document.querySelector('.task[data-task="T2"] a.id').focus()`);
-  await press(page, "u");
-  await value(`refresh()`);
-  await press(page, "Escape");
-  check(
-    "esc gives the focus back to the row that opened the pop-up, after a refresh",
-    (await value(
-      `document.activeElement?.matches('.task[data-task="T2"] a.id') ?? false`,
-    )) === true &&
-      (await value(`document.querySelector(".usage").hidden`)) === true,
-    await value(FOCUS),
-  );
-
   // The arrows and esc.
   await goto(page, `${url}?task=T2`);
   await press(page, "ArrowDown");
@@ -480,28 +457,11 @@ async function checks(page: Page, url: string): Promise<string[]> {
     (await value(FOCUS)) === lever,
     await value(FOCUS),
   );
-  await press(page, "u");
   await press(page, "?");
   await press(page, "ArrowLeft");
   check(
-    "← closes the help before the pop-up behind it",
-    (await value(
-      `document.querySelector(".help").hidden && !document.querySelector(".usage").hidden`,
-    )) === true,
-  );
-  await press(page, "ArrowDown");
-  await press(page, "ArrowRight");
-  check(
-    "in the pop-up, ↓ then → open the second account's details",
-    (await value(`!document.getElementById("usage-more-claude").hidden`)) ===
-      true,
-    await value(FOCUS),
-  );
-  await press(page, "ArrowLeft");
-  await press(page, "ArrowLeft");
-  check(
-    "← closes the details, then the pop-up",
-    (await value(`document.querySelector(".usage").hidden`)) === true,
+    "← closes the help",
+    (await value(`document.querySelector(".help").hidden`)) === true,
   );
   await press(page, "s");
   await press(page, "Escape");

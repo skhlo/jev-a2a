@@ -47,7 +47,6 @@ const config: RouterConfig = {
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
-  usage: null,
 };
 
 // Listens on a free loopback port; the URL's address.

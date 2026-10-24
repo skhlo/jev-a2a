@@ -1,7 +1,6 @@
 // Writes board.sample.json: the board's view model built from the board
-// fixture with its participant-sent task (`sampleJournal`), its telemetry
-// and its usage at its fixed time, as the fixture's operator login sees
-// it. The sample is part of the published contract and is changed only by
+// fixture with its participant-sent task (`sampleJournal`) and its
+// telemetry at its fixed time, as the fixture's operator login sees it. The sample is part of the published contract and is changed only by
 // this script; a board test fails when the committed file differs from what
 // the script writes. After changing the model or the fixture, run
 // `pnpm exec node src/board-sample.ts` in router/ and commit the result.
@@ -16,13 +15,7 @@ import {
   identify,
   messageTimes,
 } from "./board.ts";
-import {
-  config,
-  NOW,
-  sampleJournal,
-  telemetry,
-  usage,
-} from "./board-fixture.ts";
+import { config, NOW, sampleJournal, telemetry } from "./board-fixture.ts";
 
 export const SAMPLE_PATH = join(import.meta.dirname, "board.sample.json");
 
@@ -31,8 +24,8 @@ export function sampleModel(): BoardModel {
 }
 
 // The sample as it stood after its first `end` entries, at the last one's
-// time. The telemetry and the usage are snapshots taken near the sample's
-// end, so each shows only once that time has reached it.
+// time. The telemetry is a snapshot taken near the sample's end, so it
+// shows only once that time has reached it.
 export function sampleModelAt(end: number): BoardModel {
   const entries = sampleJournal.slice(0, end);
   const now =
@@ -48,7 +41,6 @@ export function sampleModelAt(end: number): BoardModel {
     messageTimes(entries),
     actor,
     Date.parse(telemetry.at) <= now ? telemetry : null,
-    usage.at === null || usage.at <= now ? usage : null,
   );
 }
 

@@ -2,9 +2,8 @@
 // attributes only.
 //
 // The page works without it. It keeps what a person is doing across
-// refreshes and adds the filter, the keys, the peek, the sheet, the usage
-// pop-up in place, opening a task in place, the full router log and the
-// help with its theme switch.
+// refreshes and adds the filter, the keys, the peek, the sheet, opening a
+// task in place, the full router log and the help with its theme switch.
 export const SCRIPT = `
 const root = document.documentElement;
 const $ = (selector, from = document) => from.querySelector(selector);
@@ -53,27 +52,6 @@ const toggleLog = () => {
   else localStorage.setItem("router-log", "open");
   showLog();
   return true;
-};
-
-// Blocks a toggle opens, by data-key, on this device: an account's details
-// and a day table's older rows, in the usage pop-up. The server draws them
-// open, so a page without a script shows them; the script shuts each one
-// not kept open, at start and after each refresh, before the page is
-// painted.
-const opened = () => [].concat(stored(localStorage, "router-open", []));
-const showBlock = (block, open) => {
-  block.hidden = !open;
-  if (block.id) $$('[aria-controls="' + CSS.escape(block.id) + '"]').forEach((t) => t.setAttribute("aria-expanded", String(open)));
-};
-const unfold = () => {
-  const open = opened();
-  $$(".usage [data-key]").forEach((block) => showBlock(block, open.includes(block.dataset.key)));
-};
-const keepBlock = (block, open) => {
-  showBlock(block, open);
-  const keys = opened().filter((key) => key !== block.dataset.key);
-  if (open) keys.push(block.dataset.key);
-  localStorage.setItem("router-open", JSON.stringify(keys));
 };
 
 // Drafts, by the data-path of the form or peek they are typed in, kept with
@@ -138,63 +116,12 @@ const openSheet = (key) => {
   return true;
 };
 
-// The usage pop-up (v0.13): a rail row or u opens it beside the rail, over
-// the tasks column, moved left to stay 12px inside the viewport; from 900px
-// down the CSS makes it the page. A row, u, esc, its close button or a click
-// outside closes it. Opening puts the focus on an account's toggle (the
-// row's, from a row), and closing gives it back.
-const usage = () => $(".usage");
-const usageOpen = () => Boolean(usage() && !usage().hidden);
-const place = () => {
-  const u = usage();
-  if (!u) return;
-  if (u.hidden || narrow.matches) {
-    u.style.left = "";
-    return;
-  }
-  const rail = $(".agents")?.getBoundingClientRect().right ?? 0;
-  u.style.left = Math.max(12, Math.min(rail + 8, innerWidth - 12 - u.offsetWidth)) + "px";
-};
-const syncUsage = () => {
-  $$(".acct").forEach((a) => a.setAttribute("aria-expanded", String(usageOpen())));
-  place();
-};
-// The element that opened the pop-up, and how to find it again when a
-// refresh has replaced it: a row by its task, else by its tag and path.
-let usageFrom = null;
-const finder = (el) => {
-  const task = el?.matches(".task a.id") && el.closest(".task").dataset.task;
-  if (task) return '.task[data-task="' + CSS.escape(task) + '"] a.id';
-  return el?.dataset?.path ? el.localName + '[data-path="' + CSS.escape(el.dataset.path) + '"]' : null;
-};
-const setUsage = (open, from = null) => {
-  const u = usage();
-  if (!u) return false;
-  const was = usageOpen();
-  u.hidden = !open;
-  syncUsage();
-  if (open && !was) {
-    const el = from ?? document.activeElement;
-    usageFrom = { el, find: finder(el) };
-    const toggle = (from && $('.toggle[data-path="' + CSS.escape(from.dataset.path + ".name") + '"]', u)) || $(".toggle", u);
-    toggle?.focus({ preventScroll: true });
-  } else if (!open && was) {
-    const to = usageFrom?.el.isConnected ? usageFrom.el : usageFrom?.find && $(usageFrom.find);
-    const lost = u.contains(document.activeElement) || document.activeElement === document.body;
-    if (lost && to) to.focus();
-    else if (u.contains(document.activeElement)) document.activeElement.blur();
-    usageFrom = null;
-  }
-  return true;
-};
-addEventListener("resize", place);
-
 // Every few seconds the page fetches itself for the selected task and swaps
-// the nav counts and tick, every panel the page marks with data-part, the
-// sheets and the usage pop-up. A panel or an open overlay stays as it is
-// while it holds the focus (unless the focus is on a row, a card, a usage
-// row or an account's toggle that the new page has too) or a text
-// selection, so what is being typed, read or copied is not pulled away.
+// the nav counts and tick, every panel the page marks with data-part and
+// the sheets. A panel or an open overlay stays as it is while it holds the
+// focus (unless the focus is on a row or a card that the new page has too)
+// or a text selection, so what is being typed, read or copied is not
+// pulled away.
 // Opening a task in place is the same fetch, which swaps the detail
 // whatever it holds; a later open supersedes an earlier one still on its
 // way, and no periodic fetch starts while an open is on its way, so the
@@ -247,9 +174,7 @@ const refresh = async (open = null) => {
   const selectedIn = (el) => range !== null && range.intersectsNode(el);
   const row = focus?.matches(".task a.id") ? focus.closest(".task").dataset.task : null;
   const card = focus?.matches(".card") ? focus.dataset.path : null;
-  const acct = focus?.matches(".acct") ? focus.dataset.path : null;
-  const toggle = focus?.matches(".usage .toggle") ? focus.getAttribute("aria-controls") : null;
-  const kept = row || card || acct || toggle;
+  const kept = row || card;
   const peeked = peek() && '.task[data-task="' + CSS.escape(peek().parentElement.dataset.task) + '"] .peek[data-path="' + CSS.escape(peek().dataset.path) + '"]';
   const shown = sheet()?.dataset.key ?? "";
   const words = $(".filter input")?.value ?? "";
@@ -277,23 +202,8 @@ const refresh = async (open = null) => {
     showing.replaceChildren(...fresh.children);
     $(".body", showing).scrollTop = top;
   }
-  // The pop-up likewise: shut, it is swapped whole; open, it keeps its
-  // element, its scroll and its place, and takes the new content. It comes
-  // and goes with the usage section.
-  const u = usage();
-  const next = $(".usage", doc);
-  if (!u && next) $(".help").before(next);
-  else if (u && !next) u.remove();
-  else if (u?.hidden) u.replaceWith(next);
-  else if (u && ((!u.contains(focus) || toggle) && !selectedIn(u))) {
-    const top = $(".body", u).scrollTop;
-    u.replaceChildren(...next.children);
-    $(".body", u).scrollTop = top;
-  }
   if (row) $('.task[data-task="' + CSS.escape(row) + '"] a.id')?.focus();
   if (card) $('.card[data-path="' + CSS.escape(card) + '"]')?.focus();
-  if (acct) $('.acct[data-path="' + CSS.escape(acct) + '"]')?.focus();
-  if (toggle) $('.usage .toggle[aria-controls="' + CSS.escape(toggle) + '"]')?.focus();
   if (peeked && !peek() && $(peeked)) openPeek($(peeked));
   const input = $(".filter input");
   if (input && input !== focus) input.value = words;
@@ -316,8 +226,6 @@ const refresh = async (open = null) => {
   }
   fold();
   showLog();
-  unfold();
-  syncUsage();
   filter();
   drafts();
 };
@@ -354,22 +262,6 @@ document.addEventListener("click", (e) => {
   if (e.target.closest(".sheet .close")) return closeSheet();
   // A lever in the sheet leaves the page; the sheet comes back with it.
   if (e.target.closest(".sheet a:not([href^='?task='])")) sessionStorage.setItem("router-sheet", sheet()?.dataset.key ?? "");
-  const acct = e.target.closest(".acct");
-  if (acct) {
-    e.preventDefault();
-    return setUsage(!usageOpen(), acct);
-  }
-  if (e.target.closest(".usage .close")) {
-    e.preventDefault();
-    return setUsage(false);
-  }
-  const toggle = e.target.closest(".usage .toggle");
-  const block = toggle && document.getElementById(toggle.getAttribute("aria-controls"));
-  if (block) return keepBlock(block, block.hidden);
-  const days = e.target.closest(".usage .days");
-  const older = days && $(".older", days.closest("table"));
-  if (older) return keepBlock(older, true);
-  if (usageOpen() && !e.target.closest(".usage")) setUsage(false);
   const link = e.target.closest('a[href^="?task="]');
   if (link) {
     e.preventDefault();
@@ -444,35 +336,12 @@ const openKey = (row, el) => {
   const key = el?.matches(".card") && $(".name .key", el)?.textContent;
   return key ? openSheet(key) : false;
 };
-// ← or esc: close the help, then the usage, then the peek, then the sheet.
+// ← or esc: close the help, then the peek, then the sheet.
 const back = () => {
   if (!$(".help").hidden) $(".help").hidden = true;
-  else if (usageOpen()) setUsage(false);
   else if (peek()) closePeek();
   else if (sheet()) closeSheet();
   else return false;
-  return true;
-};
-// In the usage pop-up: ↑ ↓ move between the accounts, → or ↵ open the
-// focused account's details, ← closes them, or the pop-up when they are
-// shut.
-const USAGE_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"];
-const usageKey = (key, el) => {
-  const toggles = $$(".usage .toggle");
-  const at = toggles.indexOf(el);
-  const block = at >= 0 && document.getElementById(el.getAttribute("aria-controls"));
-  if (key === "ArrowUp" || key === "ArrowDown") {
-    const next = at < 0 ? toggles[0] : toggles[Math.min(toggles.length - 1, Math.max(0, at + (key === "ArrowDown" ? 1 : -1)))];
-    next?.focus();
-    return Boolean(next);
-  }
-  if (key === "ArrowLeft") {
-    if (block && !block.hidden) keepBlock(block, false);
-    else setUsage(false);
-    return true;
-  }
-  if (!block) return false;
-  keepBlock(block, true);
   return true;
 };
 const KEYS = {
@@ -502,7 +371,6 @@ const KEYS = {
     return true;
   },
   r: toggleLog,
-  u: () => setUsage(!usageOpen()),
   "/": () => {
     const input = $(".filter input");
     input?.focus();
@@ -536,31 +404,18 @@ document.addEventListener("keydown", (e) => {
   if (typing(el) || e.metaKey || e.ctrlKey || e.altKey) return;
   // ⇧ with an arrow or ↵ is the browser's (selecting, a new window).
   if (e.shiftKey && (e.key.startsWith("Arrow") || e.key === "Enter")) return;
-  // While the pop-up is open, and the help is not over it, its arrows and
-  // ↵ move between its accounts from a toggle, the pop-up or nothing in
-  // particular.
-  const inUsage = !el || el === document.body || el === usage() || el.matches(".usage .toggle");
-  if (usageOpen() && $(".help").hidden && USAGE_KEYS.includes(e.key) && inUsage) {
-    if (usageKey(e.key, el)) e.preventDefault();
-    return;
-  }
   const row = el?.matches(".task a.id") ? el.closest(".task") : null;
   if (KEYS[e.key]?.(row, el)) e.preventDefault();
 });
 
 // An action returns to the bare page with its notice; reopen the task it
-// was taken on. A page drawn with the pop-up open (?usage, the link a page
-// without a script follows) keeps it open and drops the parameter.
+// was taken on.
 const returned = sessionStorage.getItem("router-task");
 sessionStorage.removeItem("router-task");
 const sheetBack = sessionStorage.getItem("router-sheet");
 sessionStorage.removeItem("router-sheet");
 if (sheetBack) openSheet(sheetBack);
 const params = new URLSearchParams(location.search);
-if (params.has("usage")) {
-  params.delete("usage");
-  history.replaceState(null, "", location.pathname + (params.toString() ? "?" + params : ""));
-}
 if (returned && params.has("notice") && !params.has("task") && returned !== selected() && $('.task[data-task="' + CSS.escape(returned) + '"]')) {
   history.replaceState(null, "", "?task=" + encodeURIComponent(returned) + "&notice=" + encodeURIComponent(params.get("notice")));
   openTask(returned, "", false);
@@ -568,8 +423,6 @@ if (returned && params.has("notice") && !params.has("task") && returned !== sele
 paint();
 fold();
 showLog();
-unfold();
-syncUsage();
 filter();
 drafts();
 `;
