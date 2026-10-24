@@ -254,6 +254,8 @@ set's format and the procedure: [docs/participants.md](docs/participants.md).
   the board and its JSON.
 - [router/design/README.md](router/design/README.md): how the page is held
   to its design.
+- [docs/2026-10-24-router-ideas.md](docs/2026-10-24-router-ideas.md): the
+  ranked ideas and the work still open, as of 2026-10-24.
 
 ## Repository layout and development
 
