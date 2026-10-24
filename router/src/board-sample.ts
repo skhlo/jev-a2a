@@ -1,6 +1,7 @@
 // Writes board.sample.json: the board's view model built from the board
 // fixture with its participant-sent task (`sampleJournal`) and its
-// telemetry at its fixed time, as the fixture's operator login sees it. The sample is part of the published contract and is changed only by
+// telemetry at its fixed time, as the fixture's operator login sees it.
+// The sample is part of the published contract and is changed only by
 // this script; a board test fails when the committed file differs from what
 // the script writes. After changing the model or the fixture, run
 // `pnpm exec node src/board-sample.ts` in router/ and commit the result.

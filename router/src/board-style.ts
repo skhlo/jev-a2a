@@ -253,7 +253,6 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .help .top .spacer { flex: 1; }
 .help .grid { display: grid; grid-template-columns: 56px 1fr; column-gap: 12px; row-gap: 3px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); }
 .help .grid kbd { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); }
-.help .grid .sub { grid-column: 1 / -1; margin-top: 6px; }
 .help .theme { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--hair); font-size: var(--fs-small); color: var(--text-2); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 

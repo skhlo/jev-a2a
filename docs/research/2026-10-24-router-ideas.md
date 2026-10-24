@@ -91,9 +91,8 @@ gone. The rest of this section is as it was measured.
 
 **Evidence:**
 
-- Each `usage` reading starts two
-  `codex app-server` processes, one for the limits and one for the
-  history, at about 370 MB each. The maintainer's config reads all four
+- Each `usage` reading starts two `codex app-server` processes, one for
+  the limits and one for the history, at about 370 MB each. The maintainer's config reads all four
   accounts, 120 s after each reading ends. `serve` itself holds about 350 MB.
 - systemd's memory peak per run went from about 320 MB to about 900 MB on
   2026-10-05, the day usage landed (#36). Since then, long runs peak at

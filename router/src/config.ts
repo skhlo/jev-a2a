@@ -149,15 +149,11 @@ function refuse(message: string): never {
 // A string that is not empty, else the fallback.
 const text = (value: unknown, fallback: string): string =>
   typeof value === "string" && value ? value : fallback;
-// Seconds from `min` to an hour; `fallback` when absent.
-const seconds = (
-  name: string,
-  value: unknown,
-  { fallback, min }: { fallback: number; min: number },
-): number => {
+// Seconds from none to an hour; `fallback` when absent.
+const seconds = (name: string, value: unknown, fallback: number): number => {
   const given = value === undefined ? fallback : value;
-  if (typeof given !== "number" || !(given >= min && given <= 3600))
-    refuse(`${name} is a number of seconds, ${min} to 3600`);
+  if (typeof given !== "number" || !(given >= 0 && given <= 3600))
+    refuse(`${name} is a number of seconds, 0 to 3600`);
   return given;
 };
 // An optional section's fields; none when it is absent.
@@ -271,8 +267,8 @@ function serveOf(
   // reachable through Serve: loopback, never an interface address.
   if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(board))
     refuse(`serve.board must be a loopback address, not ${board}`);
-  const wake = seconds("serve.wake", serve.wake, { fallback: 20, min: 0 });
-  const poll = seconds("serve.poll", serve.poll, { fallback: 0, min: 0 });
+  const wake = seconds("serve.wake", serve.wake, 20);
+  const poll = seconds("serve.poll", serve.poll, 0);
   return {
     listen: text(serve.listen, "127.0.0.1:7677"),
     board,
