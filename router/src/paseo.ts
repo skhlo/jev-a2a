@@ -34,6 +34,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
+import { setFlagsFromString } from "node:v8";
 import { createPaseoApi } from "@getpaseo/client";
 import type {
   PaseoAgent,
@@ -907,6 +908,16 @@ export async function createPaseoAdapter(
   endpoint: string,
   options: AdapterOptions = {},
 ): Promise<Adapter & Finder> {
+  // For the whole process: no Maglev, V8's middle compiler. The client
+  // checks every message it receives with one generated function of some
+  // 87,000 lines (@getpaseo/protocol's ws-outbound.aot.js). Seen with client
+  // 0.10.2 on Node 26.12: each time the check ran hot, Maglev compiled it on
+  // a worker thread in half a second and about 600 MB, and glibc kept the
+  // memory on that thread, so serve passed 3 GB in 15 hours. Without Maglev
+  // the check stays on the baseline tiers, as TurboFan takes no function
+  // that large, and the router waits on the network, not on this code.
+  // Setting it again changes nothing.
+  setFlagsFromString("--no-maglev");
   const tunnel = endpoint.startsWith("ssh://")
     ? await openSshTunnel(endpoint)
     : null;

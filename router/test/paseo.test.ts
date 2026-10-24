@@ -6,8 +6,10 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
+import { createRequire } from "node:module";
 import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { PaseoAgent, PaseoWorkspace } from "@getpaseo/client";
 import { scratch } from "./test-scratch.ts";
 import {
@@ -584,14 +586,18 @@ process.exit(0);`;
   });
 }
 
-test("a daemon the run cannot reach fails the adapter at once, rather than being waited for", async (t) => {
-  // A port nothing listens on, as a daemon that is down.
+// A port nothing listens on, as a daemon that is down.
+async function closedPort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   const { port } = server.address() as AddressInfo;
   await new Promise<void>((done) => server.close(() => done()));
+  return port;
+}
+
+test("a daemon the run cannot reach fails the adapter at once, rather than being waited for", async (t) => {
   assert.match(
-    await adapterOutcome(`ws://127.0.0.1:${port}/ws`),
+    await adapterOutcome(`ws://127.0.0.1:${await closedPort()}/ws`),
     /^rejected: /,
   );
   // Over ssh, an ssh that fails as it does for a host that has dropped off
@@ -640,6 +646,62 @@ test("a daemon's password goes with the connection to it", async (t) => {
     /^rejected: /,
   );
   assert.equal(protocol, "paseo.bearer.s3cret-pw");
+});
+
+// What V8 compiles of Paseo's message check when it runs hot, in a process
+// of its own under --trace-opt: the check in a loop that yields so a
+// concurrent compile can land, after an adapter to `endpoint` when given.
+function hotCheckTrace(endpoint?: string): Promise<string> {
+  const script = `const [paseo, check, endpoint] = process.argv.slice(1);
+if (endpoint) {
+  const { createPaseoAdapter } = await import(paseo);
+  await createPaseoAdapter(endpoint).catch(() => {});
+}
+const { validateWSOutboundMessage } = await import(check);
+for (let round = 0; round < 40; round++) {
+  for (let i = 0; i < 200; i++) validateWSOutboundMessage({ type: "pong" });
+  await new Promise((done) => setTimeout(done, 20));
+}
+process.exit(0);`;
+  const paseo = new URL("../src/paseo.ts", import.meta.url).href;
+  // The check is the client's dependency, not the router's.
+  const check = pathToFileURL(
+    createRequire(import.meta.resolve("@getpaseo/client")).resolve(
+      "@getpaseo/protocol/validation/ws-outbound",
+    ),
+  ).href;
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      [
+        "--no-warnings",
+        "--trace-opt",
+        "--input-type=module",
+        "-e",
+        script,
+        paseo,
+        check,
+        endpoint ?? "",
+      ],
+      { timeout: 20_000 },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(stderr.trim() || error.message));
+        else resolve(stdout);
+      },
+    );
+  });
+}
+
+test("once an adapter is made, Maglev does not compile Paseo's message check, as it does without one", async () => {
+  // Why it matters is at the flag, in createPaseoAdapter.
+  const compiled = /safeParse_WSOutboundMessageSchema\b.*target MAGLEV/;
+  const [without, after] = await Promise.all([
+    hotCheckTrace(),
+    hotCheckTrace(`ws://127.0.0.1:${await closedPort()}/ws`),
+  ]);
+  assert.ok(compiled.test(without), "without an adapter, Maglev compiles it");
+  // On failure, the line that matched rather than the whole trace.
+  assert.equal(after.match(compiled)?.[0], undefined);
 });
 
 test("an agent id the daemon does not know is missing; any other failed look still throws", async () => {
