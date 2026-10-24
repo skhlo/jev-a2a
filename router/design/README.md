@@ -7,6 +7,18 @@ where it departs from it on purpose. They matter to whoever changes the
 page or the design; a user of the board needs only
 [`docs/board.md`](../../docs/board.md).
 
+## Society home prototype
+
+The standalone [agent society design prototype](../../docs/design-prototypes/agent-society/README.md)
+is parked under `docs`, with all four variants, design notes, and local restart
+instructions. It uses fictional data and does not contact the router.
+
+## Command study: the abstraction under the motif
+
+The [Command study](../../docs/design-prototypes/agent-society/README.md#command-study-the-abstraction-under-the-motif)
+records the working model of bases, facilities, capabilities, teammates, and
+shared missions, informed by the [RTS reference study](../../docs/research/agent-society-rts-design.md).
+
 ## Files
 
 - `v0.13-paths.txt`: every `data-path` the design's fourteen pages bind,

@@ -1,0 +1,43 @@
+# RTS hierarchy for the agent society
+
+Research: 2026-10-22. Scope: official StarCraft, Age of Empires II and IV, and Beyond All Reason references. This refines the [Command study](../design-prototypes/agent-society/README.md#command-study-the-abstraction-under-the-motif): bases are ongoing responsibilities, agents are teammates, missions are shared outcomes, and machines are locations. MBA remains the first command center and human viewpoint. No game assets were copied.
+
+The useful hypothesis is that a base should read as a small compound containing different facilities, with recognizable people working around them. One generic building per base leaves much of that hierarchy unused. This is our design interpretation, not evidence that an RTS layout will be usable for this audience.
+
+## What the references establish
+
+**StarCraft separates the anchor, facilities, and attached capabilities.** Blizzard describes the Command Center as the colony's focal point: it produces SCVs and receives gathered resources. The Barracks produces infantry, while the Engineering Bay supplies infantry improvements. These are different functions within a settlement. [Command Center](https://classic.battle.net/scc/popup/cc.htm), [Barracks](https://classic.battle.net/scc/popup/barx.htm), [Engineering Bay](https://classic.battle.net/scc/popup/bay.htm).
+
+Terran add-ons have a narrower relationship: the Machine Shop attaches to a Factory and provides particular abilities and production access. Add-ons require a compatible parent; proximity alone does not connect them. Our transferable principle is to show a facility's attached capability as subordinate to its owner. The game's construction, research costs, and upgrade ladder are not prerequisites for that visual relationship. [Terran Basics, Add-ons](https://classic.battle.net/scc/terran/basic.shtml).
+
+**Age of Empires II gives facilities understandable purposes.** Its official guide groups infantry with Barracks, cavalry with Stables, archers with Archery Ranges, and siege equipment with Siege Workshops. Economic improvements belong to the Town Center, Lumber Camp, Mill, and Mining Camp. The names describe what happens there. This supports our inference that “Archive” or “Workshop” could communicate more than several differently named instances of the same abstract module. The precise facilities still need a real purpose in this product. [Military & Economy](https://www.ageofempires.com/learn-to-play/military-economy-xbox/).
+
+The Town Center has a direct navigation shortcut and produces villagers. Control groups let players reselect chosen units; they are a selection mechanism. The same guide discusses production-building proximity as helping reinforcement. Our translation is a stable home anchor and meaningful local grouping, not a new mandatory organizational tier or simulated travel time. [Match Goals & Hotkeys](https://www.ageofempires.com/learn-to-play/match-goals-aoe2/).
+
+**Age of Empires IV supplies a useful visual comparison.** In the official English civilization images, the White Tower is a tall landmark among smaller houses; the blacksmith has chimneys, a work yard, and equipment. Shared materials and blue accents unify these different forms, while people establish scale. Our visual reading is that recognizable construction, ground contact, and relative size can explain purpose before custom symbols do. The next study should test those cues within our industrial motif. [English civilization, landmark and blacksmith images](https://www.ageofempires.com/games/age-of-empires-iv/civilizations/english/).
+
+**Beyond All Reason makes category and role explicit.** Its opening guide distinguishes extraction, energy, unit production, and intelligence. Its Commander starts the base and first factory; the anchor is therefore not necessarily a building across all RTS games. [Getting started](https://www.beyondallreason.info/guide/how-to-start-manage-your-economy), [Armada Commander](https://www.beyondallreason.info/unit/armcom).
+
+BAR's strategic icons encode unit category through outer shape, then role through an internal symbol. Structures generally use squares; walking bots use circles. That is a documented visual grammar, not a claim about this prototype's usability. Our inference is to make buildings, agents, and mission markers distinguishable before reading their labels, while keeping text available. Copying BAR's full symbol vocabulary would add another learning burden. [Strategic Icons](https://www.beyondallreason.info/guide/strategic-icons).
+
+## Proposed mapping - our interpretation
+
+| Society concept       | Representation and boundary                                                                                                                                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MBA / human viewpoint | A recognizable command-center landmark and home position. It does not make every machine a base or every agent subordinate to a machine.                                                                                                                               |
+| Base                  | A compound for an ongoing responsibility, such as Office. It can span hosts and contain several facilities. Its boundary groups work; it need not become another navigation step.                                                                                      |
+| Facility              | A durable function with a reason to inspect it: an Archive for maintained knowledge, Workshop for making artifacts, Observatory for monitoring, or Service Bay for maintaining services. These are candidate visual roles, not declared infrastructure or extra bases. |
+| Attached capability   | A smaller adjoining element only when a capability is actually installed, available, and owned by that facility. An MCP server, tool, or skill does not automatically deserve a building. A tool available only to one agent usually belongs in that agent's details.  |
+| Agent                 | A named teammate with a recognizable body or portrait, a role, and a host label. Home responsibility can remain visible during work elsewhere. Facility association is optional; avoid manufacturing a rigid staffing chart.                                           |
+| Mission               | An outcome and its participating agents, possibly crossing bases. A temporary visual grouping or selected route can show cooperation without changing members' identities or homes.                                                                                    |
+| Delegated helper      | Show separately only if actual delegation records establish its task scope and lifecycle. Temporary membership does not itself imply a temporary agent. Do not invent helper classes, ranks, or disposable workers.                                                    |
+
+Our proposed scale order is landmark, facilities, attached capabilities, then smaller agents. Distinct silhouettes should carry purpose, not status or rank. Group facilities by shared responsibility and agents by evidenced association; reserve routes for a selected mission. Position must not imply host proximity, network topology, or transfer latency.
+
+## Next read-only slice
+
+Test one Office compound with two or three clearly labeled facilities, the known crew, and one mission involving another base. Use original simplified shapes with recognizable architecture and distinguishable agent silhouettes. Treat any invented facility arrangement as a labeled study. Selecting an object should reveal its purpose, people, evidence, and current work; selecting the mission should reveal its participants and handoff. Keep the existing fictional-scenario disclosure.
+
+Check whether a newcomer can identify the home anchor, distinguish a facility from a teammate, explain the ongoing responsibility, and trace who contributes to the outcome. Visual inspection and user feedback must answer that; game references cannot.
+
+Installed-capability management, facility creation, persistent role ownership, and helper lifecycles remain future mechanisms until their data and behavior exist. This slice adds no production model, build queue, deployment command, XP, resource economy, or fabricated upgrade meter.
