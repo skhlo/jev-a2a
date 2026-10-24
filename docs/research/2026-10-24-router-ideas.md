@@ -33,7 +33,7 @@ cost, sessions that are replaced, and tasks that wait without a word.
 
 Its own resource use comes close to making it unusable. There are two
 causes, both measured on 2026-10-24. Folding the record costs CPU and
-holds the lock; reading usage costs memory.
+holds the lock; reading usage costs memory (usage has since been removed).
 
 ### Folding the record
 
@@ -52,8 +52,8 @@ holds the lock; reading usage costs memory.
   `answer`, `choose`, `cancel`, `resolve`, `observe` and a local `reply`.
   - The ones that record an event, and `run`, then deliver, observing
     placements over SSH, before they let go.
-  - `roster` folds without the lock. `eval`, `usage` and `host` do not
-    fold.
+  - `roster` folds without the lock. `eval`, `usage` (since removed) and
+    `host` do not fold.
 - The lock is not a queue. A waiting command tries again every 100 ms and
   gives up after 90 s, so back-to-back holders can starve it.
   - On 2026-10-24, behind repeated `router status` calls, dotfiles-host@mbp's
@@ -86,11 +86,13 @@ holds the lock; reading usage costs memory.
 
 ### Reading usage
 
+**2026-10-24, later:** usage was removed from the router, so this cost is
+gone. The rest of this section is as it was measured.
+
 **Evidence:**
 
-- Each [`usage`](../configuration.md#usage) reading starts two
-  `codex app-server` processes, one for the limits and one for the
-  history, at about 370 MB each. The maintainer's config reads all four
+- Each `usage` reading starts two `codex app-server` processes, one for
+  the limits and one for the history, at about 370 MB each. The maintainer's config reads all four
   accounts, 120 s after each reading ends. `serve` itself holds about 350 MB.
 - systemd's memory peak per run went from about 320 MB to about 900 MB on
   2026-10-05, the day usage landed (#36). Since then, long runs peak at
@@ -364,7 +366,8 @@ runs.
   - Later, in this order:
     - `status` and `needs-you`, scoped to the host's own sessions;
     - `cancel`.
-  - Never: `observe`, `resolve`, `run`, `serve`, `eval` or `usage`.
+  - Never: `observe`, `resolve`, `run`, `serve`, `eval` or `usage` (since
+    removed).
   - Not yet checked on real use: `router roster add` and `remove` in
     place of a hand roster change.
 - **023, a dropped host:**
@@ -382,9 +385,10 @@ runs.
   - **Command Center items** "Open board" and "Submit to Jev".
   - **A composer pill,** only with the plugin on mba and mini.
   - **A header button with a count,** optionally.
-  - **RPCs** `board.placement {agentId}`, for pills, and `usage.get`.
+  - **RPCs** `board.placement {agentId}`, for pills, and `usage.get`
+    (moot: the router has no usage since 2026-10-24).
   - **The usage section** is skipped once Paseo 0.11's Usage screen is
-    checked against it.
+    checked against it (moot too).
   - **The actor:** a handler gets no caller, so the backend
     [fixes the actor](../operating.md#the-paseo-plugin), and anyone whose
     app reaches mbp's daemon can act.

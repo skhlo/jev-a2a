@@ -12,17 +12,16 @@ page or the design; a user of the board needs only
 - `v0.13-paths.txt`: every `data-path` the design's fourteen pages bind,
   distinct and sorted, as `src/design-paths.ts` extracts them.
 - `v0.13-dropped.txt`: the paths the page does not render, each with its
-  reason. For v0.13 it lists none: the page renders every path for the
-  board fixture and its usage states.
-- `screenshots/board.png`, `screenshots/board-usage.png`,
-  `screenshots/board-sheet.png`: the sample board with the rail's Usage
-  section, the same page with the usage pop-up open, and with
-  orchestrator@mbp's sheet open. `screenshots/board.gif`, the README's
-  first picture: the sample's record replayed one run at a time, each
-  frame at its run's time (`recording()` says which task each opens).
-  Drawn from the sample, so they hold no live
-  request text and only made-up usage. `pnpm exec node src/board-shots.ts`
-  in `router/` redraws them all with a Chromium and ffmpeg on `PATH`.
+  reason. For v0.13 these are the usage paths: the design's Usage section,
+  pop-up and `u` key are not ported, as the router has no usage (removed
+  2026-10-24).
+- `screenshots/board.png`, `screenshots/board-sheet.png`: the sample board,
+  and the same page with orchestrator@mbp's sheet open.
+  `screenshots/board.gif`, the README's first picture: the sample's record
+  replayed one run at a time, each frame at its run's time (`recording()`
+  says which task each opens). Drawn from the sample, so they hold no live
+  request text. `pnpm exec node src/board-shots.ts` in `router/` redraws
+  them all with a Chromium and ffmpeg on `PATH`.
 
 ## The conformance test
 
@@ -44,9 +43,8 @@ where the page must work without its script:
 - counted nouns agree with their number;
 - each clock carries its full date as a tooltip: the nav tick's tooltip
   dates the build and the telemetry to the second (the design gives the
-  clocks alone, and a telemetry file can be a day old), the usage
-  pop-up's freshness line dates its read, and the countdown or the verdict
-  carries the deadline's date;
+  clocks alone, and a telemetry file can be a day old), and the countdown
+  or the verdict carries the deadline's date;
 - the needs-you count counts tasks the same way in the nav and in the
   group;
 - blue follows the viewer: the design colours every question and its
@@ -78,29 +76,11 @@ where the page must work without its script:
 - the open router log is kept across refreshes on this device, like the
   collapsed groups, and without a script, which `r` needs, the log shows
   all its lines;
-- a rail row is a link to the page with the pop-up drawn open (`?usage`)
-  and the pop-up's close button a link back, where the design has buttons,
-  so the pop-up opens and closes without a script (while it is open a row
-  is a link back too); the script toggles it in place and drops `?usage`
-  from the address. `usage/`, the old tab's
-  address, redirects to the board with `?usage`;
-- an account's details and a day table's older days are drawn open, so a
-  page without a script shows them; the script shuts each one this device
-  has not kept open (the design draws them shut, and its "all n days"
-  removes itself rather than staying for the next refresh);
-- a balance leads with one row per reported balance, in every currency the
-  provider sends (the design's sample has one);
-- the help's `u` row says "or click an account under the agents" only when
-  the rail has rows: with API accounts alone there is no Usage section,
-  and `u` still opens the pop-up. Without usage there is no `u`, no section
-  and no pop-up;
-- `esc` closes the help, then the usage, then the peek, then the sheet (the
-  design's order leaves out the peek, which `esc` has always closed); in
-  the pop-up `←` closes the focused account's details, or the pop-up when
-  they are shut, and with the help open `←` closes the help first. `↑` `↓`
-  move between the rows only from a row, a card or nothing in particular,
-  so a focused button, a link in the sheet or a scrolling table keeps them,
-  and `⇧` with an arrow or `↵` is the browser's;
+- `esc` closes the help, then the peek, then the sheet (the design's order
+  leaves out the peek, which `esc` has always closed). `↑` `↓` move between
+  the rows only from a row, a card or nothing in particular, so a focused
+  button, a link in the sheet or a scrolling table keeps them, and `⇧`
+  with an arrow or `↵` is the browser's;
 - a link to a task (a row's id, a card's task, the peek's Open task, an
   Answer lever) opens the task in place, where the design's links
   navigate; the link alone still works. How an open keeps the history, and
@@ -126,8 +106,8 @@ where the page must work without its script:
   1181px to 1279px the wide card overflowed the rail by up to 25px,
   cutting off its levers, and the six-column table the detail by up to
   10px;
-- the screenshots are taken with reduced motion, so the sheet's slide and
-  the pop-up's rise do not catch them half drawn.
+- the screenshots are taken with reduced motion, so the sheet's slide
+  does not catch it half drawn.
 
 ## The script in a browser
 
@@ -140,8 +120,6 @@ drives a headless Chromium over the DevTools protocol, and checks:
 - an open whose fetch fails (to another task, to the same task with a
   hash, and after Back to an entry with a hash) or hangs;
 - Back and Forward after an open;
-- the focus coming back from the usage pop-up after a refresh replaced
-  its opener;
 - the arrow and `esc` basics.
 
 It is not part of `pnpm test`, and CI, which has no browser, does not run
@@ -159,8 +137,9 @@ when it ends.
 
 ## The design's own departures from its brief
 
-The design PR (skhlo/designs, tag `jev-a2a-v0.13`) took three, and the page
-follows each:
+The design PR (skhlo/designs, tag `jev-a2a-v0.13`) took three. The page
+follows the first two; the third concerns the usage pop-up, which is not
+ported:
 
 - the facts tables (Deliveries, Notices to a sender, and Jev) become
   records at 1180px and less, not 900px, as the six-column table spilled
@@ -174,18 +153,16 @@ follows each:
 ## Page-side items of v0.13
 
 The brief named three for the page rather than the design, done in this
-port: the Usage tab's page (`src/usage-page.ts`) is gone, its readers,
-store, `router usage`, configuration section and the model's `usage`
-field kept; a task opens in place; and the server keeps the record's fold
-between requests and folds onto it only the lines appended since (the
-journal changes at least every `serve.poll`), so a request no longer
-replays the whole record. Who shares that fold is in `docs/board.md`.
+port: the Usage tab's page (`src/usage-page.ts`) is gone, and since
+2026-10-24 the rest of usage too; a task opens in place; and the server
+keeps the record's fold between requests and folds onto it only the lines
+appended since (the journal changes at least every `serve.poll`), so a
+request no longer replays the whole record. Who shares that fold is in
+`docs/board.md`.
 
-The generic parts the Usage tab added are in `src/board-parts.ts`, named
-for what they are: `chip`, `meter` with its pace tick (which also draws the
-cards' context meter and the rail's windows), `pairs`, `table` and
-`disclosure`. `pace` and `band`, which read a window, are in
-`src/board-usage.ts`.
+Of the generic parts the Usage tab added, two stay in
+`src/board-parts.ts`, named for what they are: `chip`, the nav's counts,
+and `meter`, the cards' context meter.
 
 `pr.mergeable` is read as Paseo's word (`CONFLICTING` shows "conflicts"):
 a deviation in v0.11, the design's own rule since v0.12.

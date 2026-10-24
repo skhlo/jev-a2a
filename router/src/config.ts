@@ -5,7 +5,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { own, validateConfig } from "./core.ts";
 import type { Config, Participant, Role } from "./types.ts";
-import { ACCOUNT_IDS, type AccountId } from "./usage.ts";
 
 // A placement's session in `agents`: a Paseo agent id, or `terminal:<id>`
 // for an agent CLI in a Paseo terminal (see paseo.ts). The terminal it
@@ -80,9 +79,6 @@ export type RouterConfig = Config & {
   // Whether each run reads the health sheet (checkout, subagents, activity)
   // beyond the rail; off, a run costs one call per placement.
   telemetry: { sheet: boolean };
-  // Which accounts `router serve` reads for the board's usage, every how
-  // many seconds; null, the default, reads none and the board shows none.
-  usage: { every: number; accounts: AccountId[] } | null;
 };
 
 // Each named terminal session's CLI, keyed by the session (`terminal:<id>`)
@@ -97,9 +93,6 @@ export const terminalClis = (
     }),
   );
 
-// Seconds between usage reads when the usage section names none.
-export const USAGE_EVERY = 120;
-
 // Who acts in a role when no one is named: the first configured principal
 // in it, as the CLI acts without --as and the Paseo app always does.
 export const firstPrincipal = (
@@ -111,8 +104,6 @@ export const firstPrincipal = (
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
-const isAccountId = (value: unknown): value is AccountId =>
-  ACCOUNT_IDS.some((id) => id === value);
 
 export function loadConfig(path: string): RouterConfig {
   return configOf(JSON.parse(readFileSync(path, "utf8")), path);
@@ -130,7 +121,6 @@ export function configOf(raw: unknown, path: string): RouterConfig {
     const serve = serveOf(extra.serve, config.principals ?? {});
     const jev = jevOf(extra.jev);
     const telemetry = telemetryOf(extra.telemetry);
-    const usage = usageOf(extra.usage);
     return {
       ...config,
       home:
@@ -143,7 +133,6 @@ export function configOf(raw: unknown, path: string): RouterConfig {
       serve,
       jev,
       telemetry,
-      usage,
     };
   } catch (error: unknown) {
     if (!(error instanceof Refusal)) throw error;
@@ -160,15 +149,11 @@ function refuse(message: string): never {
 // A string that is not empty, else the fallback.
 const text = (value: unknown, fallback: string): string =>
   typeof value === "string" && value ? value : fallback;
-// Seconds from `min` to an hour; `fallback` when absent.
-const seconds = (
-  name: string,
-  value: unknown,
-  { fallback, min }: { fallback: number; min: number },
-): number => {
+// Seconds from none to an hour; `fallback` when absent.
+const seconds = (name: string, value: unknown, fallback: number): number => {
   const given = value === undefined ? fallback : value;
-  if (typeof given !== "number" || !(given >= min && given <= 3600))
-    refuse(`${name} is a number of seconds, ${min} to 3600`);
+  if (typeof given !== "number" || !(given >= 0 && given <= 3600))
+    refuse(`${name} is a number of seconds, 0 to 3600`);
   return given;
 };
 // An optional section's fields; none when it is absent.
@@ -282,8 +267,8 @@ function serveOf(
   // reachable through Serve: loopback, never an interface address.
   if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(board))
     refuse(`serve.board must be a loopback address, not ${board}`);
-  const wake = seconds("serve.wake", serve.wake, { fallback: 20, min: 0 });
-  const poll = seconds("serve.poll", serve.poll, { fallback: 0, min: 0 });
+  const wake = seconds("serve.wake", serve.wake, 20);
+  const poll = seconds("serve.poll", serve.poll, 0);
   return {
     listen: text(serve.listen, "127.0.0.1:7677"),
     board,
@@ -328,29 +313,6 @@ function telemetryOf(value: unknown): RouterConfig["telemetry"] {
   return { sheet: sheet ?? true };
 }
 
-function usageOf(value: unknown): RouterConfig["usage"] {
-  if (value === undefined) return null;
-  if (!isRecord(value)) refuse('usage is an object such as { "every": 120 }');
-  const every = seconds("usage.every", value.every, {
-    fallback: USAGE_EVERY,
-    min: 30,
-  });
-  const listed: unknown = value.accounts ?? ACCOUNT_IDS;
-  if (
-    !Array.isArray(listed) ||
-    !listed.length ||
-    !listed.every(isAccountId) ||
-    new Set(listed).size !== listed.length
-  )
-    refuse(
-      `usage.accounts lists accounts once each, among ${ACCOUNT_IDS.join(", ")}`,
-    );
-  return {
-    every,
-    accounts: ACCOUNT_IDS.filter((id) => listed.includes(id)),
-  };
-}
-
 // Where a host's secrets are kept in secrets.env: its token, and its Paseo
 // daemon's password when it has one.
 const hostSecretName =
@@ -362,12 +324,9 @@ export const paseoPasswordName = hostSecretName("ROUTER_PASEO_PASSWORD");
 
 // KEY=VALUE lines from a secrets file next to the configuration, applied to
 // the environment where the environment does not already set them. Secrets
-// never live in the JSON configuration. Returns the names the file sets,
-// applied or already in the environment, so a child process the router
-// starts can be kept from all of them.
-export function loadSecrets(path: string): string[] {
-  if (!existsSync(path)) return [];
-  const names: string[] = [];
+// never live in the JSON configuration.
+export function loadSecrets(path: string): void {
+  if (!existsSync(path)) return;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -376,8 +335,6 @@ export function loadSecrets(path: string): string[] {
     const key = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
     if (!value) continue;
-    names.push(key);
     if (process.env[key] === undefined) process.env[key] = value;
   }
-  return names;
 }

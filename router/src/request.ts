@@ -24,7 +24,6 @@ export const USAGE = `router: a prompt with an envelope and a record
   router serve                                 accept events from other hosts over HTTP; serve the board
   router eval [--set <file>] [--model <id>] [--as <principal>]
                                                judge the labeled set with this config's texts; nothing recorded
-  router usage                                 read the usage accounts once and print them (private data)
   router status [<task>]                       the record
   router needs-you [--as <principal|participant>]
                                                decisions waiting on a person, or owed to a participant sender

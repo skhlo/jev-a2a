@@ -113,7 +113,7 @@ test("the model names its contract and carries what a template binds to", () => 
   const state = boardState(config, journal, NOW);
   const anonymous = boardModel(state, config, NOW, times);
   assert.equal(anonymous.version, BOARD_VERSION);
-  assert.equal(BOARD_VERSION, "jev-router-board/1");
+  assert.equal(BOARD_VERSION, "jev-router-board/2");
   assert.equal(anonymous.actor, null);
   // The viewer: its login and the role of each principal it may act as.
   const model = boardModel(state, config, NOW, times, viewer("me@example.com"));
@@ -573,53 +573,6 @@ test("the sample holds what v0.12 binds: a session mid-turn with no delivery, a 
       ["choose", "T6"],
     ],
   );
-});
-
-test("the sample holds usage in the states the usage section and pop-up bind: a current subscription with history, a stale one kept after a failed refresh, a balance, and a key without management data", () => {
-  const usage = sampleModel().usage;
-  assert.ok(usage);
-  assert.equal(usage.every, 120);
-  assert.equal(usage.at, "2026-09-30T09:44:30.000Z");
-  assert.deepEqual(
-    usage.accounts.map((a) => [a.id, a.kind, a.status]),
-    [
-      ["codex", "subscription", "ready"],
-      ["claude", "subscription", "stale"],
-      ["deepseek", "api", "ready"],
-      ["openrouter", "api", "ready"],
-    ],
-  );
-  const [codex, claude, , openrouter] = usage.accounts;
-  // Codex: windows with lengths and resets, a zero kept as zero, and a
-  // daily history with a gap.
-  assert.deepEqual(
-    codex?.reading?.windows.map((w) => [w.usedPercent, w.minutes]),
-    [
-      [41, 300],
-      [78, 10080],
-    ],
-  );
-  assert.deepEqual(codex?.reading?.details[0]?.status, "ready");
-  // Claude: the last reading and its time are kept beside the error; a
-  // window past 90%, one at zero, and one whose reset has passed since.
-  assert.ok(claude?.error && claude.reading);
-  assert.equal(claude.reading.observedAt, "2026-09-30T09:31:30.000Z");
-  assert.deepEqual(
-    claude.reading.windows.map((w) => w.usedPercent),
-    [92, 64, 0, 12],
-  );
-  assert.ok(
-    Date.parse(claude.reading.windows[3]?.resetsAt ?? "") <
-      Date.parse(usage.at ?? ""),
-  );
-  // OpenRouter without a management key: the key's figures and a notice,
-  // and the account balance named as not read.
-  assert.match(openrouter?.reading?.notice ?? "", /management key/);
-  assert.deepEqual(openrouter?.reading?.metrics[0], {
-    label: "Account balance",
-    value: "No management key",
-    unit: null,
-  });
 });
 
 test("messageTimes maps submit, update and answer ids to their journal time", () => {

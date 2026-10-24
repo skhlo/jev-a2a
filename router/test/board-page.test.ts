@@ -25,23 +25,18 @@ import {
   staleTask,
   time,
 } from "../src/board-parts.ts";
-import { amount, band, dh, pace, wshort } from "../src/board-usage.ts";
 import { counts, diff, repo } from "../src/board-agents.ts";
 import {
-  agedUsage,
   answeredJournal,
   attemptingJournal,
   config,
   deliveredJournal,
   extend,
-  firstUsage,
   journal,
   NOW,
-  otherUsage,
   replacedJournal,
   sampleJournal,
   telemetry,
-  usage,
   viaJournal,
 } from "../src/board-fixture.ts";
 import { dataPaths } from "../src/design-paths.ts";
@@ -54,13 +49,6 @@ import {
   type Telemetry,
 } from "../src/telemetry.ts";
 import type { Role } from "../src/types.ts";
-import {
-  deepseekReading,
-  LABEL,
-  openrouterReading,
-  WINDOW_SUFFIX,
-  type UsageState,
-} from "../src/usage.ts";
 
 // Past every deadline in the fixture.
 const LATER = NOW + 3 * 60 * 60_000;
@@ -74,7 +62,6 @@ const model = (
   entries: Entry[] = journal,
   now = NOW,
   seen: Telemetry | null = null,
-  read: UsageState | null = null,
 ): BoardModel =>
   boardModel(
     boardState(config, entries, now),
@@ -85,7 +72,6 @@ const model = (
       ? identify({ "tailscale-user-login": login }, config.serve.identities)
       : null,
     seen,
-    read,
   );
 const page = (
   login: string | null,
@@ -307,9 +293,7 @@ test("every data-path of the v0.13 design is rendered for the fixture or dropped
   // the record with the replaced session for the resolve form, the record
   // before T4's first reply (once more 31 minutes after its accepted send,
   // for the stale row), and the sample's record with T5 and its telemetry,
-  // once more with a session the daemon does not know. The usage pages
-  // (v0.13) show the sample's accounts and the states it does not: each of
-  // the fixture's usage states, in the pop-up the page always holds.
+  // once more with a session the daemon does not know.
   const missing: Telemetry = {
     ...telemetry,
     placements: {
@@ -326,10 +310,8 @@ test("every data-path of the v0.13 design is rendered for the fixture or dropped
       attemptingJournal,
     ].map((entries) => model(ME, entries)),
     model(ME, deliveredJournal, Date.parse("2026-09-30T10:11:00.000Z")),
+    model(ME, sampleJournal, NOW, telemetry),
     model(ME, sampleJournal, NOW, missing),
-    ...[usage, otherUsage, agedUsage, firstUsage].map((read) =>
-      model(ME, sampleJournal, NOW, telemetry, read),
-    ),
   ];
   const rendered = new Set(
     ["T1", "T2", "T3", "T4", "T5"]
@@ -1179,7 +1161,7 @@ test("the page escapes what it shows, takes only a known palette, and dates its 
   assert.ok(html.includes('<div id="app" data-refresh="7">'));
   assert.ok(
     html.includes(
-      '<span class="tick" data-path="time(at)" title="built 2026-09-30 09:45:00Z · no telemetry · jev-router-board/1">updated 09:45Z</span>',
+      '<span class="tick" data-path="time(at)" title="built 2026-09-30 09:45:00Z · no telemetry · jev-router-board/2">updated 09:45Z</span>',
     ),
   );
   assert.ok(html.includes('<html lang="en" data-theme="flexoki">'));
@@ -2179,7 +2161,7 @@ test("v0.12 nav: who truncates with its whole text as title, the tick reads upda
   );
   assert.ok(
     nav.includes(
-      '<span class="tick" data-path="time(at)" title="built 2026-09-30 09:45:00Z · telemetry 2026-09-30 09:44:51Z · jev-router-board/1">updated 09:45Z</span>',
+      '<span class="tick" data-path="time(at)" title="built 2026-09-30 09:45:00Z · telemetry 2026-09-30 09:44:51Z · jev-router-board/2">updated 09:45Z</span>',
     ),
   );
   assert.ok(!nav.includes("themes"));
@@ -2237,7 +2219,7 @@ test("v0.12 head: one line, with the message, the deadline and the a2a token as 
   );
 });
 
-test("v0.13 log and keys: the log collapses to its newest line and r opens it; the footer and the help follow the arrow key map, with the usage keys when there is usage", () => {
+test("v0.13 log and keys: the log collapses to its newest line and r opens it; the footer and the help follow the arrow key map", () => {
   const html = renderBoard(sampleModel(), { task: "T2", theme: "one-dark" });
   const m = sampleModel();
   assert.ok(
@@ -2273,8 +2255,8 @@ test("v0.13 log and keys: the log collapses to its newest line and r opens it; t
     ),
     "the nav may be narrower than its children's full text",
   );
-  // The footer names the arrow keys, p for hold and r for the log, and u
-  // while there is usage; r and ? take a tap.
+  // The footer names the arrow keys, p for hold and r for the log; r and ?
+  // take a tap.
   const footer = html.slice(
     html.indexOf('<footer class="keys">'),
     html.indexOf(
@@ -2284,7 +2266,7 @@ test("v0.13 log and keys: the log collapses to its newest line and r opens it; t
   );
   assert.equal(
     footer,
-    '<footer class="keys">\n  <span><kbd>↑↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>space</kbd> peek</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>p</kbd> hold</span><span data-key="r" role="button"><kbd>r</kbd> log</span><span><kbd>u</kbd> usage</span><span><kbd>/</kbd> filter</span><span data-key="?" role="button"><kbd>?</kbd> keys</span>\n  ',
+    '<footer class="keys">\n  <span><kbd>↑↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>space</kbd> peek</span><span><kbd>s</kbd> sheet</span><span><kbd>a</kbd> answer</span><span><kbd>c</kbd> cancel</span><span><kbd>p</kbd> hold</span><span data-key="r" role="button"><kbd>r</kbd> log</span><span><kbd>/</kbd> filter</span><span data-key="?" role="button"><kbd>?</kbd> keys</span>\n  ',
   );
   const help = html.slice(
     html.indexOf('<div class="help"'),
@@ -2311,35 +2293,18 @@ test("v0.13 log and keys: the log collapses to its newest line and r opens it; t
     "c cancel",
     "p hold / release",
     "r router log",
-    "u usage, or click an account under the agents",
     "/ filter",
     "? keys",
     "⌘↩ send the form (or Ctrl ↩)",
-    "-- In usage",
-    "↑ / ↓ accounts",
-    "→ / ↵ open details",
-    "← close details",
   ]);
   assert.ok(
     help.includes(
       '<div class="theme"><span>theme</span><span class="themes" role="group" aria-label="Theme"><button type="button" data-theme="flexoki" aria-pressed="false">Flexoki</button><button type="button" data-theme="one-dark" class="on" aria-pressed="true">One Dark</button></span></div>\n</div>',
     ),
   );
-  // Without usage there is no u: not in the footer, the help or the page.
-  const bare = page(ME, { task: "T2" });
-  assert.ok(!bare.includes("<kbd>u</kbd>"));
-  assert.deepEqual(
-    keys(bare.slice(bare.indexOf('<div class="help"'))).filter(
-      (k) =>
-        k.startsWith("u ") || k.startsWith("-- ") || k.endsWith("accounts"),
-    ),
-    [],
-  );
-  assert.ok(!bare.includes('<aside class="usage"'));
-  // The page's script binds the map: the arrows, ↵, r and u, and no j, k, h
-  // or l; it keeps the IME guard, and parses. ↑ ↓ are taken from a row, a
-  // card or nothing in particular; ⇧ with an arrow or ↵ is the browser's;
-  // the pop-up's keys wait while the help is over it.
+  // The page's script binds the map: the arrows, ↵ and r, and no j, k, h,
+  // l or u; it keeps the IME guard, and parses. ↑ ↓ are taken from a row, a
+  // card or nothing in particular; ⇧ with an arrow or ↵ is the browser's.
   const script = html.slice(
     html.indexOf("<script>") + 8,
     html.lastIndexOf("</script>"),
@@ -2349,17 +2314,15 @@ test("v0.13 log and keys: the log collapses to its newest line and r opens it; t
     "  ArrowUp: (row, el) => move(-1, el),",
     '  if (el && el !== document.body && !el.matches(".task a.id, .card")) return false;',
     '  if (e.shiftKey && (e.key.startsWith("Arrow") || e.key === "Enter")) return;',
-    '  if (usageOpen() && $(".help").hidden && USAGE_KEYS.includes(e.key) && inUsage) {',
     "  Enter: openKey,",
     "  ArrowRight: openKey,",
     "  ArrowLeft: back,",
     "  r: toggleLog,",
-    "  u: () => setUsage(!usageOpen()),",
     "  p: (row, el) =>",
     "if (e.isComposing || e.keyCode === 229) return;",
   ])
     assert.ok(script.includes(binding), binding);
-  for (const gone of ["  j:", "  k:", "  h:", "  l:"])
+  for (const gone of ["  j:", "  k:", "  h:", "  l:", "  u:"])
     assert.ok(!script.includes(gone), gone);
   assert.doesNotThrow(() => new Function(script));
 });
@@ -2404,22 +2367,14 @@ test("v0.12 escapes what it adds: the remote and its title, the who title, the m
   assert.ok(html.includes(`title="message M2 · you/${safe}">from`));
 });
 
-test("the screenshots: the sample board with the rail's Usage section, the same page with the usage pop-up open, and with one sheet shown", () => {
+test("the screenshots: the sample board, and the same page with one sheet shown", () => {
   const pages = shots();
-  assert.deepEqual(Object.keys(pages), ["board", "board-usage", "board-sheet"]);
-  const popup = (html: string): string =>
-    html.match(/<aside class="usage"[^>]*>/)?.[0] ?? "";
+  assert.deepEqual(Object.keys(pages), ["board", "board-sheet"]);
   const shown = (html: string): (string | undefined)[] =>
     sheets(html)
       .filter((s) => !s.includes(" hidden>"))
       .map((s) => s.match(/data-key="([^"]*)"/)?.[1]);
-  for (const html of Object.values(pages))
-    assert.ok(html.includes('<section class="usage-rail"'));
-  assert.ok(popup(pages.board ?? "").endsWith(" hidden>"));
-  assert.ok(!popup(pages["board-usage"] ?? "").endsWith(" hidden>"));
-  assert.ok(popup(pages["board-sheet"] ?? "").endsWith(" hidden>"));
   assert.deepEqual(shown(pages.board ?? ""), []);
-  assert.deepEqual(shown(pages["board-usage"] ?? ""), []);
   assert.deepEqual(shown(pages["board-sheet"] ?? ""), ["orchestrator@mbp"]);
 });
 
@@ -2449,650 +2404,23 @@ test("the README's recording: a frame after each run of the sample's record, at 
     frames.map((f) => f.seconds),
     [...Array<number>(frames.length - 1).fill(1.5), 4],
   );
-  // The telemetry (09:44:51) and the usage (09:44:30) are snapshots near
-  // the sample's end: each shows from the first frame at or after it.
+  // The telemetry (09:44:51) is a snapshot near the sample's end: it shows
+  // from the first frame at or after it.
   assert.deepEqual(
     frames.map((f) => !f.html.includes("no telemetry")),
     [...Array<boolean>(15).fill(false), true],
   );
-  assert.deepEqual(
-    frames.map((f) => f.html.includes('<section class="usage-rail"')),
-    [...Array<boolean>(13).fill(false), true, true, true],
-  );
 });
 
-// ---- Usage (v0.13): the rail's section and the pop-up ----
-
-// The sample's record with `read` as its usage, at `now`.
-const withUsage = (read: UsageState | null = usage, now = NOW): BoardModel =>
-  model(ME, sampleJournal, now, telemetry, read);
-// The rail's Usage section, its rows, and the pop-up.
-const railOf = (html: string): string => {
-  const at = html.indexOf('<section class="usage-rail"');
-  return at < 0 ? "" : html.slice(at, html.indexOf("</section>", at) + 10);
-};
-const railRows = (html: string): string[] =>
-  [...railOf(html).matchAll(/<a class="acct[^]*?<\/a>/g)].map((m) => m[0]);
-const popupOf = (html: string): string => {
-  const at = html.indexOf('<aside class="usage"');
-  return at < 0 ? "" : html.slice(at, html.indexOf("</aside>", at) + 8);
-};
-// One account of the pop-up: its rows, its status line and its details.
-const accountOf = (html: string, i: number): string =>
-  popupOf(html)
-    .split('<div class="account ')
-    .find((chunk) =>
-      chunk.includes(`data-path="usage.accounts[${i}]" data-account=`),
-    ) ?? "";
-// The text, a space between elements.
-const words = (html: string): string =>
-  html
-    .replace(/<[^>]+>/g, " ")
-    .replaceAll(/\s+/g, " ")
-    .trim();
-
-test("v0.13 usage formats: pace, the bands by the share as shown, amounts, days and hours, a window's length", () => {
-  const at = "2026-09-30T09:45:00.000Z";
-  // 90 of 300 minutes gone: 30%, and 41% used is ahead by more than two.
-  assert.deepEqual(
-    pace(
-      { minutes: 300, resetsAt: "2026-09-30T13:15:00.000Z", usedPercent: 41 },
-      at,
-    ),
-    { elapsed: 30, ahead: true },
-  );
-  assert.equal(
-    pace(
-      { minutes: 300, resetsAt: "2026-09-30T13:15:00.000Z", usedPercent: 32 },
-      at,
-    )?.ahead,
-    false,
-  );
-  // No length, no reset, or a reset passed: no pace.
-  for (const w of [
-    { minutes: null, resetsAt: "2026-09-30T13:15:00.000Z" },
-    { minutes: 300, resetsAt: null },
-    { minutes: 300, resetsAt: at },
-  ])
-    assert.equal(pace({ ...w, usedPercent: 1 }, at), null);
-  // The band follows the share as the page prints it: 74.5 reads 75%.
-  assert.deepEqual([0, 74.4, 74.5, 75, 89.4, 89.5, 104].map(band), [
-    "",
-    "",
-    "warn",
-    "warn",
-    "warn",
-    "err",
-    "err",
-  ]);
-  assert.equal(amount(null, "USD"), "—");
-  assert.equal(amount(undefined, null), "—");
-  assert.equal(amount(0, "USD"), "$0.00");
-  assert.equal(amount(0.004, "USD"), "$0.004");
-  assert.equal(amount(12.34, "CNY"), "CN¥12.34");
-  assert.equal(amount(0, null), "0");
-  assert.equal(amount(1, "days"), "1 day");
-  assert.equal(amount(48_213_900, "tokens"), "48,213,900 tokens");
-  assert.equal(amount("Unlimited", null), "Unlimited");
-  const hour = 3_600_000;
-  assert.deepEqual(
-    [-hour, 0, hour - 1, hour, 16.25 * hour, 24 * hour, 58.1 * hour].map(dh),
-    ["<1h", "<1h", "<1h", "1h", "16h", "1d 0h", "2d 10h"],
-  );
-  assert.deepEqual([10_080, 300, 1440, 90].map(wshort), [
-    "7D",
-    "5H",
-    "1D",
-    "90M",
-  ]);
-});
-
-test("v0.13 rail: a Usage section between the cards and the log, a two-line row per subscription account, the week's reset, 7D then 5H with pace ticks", () => {
+test("v0.13 script: a task opens in place with its link kept", () => {
   const html = renderBoard(sampleModel(), { task: "T2" });
-  const agents = html.slice(
-    html.indexOf('<aside class="panel agents"'),
-    html.indexOf("</aside>", html.indexOf('<aside class="panel agents"')),
-  );
-  // After the cards, before the router log; the balances stay in the
-  // pop-up.
-  const cards = agents.lastIndexOf('<div class="card');
-  const section = agents.indexOf('<section class="usage-rail"');
-  const log = agents.indexOf('<div class="foot');
-  assert.ok(cards >= 0 && cards < section && section < log);
-  assert.ok(
-    railOf(html).startsWith(
-      '<section class="usage-rail" aria-label="Usage" data-path="usage">\n    <h2 class="col-h"><span class="kicker">Usage</span><span class="n" data-path="count(usage.accounts[].kind=subscription)">2 accounts</span></h2>',
-    ),
-  );
-  const [codex, claude, ...rest] = railRows(html);
-  assert.ok(codex && claude);
-  assert.deepEqual(rest, []);
-  // A row is a link to this page with the pop-up open, so it works without
-  // the script; the script opens the pop-up in place.
-  assert.ok(
-    codex.startsWith(
-      '<a class="acct" href="?task=T2&amp;usage" data-path="usage.accounts[0]" aria-expanded="false" aria-controls="usage" title="Codex · 7-day 78%, within pace, resets in 16h 15m · 5-hour 41%, above pace, resets in 3h 30m · read 09:44Z"><span class="l1"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true">',
-    ),
-  );
-  assert.equal(
-    words(codex.slice(codex.indexOf('<span class="nm"'))),
-    "Codex ready 16h 7D 78% 5H 41%",
-  );
-  // 7D first: in the 75% band, within pace, its tick at 90%; 5H in warn
-  // because it runs above pace.
-  assert.ok(
-    codex.includes(
-      '<span class="l2"><span class="win" data-path="usage.accounts[0].reading.windows[1]"><span class="w" title="7-day window">7D</span><span class="meter warn"><span class="bar paced"><i style="width: 78%"></i><b class="pace" style="left: 90.3%" data-path="pace(usage.accounts[0].reading.windows[1], at)"></b></span><span data-path="usage.accounts[0].reading.windows[1].usedPercent">78%</span></span></span><span class="win" data-path="usage.accounts[0].reading.windows[0]"><span class="w" title="5-hour window">5H</span><span class="meter warn"><span class="bar paced"><i style="width: 41%"></i><b class="pace" style="left: 30.0%"',
-    ),
-  );
-  assert.ok(
-    codex.includes(
-      '<span class="rs" data-path="left(usage.accounts[0].reading.windows[1].resetsAt, at)">16h</span>',
-    ),
-  );
-  // Claude's last reading is stale: the row dims, the status word is off,
-  // the tooltip names the age and the error; its scoped windows (Opus,
-  // Sonnet) stay in the pop-up.
-  assert.ok(
-    claude.startsWith(
-      '<a class="acct stale" href="?task=T2&amp;usage" data-path="usage.accounts[1]" aria-expanded="false" aria-controls="usage" title="Claude · stale, last reading 13m ago: Claude login expired; open Claude Code. · 7-day 64%, within pace, resets in 2d · 5-hour 92%, above pace, resets in 55m · read 09:44Z">',
-    ),
-  );
-  assert.ok(
-    claude.includes(
-      '<span class="st off" data-path="usage.accounts[1].status">stale</span><span class="rs" data-path="left(usage.accounts[1].reading.windows[1].resetsAt, at)">2d 10h</span>',
-    ),
-  );
-  assert.ok(claude.includes('<span class="meter err">'));
-  assert.ok(!claude.includes(".reading.windows[2]"));
-  // An hour on, Claude's 5-hour reset has passed: the window dims to its
-  // track and figure, with no tick and no band.
-  const hour =
-    railRows(renderBoard(withUsage(usage, NOW + 60 * 60_000)))[1] ?? "";
-  assert.ok(
-    hour.includes(
-      '<span class="win dim" data-path="usage.accounts[1].reading.windows[0]"><span class="w" title="5-hour window">5H</span><span class="meter"><span class="bar"></span><span data-path="usage.accounts[1].reading.windows[0].usedPercent">92%</span></span></span>',
-    ),
-  );
-  assert.ok(hour.includes("5-hour 92%, reset passed"));
-  // Without windows a row says so with a dash, and while the first read
-  // runs with an ellipsis and the word reading; no week, no reset.
-  const other = railRows(renderBoard(withUsage(otherUsage)));
-  assert.equal(words(other[0] ?? ""), "Codex unavailable —");
-  assert.ok(other[0]?.startsWith('<a class="acct off"'));
-  assert.ok(other[0]?.includes("current limits are unavailable · read"));
-  assert.ok(!other[0]?.includes('class="rs"'));
-  assert.ok(
-    other[1]?.includes(
-      'title="Claude · unavailable, checked 31s ago: No Claude login on this host. Open Claude Code and run /login. · read 09:44Z"',
-    ),
-  );
-  const first = railRows(renderBoard(withUsage(firstUsage)));
-  assert.deepEqual(first.map(words), ["Codex reading …", "Claude reading …"]);
-  assert.ok(first[0]?.includes('title="Codex · reading · not read yet"'));
-  // No usage: no section.
-  assert.equal(railOf(page(ME, { task: "T2" })), "");
-});
-
-test("v0.13 usage pop-up: drawn shut unless the page asks for it, beside the rail, with the freshness, u and a close link; subscriptions then balances", () => {
-  const shut = renderBoard(sampleModel(), { task: "T2" });
-  const open = renderBoard(sampleModel(), { task: "T2", usage: true });
-  // One pop-up after the board, before the help, not a part the refresh
-  // swaps (the script keeps it open by hand).
-  assert.ok(
-    popupOf(shut).startsWith(
-      '<aside class="usage" id="usage" role="dialog" aria-label="Usage" data-path="usage" hidden>',
-    ),
-  );
-  assert.ok(
-    popupOf(open).startsWith(
-      '<aside class="usage" id="usage" role="dialog" aria-label="Usage" data-path="usage">',
-    ),
-  );
-  assert.ok(open.indexOf('<aside class="usage"') > open.indexOf("</main>"));
-  assert.ok(
-    open.indexOf('<aside class="usage"') < open.indexOf('<div class="help"'),
-  );
-  assert.ok(railRows(open).every((r) => r.includes('aria-expanded="true"')));
-  // The head: when usage was read and how often, the key, and a link back
-  // to the page without the pop-up.
-  assert.ok(
-    popupOf(open).includes(
-      '<div class="top"><span class="kicker">Usage</span><span class="fresh" data-path="time(usage.at), usage.every" title="usage read 2026-09-30 09:44:30Z · every 120s">read 09:44Z · every 2m</span><span class="spacer"></span><kbd class="k">u</kbd><a class="close" href="?task=T2" role="button" aria-label="Close" title="Close (u, esc)">×</a></div>',
-    ),
-  );
-  assert.deepEqual(
-    [...popupOf(open).matchAll(/<h3 class="group-h">([^]*?)<\/h3>/g)].map((m) =>
-      words(m[1] ?? ""),
-    ),
-    ["Subscriptions 2", "Balances 2"],
-  );
-  // A cadence that is not a whole minute reads in seconds.
-  for (const [every, cadence] of [
-    [90, "every 90s"],
-    [60, "every 1m"],
-    [3600, "every 1h"],
-  ] as const)
-    assert.ok(
-      popupOf(renderBoard(withUsage({ ...usage, every }))).includes(
-        `>read 09:44Z · ${cadence}</span>`,
-      ),
-      cadence,
-    );
-  // Before any read: no time, and the accounts reading.
-  const first = renderBoard(withUsage(firstUsage), { usage: true });
-  assert.ok(
-    popupOf(first).includes(
-      'title="usage not read yet · every 120s">not read yet</span>',
-    ),
-  );
-  assert.equal(words(popupOf(first)).match(/Reading…/g)?.length, 4);
-  assert.ok(!popupOf(first).includes("badge"));
-});
-
-test("v0.13 usage pop-up subscriptions: a row per window with the share, the wide meter and its tick, above pace in warn, the reset; a passed reset dims; colour only in a band", () => {
-  const html = renderBoard(sampleModel(), { task: "T2", usage: true });
-  const codex = accountOf(html, 0);
-  const w0 = "usage.accounts[0].reading.windows[0]";
-  // The name leads the first row as the toggle of the account's details;
-  // the label's suffix goes, its title keeps it.
-  assert.ok(
-    codex.includes(
-      '<span class="lead"><button type="button" class="toggle" data-path="usage.accounts[0].name" aria-expanded="true" aria-controls="usage-more-codex" title="Codex · details">Codex</button></span>',
-    ),
-  );
-  assert.ok(
-    codex.includes(
-      `<div class="entry first" data-path="${w0}"><span class="lead">`,
-    ),
-  );
-  assert.ok(
-    codex.includes(
-      `<span class="name" data-path="${w0}.label" title="5-hour window">5-hour</span><span class="figure" data-path="${w0}.usedPercent">41%</span><span class="meter wide" data-path="${w0}.usedPercent, pace(${w0}, at)" title="30% of the window has passed"><span class="bar paced"><i style="width: 41%"></i><b class="pace" style="left: 30.0%"></b></span></span><span class="note ahead" data-path="pace(${w0}, at)">above pace</span><span class="when" data-path="left(${w0}.resetsAt, at)" title="resets 2026-09-30 13:15Z">resets in 3h 30m</span></div>`,
-    ),
-  );
-  // 7-day: in the 75% band, within pace, so no note.
-  assert.match(
-    codex,
-    /<div class="entry warn" data-path="usage\.accounts\[0\]\.reading\.windows\[1\]"><span class="lead"><\/span>[^]*?<span class="note"><\/span>/,
-  );
-  // Zero is zero: the Opus window and the credits.
-  const claude = accountOf(html, 1);
-  assert.equal(
-    textOf(claude, "usage.accounts[1].reading.windows[2].usedPercent"),
-    "0%",
-  );
-  assert.ok(
-    codex.includes(
-      '<div data-path="usage.accounts[0].reading.metrics[1]"><dt>Credits</dt><dd>0</dd></div>',
-    ),
-  );
-  // A passed reset says so, with no tick, no band and no note.
-  const sonnet = "usage.accounts[1].reading.windows[3]";
-  assert.ok(
-    claude.includes(
-      `<div class="entry passed" data-path="${sonnet}"><span class="lead"></span><span class="name" data-path="${sonnet}.label" title="7-day · Sonnet">7-day · Sonnet</span><span class="figure" data-path="${sonnet}.usedPercent">12%</span><span class="meter wide" data-path="${sonnet}.usedPercent, pace(${sonnet}, at)"><span class="bar"></span></span><span class="note"></span><span class="when" data-path="left(${sonnet}.resetsAt, at)" title="resets 2026-09-30 09:40Z">reset passed</span></div>`,
-    ),
-  );
-  // Claude's 92% an hour on is history: no band.
-  const later = accountOf(
-    renderBoard(withUsage(usage, NOW + 60 * 60_000), { usage: true }),
-    1,
-  );
-  assert.match(
-    later,
-    /<div class="entry first passed" data-path="usage\.accounts\[1\]\.reading\.windows\[0\]">/,
-  );
-  // The band follows the share as shown.
-  const edges = structuredClone(usage);
-  const windows = edges.accounts[0]?.reading?.windows;
-  assert.ok(windows?.[0] && windows[1]);
-  windows[0].usedPercent = 74.6;
-  windows[1].usedPercent = 89.6;
-  const edged = accountOf(renderBoard(withUsage(edges), { usage: true }), 0);
-  for (const [k, figure, tone] of [
-    [0, "75%", "warn"],
-    [1, "90%", "err"],
-  ] as const) {
-    const wp = `usage.accounts[0].reading.windows[${k}]`;
-    assert.equal(textOf(edged, `${wp}.usedPercent`), figure);
-    assert.match(
-      edged,
-      new RegExp(`<div class="entry[^"]* ${tone}" data-path="${escape(wp)}">`),
-    );
-  }
-  // A current account says nothing of its freshness.
-  assert.ok(!codex.includes("badge"));
-  assert.ok(!codex.includes('class="status"'));
-  // A subscription that reported no window says so in one row.
-  const aged = accountOf(renderBoard(withUsage(agedUsage), { usage: true }), 0);
-  assert.ok(
-    aged.includes(
-      '<span class="name quiet" data-path="usage.accounts[0].reading">No quota windows reported</span>',
-    ),
-  );
-});
-
-test("v0.13 usage pop-up freshness: an account that is not current carries its badge and a status line naming its age and what failed", () => {
-  const html = renderBoard(sampleModel(), { task: "T2", usage: true });
-  const claude = accountOf(html, 1);
-  assert.ok(claude.startsWith('stale" data-path="usage.accounts[1]"'));
-  // The badge follows the name from 900px down, and takes the lead of the
-  // second row above it.
-  assert.ok(
-    claude.includes(
-      '<span class="badge sm at-narrow" data-path="usage.accounts[1].status">stale</span>',
-    ),
-  );
-  assert.ok(
-    claude.includes(
-      '<span class="lead badge-lead"><span class="badge sm" data-path="usage.accounts[1].status">stale</span></span>',
-    ),
-  );
-  assert.ok(
-    claude.includes(
-      '<div class="status"><span class="lead badge-lead"></span><p>last reading <span class="mono" data-path="age(usage.accounts[1].reading.observedAt, at)" title="2026-09-30 09:31Z">13m</span> ago · <span data-path="usage.accounts[1].error">Claude login expired; open Claude Code.</span></p></div>',
-    ),
-  );
-  const other = renderBoard(withUsage(otherUsage), { usage: true });
-  // History alone: the limits are unavailable, the history is there.
-  const codex = words(accountOf(other, 0));
-  assert.ok(codex.includes("Codex unavailable Current limits are unavailable"));
-  assert.ok(codex.includes("checked 31s ago"));
-  assert.ok(codex.includes("Token activity"));
-  // Never read: no reading, and the reason.
-  assert.ok(
-    words(accountOf(other, 1)).includes(
-      "No current reading unavailable checked 31s ago · No Claude login on this host. Open Claude Code and run /login.",
-    ),
-  );
-  // Aged past ten minutes, a current account goes stale; a store that
-  // stalled makes every reading stale by its age alone, naming no failure.
-  const later = renderBoard(withUsage(usage, NOW + 11 * 60_000), {
-    usage: true,
-  });
-  assert.ok(words(accountOf(later, 0)).includes("last reading 11m ago"));
-  const aged = renderBoard(withUsage(agedUsage), { usage: true });
-  for (const i of [0, 1, 2, 3]) {
-    const text = words(accountOf(aged, i));
-    assert.ok(text.includes("last reading 12m ago"), text);
-    assert.ok(!text.includes("ago ·"), text);
-  }
-});
-
-test("v0.13 usage pop-up balances: one leading row per balance, words for a missing amount, the key's row with a neutral meter; no band in the balances", () => {
-  const html = renderBoard(sampleModel(), { task: "T2", usage: true });
-  const deepseek = accountOf(html, 2);
-  const openrouter = accountOf(html, 3);
-  assert.ok(
-    deepseek.includes(
-      '<span class="name" data-path="usage.accounts[2].reading.metrics[0].label">balance</span><span class="figure" data-path="usage.accounts[2].reading.metrics[0].value">$4.12</span>',
-    ),
-  );
-  assert.ok(words(deepseek).includes("Granted $0.00"));
-  // No management key: the words span the row, the notice is their title.
-  assert.ok(
-    openrouter.includes(
-      '<span class="words" data-path="usage.accounts[3].reading.metrics[0].value" title="A management key is required for the account balance and spending (OPENROUTER_MANAGEMENT_KEY).">No management key</span>',
-    ),
-  );
-  assert.ok(
-    openrouter.includes(
-      '<div class="entry" data-path="usage.accounts[3].reading.windows[0]"><span class="lead"></span><span class="name" data-path="usage.accounts[3].reading.metrics[1].label">key left</span><span class="figure" data-path="usage.accounts[3].reading.metrics[1].value">$12.00</span><span class="meter wide" data-path="usage.accounts[3].reading.windows[0].usedPercent" title="40% of the key allowance used"><span class="bar"><i style="width: 40%"></i></span></span><span class="note"></span><span class="when quiet" data-path="usage.accounts[3].reading.metrics[2].value">of $20.00</span></div>',
-    ),
-  );
-  // The key's figures are not repeated in the details.
-  assert.ok(!words(openrouter).includes("Key remaining"));
-  // No band in the balances, even with the key's allowance at 75% and 90%.
-  for (const share of [75, 90]) {
-    const m = sampleModel();
-    const w = m.usage?.accounts[3]?.reading?.windows[0];
-    assert.ok(w);
-    w.usedPercent = share;
-    const row = accountOf(renderBoard(m, { usage: true }), 3);
-    assert.ok(!/class="[^"]*\b(warn|err|ahead)\b/.test(row), String(share));
-  }
-  // With a management key: the balance and the spending.
-  const managed = accountOf(
-    renderBoard(withUsage(otherUsage), { usage: true }),
-    3,
-  );
-  assert.equal(
-    textOf(managed, "usage.accounts[3].reading.metrics[0].value"),
-    "$15.20",
-  );
-  assert.ok(managed.includes("By model and provider"));
-  // A balance in two currencies leads with both.
-  const two = structuredClone(usage);
-  const ds = two.accounts[2]?.reading;
-  assert.ok(ds?.metrics[0]);
-  ds.metrics.splice(1, 0, { ...ds.metrics[0], value: 30.5, unit: "CNY" });
-  const both = accountOf(renderBoard(withUsage(two), { usage: true }), 2);
-  assert.deepEqual(
-    [...both.matchAll(/<span class="figure"[^>]*>([^<]*)<\/span>/g)].map(
-      (m) => m[1],
-    ),
-    ["$4.12", "CN¥30.50"],
-  );
-});
-
-test("v0.13 usage pop-up details: a toggle per account opens its block, drawn open for a page without a script; day tables show fourteen days, gaps as gaps, a bar, and the rest behind all n days", () => {
-  const html = renderBoard(sampleModel(), { task: "T2", usage: true });
-  const codex = accountOf(html, 0);
-  assert.ok(
-    codex.includes(
-      '<div class="more" id="usage-more-codex" data-key="usage codex" data-path="usage.accounts[0]"><dl class="pairs">',
-    ),
-  );
-  assert.ok(
-    codex.includes(
-      '<p><a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer" data-path="usage.accounts[0].url">usage page ↗</a></p>',
-    ),
-  );
-  // Sep 21 had no bucket: a gap row, not a zero; Sep 27 reported zero.
-  assert.ok(
-    codex.includes(
-      '<tr class="gap"><td class="mono">2026-09-21</td><td class="num">—</td><td></td></tr>',
-    ),
-  );
-  assert.ok(
-    codex.includes(
-      '<tr><td class="mono">2026-09-27</td><td class="num">0</td><td class="bar"><i style="width: 0%"></i></td></tr>',
-    ),
-  );
-  assert.ok(
-    codex.includes(
-      '<h4 class="kicker" data-path="usage.accounts[0].reading.details[0].tables[0]">Daily token history</h4><div class="scroll-x"><table class="data"><thead><tr><th>Date</th><th class="num">Tokens</th><th></th></tr></thead><tbody><tr><td class="mono">2026-09-29</td><td class="num">3,388,100</td><td class="bar"><i style="width: 87%"></i></td></tr>',
-    ),
-  );
-  // Fourteen days in the table: nothing older waits.
-  assert.ok(!codex.includes('class="older"'));
-  // Twenty days: the latest fourteen, the rest behind a button in a block
-  // keyed for the script; the bar scales to the days shown; a table
-  // without days is whole.
-  const m = sampleModel();
-  const detail = m.usage?.accounts[0]?.reading?.details[0];
-  assert.ok(detail);
-  const days = Array.from({ length: 20 }, (_, i) =>
-    new Date(Date.parse("2026-09-10T00:00:00Z") + i * 86_400_000)
-      .toISOString()
-      .slice(0, 10),
-  ).reverse();
-  detail.tables = [
-    {
-      title: "Daily token history",
-      columns: [
-        { key: "date", label: "Date", format: "date" },
-        { key: "tokens", label: "Tokens", format: "number" },
-      ],
-      rows: days.map((date, i) => ({
-        date,
-        tokens: i === 0 ? 400 : i === 19 ? 900 : 100,
-      })),
-    },
-    {
-      title: "By model",
-      columns: [{ key: "model", label: "Model", format: "name" }],
-      rows: days.map((_, i) => ({ model: `model-${i}` })),
-    },
-  ];
-  const long = accountOf(renderBoard(m, { usage: true }), 0);
-  const day = long.slice(long.indexOf(">Daily token history<"));
-  const shown = day.slice(0, day.indexOf('<tr class="all">'));
-  assert.equal(shown.match(/<td class="mono">2026-09-\d\d<\/td>/g)?.length, 14);
-  // The newest day is the largest shown; the oldest, larger, is not shown.
-  assert.ok(
-    shown.includes(
-      '<td class="mono">2026-09-29</td><td class="num">400</td><td class="bar"><i style="width: 100%"></i></td>',
-    ),
-  );
-  assert.ok(
-    shown.includes(
-      '<td class="mono">2026-09-28</td><td class="num">100</td><td class="bar"><i style="width: 25%"></i></td>',
-    ),
-  );
-  assert.ok(
-    day.includes(
-      '<tr class="all"><td colspan="3"><button type="button" class="days">all 20 days</button></td></tr></tbody><tbody class="older" data-key="usage codex Token activity Daily token history"><tr><td class="mono">2026-09-15</td>',
-    ),
-  );
-  assert.equal(long.match(/<td class="mono">model-\d+<\/td>/g)?.length, 20);
-  // The style hides the button once the older rows show.
-  assert.ok(
-    STYLE_HAS(
-      html,
-      "table.data:has(> tbody.older:not([hidden])) tr.all { display: none; }",
-    ),
-  );
-});
-
-test("v0.13 usage: the labels the page places by name are the ones the normalizers write", () => {
-  const at = Date.parse(AT);
-  const openrouter = openrouterReading(
-    { data: { limit: 10, limit_remaining: 4 } },
-    { data: { total_credits: 9, total_usage: 2 } },
-    at,
-  );
-  assert.deepEqual(
-    openrouter.metrics.slice(0, 3).map((m) => m.label),
-    [LABEL.accountBalance, LABEL.keyRemaining, LABEL.keyLimit],
-  );
-  assert.equal(openrouter.windows[0]?.label, LABEL.keyAllowance);
-  const deepseek = deepseekReading(
-    { balance_infos: [{ currency: "USD", total_balance: "3" }] },
-    at,
-  );
-  assert.equal(deepseek.metrics[0]?.label, LABEL.balance);
-  // Placed: the balance leads, the key's figures stand on its row, and a
-  // window's name drops the suffix.
-  const html = renderBoard(sampleModel(), { usage: true });
-  assert.equal(
-    textOf(accountOf(html, 2), "usage.accounts[2].reading.metrics[0].value"),
-    "$4.12",
-  );
-  assert.ok(words(accountOf(html, 3)).includes("key left $12.00 of $20.00"));
-  const label =
-    sampleModel().usage?.accounts[0]?.reading?.windows[0]?.label ?? "";
-  assert.ok(label.endsWith(WINDOW_SUFFIX));
-  assert.equal(
-    textOf(accountOf(html, 0), "usage.accounts[0].reading.windows[0].label"),
-    label.slice(0, -WINDOW_SUFFIX.length),
-  );
-});
-
-test("v0.13 usage escapes every model string: an account's name, a window's label, the status line, notices, metrics, tables and links, in the rail and the pop-up", () => {
-  const hostile = '<script>alert(1)</script>"&';
-  const safe = "&lt;script&gt;alert(1)&lt;/script&gt;&quot;&amp;";
-  const m = structuredClone(sampleModel());
-  const codex = m.usage?.accounts[0];
-  const claude = m.usage?.accounts[1];
-  const reading = codex?.reading;
-  const w = reading?.windows[0];
-  const detail = reading?.details[0];
-  const table = detail?.tables[0];
-  assert.ok(codex && claude?.reading && reading && w && detail && table);
-  codex.name = hostile;
-  codex.url = hostile;
-  w.label = `${hostile}${WINDOW_SUFFIX}`;
-  claude.error = hostile;
-  const five = claude.reading.windows[0];
-  assert.ok(five);
-  five.label = hostile;
-  reading.metrics.push({ label: hostile, value: hostile, unit: null });
-  reading.notice = hostile;
-  detail.title = hostile;
-  detail.notice = hostile;
-  detail.throughDate = hostile;
-  table.title = hostile;
-  table.columns.push({ key: "x", label: hostile, format: null });
-  table.rows[0] = { ...table.rows[0], x: hostile };
-  // An API account's provider strings: the balance in words, which is its
-  // own tooltip without a notice, and the key's remaining and limit.
-  const api = m.usage?.accounts[3]?.reading;
-  const [balance, left, limit] = api?.metrics ?? [];
-  assert.ok(api && balance && left && limit);
-  api.notice = null;
-  balance.value = hostile;
-  left.value = hostile;
-  limit.value = hostile;
-  const html = renderBoard(m, { task: "T2", usage: true });
-  assert.ok(!html.includes("<script>alert"));
-  assert.ok(!html.includes('"&<'));
-  const key = accountOf(html, 3);
-  const at = (i: number) =>
-    `data-path="usage.accounts[3].reading.metrics[${i}].value"`;
-  assert.ok(key.includes(`${at(0)} title="${safe}">${safe}</span>`));
-  assert.ok(key.includes(`${at(1)}>${safe}</span>`));
-  assert.ok(key.includes(`${at(2)}>of ${safe}</span>`));
-  // The rail: the name, the tooltip with the error and the window, the
-  // window's length title.
-  const [row0, row1] = railRows(html);
-  assert.ok(
-    row0?.includes(
-      `<span class="nm" data-path="usage.accounts[0].name">${safe}</span>`,
-    ),
-  );
-  assert.ok(row0?.includes(`title="${safe} · 7-day 78%`));
-  assert.ok(
-    row0?.includes(`<span class="w" title="${safe}${WINDOW_SUFFIX}">5H</span>`),
-  );
-  assert.ok(row1?.includes(`: ${safe} · 7-day 64%`));
-  assert.ok(row1?.includes(` · ${safe} 92%, above pace`));
-  // The pop-up: the toggle, the window's name and title, the status line,
-  // the pairs, the notice, the history, the table and the link.
-  const pop = popupOf(html);
-  assert.ok(pop.includes(`title="${safe} · details">${safe}</button>`));
-  assert.ok(pop.includes(`title="${safe}${WINDOW_SUFFIX}">${safe}</span>`));
-  assert.ok(
-    pop.includes(`<span data-path="usage.accounts[1].error">${safe}</span>`),
-  );
-  assert.ok(pop.includes(`<dt>${safe}</dt><dd>${safe}</dd>`));
-  assert.ok(
-    pop.includes(`data-path="usage.accounts[0].reading.notice">${safe}</p>`),
-  );
-  assert.ok(pop.includes(`through ${safe}`));
-  assert.ok(pop.includes(`<th>${safe}</th>`));
-  assert.ok(pop.includes(`<td>${safe}</td>`));
-  assert.ok(pop.includes(`href="${safe}"`));
-});
-
-test("v0.13 script: the pop-up opens and closes in place, keeps open across a refresh, its blocks keep their state; a task opens in place with its link kept, and ?usage leaves the address", () => {
-  const html = renderBoard(sampleModel(), { task: "T2", usage: true });
   const script = html.slice(
     html.indexOf("<script>") + 8,
     html.lastIndexOf("</script>"),
   );
   for (const part of [
-    // A row toggles the pop-up; the close button, esc and u close it.
-    '  const acct = e.target.closest(".acct");\n  if (acct) {\n    e.preventDefault();\n    return setUsage(!usageOpen(), acct);\n  }',
-    '  if (e.target.closest(".usage .close")) {\n    e.preventDefault();\n    return setUsage(false);\n  }',
-    // Esc closes the help, then the usage, then the peek, then the sheet.
-    '  if (!$(".help").hidden) $(".help").hidden = true;\n  else if (usageOpen()) setUsage(false);\n  else if (peek()) closePeek();\n  else if (sheet()) closeSheet();',
-    // The refresh keeps the open pop-up's element and takes its content.
-    "    u.replaceChildren(...next.children);",
-    // Blocks and older rows: shut at start and after a refresh unless kept.
-    'localStorage.setItem("router-open", JSON.stringify(keys));',
-    "  unfold();\n  syncUsage();\n  filter();",
+    // Esc closes the help, then the peek, then the sheet.
+    '  if (!$(".help").hidden) $(".help").hidden = true;\n  else if (peek()) closePeek();\n  else if (sheet()) closeSheet();',
     // Open in place: the row is marked at once, the fetch swaps the detail,
     // no periodic fetch starts meanwhile, the open adds its link to the
     // history and Back opens the entry's task. The open ends when its fetch
@@ -3109,41 +2437,20 @@ test("v0.13 script: the pop-up opens and closes in place, keeps open across a re
     "  location.reload();",
     // A modified click keeps the browser's own.
     "const plain = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;",
-    // ?usage opened the pop-up for a page without a script; the script
-    // drops it from the address.
-    'if (params.has("usage")) {\n  params.delete("usage");',
     // The theme cookie takes the page's directory, the board's, as the
-    // page is served only there (usage/ goes back to it).
+    // page is served only there.
     '  document.cookie = "router-theme=" + name + "; max-age=31536000; samesite=lax";',
   ])
     assert.ok(script.includes(part), part);
-  assert.match(script, /\nunfold\(\);\nsyncUsage\(\);\n/);
+  assert.match(script, /\nshowLog\(\);\nfilter\(\);\n/);
   assert.doesNotThrow(() => new Function(script));
-  // The links the script takes over work without it: a row's id, the
-  // peek's Open task, an Answer lever, a usage row and the close button.
-  // While the pop-up is open a usage row closes it, as the button does.
+  // The link the script takes over works without it: a row's id.
   assert.ok(
     html.includes('<a class="id" data-path="open[2].id" href="?task=T2">'),
   );
-  assert.match(
-    html,
-    /<a class="acct[^"]*" href="\?task=T2" data-path="usage\.accounts\[0\]"/,
-  );
-  assert.ok(html.includes('<a class="close" href="?task=T2"'));
-  assert.match(
-    renderBoard(sampleModel(), { task: "T2" }),
-    /<a class="acct[^"]*" href="\?task=T2&amp;usage" data-path="usage\.accounts\[0\]"/,
-  );
-  // A refresh that replaced the pop-up's opener finds it again by its
-  // task or path.
-  assert.ok(
-    script.includes(
-      "    const to = usageFrom?.el.isConnected ? usageFrom.el : usageFrom?.find && $(usageFrom.find);",
-    ),
-  );
 });
 
-test("v0.13 style: the rail a fixed 272px and the sheet at least 320px from 901px to 1180px, narrow cards at 1279px and less, facts tables as records at 1180px and less, the pop-up as the page at 900px and less, a row's second line wrapping", () => {
+test("v0.13 style: the rail a fixed 272px and the sheet at least 320px from 901px to 1180px, narrow cards at 1279px and less, facts tables as records at 1180px and less, a row's second line wrapping", () => {
   const html = renderBoard(sampleModel(), { task: "T2" });
   const css = html.match(/<style>([^]*?)<\/style>/)?.[1] ?? "";
   const block = (open: string): string => {
@@ -3213,14 +2520,6 @@ test("v0.13 style: the rail a fixed 272px and the sheet at least 320px from 901p
     'table.rec td[data-label]::before { content: attr(data-label) " "; color: var(--text-3); }',
   ])
     assert.ok(records.includes(rule), rule);
-  const narrow = block("@media (max-width: 900px) {");
-  for (const rule of [
-    "body:has(> .usage:not([hidden])) > #app { display: none; }",
-    ".usage { position: absolute; inset: 0 0 auto 0; min-height: 100vh;",
-    ".entry { display: flex; flex-wrap: wrap; gap: 4px 10px; }",
-    ".badge.at-narrow { display: inline-block; }",
-  ])
-    assert.ok(narrow.includes(rule), rule);
   // Each facts table is a record table, its key cells unlabelled and the
   // rest labelled.
   const detail = detailOf(page(ME, { task: "T5" }, viaJournal));

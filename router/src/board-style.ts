@@ -63,26 +63,6 @@ h1, h2, h3, p { margin: 0; }
 .nav .counts > span b { font-weight: 500; color: var(--text); margin-right: 4px; }
 .nav .counts .attn { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 .nav .counts .attn b { color: var(--accent); }
-/* The rail's Usage section (v0.13): pinned under the cards, above the router log; one two-line row per subscription
-   account, from the card's parts. Colour per figure only; a stale row dims; a passed window keeps its track only. */
-.agents .usage-rail { flex: none; border-top: 1px solid var(--hair); padding-top: 4px; }
-.accts { display: grid; gap: 2px; padding: 0 10px 8px; }
-.acct { display: grid; gap: 5px; width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background var(--t-fast) var(--std); }
-.acct:hover { background: var(--wash); }
-.acct .l1 { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs); }
-.acct .mark { width: 12px; height: 12px; flex: 0 0 12px; color: var(--text); }
-.acct .nm { font-weight: 500; letter-spacing: -.1px; white-space: nowrap; }
-.acct .st { font-size: var(--fs-small); color: var(--text-3); white-space: nowrap; }
-.acct .st.off { color: var(--text-2); }
-.acct .rs { margin-left: auto; font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.acct .l2 { display: flex; gap: 14px; min-width: 0; padding-left: 20px; }
-.acct .win { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; }
-.acct .win .w { flex: none; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
-.acct .win .meter { flex: 1 1 auto; min-width: 0; font-variant-numeric: tabular-nums; }
-.acct .win .meter .bar { flex: 1 1 auto; width: auto; min-width: 20px; }
-.acct .win.dim .meter { color: var(--text-3); }
-.acct .none { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); }
-.acct.stale > * { opacity: .55; }
 .nav .spacer, .row .spacer, .col-h .spacer, .keys .spacer { flex: 1; }
 .nav .tick { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; cursor: help; }
 .nav nav { display: flex; gap: 4px; align-items: center; }
@@ -273,7 +253,6 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .help .top .spacer { flex: 1; }
 .help .grid { display: grid; grid-template-columns: 56px 1fr; column-gap: 12px; row-gap: 3px; align-items: baseline; font-size: var(--fs-small); color: var(--text-2); }
 .help .grid kbd { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); }
-.help .grid .sub { grid-column: 1 / -1; margin-top: 6px; }
 .help .theme { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--hair); font-size: var(--fs-small); color: var(--text-2); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -289,8 +268,8 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .sheet .head .name .dot { margin-top: 0; }
 .sheet .head h2 { font-size: calc(var(--fs) + 4px); font-weight: 500; letter-spacing: -.3px; line-height: 1.25; }
 .sheet .head h2 { flex: 1; min-width: 0; }
-.sheet .close, .usage .close { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--text-3); font-size: 18px; line-height: 1; cursor: pointer; transition: background var(--t-fast) var(--std), color var(--t-fast) var(--std); }
-.sheet .close:hover, .usage .close:hover { background: var(--wash); color: var(--text); }
+.sheet .close { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; color: var(--text-3); font-size: 18px; line-height: 1; cursor: pointer; transition: background var(--t-fast) var(--std), color var(--t-fast) var(--std); }
+.sheet .close:hover { background: var(--wash); color: var(--text); }
 .sheet .head .tele { display: flex; gap: 10px; align-items: center; font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
 .sheet .head .tele .line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheet .head .tele .ask { color: var(--accent); font-weight: 500; }
@@ -341,82 +320,6 @@ td:last-child, th:last-child { text-align: right; padding-right: 0; }
 .feed .item .text { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .feed .item.error, .feed .item.error .kind, .feed .item.error .text { color: var(--err); }
 .feed .item.quiet, .feed .item.quiet .kind, .feed .item.quiet .text { color: var(--text-3); }
-
-/* Usage (v0.13): a pop-up beside the rail, over the tasks column as the health sheet, the board in view behind it (no
-   scrim); the surface, border, radius and shadow of the sheet. Its body scrolls between the head and the key line. */
-.usage { position: fixed; z-index: 65; top: 62px; left: 12px; width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 62px - 46px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--hair-strong); border-radius: 12px; box-shadow: 0 24px 48px var(--shadow); overflow: hidden; animation: rise var(--t-fast) var(--std) both; }
-.usage[hidden] { display: none; }
-.usage .top { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--hair); }
-.usage .top .spacer { flex: 1; }
-.usage .fresh { font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); white-space: nowrap; cursor: help; }
-.usage .body { min-height: 0; overflow-y: auto; padding-bottom: 8px; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
-.usage .group-h { display: flex; align-items: baseline; gap: 10px; padding: 12px 10px 4px; }
-.usage .group-h .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text-3); }
-/* Ledger: one six-column grid for both groups, so subscriptions and balances align: lead 84 | name | figure 64 |
-   meter 140 | note 72 | when 128, at the board's row density, a hairline between accounts. */
-.ledger { display: grid; }
-.account + .account { border-top: 1px solid var(--hair-soft); }
-.entry { display: grid; grid-template-columns: 84px minmax(96px, 1fr) 64px 140px 72px 128px; column-gap: 6px; align-items: start; padding: var(--row-pad); font-size: var(--fs-small); color: var(--text-2); }
-.entry > * { min-width: 0; line-height: 18px; }
-.entry > .lead { display: grid; justify-items: start; }
-.entry .toggle { display: flex; gap: 5px; align-items: baseline; max-width: 100%; padding: 0; border: 0; background: none; font-weight: 500; color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.entry .toggle::before { content: "▸"; flex: none; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text-3); transition: transform var(--t-fast) var(--std); }
-.entry .toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
-.entry > .name { color: var(--text); overflow-wrap: anywhere; }
-.entry > .name.muted { color: var(--text-2); cursor: help; }
-.entry > .name.quiet { color: var(--text-3); }
-.entry.bare > .name { grid-column: 2 / -1; }
-.entry > .words { grid-column: 3 / -1; color: var(--text-2); cursor: help; overflow-wrap: anywhere; }
-.entry > .figure { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); font-weight: 500; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.entry > .meter { display: flex; height: 18px; }
-.entry > .note { white-space: nowrap; color: var(--text-3); }
-.entry > .note.ahead { color: var(--warn); }
-.entry > .when { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-2); }
-.entry > .when[title] { cursor: help; }
-.entry > .when.quiet { color: var(--text-3); }
-.entry.warn > .figure { color: var(--warn); }
-.entry.err > .figure { color: var(--err); }
-/* A passed reset says nothing of now: the figure and time in text-3, the meter's track alone. */
-.entry.passed > .figure, .entry.passed > .when { color: var(--text-3); }
-/* A stale account dims every cell but its lead, band hues with them; its status line stays at text-2. */
-.account.stale .entry > :not(.lead) { opacity: .55; }
-/* The note's warn hue reads strong even at .55; a stale account's note drops to text-2 with the rest. */
-.account.stale .entry > .note.ahead { color: var(--text-2); }
-.badge.sm { font-size: calc(var(--fs-mono) - 1.5px); padding: 1px 6px; line-height: 14px; }
-.badge.at-narrow { display: none; }
-.account .status { display: grid; grid-template-columns: 84px minmax(0, 1fr); column-gap: 6px; align-items: start; padding: 0 10px 8px; font-size: var(--fs-small); line-height: 18px; color: var(--text-2); overflow-wrap: anywhere; }
-.account .status .mono { color: var(--text); }
-/* The wide meter takes its cell; the 2px pace tick marks the elapsed share of the window. */
-.meter.wide .bar { flex: 1; width: auto; }
-.meter.err { color: var(--err); }
-.meter.err .bar i { background: var(--err); }
-.meter .bar.paced { position: relative; overflow: visible; }
-.meter .bar.paced i { border-radius: 2px; }
-.meter .bar .pace { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); }
-/* Details: under the account's rows, indented to the name column. */
-.more { display: grid; gap: 6px; padding: 0 10px 12px calc(10px + 84px + 6px); font-size: var(--fs-small); color: var(--text-2); min-width: 0; }
-.more[hidden] { display: none; }
-.more .dt { display: grid; gap: 6px; min-width: 0; padding-top: 4px; }
-.more h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0; font-size: var(--fs-small); font-weight: 500; color: var(--text); }
-.more h4 .n { font-family: var(--mono); font-size: var(--fs-mono); font-weight: 400; color: var(--text-3); }
-.more h4.kicker { margin-top: 2px; }
-.pairs { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; }
-.pairs > div { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
-.pairs dt { color: var(--text-3); }
-.pairs dd { margin: 0; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text); font-variant-numeric: tabular-nums; }
-/* A table is as wide as its content and scrolls sideways in its own box, never the page. */
-.scroll-x { max-width: 100%; width: fit-content; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--hair-strong) transparent; }
-table.data { width: fit-content; }
-table.data td, table.data th { padding: 1px 14px 1px 0; line-height: 18px; }
-.scroll-x td, .scroll-x th { white-space: nowrap; }
-td.num, th.num { text-align: right; font-family: var(--mono); font-size: var(--fs-mono); font-variant-numeric: tabular-nums; }
-table.data td:last-child, table.data th:last-child { text-align: left; }
-table.data td.num:last-child, table.data th.num:last-child { text-align: right; }
-table.data td.bar { width: 88px; padding-right: 0; }
-table.data td.bar i { display: block; height: 4px; border-radius: 2px; background: var(--text-3); }
-table.data tr.gap td { color: var(--text-3); }
-table.data tr.all td { border-bottom: 0; }
-.days { padding: 0; border: 0; background: none; color: var(--text-2); font-size: var(--fs-small); text-decoration: underline; text-decoration-color: var(--hair-strong); text-underline-offset: 3px; cursor: pointer; }
 
 /* 901-1180px: the rail is a fixed 272px column, the tasks and detail share the rest. */
 @media (min-width: 901px) and (max-width: 1180px) {
@@ -469,35 +372,14 @@ table.data tr.all td { border-bottom: 0; }
   .bento { grid-template-columns: minmax(0, 1fr); padding: 8px; }
   .bento > .agents, .bento > .tasks, .bento > .detail { grid-area: auto; }
   .panel, .scroll { overflow: visible; }
-  /* The sheet, the usage and the peek take the screen's width. */
+  /* The sheet and the peek take the screen's width. */
   .bento > .sheet { grid-area: auto; position: fixed; inset: 0; max-width: none; border-radius: 0; }
   .peek { left: 12px; right: 12px; width: auto; top: 120px; }
   .peek::before { display: none; }
-  /* The open usage is the page: the board under it hides, and the sheet scrolls as a page. */
-  .usage { position: absolute; inset: 0 0 auto 0; min-height: 100vh; width: auto; max-height: none; overflow: visible; border: 0; border-radius: 0; box-shadow: none; }
-  .usage .body { overflow: visible; }
-  body:has(> .usage:not([hidden])) > #app { display: none; }
-  .usage .top kbd { display: none; }
   /* The key line keeps only what a tap can do. */
   .keys { padding: 8px 14px; gap: 18px; }
   .keys > span:not([data-key]) { display: none; }
   .keys > span[data-key] { cursor: pointer; padding: 4px 0; }
-  /* A ledger row wraps: the lead on its own line, then the name with its figure, the meter across, the note left
-     and the time right; the status line and the details drop their indent. */
-  .entry { display: flex; flex-wrap: wrap; gap: 4px 10px; }
-  .entry > :empty { display: none; }
-  .entry > .lead { flex: 1 1 100%; display: flex; align-items: baseline; gap: 8px; }
-  .entry > .name { order: 1; flex: 1 1 0; }
-  .entry > .figure, .entry > .words { order: 2; }
-  .entry > .meter { order: 4; flex: 1 1 100%; height: 10px; }
-  .entry > .note { order: 5; }
-  .entry > .when { order: 6; margin-left: auto; }
-  .account .status, .more { padding-left: 10px; }
-  /* The badge follows the name; the second line's lead holds nothing then. */
-  .badge.at-narrow { display: inline-block; }
-  .entry > .lead.badge-lead { display: none; }
-  .account .status { display: block; }
-  .account .status > .lead { display: none; }
 }
 
 /* The live page. A row opens its task through the link on its id, stretched
@@ -518,10 +400,4 @@ a.btn, .card a.id { text-decoration: none; }
 .choices input { flex: 1; min-width: 10rem; padding: 6px 12px; border: 1px solid var(--hair); border-radius: 100px; background: var(--canvas); color: var(--text); }
 .notice { position: fixed; z-index: 70; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: baseline; max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hair-strong); font-size: var(--fs-small); }
 .keys > span[data-key] { cursor: pointer; }
-/* A usage row and the pop-up's close button are links, so a page without a script opens and closes the pop-up
-   (?usage); the script toggles it in place. */
-a.acct, .usage a.close { text-decoration: none; }
-.usage a.close { display: inline-grid; place-items: center; }
-/* A day table's older rows show without a script; "all n days" shows while the script keeps them shut. */
-table.data:has(> tbody.older:not([hidden])) tr.all { display: none; }
 `;

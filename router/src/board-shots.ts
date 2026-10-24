@@ -1,19 +1,17 @@
 // Writes the pictures of the board in the README and docs/board.md: the
-// sample page as the
-// fixture's operator sees it with T2 selected, the rail's Usage section
-// under the agents; the same page with the usage pop-up open; with
-// orchestrator@mbp's health sheet open; and a recording of the sample's
-// record replayed one run at a time. The pages are rendered by the same
-// function the server uses, from the same sample the contract publishes,
-// so the pictures hold no live request text and only made-up usage, and
-// change only when the page or the fixture does. Run in router/ after such
+// sample page as the fixture's operator sees it with T2 selected; the same
+// page with orchestrator@mbp's health sheet open; and a recording of the
+// sample's record replayed one run at a time. The pages are rendered by the
+// same function the server uses, from the same sample the contract
+// publishes, so the pictures hold no live request text, and change only
+// when the page or the fixture does. Run in router/ after such
 // a change:
 //
 //   pnpm exec node src/board-shots.ts
 //
 // It needs a Chromium on PATH (`chromium`, or $CHROMIUM) and ffmpeg
-// (`ffmpeg`, or $FFMPEG), and writes design/screenshots/board.png,
-// board-usage.png and board-sheet.png at 1440×1000, and board.gif.
+// (`ffmpeg`, or $FFMPEG), and writes design/screenshots/board.png and
+// board-sheet.png at 1440×1000, and board.gif.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,15 +22,13 @@ import { sampleModel, sampleModelAt } from "./board-sample.ts";
 
 const SHOTS_DIR = join(import.meta.dirname, "..", "design", "screenshots");
 
-// A screenshot has no keyboard: the pop-up is drawn open as a page without
-// a script opens it (?usage), and the sheet, which the script opens, is
+// A screenshot has no keyboard: the sheet, which the script opens, is
 // written already shown.
 export function shots(): Record<string, string> {
   const model = sampleModel();
   const page = renderBoard(model, { task: "T2" });
   return {
     board: page,
-    "board-usage": renderBoard(model, { task: "T2", usage: true }),
     "board-sheet": page.replace(
       'data-key="orchestrator@mbp" hidden>',
       'data-key="orchestrator@mbp">',
@@ -94,10 +90,9 @@ function draw(chromium: string, html: string, scratch: string, png: string) {
       "--no-sandbox",
       "--hide-scrollbars",
       "--window-size=1440,1000",
-      // The page's reduced-motion rule draws the sheet and the pop-up in
-      // place, without their slide and rise, which a picture taken in
-      // virtual time would catch at their start; the budget lets the
-      // script place the pop-up first.
+      // The page's reduced-motion rule draws the sheet in place, without
+      // its slide, which a picture taken in virtual time would catch at its
+      // start; the budget lets the script run first.
       "--force-prefers-reduced-motion",
       "--virtual-time-budget=2000",
       `--screenshot=${png}`,

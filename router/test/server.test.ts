@@ -18,7 +18,6 @@ import {
   boardListener,
   doorKeys,
   eventsListener,
-  keepReading,
   recordReader,
   sameSite,
   serveRunner,
@@ -40,10 +39,8 @@ import {
   NOW,
   replacedJournal,
   telemetry,
-  usage,
 } from "../src/board-fixture.ts";
 import type { RouterConfig } from "../src/config.ts";
-import type { UsageState } from "../src/usage.ts";
 import { writeTelemetry } from "../src/telemetry.ts";
 import type { Entry } from "../src/journal.ts";
 import type { Event } from "../src/types.ts";
@@ -68,7 +65,6 @@ const config: RouterConfig = {
   },
   jev: { model: "jev-latest" },
   telemetry: { sheet: true },
-  usage: null,
 };
 
 // Every caller is a current session on mbp unless a test says otherwise,
@@ -1045,8 +1041,8 @@ test("board: the trailing-slash redirect stays on this host, directly and under 
       "/https:evil.com",
       "/.//evil.com",
       "/router",
-      "/router/usage",
-      "/usage",
+      "/router/tasks",
+      "/tasks",
     ]) {
       const { status, location } = await located(path);
       assert.equal(status, 302, path);
@@ -1627,189 +1623,6 @@ test("board: the model carries the telemetry file beside the record; a bad file 
     ]);
   } finally {
     server.close();
-  }
-});
-
-test("usage: the store is read now and again a set time after each read ends, never two at once, until stopped", async () => {
-  const pending: { fn: () => void; ms: number }[] = [];
-  const timers = {
-    set: (fn: () => void, ms: number) => {
-      const handle = { fn, ms };
-      pending.push(handle);
-      return handle;
-    },
-    clear: (handle: { fn: () => void; ms: number }) => {
-      const at = pending.indexOf(handle);
-      if (at >= 0) pending.splice(at, 1);
-    },
-  };
-  let reads = 0;
-  let end: (() => void) | null = null;
-  const store = {
-    refresh: () =>
-      new Promise<void>((resolve) => {
-        reads += 1;
-        end = resolve;
-      }),
-  };
-  const finish = async () => {
-    const resolve = end;
-    assert.ok(resolve, "a read in progress");
-    end = null;
-    resolve();
-    await new Promise((settled) => setImmediate(settled));
-  };
-  const armed = () => pending.map((t) => t.ms);
-  const reading = keepReading(store, 120_000, { timers });
-  assert.equal(reads, 1, "a read at once");
-  assert.deepEqual(armed(), [], "nothing armed while it reads");
-  await finish();
-  assert.deepEqual(armed(), [120_000]);
-  pending.shift()?.fn();
-  assert.equal(reads, 2);
-  assert.deepEqual(armed(), []);
-  await finish();
-  assert.deepEqual(armed(), [120_000]);
-  reading.stop();
-  assert.deepEqual(armed(), [], "stop disarms the next read");
-  // Stopped during a read: its end arms nothing.
-  const again = keepReading(store, 120_000, { timers });
-  again.stop();
-  await finish();
-  assert.deepEqual(armed(), []);
-  assert.equal(reads, 3);
-});
-
-test("usage: a refresh that rejects logs one fixed line and reads again on schedule, and serve stays up", async () => {
-  const pending: (() => void)[] = [];
-  const timers = {
-    set: (fn: () => void) => {
-      pending.push(fn);
-      return fn;
-    },
-    clear: (fn: () => void) => {
-      const at = pending.indexOf(fn);
-      if (at >= 0) pending.splice(at, 1);
-    },
-  };
-  // An unhandled rejection would end serve; here it is caught and counted.
-  const unhandled: unknown[] = [];
-  const count = (reason: unknown) => unhandled.push(reason);
-  process.on("unhandledRejection", count);
-  try {
-    const lines: string[] = [];
-    let reads = 0;
-    const store = {
-      refresh: async () => {
-        reads += 1;
-        throw new Error("private provider error");
-      },
-    };
-    const settled = () => new Promise((done) => setImmediate(done));
-    const reading = keepReading(store, 120_000, {
-      timers,
-      log: (line) => lines.push(line),
-    });
-    await settled();
-    assert.deepEqual(lines, [
-      "usage: a refresh failed; the next one follows on schedule.",
-    ]);
-    assert.equal(pending.length, 1, "the next read is armed");
-    pending.shift()?.();
-    await settled();
-    assert.equal(reads, 2);
-    assert.equal(lines.length, 2);
-    reading.stop();
-    assert.deepEqual(pending, []);
-    assert.deepEqual(unhandled, []);
-  } finally {
-    process.off("unhandledRejection", count);
-  }
-});
-
-test("board: usage/ goes back to the board, with the pop-up open while usage is on; ?usage draws it open; the model carries usage as JSON", async (t) => {
-  const record = scratch(t, "server-usage-");
-  writeFileSync(
-    join(record, "journal.jsonl"),
-    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
-  );
-  const listen = (state: UsageState | null) =>
-    createServer(
-      boardOf({
-        config: { ...fixture, home: record },
-        handle,
-        now: () => NOW,
-        usage: state && (() => state),
-      }),
-    );
-  const on = listen(usage);
-  const off = listen(null);
-  const url = await serve(on);
-  const offUrl = await serve(off);
-  try {
-    // The Usage tab's address, kept for its links: a relative redirect to
-    // the board, which under Serve's mount stays /router/, with the pop-up
-    // open; a path that only ends in usage/ goes back one level as well.
-    for (const path of ["/usage/", "/router/usage/"]) {
-      const old = await fetch(url + path, { redirect: "manual" });
-      assert.equal(old.status, 302);
-      assert.equal(old.headers.get("location"), "../?usage");
-    }
-    // Without the slash it first gains one, as every page does.
-    const bare = await fetch(`${url}/usage`, { redirect: "manual" });
-    assert.equal(bare.headers.get("location"), "./usage/");
-    // Followed, the board with the pop-up open; no tab in the nav.
-    const page = await fetch(`${url}/usage/`);
-    assert.equal(page.status, 200);
-    assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
-    const html = await page.text();
-    assert.ok(html.includes("<title>Router</title>"));
-    assert.ok(
-      html.includes(
-        '<aside class="usage" id="usage" role="dialog" aria-label="Usage" data-path="usage">',
-      ),
-    );
-    assert.ok(
-      html.includes(
-        '<nav><a class="active" href="./">Board</a><a href="board.json">JSON</a></nav>',
-      ),
-    );
-    assert.ok(!html.includes('href="usage/"'));
-    // The board without ?usage draws it shut, and the rail's rows link to
-    // the page that draws it open, with the selected task.
-    const board = await (await fetch(`${url}/?task=T2`)).text();
-    assert.ok(board.includes('data-path="usage" hidden>'));
-    assert.ok(board.includes('<a class="acct" href="?task=T2&amp;usage"'));
-    // The theme is the page's cookie.
-    const themed = await (
-      await fetch(`${url}/?usage`, {
-        headers: { cookie: "router-theme=one-dark" },
-      })
-    ).text();
-    assert.match(themed, /<html lang="en" data-theme="one-dark">/);
-    // Asked for JSON, the board's model, usage included.
-    const model = await jsonObject(
-      await fetch(`${url}/?usage`, { headers: { accept: "application/json" } }),
-    );
-    assert.ok(isRecord(model.usage));
-    assert.equal(model.usage.at, "2026-09-30T09:44:30.000Z");
-    assert.deepEqual(await jsonObject(await fetch(`${url}/board.json`)), model);
-    // Usage off: usage/ is the board, which has no section, no pop-up and
-    // no u, even when asked for it.
-    const none = await fetch(`${offUrl}/usage/`, { redirect: "manual" });
-    assert.equal(none.status, 302);
-    assert.equal(none.headers.get("location"), "../");
-    const plain = await (await fetch(`${offUrl}/?usage`)).text();
-    assert.ok(!plain.includes('<aside class="usage"'));
-    assert.ok(!plain.includes('class="usage-rail"'));
-    assert.ok(!plain.includes("<kbd>u</kbd>"));
-    assert.equal(
-      (await jsonObject(await fetch(`${offUrl}/board.json`))).usage,
-      null,
-    );
-  } finally {
-    on.close();
-    off.close();
   }
 });
 

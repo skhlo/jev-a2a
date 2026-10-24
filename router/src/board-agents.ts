@@ -1,6 +1,5 @@
 // The agents column of the board page: a card per placement in the rail,
-// with the usage rail and the router log under them, and each placement's
-// health sheet.
+// with the router log under them, and each placement's health sheet.
 import type { PlacementView } from "./board.ts";
 import type { PageContext } from "./board-context.ts";
 import {
@@ -673,10 +672,10 @@ ${tele(line, "", levers)}`,
   );
 };
 
-// The rail: the cards in state order, then the Usage section (v0.13),
-// then the router log, collapsed to its kicker line and newest line; r
-// opens the whole block (v0.12, l until v0.13).
-export function agentsPanel(page: PageContext, usageRail: string): string {
+// The rail: the cards in state order, then the router log, collapsed to its
+// kicker line and newest line; r opens the whole block (v0.12, l until
+// v0.13).
+export function agentsPanel(page: PageContext): string {
   const { model } = page;
   const agentCount = model.placements.length;
   return `<aside class="panel agents" aria-label="Agents" data-part="agents">
@@ -688,7 +687,7 @@ ${model.placements
   .map(([p, i]) => card(page, p, i))
   .join("\n")}
   </div></div>
-${usageRail}  <div class="foot open"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)} · <kbd class="k">r</kbd></div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
+  <div class="foot open"><div><span class="kicker">Router log</span> · ${slot("count(log)", `last ${model.log.length}`)} · <kbd class="k">r</kbd></div><div class="lines"><div class="tail">${model.log.map((e, i) => `<div data-path="log[${i}]"><b>${esc(e.actor)}</b> ${esc(e.text)}</div>`).join("")}</div></div></div>
 </aside>`;
 }
 

@@ -123,8 +123,8 @@ export const when = (iso: string | null | undefined): string =>
 // ---- Generic parts ----
 //
 // Each is named for what it is, so any part of the page can take it: the
-// head's chips, the context meter, the rail's usage rows and the usage
-// pop-up. Every text passes through esc here or in the caller's slot.
+// head's chips, the context meter and the sheet. Every text passes through
+// esc here or in the caller's slot.
 
 // An element that names the model path it reads.
 export const slot = (
@@ -162,108 +162,16 @@ export const chip = (
   tone = "",
 ): string => slot(path, `<b>${figure}</b> ${words}`, tone);
 
-// meter: a bar filled to `share` percent in a role's tone, with a pace
-// tick at `pace` percent and the figure after it (classed num unless the
-// figure names its own class); a null share draws the track alone. Small by
-// default (the board's context meter and the rail's windows); `wide` takes
-// its cell (the pop-up's windows).
+// meter: a bar filled to `share` percent in a role's tone, with the figure
+// after it: the board's context meter.
 export const meter = (m: {
-  share: number | null;
-  tone?: string;
-  wide?: boolean;
-  path?: string;
-  title?: string;
-  pace?: number | null;
-  pacePath?: string;
-  figure?: { path: string; text: string; cls?: string };
-}): string => {
-  const fill =
-    m.share === null
-      ? ""
-      : `<i style="width: ${Math.min(100, Math.max(0, m.share))}%"></i>`;
-  const tick =
-    m.pace === undefined || m.pace === null
-      ? ""
-      : `<b class="pace" style="left: ${m.pace.toFixed(1)}%"${m.pacePath ? ` data-path="${esc(m.pacePath)}"` : ""}></b>`;
-  return `<span class="meter${m.wide ? " wide" : ""}${m.tone ? ` ${m.tone}` : ""}"${m.path ? ` data-path="${esc(m.path)}"` : ""}${m.title ? ` title="${esc(m.title)}"` : ""}><span class="bar${tick ? " paced" : ""}">${fill}${tick}</span>${m.figure ? slot(m.figure.path, m.figure.text, m.figure.cls ?? "num") : ""}</span>`;
-};
-
-// pairs: labels and their figures, inline and wrapping, each reading its
-// own path. Labels and figures are text.
-export const pairs = (
-  items: { path: string; label: string; value: string }[],
-): string =>
-  items.length
-    ? `<dl class="pairs">${items.map((i) => `<div data-path="${esc(i.path)}"><dt>${esc(i.label)}</dt><dd>${esc(i.value)}</dd></div>`).join("")}</dl>`
-    : "";
-
-// table: a titled table as wide as its content that scrolls sideways in its
-// own box, never the page. A column is text, mono (a date, a name a machine
-// wrote) or num (mono, right-aligned). A gap row is a missing day: a dash in
-// each number, its other cells empty. With `bars`, a bar after each row's
-// cells shows its `bar`, 0 to 100. `more` rows wait behind a button that
-// names them, in a block the script opens and keeps open by its key (as a
-// disclosure's); a page without a script shows them. Cells are text; a null
-// one is a dash.
-export type Column = { label: string; kind: "text" | "mono" | "num" };
-
-export type Row = { cells: (string | null)[]; gap?: boolean; bar?: number };
-
-export const table = (t: {
+  share: number;
+  tone: string;
   path: string;
   title: string;
-  columns: Column[];
-  rows: Row[];
-  bars?: boolean;
-  more?: { key: string; words: string; rows: Row[] };
-}): string => {
-  const title = `<h4 class="kicker" data-path="${esc(t.path)}">${esc(t.title)}</h4>`;
-  if (!t.rows.length) return `${title}<p class="hint">No rows reported.</p>`;
-  const cls = (kind: Column["kind"]): string =>
-    kind === "text" ? "" : ` class="${kind}"`;
-  const row = (r: Row): string => {
-    const cells = t.columns
-      .map((c, k) => {
-        const text = r.cells[k] ?? (r.gap && c.kind !== "num" ? "" : DASH);
-        return `<td${cls(c.kind)}>${esc(text)}</td>`;
-      })
-      .join("");
-    const bar = !t.bars
-      ? ""
-      : r.bar === undefined
-        ? "<td></td>"
-        : `<td class="bar"><i style="width: ${Math.round(r.bar)}%"></i></td>`;
-    return `<tr${r.gap ? ' class="gap"' : ""}>${cells}${bar}</tr>`;
-  };
-  // A heading is text, right-aligned over numbers.
-  const head = `${t.columns.map((c) => `<th${c.kind === "num" ? ' class="num"' : ""}>${esc(c.label)}</th>`).join("")}${t.bars ? "<th></th>" : ""}`;
-  const more = t.more?.rows.length ? t.more : null;
-  const all = more
-    ? `<tr class="all"><td colspan="${t.columns.length + (t.bars ? 1 : 0)}"><button type="button" class="days">${esc(more.words)}</button></td></tr>`
-    : "";
-  const older = more
-    ? `<tbody class="older" data-key="${esc(more.key)}">${more.rows.map(row).join("")}</tbody>`
-    : "";
-  return `${title}<div class="scroll-x"><table class="data"><thead><tr>${head}</tr></thead><tbody>${t.rows.map(row).join("")}${all}</tbody>${older}</table></div>`;
-};
-
-// disclosure: a toggle and the block it opens, keyed so the script keeps
-// the block open or shut across refreshes on this device. The server draws
-// the block open, so a page without a script shows it; the script shuts
-// each block not kept open, at start and after each refresh. `label` and
-// `title` are text, `body` markup; `id` ties the toggle to its block.
-export const disclosure = (d: {
-  key: string;
-  id: string;
-  path: string;
-  label: string;
-  title: string;
-  blockPath: string;
-  body: string;
-}): { toggle: string; block: string } => ({
-  toggle: `<button type="button" class="toggle" data-path="${esc(d.path)}" aria-expanded="true" aria-controls="${esc(d.id)}" title="${esc(d.title)}">${esc(d.label)}</button>`,
-  block: `<div class="more" id="${esc(d.id)}" data-key="${esc(d.key)}" data-path="${esc(d.blockPath)}">${d.body}</div>`,
-});
+  figure: { path: string; text: string };
+}): string =>
+  `<span class="meter${m.tone ? ` ${m.tone}` : ""}" data-path="${esc(m.path)}" title="${esc(m.title)}"><span class="bar"><i style="width: ${Math.min(100, Math.max(0, m.share))}%"></i></span>${slot(m.figure.path, m.figure.text, "num")}</span>`;
 
 // ---- Readings more than one panel shows ----
 

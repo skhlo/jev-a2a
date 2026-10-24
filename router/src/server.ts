@@ -31,7 +31,6 @@ import {
   summarize,
 } from "./board-api.ts";
 import { renderBoard } from "./board-page.ts";
-import type { UsageState, UsageStore } from "./usage.ts";
 import { tokenName, type RouterConfig } from "./config.ts";
 import { readTelemetry, type Telemetry } from "./telemetry.ts";
 import { journalFolder, servedBy } from "./shell.ts";
@@ -54,9 +53,6 @@ export type ServerDeps = {
   log?: (line: string) => void;
   // The board's clock; a test fixes it to read a fixture's record.
   now?: () => number;
-  // The usage store as it stands, for the board model; absent or null
-  // when usage is off.
-  usage?: (() => UsageState) | null;
   // The commit serve runs, which every events reply carries so a reply host
   // can tell when its checkout differs; absent outside a checkout.
   commit?: string | null;
@@ -312,40 +308,6 @@ export function serveRunner<H>(deps: RunnerDeps<H>): Runner {
       disarm();
       if (settle !== null) timers.clear(settle);
       settle = null;
-    },
-  };
-}
-
-// The usage store's own cadence, apart from the runs: a refresh now, and
-// the next `everyMs` after each one ends, so two never overlap. A refresh
-// that rejects is logged in one fixed line, never its error, and the next
-// one follows on schedule: serve stays up.
-const REFRESH_FAILED =
-  "usage: a refresh failed; the next one follows on schedule.";
-export function keepReading<H>(
-  store: Pick<UsageStore, "refresh">,
-  everyMs: number,
-  options: { log?: (line: string) => void; timers?: Timers<H> } = {},
-): { stop(): void } {
-  const timers = (options.timers ?? nodeTimers) as Timers<H>;
-  const log = options.log ?? ((line: string) => console.error(line));
-  let next: H | null = null;
-  let stopped = false;
-  const read = (): void => {
-    next = null;
-    void store
-      .refresh()
-      .catch(() => log(REFRESH_FAILED))
-      .finally(() => {
-        if (!stopped) next = timers.set(read, everyMs);
-      });
-  };
-  read();
-  return {
-    stop() {
-      stopped = true;
-      if (next !== null) timers.clear(next);
-      next = null;
     },
   };
 }
@@ -629,7 +591,6 @@ export function boardListener(
       times,
       actor,
       readTelemetryOnce(),
-      deps.usage?.() ?? null,
     );
   };
   const readTelemetryOnce = (): Telemetry | null => {
@@ -789,23 +750,14 @@ export function boardListener(
     if (!path.endsWith("/") && !path.endsWith("/board.json")) {
       // Under a mount such as /router, the page's relative links need the
       // trailing slash. The location is relative too: Serve strips the
-      // mount, so /router/usage arrives as /usage, and only the last
-      // segment with its slash comes back to /router/usage/. The leading
+      // mount, so /router/tasks arrives as /tasks, and only the last
+      // segment with its slash comes back to /router/tasks/. The leading
       // ./ keeps a segment such as "https:evil.com" a path on this host
       // rather than a URL with its own scheme.
       res
         .writeHead(302, {
           location: `./${path.slice(path.lastIndexOf("/") + 1)}/`,
         })
-        .end();
-      return;
-    }
-    if (path.endsWith("/usage/")) {
-      // The Usage tab is now the board's pop-up (v0.13): its address goes
-      // back to the board, relative and on this host as above, with the
-      // pop-up open while usage is on.
-      res
-        .writeHead(302, { location: `../${deps.usage ? "?usage" : ""}` })
         .end();
       return;
     }
@@ -817,14 +769,12 @@ export function boardListener(
     } else {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       // The selected task is in the URL so a reload and a shared link open
-      // it, and so is an open usage pop-up for a page without a script;
-      // the palette is the page's cookie, which renderBoard checks.
+      // it; the palette is the page's cookie, which renderBoard checks.
       res.end(
         renderBoard(view, {
           notice: url.searchParams.get("notice"),
           task: url.searchParams.get("task"),
           theme: cookie(req.headers.cookie, "router-theme"),
-          usage: url.searchParams.has("usage"),
         }),
       );
     }
