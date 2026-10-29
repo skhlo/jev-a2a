@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
-    "fallow": "3.31.0",
+    "fallow": "3.34.0",
     "prettier": "3.9.9",
     "typescript": "^7.0.2"
   }
