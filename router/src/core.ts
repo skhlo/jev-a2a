@@ -1130,6 +1130,7 @@ const handlers: Handlers = {
     ) {
       queued.outcome = "withdrawn";
       queued.trail.push("withdrawn");
+      delete queued.refusal;
     }
     const current = isOpen(delivery) && send === currentSend(delivery);
     if (current && kind === "question" && delivery.question)
@@ -1157,6 +1158,7 @@ const handlers: Handlers = {
     if (send.outcome !== "accepted") {
       send.outcome = "accepted";
       send.trail.push("reply_seen");
+      delete send.refusal;
     }
     if (kind === "working") {
       // Progress after a question means it was settled in the session.

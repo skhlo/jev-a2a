@@ -250,6 +250,7 @@ test("plugin: the contracts are serve's shapes: the summary and every task pass 
   // And the records the board fixtures make: a field a schema lacks would
   // be stripped, and the comparison fail.
   let tasks = 0;
+  const shown = new Set<string>();
   for (const entries of [
     sampleJournal,
     replacedJournal,
@@ -260,10 +261,15 @@ test("plugin: the contracts are serve's shapes: the summary and every task pass 
     const summary = await app.call(rpc.boardSummary, {});
     assert.deepEqual(summary, await api("summary"));
     assert.ok("open" in summary);
+    for (const item of summary.needsYou.flatMap((n) => n.items))
+      if (item.kind === "resolve" || (item.kind === "refused" && item.refusal))
+        shown.add(item.kind);
     for (const head of [...summary.open, ...summary.finished]) {
       const full = await app.call(rpc.boardTask, { id: head.id });
       assert.deepEqual(full, await api(`task?id=${head.id}`));
       assert.equal(full?.rev, head.rev);
+      if (full?.task.deliveries.some((d) => d.send.refusal))
+        shown.add("send.refusal");
       tasks += 1;
     }
     assert.deepEqual(
@@ -274,28 +280,7 @@ test("plugin: the contracts are serve's shapes: the summary and every task pass 
   }
   assert.ok(tasks >= 10, `${tasks} tasks checked`);
   // Between them the fixtures show what the schemas name.
-  const { app } = await boardAt(t, replacedJournal);
-  const summary = await app.call(rpc.boardSummary, {});
-  assert.ok("open" in summary);
-  assert.ok(
-    summary.needsYou.some((n) => n.items.some((i) => i.kind === "resolve")),
-  );
-  const refused = await boardAt(t, refusedJournal);
-  const said = await refused.app.call(rpc.boardSummary, {});
-  assert.ok("open" in said);
-  assert.ok(
-    said.needsYou.some((n) =>
-      n.items.some((i) => i.kind === "refused" && i.refusal),
-    ),
-  );
-  const views = await Promise.all(
-    said.open.map((head) => refused.app.call(rpc.boardTask, { id: head.id })),
-  );
-  assert.ok(
-    views.some((full) =>
-      full?.task.deliveries.some((d) => d.send.refusal !== null),
-    ),
-  );
+  assert.deepEqual([...shown].sort(), ["refused", "resolve", "send.refusal"]);
 });
 
 test("plugin: an action goes to serve as the app's principals; a refusal fails with the router's reason", async (t) => {

@@ -2866,6 +2866,51 @@ test("a send the host keeps refusing says why, reaches the operator after three 
   assert.equal(currentSend(d(u)).outcome, "unknown");
   assert.equal(currentSend(d(u)).refusal, undefined);
   assert.deepEqual(stateViolations(u), []);
+  // A reply proves the unknown send arrived after all; the refusal of the
+  // retry is no longer the send's last word.
+  u = refuse(u, why);
+  u = expectOk(u, {
+    type: "update",
+    by: must(d(u).session),
+    taskId: "T1",
+    messageId: "R1",
+    inReplyTo: "M1",
+    kind: "working",
+  });
+  assert.equal(currentSend(d(u)).outcome, "accepted");
+  assert.equal(currentSend(d(u)).refusal, undefined);
+  assert.deepEqual(stateViolations(u), []);
+  // Nor is it for a refused answer the session moved past.
+  let w = submit(initial(config), {
+    messageId: "M1",
+    text: "Draft.",
+    to: "knowledge",
+  });
+  w = deliver(w, "D1");
+  w = ask(w, KNOW, "Q1", "M1", "Which?");
+  w = answerQ(w, "A1", "Q1", "That one.");
+  w = expectOk(
+    expectOk(idle(w, "knowledge@mini"), { type: "attempt", deliveryId: "D1" }),
+    {
+      type: "adapterResult",
+      deliveryId: "D1",
+      messageId: "A1",
+      outcome: "not_sent",
+      reason: why,
+    },
+  );
+  assert.equal(must(d(w).sends[1]).refusal, why);
+  w = expectOk(w, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "R1",
+    inReplyTo: "M1",
+    kind: "working",
+  });
+  assert.equal(must(d(w).sends[1]).outcome, "withdrawn");
+  assert.equal(must(d(w).sends[1]).refusal, undefined);
+  assert.deepEqual(stateViolations(w), []);
 });
 
 test("guards with exact boundaries", () => {
