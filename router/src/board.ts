@@ -55,7 +55,14 @@ export type DeliveryView = {
   id: string;
   placement: string;
   session: string | null;
-  send: { kind: string; messageId: string; outcome: string };
+  // `refusal` is the host's words when the send's last result was the
+  // host's refusal.
+  send: {
+    kind: string;
+    messageId: string;
+    outcome: string;
+    refusal: string | null;
+  };
   sends: Pick<Send, "messageId" | "kind" | "text" | "outcome">[];
   question: { id: string; text: string } | null;
   updates: UpdateView[];
@@ -333,6 +340,7 @@ function taskView(task: Task, state: State): TaskView {
           kind: send.kind,
           messageId: send.messageId,
           outcome: send.outcome,
+          refusal: send.refusal ?? null,
         },
         sends: d.sends.map(({ messageId, kind, text, outcome }) => ({
           messageId,

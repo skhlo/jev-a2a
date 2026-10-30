@@ -58,6 +58,10 @@ where the page must work without its script:
 - a delivery that waits (queued, held, on a session not ready, behind an
   unconfirmed send, or on a replaced session) says what it waits for, where
   the design shows only the send's outcome;
+- a send its host refused carries the host's words after its outcome,
+  and one refused 3 times in a row is an operator's needs-you item with
+  no form, as the router tries it again each run (the design has neither,
+  as the router recorded no refusal then);
 - the `from <placement>` on an open row that another agent sent shows to
   every viewer, since a person is never a participant (the design spares
   the sender its own placement);

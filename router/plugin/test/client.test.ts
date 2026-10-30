@@ -305,8 +305,21 @@ test("client: an item the viewer may not act on reads as the board's, without a 
   );
   assert.ok(refused?.mine && !refused.act);
   assert.equal(itemKey(refused.item), "refused/D4/M5");
-  const words = itemWaits(refused, task("T5").task);
+  const t5 = task("T5");
+  const words = itemWaits(refused, t5.task);
   assert.ok(plain(page("T5")).includes(words), words);
+  // Its delivery row carries the host's words too, as the board's does.
+  const [d] = t5.task.deliveries;
+  assert.ok(d);
+  assert.equal(
+    deliveryLine(d, t5.times),
+    "D4 · request M5 · pending · refused: Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer · session —",
+  );
+  assert.ok(
+    plain(page("T5")).includes(
+      "request M5 · pending · refused: Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer",
+    ),
+  );
 });
 
 test("client: items of a principal the viewer lacks wait on it, named once; one whose task left the board keeps a row", () => {

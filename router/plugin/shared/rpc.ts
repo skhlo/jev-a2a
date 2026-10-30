@@ -174,6 +174,7 @@ const delivery = z.object({
     kind: z.string(),
     messageId: z.string(),
     outcome: z.string(),
+    refusal: z.string().nullable(),
   }),
   sends: z.array(
     z.object({

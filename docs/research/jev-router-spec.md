@@ -339,8 +339,9 @@ Therefore:
   a provider it cannot run) → `not_sent`; `agent_request_outcome_unknown`,
   timeout, disconnect or a run-start failure → `unknown`. A key conflict is
   a router bug. The daemon's error, first line, is the result's `reason`.
-  The load refusals come before the daemon writes the message's receipt,
-  so nothing reached the agent and the same key may go to another. A live
+  In the 0.14.0 daemon the load refusals come before it writes the
+  message's receipt, so nothing reached the agent and the same key may go
+  to another; the 0.11.1 daemon refuses a held thread the same way. A live
   agent whose Codex thread was lost fails with the same words after the
   receipt: that first `not_sent` is still true, but the same-key retry
   answers `unknown`.

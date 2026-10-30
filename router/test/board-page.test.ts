@@ -1019,6 +1019,11 @@ test("a refused send reads on its task without a form: who refused it, how often
     strip(detailOf(html)),
     /orchestrator@mbp refused D4 · send M5 · 3 times in a row · Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer · tried again each run; fix the host or repoint orchestrator@mbp · waits on operator/,
   );
+  // The delivery's send row carries the host's words as well.
+  assert.match(
+    strip(detailOf(html)),
+    /request M5 · pending · refused: Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer/,
+  );
   // The operator acts on the host: nothing to post.
   assert.ok(html.includes(`<div class="form ro" data-path="${item}">`));
   assert.equal(formFor(html, "resolve"), undefined);

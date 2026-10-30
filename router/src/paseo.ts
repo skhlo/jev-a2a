@@ -182,12 +182,9 @@ const unknownAgent = (error: unknown): boolean =>
 const UNLOADABLE =
   /^(Failed to resume Codex thread |Agent \S+ references unavailable provider |Provider '[^']+' is not available)/;
 
-// The host's words, as one line short enough for the record.
-const REASON_MAX = 300;
-const reasonOf = (message: string): string => {
-  const line = message.trim().split("\n", 1)[0] ?? "";
-  return line.length > REASON_MAX ? `${line.slice(0, REASON_MAX - 1)}…` : line;
-};
+// The host's words go to the record as one line of at most this many
+// characters.
+const REASON_MAX = 200;
 
 // What a failed send means. Only a refusal before any send is a definite
 // not_sent; a key conflict is the router contradicting its own record;
@@ -202,10 +199,11 @@ export function sendFailure(
     throw new RouterBug(
       `${key} was already sent to ${agentId} with different text.`,
     );
+  const reason = firstLine(message, REASON_MAX);
   return {
     outcome:
       unknownAgent(error) || UNLOADABLE.test(message) ? "not_sent" : "unknown",
-    reason: reasonOf(message),
+    ...(reason ? { reason } : {}),
   };
 }
 

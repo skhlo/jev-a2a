@@ -1033,9 +1033,10 @@ test("a failed send is not_sent only when the daemon refused before sending, and
   // One line, short enough for the record.
   const long = failed(new Error(`${locked}${"x".repeat(400)}\nat stack`));
   assert.equal(long.outcome, "not_sent");
-  assert.equal(long.reason?.length, 300);
+  assert.equal(long.reason?.length, 200);
   assert.ok(long.reason?.startsWith(locked) && long.reason.endsWith("…"));
   assert.equal(failed(new Error("first\nsecond")).reason, "first");
+  assert.deepEqual(failed(new Error("")), { outcome: "unknown" });
   assert.throws(
     () => failed(new Error("agent_request_key_conflict: D1/M1")),
     RouterBug,

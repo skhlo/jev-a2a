@@ -46,7 +46,11 @@ the model is an ISO string, as the journal records it.
   `no_owner`, `low_confidence`, `invalid_judgment` or `routing_unavailable`,
   and `suggestions` in Jev's order), `answer` (the open question) and, for
   an operator, `resolve` (a send the router cannot confirm: `task_ended`,
-  `session_replaced` or `unknown_send`). The sample has no `resolve` item.
+  `session_replaced` or `unknown_send`) and `refused` (a pending send its
+  host refused on the last `times` attempts in a row, 3 or more, with
+  `placement` and the host's last words as `reason`, or `null`; it asks
+  for no event, as the router tries the send again each run). The sample
+  has no `resolve` or `refused` item.
 - `placements` are the placements the router serves, keyed
   `participant@host`. `delivery` is the newest open delivery pinned to the
   current session, or `null`. Its `messageId` and `outcome` are those of
@@ -98,7 +102,9 @@ the model is an ISO string, as the journal records it.
   placement's queue for the last and `null` otherwise. `end` is `null`
   while open; then its `reason` and, when recorded, `text`, `messageId`
   and `by`: the session that replied, or the operator who resolved it. The
-  current `send` is the request, or the latest answer once one was sent.
+  current `send` is the request, or the latest answer once one was sent;
+  its `refusal` is the host's words when its last result was the host's
+  refusal (`not_sent`), and `null` otherwise.
 - `via` is the placement a participant sender submitted from, `null` for a
   person's request. `notices` are what that sender is owed or was told, by
   `key` (`question/<delivery>/<id>`, `choose/<n>` or `final`), with

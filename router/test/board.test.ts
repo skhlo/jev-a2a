@@ -74,6 +74,10 @@ test("a send the host keeps refusing is the operator's, in words that say who re
     "queued",
     "the router keeps trying it",
   );
+  assert.equal(
+    model.open.find((t) => t.id === "T5")?.deliveries[0]?.send.refusal,
+    "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer",
+  );
 });
 
 test("readJournal skips a line still being written", (t) => {

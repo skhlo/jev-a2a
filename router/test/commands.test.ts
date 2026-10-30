@@ -17,11 +17,13 @@ import { plain, under } from "./processes.ts";
 import { openShell, type ShellOptions } from "../src/shell.ts";
 import type { RouterConfig } from "../src/config.ts";
 import { config as fixture, telemetry } from "../src/board-fixture.ts";
+import type { SendResult } from "../src/types.ts";
 import base from "../src/example-config.ts";
 
 const snapshot = telemetry.placements["orchestrator@mbp"];
 assert.ok(snapshot);
-const idlePaseo: ShellOptions = {
+// A Paseo where every session is idle and each send gets `result`.
+const paseoSending = (result: () => SendResult): ShellOptions => ({
   adapter: () =>
     Promise.resolve({
       observe: () =>
@@ -32,15 +34,20 @@ const idlePaseo: ShellOptions = {
           snapshot,
         }),
       resolve: (session) => Promise.resolve(session),
-      send: () => Promise.resolve({ outcome: "accepted" as const }),
+      send: () => Promise.resolve(result()),
       close: () => Promise.resolve(),
     }),
   judge: null,
-};
+});
+const idlePaseo = paseoSending(() => ({ outcome: "accepted" }));
 
 // The router on a scratch record: a command line and its environment in,
 // the exit code and the printed lines out.
-const routerOn = (t: test.TestContext, patch: Partial<RouterConfig> = {}) => {
+const routerOn = (
+  t: test.TestContext,
+  patch: Partial<RouterConfig> = {},
+  paseo: ShellOptions = idlePaseo,
+) => {
   const config = { ...fixture, home: scratch(t, "commands-"), ...patch };
   let opened = 0;
   const run = async (
@@ -52,7 +59,7 @@ const routerOn = (t: test.TestContext, patch: Partial<RouterConfig> = {}) => {
     const err: string[] = [];
     const open = () => {
       opened++;
-      return openShell(config, idlePaseo);
+      return openShell(config, paseo);
     };
     const code = await runCommand(
       invocation(argv, env, processes),
@@ -129,6 +136,50 @@ test("a request goes out with submit and its reply comes back with reply; status
   const refused = await router.run(["cancel", "T9"]);
   assert.equal(refused.code, 1);
   assert.equal(refused.out, "No such request.");
+});
+
+test("a send the host refuses shows its words in status, and in the operator's needs-you from the third refusal in a row", async (t) => {
+  const locked =
+    "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer";
+  let result: SendResult = { outcome: "not_sent", reason: locked };
+  const router = routerOn(
+    t,
+    {},
+    paseoSending(() => result),
+  );
+  const submitted = await router.run([
+    "submit",
+    "--to",
+    "orchestrator",
+    "--message",
+    "M1",
+    "Fix it",
+  ]);
+  assert.equal(
+    submitted.out.split("\n").at(-2),
+    `D1/M1: adapter reported not_sent (${locked}).`,
+  );
+  const status = await router.run(["status", "T1"]);
+  assert.match(
+    status.out,
+    /^ {2}D1 orchestrator@mbp · session unpinned · request M1 pending · refused: Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer$/m,
+  );
+  const operator = ["needs-you", "--as", "operator"];
+  assert.equal((await router.run(operator)).out, "Nothing waits on operator.");
+  await router.run(["run"]);
+  await router.run(["run"]);
+  assert.equal(
+    (await router.run(operator)).out,
+    `D1: orchestrator@mbp refused send M1 3 times in a row (${locked}); fix the host or repoint orchestrator@mbp`,
+  );
+  // Once the host takes it, nothing is left of the refusal.
+  result = { outcome: "accepted" };
+  await router.run(["run"]);
+  assert.match(
+    (await router.run(["status", "T1"])).out,
+    /^ {2}D1 orchestrator@mbp · session A1 · request M1 accepted$/m,
+  );
+  assert.equal((await router.run(operator)).out, "Nothing waits on operator.");
 });
 
 test("a mistake in the options is refused before the journal opens", async (t) => {

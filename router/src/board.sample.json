@@ -540,7 +540,8 @@
           "send": {
             "kind": "request",
             "messageId": "M4",
-            "outcome": "accepted"
+            "outcome": "accepted",
+            "refusal": null
           },
           "sends": [
             {
@@ -605,7 +606,8 @@
           "send": {
             "kind": "answer",
             "messageId": "A1m",
-            "outcome": "accepted"
+            "outcome": "accepted",
+            "refusal": null
           },
           "sends": [
             {
@@ -705,7 +707,8 @@
           "send": {
             "kind": "request",
             "messageId": "M1",
-            "outcome": "pending"
+            "outcome": "pending",
+            "refusal": null
           },
           "sends": [
             {
@@ -805,7 +808,8 @@
           "send": {
             "kind": "answer",
             "messageId": "A5",
-            "outcome": "accepted"
+            "outcome": "accepted",
+            "refusal": null
           },
           "sends": [
             {
@@ -918,7 +922,8 @@
           "send": {
             "kind": "request",
             "messageId": "M3",
-            "outcome": "accepted"
+            "outcome": "accepted",
+            "refusal": null
           },
           "sends": [
             {

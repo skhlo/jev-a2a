@@ -504,7 +504,8 @@ export function deliveryLine(d: Delivery, times: Record<string, string>) {
   const last = d.latest
     ? ` · last reply ${time(times[d.latest.messageId])}`
     : "";
-  return `${d.id} · ${d.send.kind} ${short(d.send.messageId)} · ${d.send.outcome} · session ${d.session ? shortSession(d.session) : DASH}${last}`;
+  const refused = d.send.refusal ? ` · refused: ${d.send.refusal}` : "";
+  return `${d.id} · ${d.send.kind} ${short(d.send.messageId)} · ${d.send.outcome}${refused} · session ${d.session ? shortSession(d.session) : DASH}${last}`;
 }
 
 // One line of the conversation: a message with who sent it, or a line the
