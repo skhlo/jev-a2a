@@ -164,8 +164,10 @@ function needsYouViolations(state: State): string[] {
           return false;
         const tries = last(d).trail.filter((step) => step !== "attempting");
         return (
-          tries.length >= Core.REFUSALS_SHOWN &&
-          tries.slice(-Core.REFUSALS_SHOWN).every((step) => step === "not_sent")
+          tries.length >= Core.REFUSALS_FLAGGED &&
+          tries
+            .slice(-Core.REFUSALS_FLAGGED)
+            .every((step) => step === "not_sent")
         );
       };
       const expected = deliveriesOf(state).flatMap((d) =>
@@ -376,6 +378,9 @@ function stateViolations(state: State): string[] {
       )
     )
       out.push(`${d.id}: unpinned after a possibly delivered attempt`);
+    // The host's words belong to the result they came with.
+    if (d.sends.some((s) => s.refusal && s.trail.at(-1) !== "not_sent"))
+      out.push(`${d.id}: refusal outlived its result`);
     if (d.question && !open(d))
       out.push(`${d.id}: question on a closed delivery`);
     if (
@@ -2808,7 +2813,7 @@ test("a send the host keeps refusing says why, reaches the operator after three 
     messageId: "M1",
     placement: "orchestrator@mbp",
     times: 3,
-    reason: why,
+    refusal: why,
   };
   assert.deepEqual(Core.needsYou(s, "operator"), [refused]);
   assert.deepEqual(
@@ -2821,7 +2826,7 @@ test("a send the host keeps refusing says why, reaches the operator after three 
   s = refuse(s);
   assert.equal(currentSend(d(s)).refusal, undefined);
   assert.deepEqual(Core.needsYou(s, "operator"), [
-    { ...refused, times: 4, reason: null },
+    { ...refused, times: 4, refusal: null },
   ]);
   // A repoint carries the same message to the new session.
   s = expectOk(s, {
@@ -2853,6 +2858,14 @@ test("a send the host keeps refusing says why, reaches the operator after three 
   assert.deepEqual(Core.needsYou(u, "operator"), []);
   u = refuse(u, why);
   assert.deepEqual(Core.needsYou(u, "operator"), [refused]);
+  // The next attempt drops the words: cut short by a restart, the send is
+  // unknown and nothing says the host refused it.
+  u = expectOk(expectOk(idle(u), { type: "attempt", deliveryId: "D1" }), {
+    type: "restart",
+  });
+  assert.equal(currentSend(d(u)).outcome, "unknown");
+  assert.equal(currentSend(d(u)).refusal, undefined);
+  assert.deepEqual(stateViolations(u), []);
 });
 
 test("guards with exact boundaries", () => {
@@ -3358,7 +3371,7 @@ test("random event sequences never violate the contract", () => {
       for (const principal of ["you", ORCH_ID, "operator"])
         for (const item of Core.needsYou(s, principal))
           reached.add(
-            `needs:${item.kind}${"reason" in item && item.reason ? ":" + item.reason : ""}`,
+            `needs:${item.kind}${"reason" in item && item.reason ? ":" + item.reason : ""}${item.kind === "refused" && item.refusal ? ":" + item.refusal : ""}`,
           );
       const outcome = outcomeOf(s);
       if (outcome.ok) reached.add(`ok:${event.type}`);

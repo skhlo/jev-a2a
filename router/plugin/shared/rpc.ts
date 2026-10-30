@@ -57,7 +57,7 @@ const needsYouItem = z.discriminatedUnion("kind", [
     messageId: z.string(),
     reason: z.enum(["task_ended", "session_replaced", "unknown_send"]),
   }),
-  // A send the host keeps refusing; `reason` is the host's last words.
+  // A send the host keeps refusing; `refusal` is the host's last words.
   z.object({
     kind: z.literal("refused"),
     taskId: z.string(),
@@ -65,7 +65,7 @@ const needsYouItem = z.discriminatedUnion("kind", [
     messageId: z.string(),
     placement: z.string(),
     times: z.number(),
-    reason: z.string().nullable(),
+    refusal: z.string().nullable(),
   }),
 ]);
 

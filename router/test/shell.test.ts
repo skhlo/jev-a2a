@@ -15,9 +15,11 @@ import {
 import { readJournal } from "../src/journal.ts";
 import { needsYou, reduce } from "../src/core.ts";
 import {
+  adapterOver,
   RouterBug,
   sendFailure,
   type Adapter,
+  type Daemon,
   type Observation,
 } from "../src/paseo.ts";
 import type { AgentSnapshot, Telemetry } from "../src/telemetry.ts";
@@ -1048,13 +1050,29 @@ test("a send the daemon keeps refusing says why each run, reaches the operator, 
   const locked =
     "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer: thread 0a1b already has an active writer";
   const sent: string[] = [];
-  const daemon = scripted({
-    send: (key, _text, agent) => {
+  // The daemon fails to load A1, as when another Codex process holds its
+  // thread, and takes the message for A2. The sends go through the Paseo
+  // adapter, which reads its words.
+  const unused = () => Promise.reject(new Error("not used to send"));
+  const paseo = adapterOver({
+    refresh: unused,
+    send: (agent, _text, key) => {
       sent.push(`${agent} ${key}`);
-      return Promise.resolve(
-        agent === "A1" ? { outcome: "not_sent", reason: locked } : "accepted",
-      );
+      return agent === "A1"
+        ? Promise.reject(new Error(locked))
+        : Promise.resolve();
     },
+    workspaces: unused,
+    subagents: unused,
+    tail: unused,
+    terminals: unused,
+    agents: unused,
+    screen: unused,
+    input: unused,
+    close: () => Promise.resolve(),
+  } satisfies Daemon);
+  const daemon = scripted({
+    send: (key, text, agent) => paseo.send(agent, key, text),
   });
   let shell = await openShell(configFor(home), daemon);
   shell.apply({
@@ -1087,7 +1105,7 @@ test("a send the daemon keeps refusing says why each run, reaches the operator, 
       messageId: "M1",
       placement: "orchestrator@mbp",
       times: 3,
-      reason: locked,
+      refusal: locked,
     },
   ]);
   await shell.close();

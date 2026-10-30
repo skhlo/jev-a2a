@@ -43,8 +43,8 @@ export type Send = {
   text: string;
   outcome: SendOutcome;
   trail: TrailStep[];
-  // The host's words for the last not_sent, while the send waits to be
-  // tried again.
+  // The host's words when the send's last result was its refusal
+  // (not_sent). The next attempt clears them.
   refusal?: string;
 };
 
@@ -324,7 +324,7 @@ export type NeedsYouItem =
       messageId: string;
       placement: string;
       times: number;
-      reason: string | null;
+      refusal: string | null;
     };
 
 export type BlockedReason =

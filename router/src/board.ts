@@ -369,7 +369,7 @@ export function describeNeed(item: NeedsYouItem): string {
     case "resolve":
       return `${item.deliveryId}: resolve ${item.messageId} (${item.reason})`;
     case "refused":
-      return `${item.deliveryId}: ${item.placement} refused send ${item.messageId} ${item.times} times in a row (${item.reason ?? "no reason given"}); fix the host or repoint ${item.placement}`;
+      return `${item.deliveryId}: ${item.placement} refused send ${item.messageId} ${item.times} times in a row (${item.refusal ?? "no reason given"}); fix the host or repoint ${item.placement}`;
   }
 }
 

@@ -1012,7 +1012,7 @@ test("a refused send reads on its task without a form: who refused it, how often
   const item = "needsYou[1].items[0]";
   assert.equal(textOf(html, `${item}.times`), "3");
   assert.equal(
-    textOf(html, `${item}.reason`),
+    textOf(html, `${item}.refusal`),
     "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer",
   );
   assert.match(

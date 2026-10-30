@@ -24,6 +24,7 @@ import { reduce } from "../../src/core.ts";
 import {
   config as fixture,
   NOW,
+  refusedJournal,
   replacedJournal,
   sampleJournal,
   viaJournal,
@@ -249,7 +250,12 @@ test("plugin: the contracts are serve's shapes: the summary and every task pass 
   // And the records the board fixtures make: a field a schema lacks would
   // be stripped, and the comparison fail.
   let tasks = 0;
-  for (const entries of [sampleJournal, replacedJournal, viaJournal]) {
+  for (const entries of [
+    sampleJournal,
+    replacedJournal,
+    viaJournal,
+    refusedJournal,
+  ]) {
     const { app, api } = await boardAt(t, entries);
     const summary = await app.call(rpc.boardSummary, {});
     assert.deepEqual(summary, await api("summary"));
@@ -273,6 +279,22 @@ test("plugin: the contracts are serve's shapes: the summary and every task pass 
   assert.ok("open" in summary);
   assert.ok(
     summary.needsYou.some((n) => n.items.some((i) => i.kind === "resolve")),
+  );
+  const refused = await boardAt(t, refusedJournal);
+  const said = await refused.app.call(rpc.boardSummary, {});
+  assert.ok("open" in said);
+  assert.ok(
+    said.needsYou.some((n) =>
+      n.items.some((i) => i.kind === "refused" && i.refusal),
+    ),
+  );
+  const views = await Promise.all(
+    said.open.map((head) => refused.app.call(rpc.boardTask, { id: head.id })),
+  );
+  assert.ok(
+    views.some((full) =>
+      full?.task.deliveries.some((d) => d.send.refusal !== null),
+    ),
   );
 });
 

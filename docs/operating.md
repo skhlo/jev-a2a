@@ -258,8 +258,10 @@ links, forms and redirects use relative URLs.
   mean another Codex process has the agent's conversation open, often the
   ChatGPT app: close it there and the next run delivers the send, or point
   the placement at another agent (`router roster repoint <placement>`) and
-  the same request goes there. Until it reaches an agent, the requester
-  can also cancel it.
+  the same request goes there. A delivery whose send was ever `unknown`
+  stays pinned, as the send may have arrived: a repoint makes it a
+  resolve item, and after `router resolve` the requester sends again.
+  Until it reaches an agent, the requester can also cancel it.
 - `journalctl --user -u jev-router -f` follows `serve`; each `telemetry:`
   note appears once while its cause lasts.
 - A placement absent from the board has no entry in `agents`. One whose

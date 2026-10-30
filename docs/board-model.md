@@ -48,7 +48,7 @@ the model is an ISO string, as the journal records it.
   an operator, `resolve` (a send the router cannot confirm: `task_ended`,
   `session_replaced` or `unknown_send`) and `refused` (a pending send its
   host refused on the last `times` attempts in a row, 3 or more, with
-  `placement` and the host's last words as `reason`, or `null`; it asks
+  `placement` and the host's last words as `refusal`, or `null`; it asks
   for no event, as the router tries the send again each run). The sample
   has no `resolve` or `refused` item.
 - `placements` are the placements the router serves, keyed

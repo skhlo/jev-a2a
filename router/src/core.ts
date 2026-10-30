@@ -569,7 +569,7 @@ function status(task: Task): Status {
 // A send the host refused this many times in a row goes to the operator:
 // the router keeps trying it, but only a change on the host, or a repoint
 // to another session, lets it through.
-export const REFUSALS_SHOWN = 3;
+export const REFUSALS_FLAGGED = 3;
 
 // How many times in a row the host refused a send that waits to be tried
 // again, counting back from its last outcome.
@@ -616,13 +616,13 @@ function operatorItem(state: State, delivery: Delivery): NeedsYouItem | null {
   const reason = stuckReason(state, delivery);
   if (reason) return { kind: "resolve", ...at, reason };
   const times = refusals(state, delivery);
-  if (times < REFUSALS_SHOWN) return null;
+  if (times < REFUSALS_FLAGGED) return null;
   return {
     kind: "refused",
     ...at,
     placement: delivery.placement,
     times,
-    reason: send.refusal ?? null,
+    refusal: send.refusal ?? null,
   };
 }
 
@@ -1040,6 +1040,8 @@ const handlers: Handlers = {
     delivery.session ??= placement.session;
     send.outcome = "attempting";
     send.trail.push("attempting");
+    // The host's words were for the last result; this attempt has its own.
+    delete send.refusal;
     // The session is about to start a turn. Only a newer observation can
     // report it idle again; a stale "ready" would let the next send interrupt it.
     placement.ready = false;
@@ -1068,7 +1070,6 @@ const handlers: Handlers = {
         "This acknowledgment does not match an attempt in progress. It cannot overwrite later evidence.",
       );
     send.trail.push(outcome);
-    delete send.refusal;
     if (outcome === "not_sent") {
       // Definitely not delivered: safe to queue again. The request may move to
       // a new session only if no earlier attempt could have reached this one.

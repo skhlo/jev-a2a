@@ -424,7 +424,7 @@ export function itemWaits({ principal, item }: Item, t: Task | null): string {
     case "resolve":
       return `Resolve ${item.deliveryId} · send ${item.messageId} · ${label(item.reason)}${on}`;
     case "refused":
-      return `${item.placement} refused ${item.deliveryId} · send ${item.messageId} · ${item.times} times in a row · ${item.reason ?? "no reason given"} · tried again each run; fix the host or repoint ${item.placement}${on}`;
+      return `${item.placement} refused ${item.deliveryId} · send ${item.messageId} · ${item.times} times in a row · ${item.refusal ?? "no reason given"} · tried again each run; fix the host or repoint ${item.placement}${on}`;
   }
 }
 

@@ -375,7 +375,7 @@ const itemForm = (
     case "refused":
       // It asks for no form: the router tries the send again each run.
       return readOnly(
-        `${slot(`${it.path}.placement`, esc(item.placement), "mono")} refused <b>${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}</b> · send ${slot(`${it.path}.messageId`, esc(item.messageId), "mono")} · ${slot(`${it.path}.times`, String(item.times))} times in a row · ${slot(`${it.path}.reason`, esc(item.reason ?? "no reason given"))} · tried again each run; fix the host or repoint ${esc(item.placement)}${as}`,
+        `${slot(`${it.path}.placement`, esc(item.placement), "mono")} refused <b>${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}</b> · send ${slot(`${it.path}.messageId`, esc(item.messageId), "mono")} · ${slot(`${it.path}.times`, String(item.times))} times in a row · ${slot(`${it.path}.refusal`, esc(item.refusal ?? "no reason given"))} · tried again each run; fix the host or repoint ${esc(item.placement)}${as}`,
       );
     case "resolve": {
       const to = `Resolve <b>${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}</b> · send ${slot(`${it.path}.messageId`, esc(item.messageId), "mono")} · ${slot(`${it.path}.reason`, esc(label(item.reason)))}${as}`;
