@@ -146,7 +146,7 @@ function needsYouViolations(state: State): string[] {
       `a caller for ${principal}`,
     );
     if (state.config.principals[principal] === "operator") {
-      const expected = deliveriesOf(state).filter((d) => {
+      const stuck = (d: Delivery): boolean => {
         if (!open(d) || d.session === null || last(d).outcome === "attempting")
           return false;
         const task = must(state.tasks.find((t) => t.id === d.taskId));
@@ -155,18 +155,41 @@ function needsYouViolations(state: State): string[] {
           must(state.placements[d.placement]).session !== d.session ||
           (last(d).outcome === "unknown" && !isIdempotent(state, d))
         );
-      });
+      };
+      // A pending send of an open task the host refused on each of its
+      // last three tries, attempts aside.
+      const refused = (d: Delivery): boolean => {
+        const task = must(state.tasks.find((t) => t.id === d.taskId));
+        if (!open(d) || task.final || last(d).outcome !== "pending")
+          return false;
+        const tries = last(d).trail.filter((step) => step !== "attempting");
+        return (
+          tries.length >= Core.REFUSALS_FLAGGED &&
+          tries
+            .slice(-Core.REFUSALS_FLAGGED)
+            .every((step) => step === "not_sent")
+        );
+      };
+      const expected = deliveriesOf(state).flatMap((d) =>
+        stuck(d)
+          ? [{ kind: "resolve", id: d.id }]
+          : refused(d)
+            ? [{ kind: "refused", id: d.id }]
+            : [],
+      );
       if (
         items.length !== expected.length ||
         items.some(
           (item, i) =>
-            item.kind !== "resolve" || item.deliveryId !== must(expected[i]).id,
+            item.kind !== must(expected[i]).kind ||
+            !("deliveryId" in item) ||
+            item.deliveryId !== must(expected[i]).id,
         )
       )
-        out.push(`operator list differs from the stuck deliveries`);
+        out.push(`operator list differs from the stuck and refused deliveries`);
       for (const item of items) {
-        // Only a resolve item names a message to reconcile; any other kind
-        // already made the list differ from the stuck deliveries above.
+        // Only a resolve item names a message to reconcile; a refused one
+        // asks the operator to act on the host.
         if (item.kind !== "resolve") continue;
         const next = reduce(state, {
           type: "resolve",
@@ -209,9 +232,9 @@ function needsYouViolations(state: State): string[] {
     )
       out.push(`${principal}: needs-you list differs from open decisions`);
     for (const item of items) {
-      // A requester is never offered a resolve item; one here already made
-      // the list differ from the open decisions above.
-      if (item.kind === "resolve") continue;
+      // A requester is never offered a resolve or refused item; one here
+      // already made the list differ from the open decisions above.
+      if (item.kind === "resolve" || item.kind === "refused") continue;
       const permitted = state.config.permissions[principal] || [];
       const event: Event =
         item.kind === "choose"
@@ -355,6 +378,9 @@ function stateViolations(state: State): string[] {
       )
     )
       out.push(`${d.id}: unpinned after a possibly delivered attempt`);
+    // The host's words belong to the result they came with.
+    if (d.sends.some((s) => s.refusal && s.trail.at(-1) !== "not_sent"))
+      out.push(`${d.id}: refusal outlived its result`);
     if (d.question && !open(d))
       out.push(`${d.id}: question on a closed delivery`);
     if (
@@ -1443,7 +1469,23 @@ test("a participant sender hears a question, then the final word, once each, at 
     false,
     "only placements this router serves count",
   );
-  s = tell(s, "final", "not_sent");
+  s = expectOk(s, {
+    type: "noticeAttempt",
+    taskId: "T1",
+    key: "final",
+    text: "final",
+  });
+  s = expectOk(s, {
+    type: "noticeResult",
+    taskId: "T1",
+    key: "final",
+    outcome: "not_sent",
+    reason: "Agent not found: orchestrator@mbp#1",
+  });
+  assert.equal(
+    s.log.lines.at(-1)?.text,
+    "T1/final: notice not sent; it will be retried (Agent not found: orchestrator@mbp#1).",
+  );
   assert.equal(notice(s, "final").outcome, "pending");
   assert.equal(Core.noticeBlockedReason(s, task(s), "final"), "not_ready");
   s = tell(idle(s), "final", "unknown");
@@ -2726,6 +2768,151 @@ test("a retry that comes back not_sent keeps the pin: the first attempt may have
   assert.equal(task(s).status, "failed");
 });
 
+test("a send the host keeps refusing says why, reaches the operator after three refusals in a row, and follows a repoint", () => {
+  const why =
+    "Failed to resume Codex thread t1: thread t1 already has an active writer";
+  let s = submit(initial(config), {
+    messageId: "M1",
+    text: "Job",
+    to: "orchestrator",
+  });
+  const refuse = (state: State, reason?: string): State =>
+    expectOk(expectOk(idle(state), { type: "attempt", deliveryId: "D1" }), {
+      type: "adapterResult",
+      deliveryId: "D1",
+      messageId: "M1",
+      outcome: "not_sent",
+      ...(reason === undefined ? {} : { reason }),
+    });
+  expectReject(
+    expectOk(s, { type: "attempt", deliveryId: "D1" }),
+    {
+      type: "adapterResult",
+      deliveryId: "D1",
+      messageId: "M1",
+      outcome: "not_sent",
+      reason: 7,
+    } as unknown as Event,
+    "invalid",
+  );
+  s = refuse(s, why);
+  assert.equal(
+    s.log.lines.at(-1)?.text,
+    `D1/M1: adapter reported not_sent (${why}).`,
+  );
+  const d = (state: State) => must(Core.findDelivery(state, "D1"));
+  assert.equal(currentSend(d(s)).refusal, why);
+  assert.equal(d(s).session, null, "a refused first send is not pinned");
+  s = refuse(s, why);
+  assert.deepEqual(Core.needsYou(s, "operator"), [], "two is not yet a run");
+  s = refuse(s, why);
+  const refused = {
+    kind: "refused",
+    taskId: "T1",
+    deliveryId: "D1",
+    messageId: "M1",
+    placement: "orchestrator@mbp",
+    times: 3,
+    refusal: why,
+  };
+  assert.deepEqual(Core.needsYou(s, "operator"), [refused]);
+  assert.deepEqual(
+    Core.needsYou(s, "you"),
+    [],
+    "the requester cannot fix a host",
+  );
+  assert.equal(task(s).status, "queued");
+  // A refusal without words forgets the last ones rather than repeat them.
+  s = refuse(s);
+  assert.equal(currentSend(d(s)).refusal, undefined);
+  assert.deepEqual(Core.needsYou(s, "operator"), [
+    { ...refused, times: 4, refusal: null },
+  ]);
+  // A repoint carries the same message to the new session.
+  s = expectOk(s, {
+    type: "observe",
+    placement: "orchestrator@mbp",
+    session: "orchestrator@mbp#2",
+    ready: true,
+  });
+  s = deliver(s, "D1");
+  assert.equal(d(s).session, "orchestrator@mbp#2");
+  assert.equal(currentSend(d(s)).messageId, "M1");
+  assert.equal(currentSend(d(s)).outcome, "accepted");
+  assert.deepEqual(Core.needsYou(s, "operator"), []);
+  assert.deepEqual(stateViolations(s), []);
+  // A send that may have arrived breaks the run: the count starts again.
+  let u = refuse(
+    refuse(
+      submit(initial(config), {
+        messageId: "M1",
+        text: "Job",
+        to: "orchestrator",
+      }),
+      why,
+    ),
+    why,
+  );
+  u = deliver(idle(u), "D1", "unknown");
+  u = refuse(refuse(u, why), why);
+  assert.deepEqual(Core.needsYou(u, "operator"), []);
+  u = refuse(u, why);
+  assert.deepEqual(Core.needsYou(u, "operator"), [refused]);
+  // The next attempt drops the words: cut short by a restart, the send is
+  // unknown and nothing says the host refused it.
+  u = expectOk(expectOk(idle(u), { type: "attempt", deliveryId: "D1" }), {
+    type: "restart",
+  });
+  assert.equal(currentSend(d(u)).outcome, "unknown");
+  assert.equal(currentSend(d(u)).refusal, undefined);
+  assert.deepEqual(stateViolations(u), []);
+  // A reply proves the unknown send arrived after all; the refusal of the
+  // retry is no longer the send's last word.
+  u = refuse(u, why);
+  u = expectOk(u, {
+    type: "update",
+    by: must(d(u).session),
+    taskId: "T1",
+    messageId: "R1",
+    inReplyTo: "M1",
+    kind: "working",
+  });
+  assert.equal(currentSend(d(u)).outcome, "accepted");
+  assert.equal(currentSend(d(u)).refusal, undefined);
+  assert.deepEqual(stateViolations(u), []);
+  // Nor is it for a refused answer the session moved past.
+  let w = submit(initial(config), {
+    messageId: "M1",
+    text: "Draft.",
+    to: "knowledge",
+  });
+  w = deliver(w, "D1");
+  w = ask(w, KNOW, "Q1", "M1", "Which?");
+  w = answerQ(w, "A1", "Q1", "That one.");
+  w = expectOk(
+    expectOk(idle(w, "knowledge@mini"), { type: "attempt", deliveryId: "D1" }),
+    {
+      type: "adapterResult",
+      deliveryId: "D1",
+      messageId: "A1",
+      outcome: "not_sent",
+      reason: why,
+    },
+  );
+  assert.equal(must(d(w).sends[1]).refusal, why);
+  w = expectOk(w, {
+    type: "update",
+    by: KNOW,
+    taskId: "T1",
+    messageId: "R1",
+    inReplyTo: "M1",
+    kind: "working",
+  });
+  assert.equal(must(d(w).sends[1]).outcome, "withdrawn");
+  assert.equal(must(d(w).sends[1]).refusal, undefined);
+  assert.deepEqual(stateViolations(w), []);
+});
+
 test("guards with exact boundaries", () => {
   // Threshold: exactly the threshold dispatches; just below asks the sender.
   let s = submit(initial(config), { messageId: "M1", text: "a" });
@@ -2867,6 +3054,30 @@ function randomEvent(s: State, r: () => number): Event {
     "ghost",
   ];
   const work = commands(s);
+  // A host that refused a send tends to refuse it again. Half the time
+  // while one waits, wake its placement, try it, and refuse it again, so a
+  // run of refusals long enough for the operator is seen.
+  const refused = deliveries.filter(
+    (d) =>
+      open(d) &&
+      !must(s.tasks.find((t) => t.id === d.taskId)).final &&
+      last(d).trail.includes("not_sent") &&
+      (last(d).outcome === "pending" || last(d).outcome === "attempting"),
+  );
+  if (refused.length && r() < 0.5) {
+    const d = pick(refused);
+    if (last(d).outcome === "attempting")
+      return {
+        type: "adapterResult",
+        deliveryId: d.id,
+        messageId: last(d).messageId,
+        outcome: "not_sent",
+        reason: "refused by the host",
+      };
+    if (!must(s.placements[d.placement]).ready)
+      return { type: "observe", placement: d.placement, ready: true };
+    return { type: "attempt", deliveryId: d.id };
+  }
   switch (
     pick([
       "submit",
@@ -3010,6 +3221,7 @@ function randomEvent(s: State, r: () => number): Event {
         deliveryId: d?.id ?? "D1",
         messageId: d ? currentSend(d).messageId : "M1",
         outcome: pick(["accepted", "accepted", "not_sent", "unknown"]),
+        ...(r() < 0.5 ? { reason: "refused by the host" } : {}),
       };
     }
     case "update": {
@@ -3204,7 +3416,7 @@ test("random event sequences never violate the contract", () => {
       for (const principal of ["you", ORCH_ID, "operator"])
         for (const item of Core.needsYou(s, principal))
           reached.add(
-            `needs:${item.kind}${"reason" in item && item.reason ? ":" + item.reason : ""}`,
+            `needs:${item.kind}${"reason" in item && item.reason ? ":" + item.reason : ""}${item.kind === "refused" && item.refusal ? ":" + item.refusal : ""}`,
           );
       const outcome = outcomeOf(s);
       if (outcome.ok) reached.add(`ok:${event.type}`);
@@ -3280,6 +3492,7 @@ test("random event sequences never violate the contract", () => {
     "needs:resolve:task_ended",
     "needs:resolve:session_replaced",
     "needs:resolve:unknown_send",
+    "needs:refused:refused by the host",
     "resend after unknown",
     // Every blocking reason and rejection path must occur, or the random run
     // says nothing about them.

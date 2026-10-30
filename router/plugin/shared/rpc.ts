@@ -57,6 +57,16 @@ const needsYouItem = z.discriminatedUnion("kind", [
     messageId: z.string(),
     reason: z.enum(["task_ended", "session_replaced", "unknown_send"]),
   }),
+  // A send the host keeps refusing; `refusal` is the host's last words.
+  z.object({
+    kind: z.literal("refused"),
+    taskId: z.string(),
+    deliveryId: z.string(),
+    messageId: z.string(),
+    placement: z.string(),
+    times: z.number(),
+    refusal: z.string().nullable(),
+  }),
 ]);
 
 // `by` names the principal who canceled the task; null when the router
@@ -164,6 +174,7 @@ const delivery = z.object({
     kind: z.string(),
     messageId: z.string(),
     outcome: z.string(),
+    refusal: z.string().nullable(),
   }),
   sends: z.array(
     z.object({

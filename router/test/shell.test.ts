@@ -13,16 +13,23 @@ import {
   type ShellOptions,
 } from "../src/shell.ts";
 import { readJournal } from "../src/journal.ts";
-import { reduce } from "../src/core.ts";
+import { needsYou, reduce } from "../src/core.ts";
 import {
+  adapterOver,
   RouterBug,
   sendFailure,
   type Adapter,
+  type Daemon,
   type Observation,
 } from "../src/paseo.ts";
 import type { AgentSnapshot, Telemetry } from "../src/telemetry.ts";
 import type { RouterConfig } from "../src/config.ts";
-import type { Config, Event } from "../src/types.ts";
+import type {
+  AdapterOutcome,
+  Config,
+  Event,
+  SendResult,
+} from "../src/types.ts";
 import base from "../src/example-config.ts";
 
 const configFor = (home: string, core: Config = base): RouterConfig => ({
@@ -49,7 +56,8 @@ type Script = {
   send?: (
     key: string,
     text: string,
-  ) => Promise<"accepted" | "not_sent" | "unknown">;
+    agent: string,
+  ) => Promise<AdapterOutcome | SendResult>;
 };
 const snapshot = (status: "idle" | "running"): AgentSnapshot => ({
   seen: "2026-01-01T00:00:01.000Z",
@@ -84,11 +92,12 @@ const scripted = (script: Script): ShellOptions => ({
       observe: (_agent, seen) =>
         (script.observe ?? (() => Promise.resolve(idle)))(seen),
       resolve: (session) => Promise.resolve(session),
-      send: (_agent, key, text) =>
-        (script.send ?? (() => Promise.resolve("accepted" as const)))(
-          key,
-          text,
-        ),
+      send: async (agent, key, text) => {
+        const sent = await (
+          script.send ?? (() => Promise.resolve("accepted" as const))
+        )(key, text, agent);
+        return typeof sent === "string" ? { outcome: sent } : sent;
+      },
       close: () => Promise.resolve(),
     }),
   judge: null,
@@ -997,36 +1006,119 @@ test("a Codex terminal that must choose a recipient is told to take the choice o
   await shell.close();
 });
 
-test("a failed send is not_sent only when the daemon refused before sending", () => {
-  assert.equal(
-    sendFailure(new Error("Agent not found: A1"), "A1", "D1/M1"),
-    "not_sent",
-  );
-  assert.equal(
-    sendFailure(new Error("Agent identifier is empty"), "A1", "D1/M1"),
-    "not_sent",
-  );
-  assert.equal(
-    sendFailure(new Error("agent_request_outcome_unknown"), "A1", "D1/M1"),
-    "unknown",
-  );
-  assert.equal(
-    sendFailure(new Error("socket hang up"), "A1", "D1/M1"),
-    "unknown",
-  );
-  assert.equal(
-    sendFailure("Agent not found: A1 (not an Error)", "A1", "D1/M1"),
-    "not_sent",
-  );
-  assert.throws(
-    () =>
-      sendFailure(
-        new Error("agent_request_key_conflict: D1/M1"),
-        "A1",
-        "D1/M1",
+test("a failed send is not_sent only when the daemon refused before sending, and says the daemon's words", () => {
+  const failed = (error: unknown) => sendFailure(error, "A1", "D1/M1");
+  // The daemon's words, in 0.11 as in 0.14, when another Codex process
+  // holds the thread.
+  const locked =
+    "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer: thread 0a1b already has an active writer";
+  for (const [error, outcome] of [
+    [new Error("Agent not found: A1"), "not_sent"],
+    [new Error("Agent identifier is empty"), "not_sent"],
+    [new Error(locked), "not_sent"],
+    [new Error("Agent A1 references unavailable provider 'codex'"), "not_sent"],
+    [
+      new Error(
+        "Provider 'codex' is not available. Please ensure the CLI is installed.",
       ),
+      "not_sent",
+    ],
+    [new Error("agent_request_outcome_unknown"), "unknown"],
+    [new Error("Timeout waiting for message (60000ms)"), "unknown"],
+    [new Error("codex run did not start within 60 seconds"), "unknown"],
+    [new Error("socket hang up"), "unknown"],
+    ["Agent not found: A1 (not an Error)", "not_sent"],
+  ] as const) {
+    const message = error instanceof Error ? error.message : error;
+    assert.deepEqual(failed(error), { outcome, reason: message }, message);
+  }
+  // One line, short enough for the record.
+  const long = failed(new Error(`${locked}${"x".repeat(400)}\nat stack`));
+  assert.equal(long.outcome, "not_sent");
+  assert.equal(long.reason?.length, 200);
+  assert.ok(long.reason?.startsWith(locked) && long.reason.endsWith("…"));
+  assert.equal(failed(new Error("first\nsecond")).reason, "first");
+  assert.deepEqual(failed(new Error("")), { outcome: "unknown" });
+  assert.throws(
+    () => failed(new Error("agent_request_key_conflict: D1/M1")),
     RouterBug,
   );
+});
+
+test("a send the daemon keeps refusing says why each run, reaches the operator, and goes to the agent a repoint names under the same key", async (t) => {
+  const home = scratch(t, "shell-");
+  const locked =
+    "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer: thread 0a1b already has an active writer";
+  const sent: string[] = [];
+  // The daemon fails to load A1, as when another Codex process holds its
+  // thread, and takes the message for A2. The sends go through the Paseo
+  // adapter, which reads its words.
+  const unused = () => Promise.reject(new Error("not used to send"));
+  const paseo = adapterOver({
+    refresh: unused,
+    send: (agent, _text, key) => {
+      sent.push(`${agent} ${key}`);
+      return agent === "A1"
+        ? Promise.reject(new Error(locked))
+        : Promise.resolve();
+    },
+    workspaces: unused,
+    subagents: unused,
+    tail: unused,
+    terminals: unused,
+    agents: unused,
+    screen: unused,
+    input: unused,
+    close: () => Promise.resolve(),
+  } satisfies Daemon);
+  const daemon = scripted({
+    send: (key, text, agent) => paseo.send(agent, key, text),
+  });
+  let shell = await openShell(configFor(home), daemon);
+  shell.apply({
+    type: "submit",
+    by: "you",
+    messageId: "M1",
+    text: "Fix it",
+    to: "orchestrator",
+  });
+  for (let run = 1; run <= 3; run++) {
+    if (run > 1) shell = await openShell(configFor(home), daemon);
+    const report = await shell.deliver();
+    assert.ok(
+      report.includes(`D1/M1: adapter reported not_sent (${locked}).`),
+      report.join("\n"),
+    );
+    assert.equal(
+      needsYou(shell.state, "operator").length,
+      run < 3 ? 0 : 1,
+      `run ${run}`,
+    );
+    await shell.close();
+  }
+  shell = await openShell(configFor(home), daemon);
+  assert.deepEqual(needsYou(shell.state, "operator"), [
+    {
+      kind: "refused",
+      taskId: "T1",
+      deliveryId: "D1",
+      messageId: "M1",
+      placement: "orchestrator@mbp",
+      times: 3,
+      refusal: locked,
+    },
+  ]);
+  await shell.close();
+  // The operator points the placement at an agent the daemon can load.
+  shell = await openShell(
+    { ...configFor(home), agents: { "orchestrator@mbp": "A2" } },
+    daemon,
+  );
+  const report = await shell.deliver();
+  assert.ok(report.includes("D1/M1: adapter reported accepted."));
+  assert.deepEqual(sent, ["A1 D1/M1", "A1 D1/M1", "A1 D1/M1", "A2 D1/M1"]);
+  assert.deepEqual(needsYou(shell.state, "operator"), []);
+  await shell.close();
 });
 
 test("each run hands the telemetry sink one snapshot per served placement, stamped with the run's clock: the daemon's, missing, or unreachable", async (t) => {

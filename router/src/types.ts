@@ -32,6 +32,8 @@ export type Config = {
 export type SendOutcome =
   "pending" | "attempting" | "accepted" | "unknown" | "withdrawn";
 export type AdapterOutcome = "accepted" | "not_sent" | "unknown";
+// What an adapter's send came to, with the host's own words when it failed.
+export type SendResult = { outcome: AdapterOutcome; reason?: string };
 export type TrailStep =
   "attempting" | AdapterOutcome | "reply_seen" | "withdrawn";
 
@@ -41,6 +43,9 @@ export type Send = {
   text: string;
   outcome: SendOutcome;
   trail: TrailStep[];
+  // The host's words when the send's last result was its refusal
+  // (not_sent). The next attempt clears them.
+  refusal?: string;
 };
 
 export type UpdateKind = "working" | "question" | "completed" | "failed";
@@ -229,6 +234,7 @@ export type Event =
       deliveryId: string;
       messageId: string;
       outcome: AdapterOutcome;
+      reason?: string;
     }
   | {
       type: "update";
@@ -271,6 +277,7 @@ export type Event =
       taskId: string;
       key: string;
       outcome: AdapterOutcome;
+      reason?: string;
     }
   | { type: "restart" }
   | { type: "tick"; now: number };
@@ -308,6 +315,16 @@ export type NeedsYouItem =
       deliveryId: string;
       messageId: string;
       reason: StuckReason;
+    }
+  | {
+      // A send the host keeps refusing; it is tried again each run.
+      kind: "refused";
+      taskId: string;
+      deliveryId: string;
+      messageId: string;
+      placement: string;
+      times: number;
+      refusal: string | null;
     };
 
 export type BlockedReason =

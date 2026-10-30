@@ -198,6 +198,9 @@ function Form({
           outcome={delivery(item.deliveryId)?.send.outcome ?? null}
         />
       );
+    case "refused":
+      // Never acted on here: the operator acts on the host.
+      return null;
   }
 }
 

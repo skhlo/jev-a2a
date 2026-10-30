@@ -434,9 +434,9 @@ export async function openShell(
       report.push(attempted.message);
       if (!attempted.ok) break;
       const host = state.placements[task.via]?.host ?? "";
-      let outcome: Awaited<ReturnType<Adapter["send"]>>;
+      let sent: Awaited<ReturnType<Adapter["send"]>>;
       try {
-        outcome = await (
+        sent = await (
           await adapterFor(host)
         ).send(agentId, `N/${task.id}/${next.key}`, text);
       } catch (error: unknown) {
@@ -444,13 +444,14 @@ export async function openShell(
         report.push(
           `${task.id} notice ${next.key}: ${host} unreachable (${error instanceof Error ? error.message : String(error)})`,
         );
-        outcome = "unknown";
+        sent = { outcome: "unknown" };
       }
       const acked = apply({
         type: "noticeResult",
         taskId: task.id,
         key: next.key,
-        outcome,
+        outcome: sent.outcome,
+        ...(sent.reason ? { reason: sent.reason } : {}),
       });
       report.push(acked.message);
     }
@@ -523,9 +524,9 @@ export async function openShell(
       if (!attempted.ok) break;
       if (options.crash === "after_attempt") process.exit(70);
       const key = `${delivery.id}/${next.messageId}`;
-      let outcome: Awaited<ReturnType<Adapter["send"]>>;
+      let sent: Awaited<ReturnType<Adapter["send"]>>;
       try {
-        outcome = await (
+        sent = await (
           await adapterFor(delivery.host)
         ).send(agentId, key, envelope(delivery.taskId, delivery.id));
       } catch (error: unknown) {
@@ -536,14 +537,15 @@ export async function openShell(
         report.push(
           `${delivery.id}: ${delivery.host} unreachable (${error instanceof Error ? error.message : String(error)})`,
         );
-        outcome = "unknown";
+        sent = { outcome: "unknown" };
       }
       if (options.crash === "after_send") process.exit(71);
       const acked = apply({
         type: "adapterResult",
         deliveryId: delivery.id,
         messageId: next.messageId,
-        outcome,
+        outcome: sent.outcome,
+        ...(sent.reason ? { reason: sent.reason } : {}),
       });
       report.push(acked.message);
     }

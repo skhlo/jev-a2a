@@ -718,6 +718,31 @@ test("an agent id the daemon does not know is missing; any other failed look sti
   await assert.rejects(adapterOver(down).observe("A9", SEEN), /socket hang up/);
 });
 
+test("an agent send the daemon refuses to load comes back not_sent with the daemon's words; one it may have taken, unknown", async () => {
+  const { daemon } = scripted("closed");
+  const failing = (message: string): Daemon => ({
+    ...daemon,
+    send: () => Promise.reject(new Error(message)),
+  });
+  const locked =
+    "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer: thread 0a1b already has an active writer";
+  assert.deepEqual(
+    await adapterOver(failing(locked)).send("A1", "D1/M1", "go"),
+    { outcome: "not_sent", reason: locked },
+  );
+  assert.deepEqual(
+    await adapterOver(failing("agent_request_outcome_unknown")).send(
+      "A1",
+      "D1/M1",
+      "go",
+    ),
+    { outcome: "unknown", reason: "agent_request_outcome_unknown" },
+  );
+  assert.deepEqual(await adapterOver(daemon).send("A1", "D1/M1", "go"), {
+    outcome: "accepted",
+  });
+});
+
 test("with the sheet off, only the rail is read", async () => {
   const { daemon, calls } = scripted("running");
   const seen = await adapterOver(daemon, { sheet: false }).observe("A1", SEEN);
@@ -1000,11 +1025,13 @@ test("a terminal send is one bracketed paste and then Enter, accepted when the a
     ...t,
     activity: { state: "working", changedAt: 9 },
   }));
-  const outcome = await adapterOver(daemon, quick).send(
-    "terminal:T1",
-    "D1/M1",
-    "[router T1 M1] Task\r\n\nFix it\u001b[201~ now",
-  );
+  const outcome = (
+    await adapterOver(daemon, quick).send(
+      "terminal:T1",
+      "D1/M1",
+      "[router T1 M1] Task\r\n\nFix it\u001b[201~ now",
+    )
+  ).outcome;
   assert.equal(outcome, "accepted");
   assert.deepEqual(inputs, [
     "\u001b[200~[router T1 M1] Task\n\nFix it[201~ now\u001b[201~",
@@ -1019,7 +1046,8 @@ test("a turn that finished before the next look still confirms the send, from no
       activity: finishedAt(9),
     }));
     assert.equal(
-      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      (await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"))
+        .outcome,
       "accepted",
     );
   }
@@ -1036,7 +1064,8 @@ test("a terminal send is refused before any input unless the terminal waits at a
   for (const [start, screen] of refused) {
     const { daemon, inputs } = terminalDaemon(start, null, screen);
     assert.equal(
-      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      (await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"))
+        .outcome,
       "not_sent",
       JSON.stringify([start?.activity, start?.title, screen.lines[4]]),
     );
@@ -1048,11 +1077,13 @@ test("a terminal send that fails before the paste is not sent; one that fails af
   const listless = terminalDaemon(term(finishedAt(5)), null);
   listless.daemon.terminals = () => Promise.reject(new Error("gone"));
   assert.equal(
-    await adapterOver(listless.daemon, quick).send(
-      "terminal:T1",
-      "D1/M1",
-      "go",
-    ),
+    (
+      await adapterOver(listless.daemon, quick).send(
+        "terminal:T1",
+        "D1/M1",
+        "go",
+      )
+    ).outcome,
     "not_sent",
   );
   for (const [failing, outcome] of [
@@ -1066,7 +1097,8 @@ test("a terminal send that fails before the paste is not sent; one that fails af
       return input(id, data);
     };
     assert.equal(
-      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      (await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"))
+        .outcome,
       outcome,
     );
   }
@@ -1083,7 +1115,8 @@ test("a send is unknown when no turn follows, whatever else the activity does", 
       activity: after,
     }));
     assert.equal(
-      await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"),
+      (await adapterOver(daemon, quick).send("terminal:T1", "D1/M1", "go"))
+        .outcome,
       "unknown",
       JSON.stringify(after),
     );
@@ -1509,11 +1542,13 @@ test("a Codex send goes only to its empty composer, and is confirmed by the turn
     CODEX_DECLINED,
   );
   assert.equal(
-    await adapterOver(daemon, { ...quick, ...asCodex }).send(
-      "terminal:T1",
-      "D1/M1",
-      "go",
-    ),
+    (
+      await adapterOver(daemon, { ...quick, ...asCodex }).send(
+        "terminal:T1",
+        "D1/M1",
+        "go",
+      )
+    ).outcome,
     "accepted",
   );
   assert.deepEqual(inputs, ["\u001b[200~go\u001b[201~", "\r"]);
@@ -1527,11 +1562,13 @@ test("a Codex send goes only to its empty composer, and is confirmed by the turn
   for (const [start, shown] of refused) {
     const held = terminalDaemon(start, null, shown);
     assert.equal(
-      await adapterOver(held.daemon, { ...quick, ...asCodex }).send(
-        "terminal:T1",
-        "D1/M1",
-        "go",
-      ),
+      (
+        await adapterOver(held.daemon, { ...quick, ...asCodex }).send(
+          "terminal:T1",
+          "D1/M1",
+          "go",
+        )
+      ).outcome,
       "not_sent",
     );
     assert.deepEqual(held.inputs, []);

@@ -154,7 +154,7 @@ function describe(task: Task, state: State): string[] {
   for (const d of task.deliveries) {
     const send = currentSend(d);
     lines.push(
-      `  ${d.id} ${d.placement} · session ${d.session ?? "unpinned"} · ${send.kind} ${send.messageId} ${send.outcome}${d.end ? ` · ended ${d.end.reason}` : ""}`,
+      `  ${d.id} ${d.placement} · session ${d.session ?? "unpinned"} · ${send.kind} ${send.messageId} ${send.outcome}${send.refusal ? ` · refused: ${send.refusal}` : ""}${d.end ? ` · ended ${d.end.reason}` : ""}`,
     );
     if (d.question)
       lines.push(`    question ${d.question.id}: ${d.question.text}`);

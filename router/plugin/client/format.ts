@@ -143,7 +143,9 @@ export const itemKey = (item: NeedsYouItem): string =>
     ? `answer/${item.questionId}`
     : item.kind === "resolve"
       ? `resolve/${item.deliveryId}/${item.messageId}`
-      : `choose/${item.taskId}`;
+      : item.kind === "refused"
+        ? `refused/${item.deliveryId}/${item.messageId}`
+        : `choose/${item.taskId}`;
 
 // One row of the list. A needs-you item whose task is older than the
 // finished tasks the board keeps (only a resolve can be) has no head.
@@ -182,8 +184,10 @@ export function viewerOf(s: Summary): Viewer {
       principal: entry.principal,
       item,
       mine: actor === null || principals.has(entry.principal),
+      // A refused send asks for no form: the operator acts on the host.
       act:
         actor !== null &&
+        item.kind !== "refused" &&
         entry.principal ===
           signer(item.kind === "resolve" ? "operator" : "requester"),
     })),
@@ -419,6 +423,8 @@ export function itemWaits({ principal, item }: Item, t: Task | null): string {
       return `Choose a recipient for ${item.taskId} · ${label(item.reason)}${on}`;
     case "resolve":
       return `Resolve ${item.deliveryId} · send ${item.messageId} · ${label(item.reason)}${on}`;
+    case "refused":
+      return `${item.placement} refused ${item.deliveryId} · send ${item.messageId} · ${item.times} times in a row · ${item.refusal ?? "no reason given"} · tried again each run; fix the host or repoint ${item.placement}${on}`;
   }
 }
 
@@ -498,7 +504,8 @@ export function deliveryLine(d: Delivery, times: Record<string, string>) {
   const last = d.latest
     ? ` · last reply ${time(times[d.latest.messageId])}`
     : "";
-  return `${d.id} · ${d.send.kind} ${short(d.send.messageId)} · ${d.send.outcome} · session ${d.session ? shortSession(d.session) : DASH}${last}`;
+  const refused = d.send.refusal ? ` · refused: ${d.send.refusal}` : "";
+  return `${d.id} · ${d.send.kind} ${short(d.send.messageId)} · ${d.send.outcome}${refused} · session ${d.session ? shortSession(d.session) : DASH}${last}`;
 }
 
 // One line of the conversation: a message with who sent it, or a line the

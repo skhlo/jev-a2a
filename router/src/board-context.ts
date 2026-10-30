@@ -54,9 +54,11 @@ export function pageContext(
       principal: entry.principal,
       item,
       mine: actor === null || roleOf(entry.principal) !== undefined,
+      // A refused send asks for no form: the operator acts on the host.
       act:
+        item.kind !== "refused" &&
         entry.principal ===
-        signer(item.kind === "resolve" ? "operator" : "requester"),
+          signer(item.kind === "resolve" ? "operator" : "requester"),
     })),
   );
   const itemsFor = (taskId: string): NeedsItem[] =>

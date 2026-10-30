@@ -59,7 +59,7 @@ import {
   type Subagents,
 } from "./telemetry.ts";
 import { terminalOf, type TerminalCli } from "./config.ts";
-import type { AdapterOutcome } from "./types.ts";
+import type { AdapterOutcome, SendResult } from "./types.ts";
 
 export type Observation = {
   // The agent exists; ready as `isReady` says.
@@ -87,7 +87,7 @@ export type Adapter = {
   // daemon also finds by a unique prefix or a title; a terminal by its
   // exact id. null when the daemon does not know it.
   resolve(session: string): Promise<string | null>;
-  send(agentId: string, key: string, text: string): Promise<AdapterOutcome>;
+  send(agentId: string, key: string, text: string): Promise<SendResult>;
   close(): Promise<void>;
 };
 
@@ -172,6 +172,20 @@ const unknownAgent = (error: unknown): boolean =>
     error instanceof Error ? error.message : String(error),
   );
 
+// The daemon's refusals to load a known agent for a send: a closed Codex
+// agent whose thread it could not resume (another Codex process may hold
+// the thread's writer lock), or a provider it cannot run. In the 0.14.0
+// daemon, as for an unknown id, they come before it writes the message's
+// receipt, so nothing reached the agent and the same key may be sent again.
+// A live agent whose thread was lost fails the same way after the receipt:
+// nothing reached Codex then either, but the retry reads unknown.
+const UNLOADABLE =
+  /^(Failed to resume Codex thread |Agent \S+ references unavailable provider |Provider '[^']+' is not available)/;
+
+// The host's words go to the record as one line of at most this many
+// characters.
+const REASON_MAX = 200;
+
 // What a failed send means. Only a refusal before any send is a definite
 // not_sent; a key conflict is the router contradicting its own record;
 // anything else may have reached the agent.
@@ -179,14 +193,18 @@ export function sendFailure(
   error: unknown,
   agentId: string,
   key: string,
-): AdapterOutcome {
+): SendResult {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("agent_request_key_conflict"))
     throw new RouterBug(
       `${key} was already sent to ${agentId} with different text.`,
     );
-  if (unknownAgent(error)) return "not_sent";
-  return "unknown";
+  const reason = firstLine(message, REASON_MAX);
+  return {
+    outcome:
+      unknownAgent(error) || UNLOADABLE.test(message) ? "not_sent" : "unknown",
+    ...(reason ? { reason } : {}),
+  };
 }
 
 // A session the router may send to now: idle, or closed (the send resumes
@@ -890,10 +908,10 @@ export function adapterOver(
     },
     async send(agentId, key, text) {
       const id = terminalOf(agentId);
-      if (id) return sendTerminal(id, cliOf(agentId), text);
+      if (id) return { outcome: await sendTerminal(id, cliOf(agentId), text) };
       try {
         await daemon.send(agentId, text, key);
-        return "accepted";
+        return { outcome: "accepted" };
       } catch (error: unknown) {
         return sendFailure(error, agentId, key);
       }

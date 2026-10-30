@@ -162,6 +162,9 @@ board takes the tailnet login Serve reports, and a login listed in
 - An operator resolves a delivery the router cannot confirm. The form
   offers only the outcomes the router accepts: a send the session accepted
   can only be marked finished, and the form says so.
+- A send its host refused 3 times in a row shows in an operator's Needs
+  you with the host's words and no form: the router tries it again each
+  run, and the fix is on the host, or a repoint of the placement.
 - Any identified login holds or releases a session. A hold says a person is
   typing in the session, so the router does not send there.
 

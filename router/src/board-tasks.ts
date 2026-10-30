@@ -372,6 +372,11 @@ const itemForm = (
         shell,
       )}`;
     }
+    case "refused":
+      // It asks for no form: the router tries the send again each run.
+      return readOnly(
+        `${slot(`${it.path}.placement`, esc(item.placement), "mono")} refused <b>${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}</b> · send ${slot(`${it.path}.messageId`, esc(item.messageId), "mono")} · ${slot(`${it.path}.times`, String(item.times))} times in a row · ${slot(`${it.path}.refusal`, esc(item.refusal ?? "no reason given"))} · tried again each run; fix the host or repoint ${esc(item.placement)}${as}`,
+      );
     case "resolve": {
       const to = `Resolve <b>${slot(`${it.path}.deliveryId`, esc(item.deliveryId), "mono")}</b> · send ${slot(`${it.path}.messageId`, esc(item.messageId), "mono")} · ${slot(`${it.path}.reason`, esc(label(item.reason)))}${as}`;
       if (!it.act) return readOnly(to);
@@ -511,7 +516,7 @@ ${forms}
       ? clock(`time(times[${dp}.latest.messageId])`, times[d.latest.messageId])
       : DASH;
     // v0.13: the send in three slots, its message id through short().
-    const send = `${slot(`${dp}.send.kind`, esc(d.send.kind))} ${shortSlot(`${dp}.send.messageId`, d.send.messageId)} · ${slot(`${dp}.send.outcome`, esc(d.send.outcome))}`;
+    const send = `${slot(`${dp}.send.kind`, esc(d.send.kind))} ${shortSlot(`${dp}.send.messageId`, d.send.messageId)} · ${slot(`${dp}.send.outcome`, esc(d.send.outcome))}${d.send.refusal ? ` · refused: ${slot(`${dp}.send.refusal`, esc(d.send.refusal))}` : ""}`;
     return `<tr data-path="${dp}"><td class="key">${slot(`${dp}.id`, esc(d.id), "mono")}</td><td class="key">${slot(`${dp}.placement`, esc(d.placement), "mono")}</td><td data-label="Send"><span class="mono">${send}</span></td><td class="key">${state}</td><td data-label="Last reply">${last}</td><td data-label="Session">${slot(`${dp}.session`, d.session ? esc(shortId(d.session)) : DASH, "mono", "span", d.session ? fullId(d.session) : "")}</td></tr>`;
   });
   // What a participant sender was told at the placement it sent from.
