@@ -32,7 +32,7 @@ const idlePaseo: ShellOptions = {
           snapshot,
         }),
       resolve: (session) => Promise.resolve(session),
-      send: () => Promise.resolve("accepted" as const),
+      send: () => Promise.resolve({ outcome: "accepted" as const }),
       close: () => Promise.resolve(),
     }),
   judge: null,

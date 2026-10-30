@@ -1,6 +1,7 @@
 // The board's fixture: a small deployment and a journal with one task of
 // each kind a requester needs to see. No delivery is stuck, so the operator
-// has nothing to resolve; `replacedJournal` adds one. The board tests, the
+// has nothing to resolve; `replacedJournal` adds one, and `refusedJournal`
+// a send the host keeps refusing. The board tests, the
 // server tests and the sample generator all read it (the generator reads
 // `sampleJournal`, the fixture plus one participant-sent task), so the
 // committed sample shows what the tests check. Its times are fixed and
@@ -303,6 +304,31 @@ export const replacedJournal = extend({
   placement: "knowledge@mini",
   session: "K2",
 });
+
+// The record with a fifth task whose send orchestrator@mbp's daemon
+// refused on three runs in a row, each time unable to load the session:
+// the operator sees the refusal, and the router keeps trying.
+export const refusedJournal = extend(
+  {
+    type: "submit",
+    by: "you",
+    messageId: "M5",
+    text: "Deploy",
+    to: "orchestrator",
+  },
+  ...[1, 2, 3].flatMap((): Event[] => [
+    { type: "observe", placement: "orchestrator@mbp", ready: true },
+    { type: "attempt", deliveryId: "D4" },
+    {
+      type: "adapterResult",
+      deliveryId: "D4",
+      messageId: "M5",
+      outcome: "not_sent",
+      reason:
+        "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer",
+    },
+  ]),
+);
 
 // The record with a fifth task the orchestrator's session sent to incus
 // (its delivery is D4: T1 had none yet): incus asked a question and the

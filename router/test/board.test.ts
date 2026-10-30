@@ -21,6 +21,7 @@ import {
   extend,
   journal,
   NOW,
+  refusedJournal,
   telemetry,
   viaJournal,
 } from "../src/board-fixture.ts";
@@ -51,6 +52,27 @@ test("the fixture is a journal: every event was accepted", () => {
         NOW,
       ),
     /Journal replay rejected/,
+  );
+});
+
+test("a send the host keeps refusing is the operator's, in words that say who refused it, how often, why, and what fixes it", () => {
+  const model = boardModel(
+    boardState(config, refusedJournal, NOW),
+    config,
+    NOW,
+  );
+  assert.deepEqual(
+    model.needsYou
+      .find((n) => n.principal === "operator")
+      ?.items.map(describeNeed),
+    [
+      "D4: orchestrator@mbp refused send M5 3 times in a row (Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer); fix the host or repoint orchestrator@mbp",
+    ],
+  );
+  assert.equal(
+    model.open.find((t) => t.id === "T5")?.status,
+    "queued",
+    "the router keeps trying it",
   );
 });
 

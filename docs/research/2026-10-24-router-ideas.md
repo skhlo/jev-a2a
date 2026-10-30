@@ -368,8 +368,12 @@ runs.
 - **019, a closed agent after a daemon restart:** a closed session
   [counts as ready](../operating.md#when-the-router-looks), but a cold one
   left closed until a request resumes it has not been seen live. Check it
-  the next time a daemon restart leaves an agent placement closed. The
-  ticket's other item is host-private and is not carried here.
+  the next time a daemon restart leaves an agent placement closed. On
+  2026-10-30 a closed agent's resume was refused live instead: the
+  ChatGPT app held its Codex thread, and every send read unknown. The
+  router now reports that refusal and its words
+  ([operating](../operating.md#when-nothing-moves)). The ticket's other
+  item is host-private and is not carried here.
 - **022, more commands from a reply host:**
   - Later, in this order:
     - `status` and `needs-you`, scoped to the host's own sessions;

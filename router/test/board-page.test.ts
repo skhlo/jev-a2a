@@ -34,6 +34,7 @@ import {
   extend,
   journal,
   NOW,
+  refusedJournal,
   replacedJournal,
   sampleJournal,
   telemetry,
@@ -1003,6 +1004,24 @@ test("the resolve form offers both outcomes for a send that was not accepted, an
     strip(renderBoard(older, { task: "T5" })),
     /The router has no record of this send reaching the session\./,
   );
+});
+
+test("a refused send reads on its task without a form: who refused it, how often, the host's words, and what fixes it", () => {
+  const html = page(ME, { task: "T5" }, refusedJournal);
+  assert.ok(groups(html)["needs-you"]?.includes("T5"));
+  const item = "needsYou[1].items[0]";
+  assert.equal(textOf(html, `${item}.times`), "3");
+  assert.equal(
+    textOf(html, `${item}.reason`),
+    "Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer",
+  );
+  assert.match(
+    strip(detailOf(html)),
+    /orchestrator@mbp refused D4 · send M5 · 3 times in a row · Failed to resume Codex thread 0a1b: thread 0a1b already has an active writer · tried again each run; fix the host or repoint orchestrator@mbp · waits on operator/,
+  );
+  // The operator acts on the host: nothing to post.
+  assert.ok(html.includes(`<div class="form ro" data-path="${item}">`));
+  assert.equal(formFor(html, "resolve"), undefined);
 });
 
 test("a finished task shows its verdict, not a countdown", () => {

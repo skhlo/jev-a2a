@@ -566,6 +566,29 @@ function status(task: Task): Status {
   return "queued";
 }
 
+// A send the host refused this many times in a row goes to the operator:
+// the router keeps trying it, but only a change on the host, or a repoint
+// to another session, lets it through.
+export const REFUSALS_SHOWN = 3;
+
+// How many times in a row the host refused a send that waits to be tried
+// again, counting back from its last outcome.
+function refusals(state: State, delivery: Delivery): number {
+  const send = currentSend(delivery);
+  if (
+    !isOpen(delivery) ||
+    send.outcome !== "pending" ||
+    isTerminal(mustTask(state, delivery.taskId))
+  )
+    return 0;
+  let times = 0;
+  for (const step of send.trail.toReversed()) {
+    if (step === "not_sent") times++;
+    else if (step !== "attempting") break;
+  }
+  return times;
+}
+
 // Why an open, pinned delivery needs an operator, or null if it does not:
 // the router cannot confirm its send after the task ended, its session was
 // replaced, or its send is unknown with no deduplicating retry.
@@ -581,25 +604,35 @@ function stuckReason(state: State, delivery: Delivery): StuckReason | null {
   return null;
 }
 
+// What a delivery asks of an operator: a stuck one to resolve, or a send
+// the host keeps refusing; else nothing.
+function operatorItem(state: State, delivery: Delivery): NeedsYouItem | null {
+  const send = currentSend(delivery);
+  const at = {
+    taskId: delivery.taskId,
+    deliveryId: delivery.id,
+    messageId: send.messageId,
+  };
+  const reason = stuckReason(state, delivery);
+  if (reason) return { kind: "resolve", ...at, reason };
+  const times = refusals(state, delivery);
+  if (times < REFUSALS_SHOWN) return null;
+  return {
+    kind: "refused",
+    ...at,
+    placement: delivery.placement,
+    times,
+    reason: send.refusal ?? null,
+  };
+}
+
 // What a principal must decide, in task order. A requester gets its own
 // tasks waiting for a recipient or for an answer the router can still
-// deliver. An operator gets the stuck deliveries.
+// deliver. An operator gets the stuck deliveries and the refused sends.
 export function needsYou(state: State, principal: string): NeedsYouItem[] {
+  if (roleOf(state, principal) === "operator")
+    return allDeliveries(state).flatMap((d) => operatorItem(state, d) ?? []);
   const items: NeedsYouItem[] = [];
-  if (roleOf(state, principal) === "operator") {
-    for (const delivery of allDeliveries(state)) {
-      const reason = stuckReason(state, delivery);
-      if (reason)
-        items.push({
-          kind: "resolve",
-          taskId: delivery.taskId,
-          deliveryId: delivery.id,
-          messageId: currentSend(delivery).messageId,
-          reason,
-        });
-    }
-    return items;
-  }
   for (const task of state.tasks) {
     if (task.source !== principal || isTerminal(task)) continue;
     // A choice is only a choice while the sender may still address someone.
@@ -1017,11 +1050,13 @@ const handlers: Handlers = {
     );
   },
 
-  adapterResult(state, { deliveryId, messageId, outcome }) {
+  adapterResult(state, { deliveryId, messageId, outcome, reason }) {
     const delivery = findDelivery(state, deliveryId);
     const send = delivery && currentSend(delivery);
     if (!includes(ADAPTER_OUTCOMES, outcome))
       return reject("invalid", "Outcome is accepted, not_sent or unknown.");
+    if (reason !== undefined && typeof reason !== "string")
+      return reject("invalid", "A reason is text.");
     if (
       !delivery ||
       !send ||
@@ -1033,16 +1068,19 @@ const handlers: Handlers = {
         "This acknowledgment does not match an attempt in progress. It cannot overwrite later evidence.",
       );
     send.trail.push(outcome);
+    delete send.refusal;
     if (outcome === "not_sent") {
       // Definitely not delivered: safe to queue again. The request may move to
       // a new session only if no earlier attempt could have reached this one.
       send.outcome = "pending";
+      if (reason) send.refusal = reason;
       if (delivery.sends.length === 1 && !send.trail.includes("unknown"))
         delivery.session = null;
     } else send.outcome = outcome;
-    return ok(`${delivery.id}/${messageId}: adapter reported ${outcome}.`, {
-      actor: "Adapter",
-    });
+    return ok(
+      `${delivery.id}/${messageId}: adapter reported ${outcome}${reason ? ` (${reason})` : ""}.`,
+      { actor: "Adapter" },
+    );
   },
 
   update(state, { by, taskId, messageId, inReplyTo, kind, text = "" }) {
@@ -1293,12 +1331,14 @@ const handlers: Handlers = {
     );
   },
 
-  noticeResult(state, { taskId, key, outcome }) {
+  noticeResult(state, { taskId, key, outcome, reason }) {
     const task = findTask(state, taskId);
     if (!task) return reject("not_found", "No such request.");
     const notice = findNotice(task, key);
     if (!includes(ADAPTER_OUTCOMES, outcome))
       return reject("invalid", "Outcome is accepted, not_sent or unknown.");
+    if (reason !== undefined && typeof reason !== "string")
+      return reject("invalid", "A reason is text.");
     if (!notice || notice.outcome !== "attempting")
       return reject(
         "stale_ack",
@@ -1307,7 +1347,7 @@ const handlers: Handlers = {
     notice.trail.push(outcome);
     notice.outcome = outcome === "not_sent" ? "pending" : outcome;
     return ok(
-      `${task.id}/${key}: notice ${outcome === "not_sent" ? "not sent; it will be retried" : outcome}.`,
+      `${task.id}/${key}: notice ${outcome === "not_sent" ? "not sent; it will be retried" : outcome}${reason ? ` (${reason})` : ""}.`,
       { actor: "Adapter" },
     );
   },

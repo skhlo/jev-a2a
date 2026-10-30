@@ -249,6 +249,17 @@ links, forms and redirects use relative URLs.
   another. The board's task row says the same.
 - `router needs-you` lists the decisions waiting on a person;
   `--as <participant>` lists what a participant sender is owed.
+- A send the host refuses reads
+  `adapter reported not_sent (<the host's words>)` in the run report, and
+  each run tries it again. After 3 refusals in a row,
+  `router needs-you --as operator` and the board's Needs you list it as
+  refused, with the words. The words
+  `Failed to resume Codex thread <id>: thread <id> already has an active writer`
+  mean another Codex process has the agent's conversation open, often the
+  ChatGPT app: close it there and the next run delivers the send, or point
+  the placement at another agent (`router roster repoint <placement>`) and
+  the same request goes there. Until it reaches an agent, the requester
+  can also cancel it.
 - `journalctl --user -u jev-router -f` follows `serve`; each `telemetry:`
   note appears once while its cause lasts.
 - A placement absent from the board has no entry in `agents`. One whose

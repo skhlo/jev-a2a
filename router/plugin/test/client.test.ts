@@ -20,6 +20,7 @@ import {
   deliveredJournal,
   extend,
   NOW,
+  refusedJournal,
   replacedJournal,
   sampleJournal,
   viaJournal,
@@ -36,6 +37,7 @@ import {
   deliveryState,
   firstLine,
   headDeliveryState,
+  itemKey,
   itemWaits,
   judgmentLines,
   label,
@@ -283,7 +285,7 @@ test("client: a status pill warns exactly where the board's badge asks", () => {
 
 test("client: an item the viewer may not act on reads as the board's, without a form", () => {
   let compared = 0;
-  for (const entries of [sampleJournal, replacedJournal]) {
+  for (const entries of [sampleJournal, replacedJournal, refusedJournal]) {
     const { summary, task, page } = board(entries, null);
     const viewer = viewerOf(summary);
     for (const it of viewer.items) {
@@ -295,6 +297,16 @@ test("client: an item the viewer may not act on reads as the board's, without a 
     }
   }
   assert.ok(compared >= 3, `${compared} items compared`);
+  // A refused send has no form, even for the operator: it reads as the
+  // board's, which the operator acts on at the host.
+  const { summary, task, page } = board(refusedJournal);
+  const refused = viewerOf(summary).items.find(
+    (it) => it.item.kind === "refused",
+  );
+  assert.ok(refused?.mine && !refused.act);
+  assert.equal(itemKey(refused.item), "refused/D4/M5");
+  const words = itemWaits(refused, task("T5").task);
+  assert.ok(plain(page("T5")).includes(words), words);
 });
 
 test("client: items of a principal the viewer lacks wait on it, named once; one whose task left the board keeps a row", () => {
